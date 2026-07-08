@@ -45,23 +45,37 @@ This is PR #11932's actual deliverable.
 - **Success:** step 3 returns the table with `payload` as `variant` — no
   `UnsupportedOperationException`. That single assertion is the fix.
 
-## Milestone 2 — Cross-engine metadata alignment (pinned versions)
+## Milestone 2 — Cross-engine availability with real files (pinned versions)
 
-- **Env adds:** MinIO (shared S3 warehouse), Postgres (IRC JDBC backend so metadata
-  persists and is network-resolvable), Trino 435 + Spark 3.5 pointed at IRC :9001
-  (configs from `docs/iceberg-rest-engine/{trino,spark}.md`).
-- **Flow:** from each engine, list/describe the table via the IRC; confirm they resolve the
-  same table + non-variant columns.
-- **Success:** metadata visible + consistent across engines. **Expected & documented:**
-  selecting the `payload` variant column errors on these versions — version-gated, not a bug.
+Two engines to start: **Trino 435 + Spark 3.5**. Real files in a real object store.
 
-## Milestone 3 — True cross-engine variant data read (optional / future)
+- **Env adds:** MinIO (real S3 warehouse — actual Parquet, not `/tmp`), Postgres (IRC JDBC
+  backend so metadata persists and is network-resolvable), Trino 435 + Spark 3.5 pointed at
+  IRC :9001 (configs from `docs/iceberg-rest-engine/{trino,spark}.md`).
+- **Flow:**
+  1. Create the variant table via the IRC; write **real data rows** so actual Parquet lands
+     in MinIO (real files for the representable columns — see the writer note below).
+  2. Confirm the table + schema (incl. the variant column) is available in the **IRC
+     (:9001)** *and* in **Gravitino's native API (:8090)**.
+  3. From Trino 435 and Spark 3.5: list / describe / query the table.
+- **Success:** the table + schema is visible and consistent across IRC, Gravitino, and both
+  engines; non-variant columns are queryable from both.
+- **Honest limits (version gate):** Trino 435 / Spark 3.5 predate Open Variant, so reading
+  the variant *value* is expected to fail. We **characterize and document exactly where** it
+  breaks (schema load vs. describe vs. select) rather than claim it works. If a pinned engine
+  can't even load a schema containing a variant column, that is itself the finding.
+- **Writer note:** writing real *variant* data needs a variant-capable writer, which the
+  pinned engines are not — so real variant Parquet is an M3 deliverable; M2's real files
+  cover the representable columns.
+
+## Milestone 3 — Real variant data, queried from an engine (Spark 4)
 
 - **Env:** add Spark 4 hitting the IRC **directly** (bypasses the version-pinned Gravitino
   connector — the escape hatch).
-- **Flow:** write + read actual variant data end to end.
-- **Success:** variant data round-trips through a real engine. This is the parity story vs
-  Lakekeeper.
+- **Flow:** write real variant values → real Parquet in MinIO → read them back and query the
+  variant column.
+- **Success:** variant *data* round-trips through a real engine. This is where "queryable in
+  an engine" becomes true for the variant column, and the parity story vs Lakekeeper.
 
 ## Status
 
