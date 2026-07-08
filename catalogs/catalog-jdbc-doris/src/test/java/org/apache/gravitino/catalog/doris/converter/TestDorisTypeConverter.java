@@ -29,6 +29,7 @@ import static org.apache.gravitino.catalog.doris.converter.DorisTypeConverter.IN
 import static org.apache.gravitino.catalog.doris.converter.DorisTypeConverter.SMALLINT;
 import static org.apache.gravitino.catalog.doris.converter.DorisTypeConverter.STRING;
 import static org.apache.gravitino.catalog.doris.converter.DorisTypeConverter.TINYINT;
+import static org.apache.gravitino.catalog.doris.converter.DorisTypeConverter.VARIANT;
 import static org.apache.gravitino.catalog.jdbc.converter.JdbcTypeConverter.DATE;
 import static org.apache.gravitino.catalog.jdbc.converter.JdbcTypeConverter.TEXT;
 import static org.apache.gravitino.catalog.jdbc.converter.JdbcTypeConverter.VARCHAR;
@@ -64,6 +65,7 @@ public class TestDorisTypeConverter {
     checkJdbcTypeToGravitinoType(Types.FixedCharType.of(20), CHAR, 20, null, 0);
     checkJdbcTypeToGravitinoType(Types.StringType.get(), STRING, null, null, 0);
     checkJdbcTypeToGravitinoType(Types.StringType.get(), TEXT, null, null, 0);
+    checkJdbcTypeToGravitinoType(Types.VariantType.get(), VARIANT, null, null, 0);
     checkJdbcTypeToGravitinoType(
         Types.ExternalType.of(USER_DEFINED_TYPE), USER_DEFINED_TYPE, null, null, 0);
   }
@@ -83,6 +85,7 @@ public class TestDorisTypeConverter {
     checkGravitinoTypeToJdbcType(VARCHAR + "(20)", Types.VarCharType.of(20));
     checkGravitinoTypeToJdbcType(CHAR + "(20)", Types.FixedCharType.of(20));
     checkGravitinoTypeToJdbcType(STRING, Types.StringType.get());
+    checkGravitinoTypeToJdbcType(VARIANT, Types.VariantType.get());
     Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> DORIS_TYPE_CONVERTER.fromGravitino(Types.UnparsedType.of(USER_DEFINED_TYPE)));

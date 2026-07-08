@@ -45,6 +45,7 @@ import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 
 // Referred to org/apache/paimon/spark/SparkTypeUtils.java
 /** Utilities of {@link Type} to support type conversion. */
@@ -192,6 +193,11 @@ public class TypeUtils {
     }
 
     @Override
+    public Type visit(VariantType variantType) {
+      return Types.VariantType.get();
+    }
+
+    @Override
     public Type visit(MultisetType multisetType) {
       // Gravitino's type system does not have a native MULTISET type. We use ExternalType to
       // preserve the original Paimon MULTISET type information, so it can be correctly restored
@@ -253,6 +259,8 @@ public class TypeUtils {
           return DataTypes.BINARY(fixedType.length());
         case BINARY:
           return DataTypes.VARBINARY(VarBinaryType.MAX_LENGTH);
+        case VARIANT:
+          return DataTypes.VARIANT();
         case LIST:
           Types.ListType listType = (Types.ListType) type;
           DataType elementType = visit(listType.elementType());

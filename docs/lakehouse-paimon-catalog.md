@@ -203,6 +203,7 @@ Paimon Table primary key constraint should not be same with partition fields, th
 | `Timestamp_tz(p)` | `Timestamp(p)`               |
 | `Fixed`           | `Binary`                     |
 | `Binary`          | `VarBinary`                  |
+| `Variant`         | `Variant`                    |
 
 :::info
 Gravitino doesn't support Paimon `MultisetType` type.

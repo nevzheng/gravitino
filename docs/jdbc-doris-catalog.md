@@ -130,6 +130,7 @@ Refer to
 | `VarChar`        | `VarChar`       |
 | `FixedChar`      | `Char`          |
 | `String`         | `String`        |
+| `Variant`        | `Variant`       |
 
 
 Doris doesn't support Gravitino `Fixed` `Timestamp_tz` `IntervalDay` `IntervalYear` `Union` `UUID` type.

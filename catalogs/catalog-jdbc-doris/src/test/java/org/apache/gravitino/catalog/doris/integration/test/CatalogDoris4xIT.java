@@ -253,6 +253,33 @@ public class CatalogDoris4xIT extends BaseIT {
   }
 
   @Test
+  void testCreateTableWithVariantColumn() {
+    // Doris VARIANT is a semi-structured value column; it cannot be a key column, so it sits
+    // alongside the long key column in a unique-key table.
+    TableCatalog tc = catalog.asTableCatalog();
+    NameIdentifier tid = NameIdentifier.of(schemaName, "t_variant");
+    Column pk = Column.of(colName1, Types.LongType.get(), "pk", false, false, null);
+    Column variantCol = Column.of("col_variant", Types.VariantType.get(), "variant col");
+    Index[] indexes =
+        new Index[] {Indexes.of(Index.IndexType.UNIQUE_KEY, "uk_pk", new String[][] {{colName1}})};
+
+    tc.createTable(
+        tid,
+        new Column[] {pk, variantCol},
+        tableComment,
+        Collections.emptyMap(),
+        Transforms.EMPTY_TRANSFORM,
+        hashDist(),
+        null,
+        indexes);
+
+    Table t = tc.loadTable(tid);
+    assertEquals(2, t.columns().length);
+    assertEquals("col_variant", t.columns()[1].name());
+    assertEquals(Types.VariantType.get(), t.columns()[1].dataType());
+  }
+
+  @Test
   void testBitmapIndexReadBackMapping() {
     // On Doris 4.0.x, BITMAP is removed from Nereids grammar.
     // When we create a table with INVERTED index and read it back,

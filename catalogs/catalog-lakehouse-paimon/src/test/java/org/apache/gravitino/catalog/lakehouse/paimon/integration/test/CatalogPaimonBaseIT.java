@@ -80,6 +80,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.TimeType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VariantType;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -571,6 +572,34 @@ public abstract class CatalogPaimonBaseIT extends BaseIT {
     Assertions.assertEquals("paimon_column_2", tableSchema.fields().get(1).name());
     Assertions.assertEquals(new TimestampType().nullable(), tableSchema.fields().get(1).type());
     Assertions.assertEquals("col_2_comment", tableSchema.fields().get(1).description());
+  }
+
+  @Test
+  void testCreateTableWithVariantColumn()
+      throws org.apache.paimon.catalog.Catalog.TableNotExistException {
+    Column col1 = Column.of("paimon_column_1", Types.VariantType.get(), "col_1_comment");
+    Column[] columns = new Column[] {col1};
+
+    String variantTableName = "variant_table";
+    NameIdentifier tableIdentifier = NameIdentifier.of(schemaName, variantTableName);
+
+    Map<String, String> properties = createProperties();
+    TableCatalog tableCatalog = catalog.asTableCatalog();
+    Table createdTable =
+        tableCatalog.createTable(tableIdentifier, columns, table_comment, properties);
+    Assertions.assertEquals("paimon_column_1", createdTable.columns()[0].name());
+    Assertions.assertEquals(Types.VariantType.get(), createdTable.columns()[0].dataType());
+    Assertions.assertTrue(createdTable.columns()[0].nullable());
+
+    Table loadTable = tableCatalog.loadTable(tableIdentifier);
+    Assertions.assertEquals(Types.VariantType.get(), loadTable.columns()[0].dataType());
+
+    org.apache.paimon.table.Table table =
+        paimonCatalog.getTable(Identifier.create(schemaName, variantTableName));
+    Assertions.assertInstanceOf(FileStoreTable.class, table);
+    TableSchema tableSchema = ((FileStoreTable) table).schema();
+    Assertions.assertEquals("paimon_column_1", tableSchema.fields().get(0).name());
+    Assertions.assertEquals(new VariantType().nullable(), tableSchema.fields().get(0).type());
   }
 
   @Test

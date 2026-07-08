@@ -36,6 +36,7 @@ public class DorisTypeConverter extends JdbcTypeConverter {
   static final String DATETIME = "datetime";
   static final String CHAR = "char";
   static final String STRING = "string";
+  static final String VARIANT = "variant";
 
   @Override
   public Type toGravitino(JdbcTypeBean typeBean) {
@@ -69,6 +70,8 @@ public class DorisTypeConverter extends JdbcTypeConverter {
       case STRING:
       case TEXT:
         return Types.StringType.get();
+      case VARIANT:
+        return Types.VariantType.get();
       default:
         return Types.ExternalType.of(typeBean.getTypeName());
     }
@@ -123,6 +126,8 @@ public class DorisTypeConverter extends JdbcTypeConverter {
       return CHAR + "(" + ((Types.FixedCharType) type).length() + ")";
     } else if (type instanceof Types.StringType) {
       return STRING;
+    } else if (type instanceof Types.VariantType) {
+      return VARIANT;
     }
     throw new IllegalArgumentException(
         String.format("Couldn't convert Gravitino type %s to Doris type", type.simpleString()));
