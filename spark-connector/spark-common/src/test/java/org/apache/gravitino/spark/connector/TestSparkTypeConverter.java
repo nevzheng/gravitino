@@ -42,6 +42,7 @@ import org.apache.gravitino.rel.types.Types.StructType;
 import org.apache.gravitino.rel.types.Types.TimestampType;
 import org.apache.gravitino.rel.types.Types.UUIDType;
 import org.apache.gravitino.rel.types.Types.VarCharType;
+import org.apache.gravitino.rel.types.Types.VariantType;
 import org.apache.spark.sql.types.CharType;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -102,6 +103,15 @@ public class TestSparkTypeConverter {
             Assertions.assertThrowsExactly(
                 UnsupportedOperationException.class,
                 () -> sparkTypeConverter.toSparkType(gravitinoType)));
+  }
+
+  @Test
+  void testVariantType() {
+    // Spark (<= 3.5) has no native variant type, so the Gravitino -> Spark conversion of a
+    // VariantType is rejected.
+    Assertions.assertThrowsExactly(
+        UnsupportedOperationException.class,
+        () -> sparkTypeConverter.toSparkType(VariantType.get()));
   }
 
   @Test

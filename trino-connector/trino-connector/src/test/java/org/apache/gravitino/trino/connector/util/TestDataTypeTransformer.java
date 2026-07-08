@@ -205,4 +205,13 @@ public class TestDataTypeTransformer {
       }
     }
   }
+
+  @Test
+  public void testVariantType() {
+    TrinoException exception =
+        Assertions.assertThrows(
+            TrinoException.class, () -> dataTypeTransformer.getTrinoType(Types.VariantType.get()));
+    Assertions.assertEquals(
+        GRAVITINO_UNSUPPORTED_GRAVITINO_DATATYPE.toErrorCode(), exception.getErrorCode());
+  }
 }

@@ -275,6 +275,13 @@ public class TestLanceDataTypeConverter {
     assertThrows(UnsupportedOperationException.class, () -> CONVERTER.fromGravitino(unparsedType));
   }
 
+  @Test
+  void testVariantType() {
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> CONVERTER.fromGravitino(Types.VariantType.get()));
+  }
+
   @ParameterizedTest(name = "[{index}] {0}")
   @MethodSource("toGravitinoArguments")
   void testToGravitino(String testName, Field arrowField, Type expectedGravitinoType) {

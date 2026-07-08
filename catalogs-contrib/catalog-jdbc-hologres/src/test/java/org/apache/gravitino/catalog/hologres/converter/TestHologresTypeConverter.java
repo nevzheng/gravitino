@@ -266,4 +266,11 @@ public class TestHologresTypeConverter {
     Assertions.assertThrows(
         IllegalArgumentException.class, () -> converter.fromGravitino(nestedList));
   }
+
+  @Test
+  public void testVariantType() {
+    // Hologres has no native variant type, so Gravitino's VariantType is rejected on fromGravitino.
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> converter.fromGravitino(Types.VariantType.get()));
+  }
 }

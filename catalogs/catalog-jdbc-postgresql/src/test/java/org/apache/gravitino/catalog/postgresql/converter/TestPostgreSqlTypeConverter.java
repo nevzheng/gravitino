@@ -137,6 +137,15 @@ public class TestPostgreSqlTypeConverter {
         () -> POSTGRE_SQL_TYPE_CONVERTER.fromGravitino(Types.UnparsedType.of(USER_DEFINED_TYPE)));
   }
 
+  @Test
+  public void testVariantType() {
+    // PostgreSQL has no native variant type, so Gravitino's VariantType is rejected on
+    // fromGravitino.
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> POSTGRE_SQL_TYPE_CONVERTER.fromGravitino(Types.VariantType.get()));
+  }
+
   protected void checkGravitinoTypeToJdbcType(String jdbcTypeName, Type gravitinoType) {
     Assertions.assertEquals(jdbcTypeName, POSTGRE_SQL_TYPE_CONVERTER.fromGravitino(gravitinoType));
   }

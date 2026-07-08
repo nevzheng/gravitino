@@ -225,6 +225,12 @@ class TestGlueTypeConverter {
         IllegalArgumentException.class, () -> CONVERTER.fromGravitino(Types.NullType.get()));
   }
 
+  @Test
+  void testVariantType() {
+    assertThrows(
+        IllegalArgumentException.class, () -> CONVERTER.fromGravitino(Types.VariantType.get()));
+  }
+
   // -------------------------------------------------------------------------
   // helpers
   // -------------------------------------------------------------------------

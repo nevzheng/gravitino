@@ -92,6 +92,13 @@ public class TestTypeConverter {
   }
 
   @Test
+  public void testVariantType() {
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> CONVERTER.fromGravitino(Types.VariantType.get()));
+  }
+
+  @Test
   public void testTimestampWithTimeZoneThrowsException() {
     Types.TimestampType timestampWithTimeZone = Types.TimestampType.withTimeZone();
     UnsupportedOperationException exception =

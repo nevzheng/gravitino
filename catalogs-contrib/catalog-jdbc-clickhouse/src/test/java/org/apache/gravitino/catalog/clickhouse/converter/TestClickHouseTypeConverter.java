@@ -163,6 +163,16 @@ public class TestClickHouseTypeConverter {
         () -> CLICKHOUSE_TYPE_CONVERTER.fromGravitino(Types.UnparsedType.of(USER_DEFINED_TYPE)));
   }
 
+  @Test
+  public void testVariantType() {
+    // ClickHouse's own `Variant` type is a tagged union `Variant(T1, T2, ...)`, NOT the
+    // semi-structured Iceberg/Spark variant that Gravitino's VariantType represents. They are
+    // deliberately not mapped to each other, so Gravitino's VariantType is rejected here.
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> CLICKHOUSE_TYPE_CONVERTER.fromGravitino(Types.VariantType.get()));
+  }
+
   protected void checkGravitinoTypeToJdbcType(String jdbcTypeName, Type gravitinoType) {
     Assertions.assertEquals(jdbcTypeName, CLICKHOUSE_TYPE_CONVERTER.fromGravitino(gravitinoType));
   }

@@ -181,6 +181,14 @@ public class TestTypeUtils {
   }
 
   @Test
+  public void testVariantType() {
+    // Flink (<= 1.20) has no native variant type, so the Gravitino -> Flink conversion of a
+    // VariantType is rejected.
+    Assertions.assertThrows(
+        UnsupportedOperationException.class, () -> TypeUtils.toFlinkType(Types.VariantType.get()));
+  }
+
+  @Test
   public void testTimePrecisionConversion() {
     // TIME
     Assertions.assertEquals(Types.TimeType.of(0), TypeUtils.toGravitinoType(new TimeType(0)));
