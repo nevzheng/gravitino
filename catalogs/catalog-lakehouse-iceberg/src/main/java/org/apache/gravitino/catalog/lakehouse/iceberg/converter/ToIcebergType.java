@@ -134,19 +134,25 @@ public class ToIcebergType extends ToIcebergTypeVisitor<Type> {
     } else if (primitive instanceof org.apache.gravitino.rel.types.Types.TimestampType) {
       org.apache.gravitino.rel.types.Types.TimestampType timestampType =
           (org.apache.gravitino.rel.types.Types.TimestampType) primitive;
-      // Iceberg only supports microsecond precision (6) for timestamp/timestamptz types up to
-      // version 1.9.x
-      // See: https://iceberg.apache.org/docs/1.9.1/schemas/
+      // Iceberg supports microsecond precision (6) for timestamp/timestamptz and, since format
+      // version 3, nanosecond precision (9) for timestamp_ns/timestamptz_ns. No other precision
+      // is representable. See: https://iceberg.apache.org/spec/#primitive-types
       if (!timestampType.hasPrecisionSet() || timestampType.precision() == 6) {
         if (timestampType.hasTimeZone()) {
           return Types.TimestampType.withZone();
         } else {
           return Types.TimestampType.withoutZone();
         }
+      } else if (timestampType.precision() == 9) {
+        if (timestampType.hasTimeZone()) {
+          return Types.TimestampNanoType.withZone();
+        } else {
+          return Types.TimestampNanoType.withoutZone();
+        }
       } else {
         String timestampTypeName = timestampType.hasTimeZone() ? "timestamptz" : "timestamp";
         throw new IllegalArgumentException(
-            "Iceberg only supports microsecond precision (6) for "
+            "Iceberg only supports microsecond precision (6) or nanosecond precision (9) for "
                 + timestampTypeName
                 + " type, but got precision: "
                 + timestampType.precision());

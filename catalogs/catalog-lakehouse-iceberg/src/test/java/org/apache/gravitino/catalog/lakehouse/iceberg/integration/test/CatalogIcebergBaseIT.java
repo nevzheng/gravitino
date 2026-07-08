@@ -97,6 +97,7 @@ import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -627,6 +628,59 @@ public abstract class CatalogIcebergBaseIT extends BaseIT {
         org.apache.iceberg.types.Types.TimestampType.withoutZone(),
         icebergSchema.columns().get(1).type());
     Assertions.assertEquals("col_2_comment", icebergSchema.columns().get(1).doc());
+  }
+
+  @Test
+  void testNanosecondTimestampTypeConversion() {
+    // Nanosecond columns need an Iceberg backend that can persist them. The REST path can; the
+    // Hive backend cannot yet -- Iceberg's HiveSchemaUtil has no nanosecond arm
+    // (apache/iceberg#11937) -- so this runs on REST only.
+    Assumptions.assumeTrue(
+        "rest".equalsIgnoreCase(TYPE),
+        "Nanosecond timestamps require an Iceberg backend that can persist them");
+
+    Column col1 =
+        Column.of("iceberg_column_1", Types.TimestampType.withTimeZone(9), "col_1_comment");
+    Column col2 =
+        Column.of("iceberg_column_2", Types.TimestampType.withoutTimeZone(9), "col_2_comment");
+
+    Column[] columns = new Column[] {col1, col2};
+
+    String timestampTableName = "timestamp_ns_table";
+
+    NameIdentifier tableIdentifier = NameIdentifier.of(schemaName, timestampTableName);
+
+    Map<String, String> properties = createProperties();
+    properties.put("format-version", "3");
+    TableCatalog tableCatalog = catalog.asTableCatalog();
+    Table createdTable =
+        tableCatalog.createTable(tableIdentifier, columns, table_comment, properties);
+    Assertions.assertEquals(
+        Types.TimestampType.withTimeZone(9), createdTable.columns()[0].dataType());
+    Assertions.assertEquals(
+        Types.TimestampType.withoutTimeZone(9), createdTable.columns()[1].dataType());
+
+    Table loadTable = tableCatalog.loadTable(tableIdentifier);
+    Assertions.assertEquals("iceberg_column_1", loadTable.columns()[0].name());
+    Assertions.assertEquals(Types.TimestampType.withTimeZone(9), loadTable.columns()[0].dataType());
+    Assertions.assertEquals("col_1_comment", loadTable.columns()[0].comment());
+
+    Assertions.assertEquals("iceberg_column_2", loadTable.columns()[1].name());
+    Assertions.assertEquals(
+        Types.TimestampType.withoutTimeZone(9), loadTable.columns()[1].dataType());
+    Assertions.assertEquals("col_2_comment", loadTable.columns()[1].comment());
+
+    // The underlying Iceberg schema uses the nanosecond types, honoring the time zone flag.
+    org.apache.iceberg.Table table =
+        icebergCatalog.loadTable(
+            IcebergCatalogWrapperHelper.buildIcebergTableIdentifier(tableIdentifier));
+    org.apache.iceberg.Schema icebergSchema = table.schema();
+    Assertions.assertEquals(
+        org.apache.iceberg.types.Types.TimestampNanoType.withZone(),
+        icebergSchema.columns().get(0).type());
+    Assertions.assertEquals(
+        org.apache.iceberg.types.Types.TimestampNanoType.withoutZone(),
+        icebergSchema.columns().get(1).type());
   }
 
   @Test
@@ -1473,20 +1527,21 @@ public abstract class CatalogIcebergBaseIT extends BaseIT {
       Column.of("time_col_9", Types.TimeType.of(9))
     };
 
-    // Test unsupported timestamptz precision (with timezone)
+    // Test unsupported timestamptz precision (with timezone). Precision 9 is supported (nanosecond,
+    // Iceberg V3) and is covered by testNanosecondTimestampTypeConversion.
     Column[] unsupportedTimestamptzColumns = {
       Column.of("timestamptz_col_0", Types.TimestampType.withTimeZone(0)),
       Column.of("timestamptz_col_1", Types.TimestampType.withTimeZone(1)),
-      Column.of("timestamptz_col_3", Types.TimestampType.withTimeZone(3)),
-      Column.of("timestamptz_col_9", Types.TimestampType.withTimeZone(9))
+      Column.of("timestamptz_col_3", Types.TimestampType.withTimeZone(3))
     };
 
-    // Test unsupported timestamp precision (without timezone)
+    // Test unsupported timestamp precision (without timezone). Precision 9 is supported
+    // (nanosecond,
+    // Iceberg V3) and is covered by testNanosecondTimestampTypeConversion.
     Column[] unsupportedTimestampColumns = {
       Column.of("timestamp_col_0", Types.TimestampType.withoutTimeZone(0)),
       Column.of("timestamp_col_1", Types.TimestampType.withoutTimeZone(1)),
-      Column.of("timestamp_col_3", Types.TimestampType.withoutTimeZone(3)),
-      Column.of("timestamp_col_9", Types.TimestampType.withoutTimeZone(9))
+      Column.of("timestamp_col_3", Types.TimestampType.withoutTimeZone(3))
     };
 
     TableCatalog tableCatalog = catalog.asTableCatalog();
@@ -1530,7 +1585,8 @@ public abstract class CatalogIcebergBaseIT extends BaseIT {
       Assertions.assertTrue(
           exception
               .getMessage()
-              .contains("Iceberg only supports microsecond precision (6) for timestamptz type"));
+              .contains(
+                  "Iceberg only supports microsecond precision (6) or nanosecond precision (9) for timestamptz type"));
     }
 
     // Test timestamp precision validation (without timezone)
@@ -1551,7 +1607,8 @@ public abstract class CatalogIcebergBaseIT extends BaseIT {
       Assertions.assertTrue(
           exception
               .getMessage()
-              .contains("Iceberg only supports microsecond precision (6) for timestamp type"));
+              .contains(
+                  "Iceberg only supports microsecond precision (6) or nanosecond precision (9) for timestamp type"));
     }
   }
 

@@ -459,6 +459,53 @@ public class TestConvertUtil extends TestBaseConvert {
   }
 
   @Test
+  public void testNanosecondTimestamp() {
+    // Iceberg -> Gravitino: nanosecond timestamps (Iceberg V3) map to timestamp[_tz] at precision
+    // 9.
+    org.apache.gravitino.rel.types.Type nanoWithoutZone =
+        CONVERTER.toGravitino(Types.TimestampNanoType.withoutZone());
+    Assertions.assertTrue(
+        nanoWithoutZone instanceof org.apache.gravitino.rel.types.Types.TimestampType);
+    Assertions.assertFalse(
+        ((org.apache.gravitino.rel.types.Types.TimestampType) nanoWithoutZone).hasTimeZone());
+    Assertions.assertEquals(
+        9, ((org.apache.gravitino.rel.types.Types.TimestampType) nanoWithoutZone).precision());
+
+    org.apache.gravitino.rel.types.Type nanoWithZone =
+        CONVERTER.toGravitino(Types.TimestampNanoType.withZone());
+    Assertions.assertTrue(
+        nanoWithZone instanceof org.apache.gravitino.rel.types.Types.TimestampType);
+    Assertions.assertTrue(
+        ((org.apache.gravitino.rel.types.Types.TimestampType) nanoWithZone).hasTimeZone());
+    Assertions.assertEquals(
+        9, ((org.apache.gravitino.rel.types.Types.TimestampType) nanoWithZone).precision());
+
+    // Gravitino -> Iceberg: precision 9 maps to the nanosecond types, honoring the time zone flag.
+    Type icebergNanoWithoutZone =
+        CONVERTER.fromGravitino(
+            org.apache.gravitino.rel.types.Types.TimestampType.withoutTimeZone(9));
+    Assertions.assertTrue(icebergNanoWithoutZone instanceof Types.TimestampNanoType);
+    Assertions.assertFalse(((Types.TimestampNanoType) icebergNanoWithoutZone).shouldAdjustToUTC());
+
+    Type icebergNanoWithZone =
+        CONVERTER.fromGravitino(org.apache.gravitino.rel.types.Types.TimestampType.withTimeZone(9));
+    Assertions.assertTrue(icebergNanoWithZone instanceof Types.TimestampNanoType);
+    Assertions.assertTrue(((Types.TimestampNanoType) icebergNanoWithZone).shouldAdjustToUTC());
+
+    // Regression: precision 6 still maps to the microsecond timestamp, not the nanosecond one.
+    Type icebergMicro =
+        CONVERTER.fromGravitino(org.apache.gravitino.rel.types.Types.TimestampType.withTimeZone(6));
+    Assertions.assertTrue(icebergMicro instanceof Types.TimestampType);
+
+    // Any precision other than 6 or 9 is not representable in Iceberg and must be rejected.
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            CONVERTER.fromGravitino(
+                org.apache.gravitino.rel.types.Types.TimestampType.withoutTimeZone(3)));
+  }
+
+  @Test
   public void testFromNestedField() {
     String colName = RandomStringUtils.secure().nextAlphabetic(10);
     String doc = RandomStringUtils.secure().nextAlphabetic(20);
