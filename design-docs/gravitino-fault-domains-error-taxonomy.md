@@ -159,8 +159,8 @@ conflated:
 |---|---|---|---|
 | B1 | External backend → connector | Backend-native exceptions; JDBC/Hive/Glue partially converted, Iceberg/Paimon/Kafka/Fileset operational errors flattened to `RuntimeException`; backend retriable markers (`SQLTransient*`, Kafka `RetriableException`, Iceberg 503, AWS `retryable()`) discarded | Connector-internal — sovereignty; no rule imposed here |
 | B2 | Connector → core (SPI, classloader-isolated) | `OperationDispatcher.doWithCatalog` preserves 1–2 declared types, wraps the rest in `RuntimeException`; `IsolatedClassLoader.withClassLoader` rethrows one chosen type, flattens the rest | **The hub crossing**: shared `CatalogExceptionConverter` at the dispatcher choke point classifies into canonical codes (marker-first, then per-backend converter, then conservative default `INTERNAL domain=catalog.<p>`); no unclassified `RuntimeException` crosses |
-| B3 | Core → metadata DB | MyBatis `PersistenceException` passthrough; converters map duplicate-key only; gate on writes only; **failed `store.put` after backend create returns success** | All storage exceptions classified (`UNAVAILABLE domain=core.storage` for 08xxx/transient, `ABORTED` for deadlock/serialization); partial-success paths must surface `UNKNOWN` or compensate — never silent success |
-| B4 | Core → authz plugin (side-channel) | Store committed first; plugin failure → 500 with grant already durable; `Boolean` returns discarded; chain plugin fail-fast without compensation | Plugin failures classified (`UNAVAILABLE domain=authz.ranger` when Ranger down); outbox/reconciliation for the commit-ordering hazard (or at minimum an explicit `UNKNOWN` outcome), never a plain 500 |
+| B3 | Core → metadata DB | MyBatis `PersistenceException` passthrough; converters map duplicate-key only; gate on writes only; **failed `store.put` after backend create returns success** | All storage exceptions classified (`UNAVAILABLE domain=core.storage` for 08xxx/transient, `ABORTED` for deadlock/serialization); partial-success paths must surface a typed failure (`UNKNOWN`/`PartialApply`) — never silent success. No interim compensation: end-state is transactional (ACID) dual-write semantics ([open decisions Q3](gravitino-fault-domains-open-decisions.md)) |
+| B4 | Core → authz plugin (side-channel) | Store committed first; plugin failure → 500 with grant already durable; `Boolean` returns discarded; chain plugin fail-fast without compensation | Plugin failures classified (`UNAVAILABLE domain=authz.ranger` when Ranger down); commit-ordering hazard resolved by the transactional-semantics trajectory — no interim compensation ([open decisions Q3/Q3a](gravitino-fault-domains-open-decisions.md)); at minimum an explicit `UNKNOWN`/`PartialApply` outcome, never a plain 500 |
 | B5 | Core → event listeners (side-channel) | Async/post-event exceptions swallowed+logged (correct isolation); sync pre-event may veto via `ForbiddenException` | Keep as is — already a well-designed fault-domain boundary; document it as the reference pattern |
 | B6 | Core → server (in-process) | Shared exception classes cross intact; per-entity ladders map caller errors; everything else 500 | Canonical-code marker interface read by **one** `BaseExceptionMapper` + `ExceptionMapper<Throwable>` net; ladders keep only entity-specific niceties |
 | B7 | Server → client (Gravitino REST wire) | `ErrorResponse{code,type,message,stack}`; no retriable bit; 1011 dead; 502 catalog-only; 500 = everything | Additive `status`/`errorInfo{reason,domain,metadata}`/`retryInfo`; 503+`Retry-After` for dependency-down; **500 ⇒ Gravitino bug invariant** |
@@ -206,7 +206,7 @@ conflated:
 |----------|------|------|----------|
 | A. Status-quo++: keep patching per-entity `instanceof` ladders | No design work; incremental | N×M growth; each new entity/backend re-introduces the bug class; no retriability story | Rejected |
 | B. Bespoke Gravitino taxonomy (classify-then-preserve, as first sketched in #11982): 5 buckets (CallerError / AuthError / DependencyUnavailable / DependencyFailure / InternalError) + `retriable` bit | Minimal, tailored to gateway role | Reinvents conventions; no ecosystem familiarity/tooling; every client must learn a one-off model | Subsumed by C |
-| C. **Google API / gRPC error model** (`google.rpc.Code` canonical codes + `Status`-style payload with `ErrorInfo`/`RetryInfo` details) | Battle-tested at scale; canonical HTTP↔code mapping already defined; `ErrorInfo.domain` natively expresses fault domains; `RetryInfo` is the standard retriable bit; familiar to users of every Google/gRPC API | Larger code enum than strictly needed; discipline required in mapping tables | **Chosen** |
+| C. **Google API / gRPC error model** (`google.rpc.Code` canonical codes + `Status`-style payload with `ErrorInfo`/`RetryInfo` details) | Battle-tested at scale; canonical HTTP↔code mapping already defined; `ErrorInfo.domain` natively expresses fault domains; `RetryInfo` is the standard retriable bit; familiar to users of every Google/gRPC API | Larger code enum than strictly needed; discipline required in mapping tables | **Preferred direction** (adopt gRPC conventions; wire mechanics tracked in [open decisions Q2](gravitino-fault-domains-open-decisions.md)) |
 | D. RFC 9457 `application/problem+json` | IETF standard for HTTP APIs | Defines an envelope, not a taxonomy — no canonical codes, no retriability convention; we'd still need B or C on top | Rejected (may borrow `type` URI idea for docs links) |
 
 Option C strictly subsumes option B: the five buckets are a partition of the canonical
@@ -344,9 +344,11 @@ Side-channel semantics (from the survey):
 - **Authorization plugins** (B4) are the opposite and need repair: core commits the
   entity store *first*, then invokes the plugin, so a Ranger outage yields HTTP 500
   while the Gravitino-side change is already durable — a retry re-runs the store write.
-  Until an outbox/reconciliation exists, the honest contract is to return `UNKNOWN`
-  (outcome uncertain) rather than `INTERNAL`, and to classify Ranger-down as
-  `UNAVAILABLE domain=authz.ranger`.
+  Per the no-compensation decision ([open decisions Q3](gravitino-fault-domains-open-decisions.md)
+  — the trajectory is transactional dual-write semantics), the honest interim contract
+  is to return `UNKNOWN`/`PartialApply` (outcome uncertain / partially applied) rather
+  than `INTERNAL`, and to classify Ranger-down as `UNAVAILABLE domain=authz.ranger`.
+  Commit ordering (push-before-commit strict mode vs commit-then-push) stays open as Q3a.
 - **Commit endpoints** (B10) have a poisoning hazard: Iceberg clients interpret a
   commit-500 as `CommitStateUnknown`. Any *pre-commit* failure (connection refused,
   auth, validation) that defaults to 500 therefore makes clients believe the table
