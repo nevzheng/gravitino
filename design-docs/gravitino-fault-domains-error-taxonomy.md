@@ -41,18 +41,23 @@ metadata API consumed by clients, query engines, and UIs. A gateway's core error
 obligation is to tell its callers *whose* fault a failure is and *whether retrying can help*.
 Gravitino currently cannot do either:
 
-- **Adapter flattening.** ~90+ sites in catalog adapters do
-  `catch (Exception e) { throw new RuntimeException(e); }`. A backend being *down*
+- **Adapter flattening.** Catalog adapters routinely do
+  `catch (Exception e) { throw new RuntimeException(e); }` — exactly 127 such throw
+  sites in `catalogs/*/src/main` (verified), a substantial fraction wrapping
+  *entity-store* IOExceptions rather than backend dialects. A backend being *down*
   (retriable, not our fault) is indistinguishable from a Gravitino *bug* (not retriable,
-  our fault) — both surface as HTTP 500. Only the JDBC family (`*ExceptionConverter`) and
-  Hive (`HiveExceptionConverter`) classify backend errors at all; Iceberg-operational,
-  Paimon, Kafka, Fileset, and Model adapters have no converter.
+  our fault) — both surface as HTTP 500. Converter coverage is trimodal — JDBC
+  (`*ExceptionConverter`), Hive (`HiveExceptionConverter`), Glue
+  (`GlueExceptionConverter`), plus contrib ClickHouse/Hologres; Iceberg-operational,
+  Paimon, Hudi, Kafka, Fileset, and Model adapters have none.
 - **Server-side mapping is per-entity and incomplete.**
   `server/src/main/java/org/apache/gravitino/server/web/rest/ExceptionHandlers.java`
-  contains ~22 per-entity `instanceof` ladders. `ConnectionFailedException → 502` is
-  mapped by only one handler (catalog); every other handler falls through to 500. There
-  is no `ExceptionMapper<Throwable>` safety net. `ErrorConstants` defines no
-  retriable/transient code.
+  contains 25 per-entity handlers with 114 `instanceof` branches that drift
+  independently. `ConnectionFailedException → 502` fires from exactly one handler
+  (catalog); the testConnection path returns HTTP **200 with an embedded error body**;
+  every other handler falls through to 500. There is no `ExceptionMapper<Throwable>`
+  safety net (Jetty serves HTML error pages with `setShowStacks(true)`). `ErrorConstants`
+  defines no retriable/transient code.
 - **Clients get nothing actionable.** `clients/client-java/.../ErrorHandlers.java` has no
   retry, no backoff, no `Retry-After` handling; `INTERNAL_ERROR` reverse-maps to a bare
   `RuntimeException`.
@@ -75,7 +80,7 @@ An 11-subsystem survey (2026-07-11) counted `throw new RuntimeException` + broad
 |---|---|---|---|
 | `core/` | **485** | 3 metadata-DB `SQLExceptionConverter`s (H2/MySQL/PG) — each maps exactly **one** condition (duplicate key); everything else → `IOException` → re-wrapped `RuntimeException` | `TableOperationDispatcher` swallows a failed `store.put` after backend create and **returns success** (silent metadata divergence); PG converter switches on a nullable SQLState → NPE masks the real error |
 | clients | 198 | `ErrorHandlers.java` (1,444 lines, 22 per-domain handlers) | code 1007 → `ConnectionFailedException` only in `CatalogErrorHandler` (Python maps it in *all* domains — Java is behind Python); code 1011 dead in both; **zero `Retry-After` references** under `clients/`; HTTP status discarded once body parses |
-| server + server-common | 168 | `ExceptionHandlers` (22 instanceof ladders) + 3 Json mappers | no `ExceptionMapper<Throwable>` safety net; `ConnectionFailedException`→502 only on catalog routes; JWKS/IdP outage (transient) reported as 401 bad-credentials; authz interceptor maps `NoSuchMetalakeException`→403 |
+| server + server-common | 168 | `ExceptionHandlers` (25 handlers, 114 instanceof branches) + 3 Json mappers | no `ExceptionMapper<Throwable>` safety net; `ConnectionFailedException`→502 only on catalog routes; JWKS/IdP outage (transient) reported as 401 bad-credentials; authz interceptor maps `NoSuchMetalakeException`→403 |
 | aux gateways (iceberg/lance/lineage) | 144 | `IcebergExceptionMapper` (app-wide `@Provider`), `LanceExceptionMapper` (**`@Provider` registration dead** — never scanned) | Iceberg mapper uses **exact-class** lookup (`ex.getClass()`), so wrapper types (`RuntimeMetaException`, `UncheckedSQLException`) → 500; **commit-channel poisoning**: pre-commit connection-refused → 500, which Iceberg clients interpret as `CommitStateUnknown` |
 | engine connectors | 103 | Trino `GravitinoErrorCode` (26 codes, all `ErrorType.EXTERNAL`) + per-method Spark/Flink catches | no "Gravitino unavailable" code in any engine; dead catch: Trino `createSchema` catches `TableAlreadyExistsException` but the client throws `SchemaAlreadyExistsException` (verified `CatalogConnectorMetadata.java:213`) |
 | catalog-misc (fileset/kafka/model) | 51 | **none** | Kafka discards its own `RetriableException` marker; fileset/model `testConnection` are no-ops; conflict-on-rename flattened to 500 |
@@ -84,6 +89,12 @@ An 11-subsystem survey (2026-07-11) counted `throw new RuntimeException` + broad
 | authz plugins | 17 | `JdbcAuthorizationPlugin.toAuthorizationPluginException` (classifies nothing) | core commits entity store **before** the authz plugin call, no rollback/outbox: Ranger outage → 500 but the grant is already durable; `AuthorizationPluginException` has no server handler branch |
 | catalog-jdbc | 13 | 7 `*ExceptionConverter`s (best coverage in repo) | PG/Hologres constructor-overload bug binds cause to a format-arg `(String, String)` overload — **drops the cause and can crash the converter**; JDBC `SQLTransient*`/`SQLRecoverable*` never consulted by any converter |
 | api + common | 8 | `ErrorResponse` factories + `ErrorConstants` (13 codes) | none of the 72 exception classes declares its HTTP meaning; `ErrorResponse` = `{code, type, message, stack}` — **no slot for a retriable bit to survive serialization** |
+
+The exhaustive enumeration pass (see the
+[flatten-sites appendix](gravitino-fault-domains-flatten-sites-appendix.md)) finalized
+the counts: **1,332 sites** total (row count == raw rg hit count in all 15 scopes),
+of which **570 are legitimate as-is** (e.g. deliberate listener isolation) and **762
+need reclassification**; the single worst boundary is core→metadata-DB (262 sites).
 
 The load-bearing structural facts (each verified in-repo):
 - `org.apache.gravitino.exceptions.*` (72 classes) is **shared across the
@@ -153,21 +164,43 @@ conflated:
    protocol-native; their *classification* of backend failures must agree with the hub
    (the same backend outage must be "unavailable + retriable" on every port).
 
+### Fault domains (D1–D10)
+
+| # | Domain | One-line contract summary |
+|---|---|---|
+| D1 | External catalog backends (one template, N instances: HMS, JDBC DBs, Iceberg/Paimon/Hudi services, Kafka, object stores + STS) | Not ours; rich native transient/permanent/ambiguous signals exist here and nowhere downstream — classify at first catch or lose them. Caveat: fail-fast failures are per-backend, but a *hung* backend correlates through shared Jetty/LockManager threads → needs deadlines/bulkheads, not just classification |
+| D2 | Catalog connector adapters (anti-corruption layer behind `IsolatedClassLoader`) | Converter coverage trimodal (JDBC/Hive/Glue + contrib); zero for iceberg-operational/paimon/hudi/kafka/fileset/model. The 127 throw-sites largely wrap *store* IOExceptions, so the fix is two-pronged: backend converter SPI + metadata-store wrap |
+| D3 | Gravitino core (dispatch, locking, events, dual-write composition) | The layer that structurally *knows* which dependency it called and erases that knowledge (3 dispatcher funnels + ~70 manager wraps); becomes the classify-then-preserve backstop |
+| D4 | Metadata persistence (`storage/relational` + pool + DB + change-log poller) | One **correlated** domain — when it fails, every entity and API fails together; converters classify only duplicate-key today; `/health` already knows the right answer on exactly one code path |
+| D5 | Main REST server boundary (`ExceptionHandlers` + auth filters + wire vocabulary) | 25 drifting instanceof ladders → one declarative registry + `ExceptionMapper<Throwable>` + JSON Jetty error handler |
+| D6 | Auxiliary inbound gateways (one template, three instances: Iceberg REST, Lance REST, lineage source) | Own wire dialects by design (valid, chosen ports); classification must agree with the hub; `IcebergExceptionMapper` is the in-repo reference implementation |
+| D7 | Control-plane consumers (client-java/python, CLI, engine connectors, MCP server, web UIs) | Own fault domain: rehydration, retry policy (gRPC conventions: backoff + jitter + retry budget), version skew |
+| D8 | Data-plane consumers & credential vending (GVFS Java/Python, FUSE, STS chain) | Failures land at *data time*, possibly mid-stream; FUSE needs a documented taxonomy→errno projection |
+| D9 | Security sidecars (IdPs: JWKS/KDC; authz backends: Ranger) | IdP outage currently = 401 bad-credential; Ranger outage currently = 500 with the grant already durable |
+| D10 | Autonomous internal actors (pollers, async listeners, sinks, job executors, cache refresh) | No request to fail — need a health contract ({last-success, failure counter, degraded flag} wired to `/health`), not an HTTP one; today they fail silently |
+
 ### Boundary contract table (current → proposed)
 
-| # | Boundary (from → to) | Current error flow (verified) | Proposed contract |
+| # | Boundary | Current error flow (verified) | Proposed contract |
 |---|---|---|---|
-| B1 | External backend → connector | Backend-native exceptions; JDBC/Hive/Glue partially converted, Iceberg/Paimon/Kafka/Fileset operational errors flattened to `RuntimeException`; backend retriable markers (`SQLTransient*`, Kafka `RetriableException`, Iceberg 503, AWS `retryable()`) discarded | Connector-internal — sovereignty; no rule imposed here |
-| B2 | Connector → core (SPI, classloader-isolated) | `OperationDispatcher.doWithCatalog` preserves 1–2 declared types, wraps the rest in `RuntimeException`; `IsolatedClassLoader.withClassLoader` rethrows one chosen type, flattens the rest | **The hub crossing**: shared `CatalogExceptionConverter` at the dispatcher choke point classifies into canonical codes (marker-first, then per-backend converter, then conservative default `INTERNAL domain=catalog.<p>`); no unclassified `RuntimeException` crosses |
-| B3 | Core → metadata DB | MyBatis `PersistenceException` passthrough; converters map duplicate-key only; gate on writes only; **failed `store.put` after backend create returns success** | All storage exceptions classified (`UNAVAILABLE domain=core.storage` for 08xxx/transient, `ABORTED` for deadlock/serialization); partial-success paths must surface a typed failure (`UNKNOWN`/`PartialApply`) — never silent success. No interim compensation: end-state is transactional (ACID) dual-write semantics ([open decisions Q3](gravitino-fault-domains-open-decisions.md)) |
-| B4 | Core → authz plugin (side-channel) | Store committed first; plugin failure → 500 with grant already durable; `Boolean` returns discarded; chain plugin fail-fast without compensation | Plugin failures classified (`UNAVAILABLE domain=authz.ranger` when Ranger down); commit-ordering hazard resolved by the transactional-semantics trajectory — no interim compensation ([open decisions Q3/Q3a](gravitino-fault-domains-open-decisions.md)); at minimum an explicit `UNKNOWN`/`PartialApply` outcome, never a plain 500 |
-| B5 | Core → event listeners (side-channel) | Async/post-event exceptions swallowed+logged (correct isolation); sync pre-event may veto via `ForbiddenException` | Keep as is — already a well-designed fault-domain boundary; document it as the reference pattern |
-| B6 | Core → server (in-process) | Shared exception classes cross intact; per-entity ladders map caller errors; everything else 500 | Canonical-code marker interface read by **one** `BaseExceptionMapper` + `ExceptionMapper<Throwable>` net; ladders keep only entity-specific niceties |
-| B7 | Server → client (Gravitino REST wire) | `ErrorResponse{code,type,message,stack}`; no retriable bit; 1011 dead; 502 catalog-only; 500 = everything | Additive `status`/`errorInfo{reason,domain,metadata}`/`retryInfo`; 503+`Retry-After` for dependency-down; **500 ⇒ Gravitino bug invariant** |
-| B8 | Client → engine connector / app | Java: 1002 → bare `RuntimeException`, 1007 typed only for catalogs (Python already maps 1007 everywhere); no retry/backoff anywhere | Typed `GravitinoServerException` hierarchy mirroring canonical codes; gRPC-convention retry policy (backoff+jitter, budget, honor `retryInfo`); parity: Java adopts Python's code-map-fallback floor |
-| B9 | Engine connector → engine (Trino/Spark/Flink) | Trino: 26 codes all `EXTERNAL`, no unavailable code, unanticipated exceptions escape untyped; Spark `tableExists` swallows `Forbidden` → `false` | Map canonical codes → engine-native error types (`TrinoException` USER_ERROR vs EXTERNAL vs unavailable; Spark `AnalysisException` family); add `GRAVITINO_SERVER_UNAVAILABLE`-class codes |
-| B10 | External user → aux gateway (direct IRC/Lance call) | Iceberg-spec / Lance-spec errors, pass-through **by design (valid)**; but exact-class mapper → 500 for wrapper types; commit-channel poisoning; Lance mapper registration dead | Keep wire formats (chosen-port rule); align *classification*: instanceof-based mapping, backend-down → 503/`ServiceUnavailableException`, never default-500 on commit endpoints for pre-commit failures |
-| B11 | Aux gateway ↔ core server (shared process) | Same JVM when embedded as auxiliary service — correlated process failure, independent contracts | Document the two axes explicitly (contract ownership ≠ failure correlation); health/readiness must reflect aux-service state |
+| B1 | Backends → connector adapters | Native dialects arrive with transient/permanent/ambiguous signals; JDBC/Hive/Glue(+contrib) convert some; the rest convert nothing; retriable markers discarded | Mandatory converter at first catch → taxonomy, cause preserved. Iceberg: `CommitFailedException`→`ABORTED`/Conflict (retriable), `CommitStateUnknownException`→`UNKNOWN`/AmbiguousCommit. Kafka: `RetriableException`→`UNAVAILABLE` (minus the `UnknownTopicOrPartition`→`NOT_FOUND` trap) |
+| B2 | Connector adapters → core (SPI, classloader-isolated) | Exceptions classloader-shared so types survive; `OperationDispatcher.java:89,106,129` wraps all checked exceptions bare; `withClassLoader` preserves exactly one type | `doWithCatalog` = classification backstop: non-Gravitino escapee → `INTERNAL_DEP domain=catalog.<p>` (502); per-call deadline/bulkhead so a hung backend can't starve other catalogs; `InterruptedException` re-interrupts |
+| B3 | Metadata DB → persistence adapter | Converters classify only duplicate-key; connection-broken/deadlock/pool-exhausted → opaque `IOException(se)`; cause-chain walked one level only | Full classification: 08*/pool-timeout → `UNAVAILABLE domain=core.storage`; 40001/40P01/1205/1213 → `ABORTED`/Conflict; 23xxx → typed constraints; post-COMMIT death → `UNKNOWN`/AmbiguousCommit. Full cause-chain walk everywhere |
+| B4 | Persistence → core | ~70 `catch(IOException){throw new RuntimeException(ioe)}` manager sites → 500; Gravitino's own DB down is bug-shaped on every endpoint while `/health` says 503 | One shared wrap helper: transient → `UNAVAILABLE domain=core.storage` (503+`Retry-After`); else typed `MetadataStoreFailure`; `NoSuchEntityException` translated before leaving managers |
+| B5 | Core dual-write (connector-write + store-write) | Store failure after successful connector write → silent success (`TableOperationDispatcher.java:688-696`) or generic 500 with orphaned backend objects | **Decided ([Q3](gravitino-fault-domains-open-decisions.md)): no interim compensation.** Never silent success; typed `PartialApply`/`AmbiguousCommit` naming committed backend state; end-state is transactional (ACID) dual-write semantics |
+| B6 | Core → main REST server | 25 drifted instanceof ladders; `ConnectionFailedException`→502 from one handler only; testConnection returns HTTP 200 + embedded error body; unmatched → 500 + stack; Jetty HTML errors with stacks | Single declarative registry (instanceof-matched, the `IcebergExceptionMapper` pattern) + `ExceptionMapper<Throwable>` + JSON Jetty error handler; strict status projection per the canonical-code table |
+| B7 | Main server → control-plane clients (wire) | `ErrorResponse{code,type,message,stack}`; no retriable bit; zero `Retry-After`; stack-trace leak; codes 1000/1100 client-only; 1011 dead | Additive `status`/`errorInfo{reason,domain,metadata}`/`retryInfo`/`causeChain`/`correlationId` (mechanics = [open decisions Q2](gravitino-fault-domains-open-decisions.md)); 503+`Retry-After` for dependency-down; **500 ⇒ Gravitino bug invariant**; stacks redacted by default |
+| B8 | Clients → engines/applications | Java: 1002 → bare `RuntimeException` at 20 sites; 1007 typed only for catalogs (Python maps it everywhere); `TokenExpired` collapsed (kills auto-refresh); no retry logic | Typed exception hierarchy mirroring canonical codes; gRPC-convention retry (backoff+jitter, retry budget, honor `retryInfo`); TokenExpired → refresh + single replay |
+| B9 | Engine connectors → engines (Trino/Spark/Flink) | Trino: 26 codes all `EXTERNAL`, no unavailable code, unanticipated exceptions escape untyped; Spark `tableExists` swallows `Forbidden` → `false` | Canonical codes → engine-native error types; add `GRAVITINO_SERVER_UNAVAILABLE`-class codes; retriable bit drives engine retry policy |
+| B10 | External users → aux gateways (direct IRC/Lance/lineage calls) | Pass-through of protocol-native errors **by design (valid — chosen port)**; but exact-class mapping drops subclasses to 500; commit-channel poisoning; Lance mapper registration dead; lineage bare-429 | Keep wire dialects; align classification: instanceof matching, backend-down → 503 + `Retry-After`, pre-commit failures classified to true status so commit-500 stays reserved for genuinely-unknown outcomes; per-gateway taxonomy→dialect projection tables with conformance tests |
+| B11 | IdPs (JWKS/KDC) → auth filters | Infrastructure failure → `UnauthorizedException` → 401 code 1011; clients re-auth in a loop against a down IdP | IdP infra failure → `UNAVAILABLE` (503+`Retry-After`); only real rejection → 401; `TokenExpired` keeps its wire type |
+| B12 | Ranger → core (authz push) | `AuthorizationPluginException` for both outage and conflict; no server handler branch → 500; store may already be committed → silent policy drift; some paths swallow entirely | Ranger-down → `UNAVAILABLE domain=authz.ranger`; conflict → CallerError (409); post-commit push failure → typed `PartialApply` (no interim compensation; ordering strict-vs-available = open [Q3a](gravitino-fault-domains-open-decisions.md)) |
+| B13 | STS/credential endpoints → vending → data-plane clients | Vend-time throttle/outage and mid-read token expiry surface as untyped data-plane errors; no errno discipline in FUSE | Vend failures classified (`UNAVAILABLE` on throttle → client backoff); `CredentialCache` early-refresh window; documented taxonomy→errno projection (UNAVAILABLE→EAGAIN/EIO, AuthError→EACCES, CallerError→ENOENT/EEXIST) |
+
+Note on correlation vs contract: aux gateways embedded as auxiliary services share the
+core server's **process** fault domain (JVM heap, thread pools) while owning separate
+**contract** domains — health/readiness must reflect aux-service and poller state
+(D10), and the two axes must not be conflated.
 
 ---
 
