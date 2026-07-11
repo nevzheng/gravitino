@@ -1,0 +1,5 @@
+.venv/
+openapi.json
+cassette.yaml
+schemathesis-report/
+__pycache__/
