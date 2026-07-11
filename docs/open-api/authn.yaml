@@ -33,7 +33,7 @@ paths:
         "200":
           description: Returns the authenticated principal information
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/AuthMeResponse"
               examples:
@@ -42,7 +42,7 @@ paths:
         "401":
           description: Unauthorized - Authentication credentials are missing or invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":

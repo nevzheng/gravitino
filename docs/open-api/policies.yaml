@@ -33,7 +33,7 @@ paths:
         "200":
           description: Returns the list of policy objects if {details} is true, otherwise returns the list of policy names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
@@ -48,7 +48,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -75,7 +75,7 @@ paths:
         "200":
           description: Returns the created policy object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/PolicyResponse"
               examples:
@@ -84,7 +84,7 @@ paths:
         "409":
           description: Conflict - The target policy already exists in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -108,7 +108,7 @@ paths:
         "200":
           description: Returns the policy object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/PolicyResponse"
               examples:
@@ -117,7 +117,7 @@ paths:
         "404":
           description: Not Found - The specified policy does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -143,7 +143,7 @@ paths:
         "200":
             description: Returns the updated policy object
             content:
-              application/vnd.gravitino.v1+json:
+              application/json:
                 schema:
                   $ref: "#/components/schemas/PolicyResponse"
                 examples:
@@ -152,7 +152,7 @@ paths:
         "404":
           description: Not Found - The specified policy does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -180,7 +180,7 @@ paths:
         "404":
           description: Not Found - The specified policy does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -221,7 +221,7 @@ paths:
         "200":
           description: Returns the list of policy objects associated with specified metadata object if {details} is true, otherwise returns the list of policy name
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
@@ -236,7 +236,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -263,7 +263,7 @@ paths:
         "200":
           description: Returns the list of policy names associated with the specified metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/NameListResponse"
               examples:
@@ -272,7 +272,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -281,7 +281,7 @@ paths:
         "409":
           description: Conflict - The target policy already associated with the specified metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -308,7 +308,7 @@ paths:
         "200":
           description: Returns the policy object associated with specified metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/PolicyResponse"
               examples:
@@ -319,7 +319,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist or the specified policy is not associated with the specified metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -344,7 +344,7 @@ paths:
         "200":
           description: Returns the list of metadata objects associated with specified policy
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/MetadataObjectListResponse"
               examples:
@@ -355,7 +355,7 @@ paths:
         "404":
           description: Not Found - The specified policy does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

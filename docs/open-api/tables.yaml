@@ -65,7 +65,7 @@ paths:
         "409":
           description: Conflict - The target table already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -94,7 +94,7 @@ paths:
         "404":
           description: Not Found - The target table does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -128,7 +128,7 @@ paths:
         "404":
           description: Not Found - The target table does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -143,7 +143,7 @@ paths:
         "409":
           description: Conflict - The target table already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -753,7 +753,7 @@ components:
     TableResponse:
       description: Returns include the table object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

@@ -325,7 +325,7 @@ components:
     EntityListResponse:
       description: A list of entities
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -357,7 +357,7 @@ components:
         Usually serves application/json content, although in some cases simple text/plain content might
         be returned by the server's middleware.
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             $ref: '#/components/schemas/ErrorModel'
           example: {
@@ -372,7 +372,7 @@ components:
         side. Used for server 5xx errors without more specific documentation in
         individual routes.
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             $ref: "#/components/schemas/ErrorModel"
           example: {
@@ -387,7 +387,7 @@ components:
     DropResponse:
       description: Represents a response for a drop operation
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -404,7 +404,7 @@ components:
     RemoveResponse:
       description: Represents a response for a remove operation
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -421,7 +421,7 @@ components:
     DeleteResponse:
       description: Represents a response for a delete operation
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -438,7 +438,7 @@ components:
     SetResponse:
       description: Represents a response for a set operation
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -455,7 +455,7 @@ components:
     BaseResponse:
       description: Represents a response for a base operation
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             required:

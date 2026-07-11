@@ -43,7 +43,7 @@ paths:
         "200":
           description: Returns the added built-in IDP user
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpUserResponse"
               examples:
@@ -52,7 +52,7 @@ paths:
         "400":
           description: Bad Request - The request body is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -61,7 +61,7 @@ paths:
         "409":
           description: Conflict - The built-in IDP user already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -86,7 +86,7 @@ paths:
         "200":
           description: Returns the built-in IDP user object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpUserResponse"
               examples:
@@ -97,7 +97,7 @@ paths:
         "404":
           description: Not Found - The specified built-in IDP user does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -125,7 +125,7 @@ paths:
         "200":
           description: Returns the built-in IDP user after the password change
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpUserResponse"
               examples:
@@ -134,7 +134,7 @@ paths:
         "400":
           description: Bad Request - The request body is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -145,7 +145,7 @@ paths:
         "404":
           description: Not Found - The specified built-in IDP user does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -188,7 +188,7 @@ paths:
         "200":
           description: Returns the added built-in IDP group
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpGroupResponse"
               examples:
@@ -197,7 +197,7 @@ paths:
         "400":
           description: Bad Request - The request body is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -206,7 +206,7 @@ paths:
         "409":
           description: Conflict - The built-in IDP group already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -231,7 +231,7 @@ paths:
         "200":
           description: Returns the built-in IDP group object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpGroupResponse"
               examples:
@@ -242,7 +242,7 @@ paths:
         "404":
           description: Not Found - The specified built-in IDP group does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -267,7 +267,7 @@ paths:
         "405":
           description: Method Not Allowed - The group is not empty and force is false
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -299,7 +299,7 @@ paths:
         "200":
           description: Returns the built-in IDP group after membership changes
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/schemas/IdpGroupResponse"
               examples:
@@ -308,7 +308,7 @@ paths:
         "400":
           description: Bad Request - The request body is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -319,7 +319,7 @@ paths:
         "404":
           description: Not Found - The specified built-in IDP group or user does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "../openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -464,7 +464,7 @@ components:
         manage built-in IDP users and groups. Unauthenticated requests and authenticated
         non-service-admin users receive this response.
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             $ref: "../openapi.yaml#/components/schemas/ErrorModel"
           examples:

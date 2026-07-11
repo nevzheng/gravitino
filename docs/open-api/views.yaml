@@ -38,7 +38,7 @@ paths:
         "404":
           description: Not Found - The target schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -72,7 +72,7 @@ paths:
         "404":
           description: Not Found - The target schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -85,7 +85,7 @@ paths:
         "409":
           description: Conflict - The target view already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -113,7 +113,7 @@ paths:
         "404":
           description: Not Found - The target view does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -147,7 +147,7 @@ paths:
         "404":
           description: Not Found - The target view does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -162,7 +162,7 @@ paths:
         "409":
           description: Conflict - The target view already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -184,7 +184,7 @@ paths:
         "404":
           description: Not Found - The target metalake or catalog does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -447,7 +447,7 @@ components:
     ViewResponse:
       description: Returns include the view object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

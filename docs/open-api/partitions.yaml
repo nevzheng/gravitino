@@ -37,7 +37,7 @@ paths:
         "200":
           description: Returns list of partition objects if {details} is true, else returns list of partition names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/PartitionNameListResponse"
@@ -71,7 +71,7 @@ paths:
         "409":
           description: Conflict - The target partition already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -100,7 +100,7 @@ paths:
         "404":
           description: Not Found - The specified partition does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -307,7 +307,7 @@ components:
     PartitionListResponse:
       description: Returns list of partition objects
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             $ref: "#/components/schemas/PartitionListResponse"
 
@@ -315,7 +315,7 @@ components:
     PartitionResponse:
       description: Returns include the partition object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

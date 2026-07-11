@@ -57,7 +57,7 @@ paths:
         "409":
           description: Conflict - The target model already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -66,7 +66,7 @@ paths:
         "404":
           description: Not Found - The schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -94,7 +94,7 @@ paths:
         "404":
           description: Not Found - The target fileset does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -127,7 +127,7 @@ paths:
         "404":
           description: Not Found - The target model does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -167,7 +167,7 @@ paths:
         "200":
           description: Returns the list of model version objects if {details} is true, otherwise returns the list of model version numbers
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/ModelVersionListResponse"
@@ -180,7 +180,7 @@ paths:
         "404":
           description: Not Found - The target model does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -208,7 +208,7 @@ paths:
         "404":
           description: Not Found - The target model does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -217,7 +217,7 @@ paths:
         "409":
           description: Conflict - The model version aliases already exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -245,7 +245,7 @@ paths:
         "404":
           description: Not Found - The target model version does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -285,7 +285,7 @@ paths:
         "404":
           description: Not Found - The target model or model version does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -315,7 +315,7 @@ paths:
         "404":
           description: Not Found - The target model version does not exist.
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -355,7 +355,7 @@ paths:
         "404":
           description: Not Found - The target model or model version does not exist.
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -392,7 +392,7 @@ paths:
         "404":
           description: Not Found - The target model version uri does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -429,7 +429,7 @@ paths:
         "404":
           description: Not Found - The target model version uri does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -909,7 +909,7 @@ components:
     ModelResponse:
       description: The response of model object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -928,7 +928,7 @@ components:
     ModelVersionResponse:
       description: The response of model version object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -947,7 +947,7 @@ components:
     ModelVersionUriResponse:
       description: The response of model version uri
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

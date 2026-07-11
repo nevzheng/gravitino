@@ -35,7 +35,7 @@ paths:
         "200":
             description: Returns the statistics for the specified metadata object
             content:
-              application/vnd.gravitino.v1+json:
+              application/json:
                 schema:
                   $ref: "#/components/responses/StatisticListResponse"
                 examples:
@@ -44,7 +44,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -73,7 +73,7 @@ paths:
         "400":
           description: Bad Request - The request contains illegal statistic names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -82,7 +82,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -91,7 +91,7 @@ paths:
         "405":
           description: Method Not Allowed - The specified statistic is unmodifiable
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -120,7 +120,7 @@ paths:
         "400":
           description: Bad Request - The request contains illegal statistic names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -129,7 +129,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -138,7 +138,7 @@ paths:
         "405":
           description: Method Not Allowed - The specified statistic is unmodifiable
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -167,7 +167,7 @@ paths:
         "200":
           description: Returns the partition statistics for the specified metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/PartitionStatisticsListResponse"
               examples:
@@ -178,7 +178,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -207,7 +207,7 @@ paths:
         "400":
           description: Bad Request - The request contains illegal statistic names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -216,7 +216,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -225,7 +225,7 @@ paths:
         "405":
           description: Method Not Allowed - The specified statistic is unmodifiable
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -254,7 +254,7 @@ paths:
         "400":
           description: Bad Request - The request contains illegal statistic names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -263,7 +263,7 @@ paths:
         "404":
           description: Not Found - The specified metadata object doesn't exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -272,7 +272,7 @@ paths:
         "405":
           description: Method Not Allowed - The specified statistic is unmodifiable
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

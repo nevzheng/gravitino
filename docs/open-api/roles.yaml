@@ -32,7 +32,7 @@ paths:
         "200":
           description: Returns the list of role  name
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/NameListResponse"
               examples:
@@ -43,7 +43,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -68,7 +68,7 @@ paths:
         "200":
           description: Returns the created role object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/RoleResponse"
               examples:
@@ -78,7 +78,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified securable object is invalid the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -88,7 +88,7 @@ paths:
         "409":
           description: Conflict - The target role already exists in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -112,7 +112,7 @@ paths:
         "200":
           description: Returns the role object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/RoleResponse"
                 examples:
@@ -121,7 +121,7 @@ paths:
         "404":
           description: Not Found - The specified role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -160,7 +160,7 @@ paths:
         "200":
           description: Returns the list of role  name for the metadata object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/NameListResponse"
               examples:
@@ -171,7 +171,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

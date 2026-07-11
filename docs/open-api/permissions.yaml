@@ -42,7 +42,7 @@ paths:
         "200":
           description: Returns the granted user object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./users.yaml#/components/responses/UserResponse"
               examples:
@@ -52,7 +52,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified role is invalid in the metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -62,7 +62,7 @@ paths:
         "404":
           description: Not Found - The specified user or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -97,7 +97,7 @@ paths:
         "200":
           description: Returns the revoked user object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./users.yaml#/components/responses/UserResponse"
               examples:
@@ -107,7 +107,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified role is invalid in the metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -117,7 +117,7 @@ paths:
         "404":
           description: Not Found - The specified user or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -152,7 +152,7 @@ paths:
         "200":
           description: Returns the granted group object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./groups.yaml#/components/responses/GroupResponse"
               examples:
@@ -162,7 +162,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified role is invalid in the metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -172,7 +172,7 @@ paths:
         "404":
           description: Not Found - The specified group or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -207,7 +207,7 @@ paths:
         "200":
           description: Returns the revoked group object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./groups.yaml#/components/responses/GroupResponse"
               examples:
@@ -217,7 +217,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified role is invalid in the metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -227,7 +227,7 @@ paths:
         "404":
           description: Not Found - The specified group or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -264,7 +264,7 @@ paths:
         "200":
           description: Returns the granted role object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./roles.yaml#/components/responses/RoleResponse"
               examples:
@@ -274,7 +274,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified privilege is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -284,7 +284,7 @@ paths:
         "404":
           description: Not Found - The specified medata object or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -323,7 +323,7 @@ paths:
         "200":
           description: Returns the revoked role object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./roles.yaml#/components/responses/RoleResponse"
               examples:
@@ -333,7 +333,7 @@ paths:
         "400":
           description: Parameter is invalid - The specified privilege is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -343,7 +343,7 @@ paths:
         "404":
           description: Not Found - The specified medata object or role does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -379,13 +379,13 @@ paths:
         "200":
           description: Returns the updated role
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./roles.yaml#/components/responses/RoleResponse"
         "400":
           description: Parameter is invalid - The specified privilege is invalid
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
                 examples:
@@ -394,7 +394,7 @@ paths:
         "404":
           description: Not Found - The target role does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

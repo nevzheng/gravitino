@@ -92,7 +92,7 @@ components:
     HealthResponse:
       description: Health check result
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             $ref: "#/components/schemas/HealthResponse"
           examples:

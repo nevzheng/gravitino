@@ -59,7 +59,7 @@ paths:
         "409":
           description: Conflict - The target schema already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -86,7 +86,7 @@ paths:
         "404":
           description: Not Found - The target schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -116,7 +116,7 @@ paths:
         "404":
           description: Not Found - The target schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -129,7 +129,7 @@ paths:
         "409":
           description: Conflict - The target schema already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -283,7 +283,7 @@ components:
     SchemaResponse:
       description: Returns include the schema object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

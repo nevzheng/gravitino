@@ -190,6 +190,37 @@ jobs:
           npx --yes @openapitools/openapi-generator-cli generate \
             -i build/openapi.json -g typescript-axios -o generated/typescript
 
+  # 4b. progenitor (Rust/typify) — the strict-consumer experiment. Re-added on
+  #     this fork after swapping the vendor media type to application/json, which
+  #     clears progenitor's content-type blocker. It still cannot express the
+  #     `oneOf` responses on the 11 list endpoints (asserts <= 1 response type),
+  #     so it is warn-only. Kept because typify's strictness surfaces issues
+  #     broad generators tolerate.
+  codegen-progenitor:
+    name: Codegen smoke (progenitor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: dev/openapi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dev/openapi/package-lock.json
+      - run: npm ci
+      - name: Bundle spec (codegen input)
+        run: npm run bundle
+      - name: Ensure Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Install progenitor CLI
+        run: cargo install cargo-progenitor
+      - name: Generate Rust client
+        continue-on-error: true
+        run: cargo progenitor -i build/openapi.json -o generated-client -n gravitino-openapi -v 0.0.0
+
   # 5. Breaking-change detection vs the PR base branch. Bundles both sides with
   #    the HEAD tooling (the base branch may predate dev/openapi) and diffs them.
   breaking-changes:

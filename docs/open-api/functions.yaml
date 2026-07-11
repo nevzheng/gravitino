@@ -36,10 +36,10 @@ paths:
         "200":
           description: Returns the list of function objects if {details} is true, otherwise returns the list of function identifiers
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
-                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1json/schema"
                   - $ref: "#/components/schemas/FunctionListResponse"
               examples:
                 FunctionListResponse:
@@ -68,7 +68,7 @@ paths:
         "409":
           description: Conflict - The target function already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -77,7 +77,7 @@ paths:
         "404":
           description: Not Found - The schema does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -105,7 +105,7 @@ paths:
         "404":
           description: Not Found - The target function does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -138,7 +138,7 @@ paths:
         "404":
           description: Not Found - The target function does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -644,7 +644,7 @@ components:
     FunctionResponse:
       description: The response of function object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

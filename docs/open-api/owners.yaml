@@ -47,7 +47,7 @@ paths:
         "404":
           description: Not Found - The specified owner or metadata object does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -67,7 +67,7 @@ paths:
         "200":
           description: Returns the owner object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/OwnerResponse"
               examples:
@@ -76,7 +76,7 @@ paths:
         "404":
           description: Not Found - The specified owner does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

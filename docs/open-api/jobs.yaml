@@ -34,7 +34,7 @@ paths:
         "200":
           description: Returns the list of job template objects if {details} is true, otherwise returns the list of job template names
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
@@ -49,7 +49,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -66,7 +66,7 @@ paths:
       description: Registers a job template in the specified metalake
       requestBody:
         content:
-          application/vnd.gravitino.v1+json:
+          application/json:
             schema:
               $ref: "#/components/requests/JobTemplateRegisterRequest"
             examples:
@@ -79,7 +79,7 @@ paths:
         "409":
           description: Conflict - The target job template already exists in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -104,7 +104,7 @@ paths:
         "200":
           description: Returns the job template object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobTemplateResponse"
               examples:
@@ -113,7 +113,7 @@ paths:
         "404":
           description: Not Found - The specified job template does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -145,7 +145,7 @@ paths:
       description: Updates a job template in the specified metalake
       requestBody:
         content:
-          application/vnd.gravitino.v1+json:
+          application/json:
             schema:
               $ref: "#/components/requests/JobTemplateUpdatesRequest"
             examples:
@@ -156,7 +156,7 @@ paths:
         "200":
           description: Returns the updated job template object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobTemplateResponse"
               examples:
@@ -165,7 +165,7 @@ paths:
         "404":
           description: Not Found - The specified job template does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -176,7 +176,7 @@ paths:
         "400":
           description: Bad Request - The changes in the request cannot be applied to the job template
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -199,7 +199,7 @@ paths:
         "200":
           description: Returns the list of job objects
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobListResponse"
               examples:
@@ -210,7 +210,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -238,13 +238,13 @@ paths:
         "200":
           description: Returns the empty response with status code 0
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobResponse"
         "404":
           description: Not Found - The specified job template does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -269,7 +269,7 @@ paths:
         "200":
           description: Returns the job object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobResponse"
               examples:
@@ -278,7 +278,7 @@ paths:
         "404":
           description: Not Found - The specified job does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -299,7 +299,7 @@ paths:
         "200":
           description: Returns the job object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/JobResponse"
               examples:
@@ -308,7 +308,7 @@ paths:
         "404":
           description: Not Found - The specified job does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

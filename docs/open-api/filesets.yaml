@@ -57,7 +57,7 @@ paths:
         "409":
           description: Conflict - The target fileset already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -86,7 +86,7 @@ paths:
         "404":
           description: Not Found - The target fileset does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -120,7 +120,7 @@ paths:
         "404":
           description: Not Found - The target fileset does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -135,7 +135,7 @@ paths:
         "409":
           description: Conflict - The target fileset already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -190,7 +190,7 @@ paths:
         "404":
           description: Not Found - The target fileset does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -238,7 +238,7 @@ paths:
         "404":
           description: Not Found – the target fileset or subPath or locationName does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -470,7 +470,7 @@ components:
     FilesetResponse:
       description: The response of fileset object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -489,7 +489,7 @@ components:
     FileInfoListResponse:
       description: The response containing a list of file/directory metadata
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
@@ -509,7 +509,7 @@ components:
     FileLocationResponse:
       description: The response of the file location object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:

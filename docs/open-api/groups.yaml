@@ -34,7 +34,7 @@ paths:
         "200":
           description: Returns the list of groups if {details} is true, otherwise returns the list of group name
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 oneOf:
                   - $ref: "#/components/responses/GroupListResponse"
@@ -49,7 +49,7 @@ paths:
         "404":
           description: Not Found - The specified metalake does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -77,7 +77,7 @@ paths:
         "200":
           description: Returns the added group object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/GroupResponse"
               examples:
@@ -86,7 +86,7 @@ paths:
         "409":
           description: Conflict - The target group already exists in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -110,7 +110,7 @@ paths:
         "200":
           description: Returns the group object
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "#/components/responses/GroupResponse"
                 examples:
@@ -119,7 +119,7 @@ paths:
         "404":
           description: Not Found - The specified group does not exist in the specified metalake
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:

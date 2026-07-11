@@ -57,7 +57,7 @@ paths:
         "409":
           description: Conflict - The target topic already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -85,7 +85,7 @@ paths:
         "404":
           description: Not Found - The target topic does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -119,7 +119,7 @@ paths:
         "404":
           description: Not Found - The target topic does not exist
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -134,7 +134,7 @@ paths:
         "409":
           description: Conflict - The target topic already exists
           content:
-            application/vnd.gravitino.v1+json:
+            application/json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
               examples:
@@ -283,7 +283,7 @@ components:
     TopicResponse:
       description: Returns include the topic object
       content:
-        application/vnd.gravitino.v1+json:
+        application/json:
           schema:
             type: object
             properties:
