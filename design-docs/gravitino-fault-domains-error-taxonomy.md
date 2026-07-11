@@ -21,6 +21,13 @@
 
 > Status: DRAFT for discussion — incorporates the 11-subsystem fault-domain survey
 > (2026-07-11); headline claims spot-verified against source (file:line cited inline).
+> The full workflow verification pass later confirmed 9/12 load-bearing claims and
+> partially-confirmed 3 (no refutations).
+> Companions: [survey report](gravitino-fault-domains-survey-report.md) (verified
+> fault-domain model, refined 9-category taxonomy incl. `AmbiguousCommit`/`PartialApply`/
+> `Overloaded`) and [flatten-sites appendix](gravitino-fault-domains-flatten-sites-appendix.md)
+> (**all 1,332 sites enumerated**: file:line, what each wraps, boundary, proposed code —
+> 570 judged fine as-is, 762 to reclassify; worst boundary: core→metadata-DB with 262).
 > Related: discussion [apache/gravitino#11982](https://github.com/apache/gravitino/discussions/11982),
 > issue #11943, PR #11959.
 
