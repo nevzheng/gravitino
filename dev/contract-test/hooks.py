@@ -18,28 +18,37 @@
 """Schemathesis hooks for the Gravitino contract test.
 
 Pins the metalake -> catalog -> schema hierarchy path parameters to the
-fixtures created by fixtures.sh, so generated requests reach real entities
-instead of exercising the (separately tracked) "operation on a nonexistent
-metalake returns 500" bug on every request. Path params without a fixture
-(table, fileset, topic, ...) keep their generated values and yield the
-documented 404s.
+fixtures created by fixtures.sh, so generated requests target real entities.
+
+Why this matters: any request to a *nonexistent* metalake returns 500 (the
+authorization interceptor auto-provisions the current user into the metalake
+before the not-found check runs, and that write assumes the metalake exists).
+Unpinned, that one bug produces ~100 of ~130 500s and drowns every other
+finding. Pinning routes around it so real conformance issues surface.
+
+Two param names are pinned: metalake-level CRUD paths use `{name}` while every
+sub-resource path uses `{metalake}` -- a path-parameter naming inconsistency in
+the spec itself.
+
+`map_path_parameters` only transforms the *fuzzing* generation phase; the
+`coverage` phase injects deterministic values (e.g. "0") that bypass it, so
+run.sh restricts to `--phases fuzzing` to keep the pin effective.
 """
 
 import schemathesis
 
 FIXTURES = {
-    "metalake": "test_ml",
+    "name": "test_ml",       # metalake-level CRUD paths use {name}
+    "metalake": "test_ml",   # sub-resource paths use {metalake}
     "catalog": "test_cat",
     "schema": "test_sch",
 }
 
 
 @schemathesis.hook
-def before_generate_path_parameters(context, strategy):
-    def _pin(params):
+def map_path_parameters(context, path_parameters):
+    if path_parameters:
         for key, value in FIXTURES.items():
-            if key in params:
-                params[key] = value
-        return params
-
-    return strategy.map(_pin)
+            if key in path_parameters:
+                path_parameters[key] = value
+    return path_parameters

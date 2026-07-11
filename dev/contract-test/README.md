@@ -69,11 +69,30 @@ Both 5xx bugs are the runtime confirmation of the "bug and dependency-down both
 documented `400`, sparse `401`) also show up as `status_code_conformance`
 failures.
 
+### De-noising: Bug 1 dominates until routed around
+
+Bug 1 is not just a bug, it degrades the *observability* of everything else: a
+500 short-circuits the other checks (a crashed response can't be validated for
+schema/content-type), and it fires on every metalake-scoped path. Isolating it
+took two moves, both now baked into `hooks.py` / `run.sh`:
+
+- pin **both** `{name}` (metalake CRUD) and `{metalake}` (sub-resources) to the
+  fixture metalake, and
+- restrict to `--phases fuzzing` (the `coverage` phase injects `"0"`, bypassing
+  the pin and re-triggering Bug 1).
+
+With those, the 500 count drops from ~121 to ~12 — and the residual 12 are all
+genuine (Bug 2's "Failed to operate object" class, plus an
+`Authorization failed due to system internal error` variant). That is the
+actual API-validation signal, previously buried.
+
 ### Test-environment artifacts (not real defects)
 
 - **Auth checks** ("accepts invalid auth", "missing header not rejected") — the
   dev server runs with no authenticator, so it accepts everything by design.
-  Not meaningful until an auth-configured server is tested.
+  Excluded in `run.sh` (`ignored_auth`, `missing_required_header`,
+  `unsupported_method` not in the check list). Not meaningful until an
+  auth-configured server is tested.
 - **409s** from re-created fixtures; **405s** from probing undocumented methods.
 
 ## Intended shape (not yet wired into CI)

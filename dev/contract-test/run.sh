@@ -35,15 +35,20 @@ if [ ! -d "${HERE}/.venv" ]; then python3 -m venv "${HERE}/.venv"; fi
 # 3. seed fixtures the hooks pin to
 GRAVITINO_URL="${BASE}" bash "${HERE}/fixtures.sh"
 
-# 4. run. Positive generation, seeded, report-only. Auth checks are excluded
-#    because a no-auth dev server accepts everything (they are not meaningful
-#    until an auth-configured server is tested). See README for the two-job
-#    plan (blocking core checks vs warn-only dashboard).
+# 4. run. Report-only.
+#    --phases fuzzing: the coverage phase injects deterministic path values
+#      (e.g. "0") that bypass the pinning hook and hit nonexistent metalakes,
+#      re-triggering the metalake-500 bug. Fuzzing keeps the pin effective.
+#    -c ...: only the four contract-shape checks. The auth checks (ignored_auth,
+#      missing_required_header) and unsupported_method are excluded — a no-auth
+#      dev server accepts everything, so they are noise until an auth-configured
+#      server is tested. See README for the two-job plan.
 cd "${HERE}"
 SCHEMATHESIS_HOOKS=hooks "${HERE}/.venv/bin/schemathesis" run openapi.json \
   --url "${BASE}" \
   --max-examples "${MAX_EXAMPLES}" \
   --workers 4 \
+  --phases fuzzing \
   --report vcr --report-vcr-path "${HERE}/cassette.yaml" \
   -c not_a_server_error \
   -c response_schema_conformance \
