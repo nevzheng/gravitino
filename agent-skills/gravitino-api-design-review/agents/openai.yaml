@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gravitino API Design Review"
+  short_description: "Review Gravitino API and OpenAPI designs"
+  default_prompt: "Use $gravitino-api-design-review to review this Gravitino API design."
