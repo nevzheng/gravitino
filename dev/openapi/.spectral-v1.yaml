@@ -1,0 +1,16 @@
+# Spectral rules for the authoritative Gravitino API V1 contract.
+#
+# V1 is a separate public contract. It uses portable application/json rather
+# than the legacy vendor media type, and all findings block V1 changes via the
+# --fail-severity=warn invocation in package.json and CI.
+extends:
+  - ".spectral.yaml"
+
+rules:
+  gravitino-vendor-media-type:
+    description: "Gravitino API V1 JSON responses should use application/json."
+    severity: error
+    given: "$.paths[*][*].responses[*].content"
+    then:
+      field: "application/json"
+      function: truthy

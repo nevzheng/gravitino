@@ -70,4 +70,4 @@ Avoid migrating a whole resource area, changing the server framework, or committ
 
 ## Finish with verification
 
-For OpenAPI changes, run `./gradlew :docs:build`. For server logic, run the narrowest relevant unit and route tests, then report what was run and any gaps. Use a contract diff or breaking-change check when an existing public contract changes.
+For legacy OpenAPI changes, run `cd dev/openapi && npm ci && npm run lint && npm run bundle`, then run `./gradlew :docs:build`. Once `docs/open-api/v1/openapi.yaml` exists, run the same blocking V1 gate used by CI: `npm run lint:v1 && npm run bundle:v1 && npm run codegen:v1`. For server logic, run the narrowest relevant unit and route tests, then report what was run and any gaps. Use a contract diff or breaking-change check when an existing public contract changes.

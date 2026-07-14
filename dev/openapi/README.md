@@ -48,6 +48,11 @@ npm run lint            # Redocly (recommended-strict) + Spectral (governance)
 npm run lint:redocly    # structural validation; add --extends=minimal|recommended
 npm run lint:spectral   # governance kitchen sink
 npm run bundle          # -> build/openapi.json and build/openapi.yaml
+
+# Once docs/open-api/v1/openapi.yaml exists, run the blocking V1 gate:
+npm run lint:v1         # Redocly strict + Spectral, warnings fail
+npm run bundle:v1       # -> build/v1/openapi.json and build/v1/openapi.yaml
+npm run codegen:v1      # bundle + Rust and TypeScript generation smoke test
 ```
 
 Requires Node `20.19+` / `22.12+` / `23+` (Redocly v2).
@@ -74,7 +79,20 @@ signature and raises a "investigate the spec" warning — a linter crash means t
 document is malformed enough to break the tool, which is a stronger signal than
 any single finding. Fix the document; don't mute the tool.
 
-## Promoting to enforcing
+## Enforcing V1 from its first commit
+
+The legacy API is expose-first and warn-only while its existing backlog is
+triaged. The authoritative V1 contract is different: when
+`docs/open-api/v1/openapi.yaml` exists, CI runs `lint:v1`, `bundle:v1`, and
+`codegen:v1` as blocking checks. Pull requests also run a blocking `oasdiff`
+comparison against the base branch once that branch contains V1. The first V1
+pull request has no prior V1 artifact, so only that baseline comparison is
+skipped.
+
+Run exactly the same gate locally with the commands above before opening a V1
+contract pull request.
+
+## Promoting legacy checks to enforcing
 
 Once the backlog is burned down:
 

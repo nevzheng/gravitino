@@ -54,6 +54,16 @@ never fails the build. This is deliberate — it exposes the existing backlog
 without turning `main` red. Stages are promoted to enforcing as the backlog is
 fixed.
 
+### V1 contract gate
+
+The future authoritative contract at `docs/open-api/v1/openapi.yaml` has no
+legacy backlog. Once that file exists, CI runs a separate **blocking** V1 gate:
+strict Redocly linting, Spectral governance with warnings treated as failures,
+bundling, and Rust and TypeScript client-generation smoke tests. On pull
+requests, `oasdiff` also blocks breaking changes after the base branch contains
+V1. The initial V1 pull request skips only that comparison because there is no
+previous V1 contract to compare.
+
 ### 1. Redocly, at multiple strictness levels
 
 Redocly performs structural validation. CI runs it as a matrix over three
@@ -127,6 +137,11 @@ npm ci
 
 npm run lint       # Redocly (recommended-strict) + Spectral
 npm run bundle     # -> build/openapi.json and build/openapi.yaml
+
+# Once docs/open-api/v1/openapi.yaml exists, run the blocking V1 gate:
+npm run lint:v1
+npm run bundle:v1
+npm run codegen:v1
 ```
 
 Requires Node `20.19+` / `22.12+` / `23+` (Redocly v2). See
