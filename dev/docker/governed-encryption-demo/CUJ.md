@@ -39,8 +39,10 @@ The guided runner pauses at every story beat so the operator can inspect each re
 ./dev/docker/governed-encryption-demo/demo-cuj.sh
 ```
 
-Use `--no-pause` for repeatable automated verification. The commands below are the same operations
-performed by the runner and can be copied individually. Set the endpoints first:
+Use `--no-pause` for repeatable automated verification. The runner generates a shared suffix for
+its metalake, schema, and table names so it can be replayed on a persistent cluster. The commands
+below are the same operations using fixed, unsuffixed names for a one-off manual walkthrough. Set
+the endpoints first:
 
 ```shell
 API=http://localhost:8090/api

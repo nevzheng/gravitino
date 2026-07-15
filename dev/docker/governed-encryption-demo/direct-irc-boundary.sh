@@ -27,6 +27,9 @@ COMPOSE=(
   --file "$SCRIPT_DIR/docker-compose.yaml"
 )
 IRC_BASE="http://localhost:${ICEBERG_REST_HOST_PORT:-9001}/iceberg"
+RUN_SUFFIX=${DEMO_RUN_SUFFIX:-}
+METALAKE_NAME=demo
+SCHEMA=customer_data
 TABLE=direct_irc_policy_bypass_plaintext
 MARKER=direct-irc-policy-bypass-plaintext-marker
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gravitino-direct-irc-boundary.XXXXXX")
@@ -42,6 +45,14 @@ cleanup() {
 
 trap cleanup EXIT
 
+if [[ -n "$RUN_SUFFIX" ]]; then
+  [[ "$RUN_SUFFIX" =~ ^[a-z0-9][a-z0-9_]{0,31}$ ]] \
+    || fail "Run suffix must match [a-z0-9][a-z0-9_]{0,31}."
+  METALAKE_NAME="demo_$RUN_SUFFIX"
+  SCHEMA="customer_data_$RUN_SUFFIX"
+  TABLE="direct_irc_policy_bypass_plaintext_$RUN_SUFFIX"
+fi
+
 for command_name in curl docker jq; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required."
 done
@@ -50,16 +61,25 @@ docker info >/dev/null 2>&1 || fail "The Docker daemon is unavailable."
 printf '\n============================================================\n'
 printf 'OUT-OF-SCOPE DIRECT IRC BYPASS BOUNDARY\n'
 printf 'This maps the edge of governed coverage; it is not the supported client path.\n'
+printf 'Run suffix: %s  schema: %s  table: %s\n' \
+  "${RUN_SUFFIX:-<legacy>}" "$SCHEMA" "$TABLE"
 printf '============================================================\n\n'
 
 printf '[gap 1/3] Point Spark directly at IRC and omit encryption properties\n'
-"$SCRIPT_DIR/spark-sql.sh" \
+direct_irc_sql=$(sed \
+  -e 's/customer_data/__DEMO_SCHEMA__/g' \
+  -e 's/direct_irc_policy_bypass_plaintext/__DEMO_TABLE__/g' \
+  -e "s/__DEMO_SCHEMA__/$SCHEMA/g" \
+  -e "s/__DEMO_TABLE__/$TABLE/g" \
+  "$SCRIPT_DIR/spark-direct-irc-bypass.sql")
+printf '%s\n' "$direct_irc_sql" | "$SCRIPT_DIR/spark-sql.sh" \
+  --conf "spark.sql.gravitino.metalake=$METALAKE_NAME" \
   --conf spark.sql.catalog.direct_irc=org.apache.iceberg.spark.SparkCatalog \
   --conf spark.sql.catalog.direct_irc.type=rest \
   --conf spark.sql.catalog.direct_irc.uri=http://iceberg-rest:9001/iceberg \
   --conf spark.sql.catalog.direct_irc.io-impl=org.apache.iceberg.hadoop.HadoopFileIO \
   --conf spark.sql.catalog.direct_irc.cache-enabled=false \
-  -f /opt/demo/spark-direct-irc-bypass.sql \
+  -f /dev/stdin \
   2>&1 | tee "$TMP_DIR/spark-direct-irc.log"
 grep -Fq 'DIRECT_IRC_BYPASS_OBSERVED' "$TMP_DIR/spark-direct-irc.log" \
   || fail "The direct IRC boundary was not reproduced."
@@ -67,7 +87,7 @@ grep -Fq 'DIRECT_IRC_BYPASS_OBSERVED' "$TMP_DIR/spark-direct-irc.log" \
 printf '\n[gap 2/3] Show authoritative IRC metadata has no encryption declaration\n'
 table_file="$TMP_DIR/direct-table.json"
 curl --fail --silent --show-error \
-  "$IRC_BASE/v1/namespaces/customer_data/tables/$TABLE" >"$table_file"
+  "$IRC_BASE/v1/namespaces/$SCHEMA/tables/$TABLE" >"$table_file"
 jq '{
   metadataLocation: .["metadata-location"],
   formatVersion: .metadata["format-version"],

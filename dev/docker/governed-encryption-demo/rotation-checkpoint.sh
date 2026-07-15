@@ -30,6 +30,11 @@ IRC_BASE="http://localhost:${ICEBERG_REST_HOST_PORT:-9001}/iceberg"
 KMS_BASE="http://localhost:${TRANSIT_HOST_PORT:-18200}"
 KEY_ID=customer-pii-v1
 ROOT_TOKEN=${TRANSIT_ROOT_TOKEN:-gravitino-transit-demo-root}
+RUN_SUFFIX=${DEMO_RUN_SUFFIX:-}
+METALAKE_NAME=demo
+SCHEMA=customer_data
+ENCRYPTED_TABLE=encrypted_customer_records
+ROTATED_TABLE=rotated_customer_records
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gravitino-key-rotation.XXXXXX")
 
 fail() {
@@ -78,6 +83,15 @@ unwrap_without_output() {
 
 trap cleanup EXIT
 
+if [[ -n "$RUN_SUFFIX" ]]; then
+  [[ "$RUN_SUFFIX" =~ ^[a-z0-9][a-z0-9_]{0,31}$ ]] \
+    || fail "Run suffix must match [a-z0-9][a-z0-9_]{0,31}."
+  METALAKE_NAME="demo_$RUN_SUFFIX"
+  SCHEMA="customer_data_$RUN_SUFFIX"
+  ENCRYPTED_TABLE="encrypted_customer_records_$RUN_SUFFIX"
+  ROTATED_TABLE="rotated_customer_records_$RUN_SUFFIX"
+fi
+
 for command_name in curl docker jq python3; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required."
 done
@@ -88,13 +102,15 @@ existing_file="$TMP_DIR/existing-table.json"
 existing_status=$(curl --silent --show-error \
   --output "$existing_file" \
   --write-out '%{http_code}' \
-  "$IRC_BASE/v1/namespaces/customer_data/tables/encrypted_customer_records")
+  "$IRC_BASE/v1/namespaces/$SCHEMA/tables/$ENCRYPTED_TABLE")
 [[ "$existing_status" == 200 ]] \
   || fail "Run demo-cuj.sh successfully before this optional checkpoint."
 existing_envelope=$(extract_envelope "$existing_file")
-[[ "$existing_envelope" == vault:v1:* ]] \
-  || fail "The original table does not contain the expected vault:v1: envelope."
-printf '  PASS original envelope is vault:v1: (ciphertext withheld).\n'
+[[ "$existing_envelope" =~ ^vault:v([0-9]+): ]] \
+  || fail "The original table does not contain the expected vault:vN: envelope."
+existing_version=${BASH_REMATCH[1]}
+printf '  PASS original envelope is vault:v%s: (ciphertext withheld).\n' \
+  "$existing_version"
 
 printf '\n[rotation 2/4] Rotate the same Transit key ID over REST\n'
 rotate_file="$TMP_DIR/rotate.json"
@@ -120,19 +136,29 @@ printf '  POST %s/v1/transit/keys/%s/rotate -> HTTP %s\n' \
 printf '  PASS key ID remains %s; latest Transit version is v%s.\n' \
   "$KEY_ID" "$latest_version"
 
-printf '\n[rotation 3/4] Prove the old vault:v1: envelope remains readable\n'
+printf '\n[rotation 3/4] Prove the original vault:v%s: envelope remains readable\n' \
+  "$existing_version"
 unwrap_without_output "$existing_envelope"
-printf '  PASS Transit decrypted the original v1 envelope after rotation; material withheld.\n'
+printf '  PASS Transit decrypted the original v%s envelope after rotation; material withheld.\n' \
+  "$existing_version"
 
 printf '\n[rotation 4/4] Create a new table and inspect its envelope version\n'
-"$SCRIPT_DIR/spark-sql.sh" -f /opt/demo/spark-rotation.sql \
+rotation_sql=$(sed \
+  -e 's/customer_data/__DEMO_SCHEMA__/g' \
+  -e 's/rotated_customer_records/__DEMO_TABLE__/g' \
+  -e "s/__DEMO_SCHEMA__/$SCHEMA/g" \
+  -e "s/__DEMO_TABLE__/$ROTATED_TABLE/g" \
+  "$SCRIPT_DIR/spark-rotation.sql")
+printf '%s\n' "$rotation_sql" | "$SCRIPT_DIR/spark-sql.sh" \
+  --conf "spark.sql.gravitino.metalake=$METALAKE_NAME" \
+  -f /dev/stdin \
   2>&1 | tee "$TMP_DIR/spark-rotation.log"
 grep -Fq 'ROTATED_KEY_WRITE_OK' "$TMP_DIR/spark-rotation.log" \
   || fail "Spark did not report the rotated-key write proof."
 
 rotated_file="$TMP_DIR/rotated-table.json"
 curl --fail --silent --show-error \
-  "$IRC_BASE/v1/namespaces/customer_data/tables/rotated_customer_records" \
+  "$IRC_BASE/v1/namespaces/$SCHEMA/tables/$ROTATED_TABLE" \
   >"$rotated_file"
 jq -e \
   --arg key_id "$KEY_ID" \

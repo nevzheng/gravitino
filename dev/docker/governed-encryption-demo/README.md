@@ -35,8 +35,12 @@ Start the cluster from anywhere in the repository:
 
 `up.sh` builds the current source, starts all containers, waits for their health checks, and then
 exits without stopping the cluster. Follow the copy/paste customer
-journey in [CUJ.md](./CUJ.md), run it as a script with `./demo-cuj.sh`, or open an already configured
-Spark shell with `./spark-sql.sh`.
+journey in [CUJ.md](./CUJ.md), run the presenter-friendly walkthrough with `./demo-cuj.sh`, or open
+an already configured Spark shell with `./spark-sql.sh`. The runner pauses between steps, labels
+each request/input/output/evidence block, and colorizes commands and JSON on a TTY. Use
+`--no-pause --no-color` for automation. Each run generates one suffix shared by its metalake,
+schema, and table names, so the persistent cluster can host repeated runs; pass
+`--run-suffix <id>` or `DEMO_RUN_SUFFIX=<id>` to choose a reproducible suffix.
 
 Stop the cluster and remove its ephemeral keys, token, metadata, and data with:
 
@@ -88,12 +92,16 @@ check.
 
 ## Inspect authoritative Iceberg metadata
 
-The demo publishes IRC directly to the host for inspection. It uses no catalog prefix, so the
-load-table route for the CUJ table is:
+The demo publishes IRC directly to the host for inspection. It uses no catalog prefix. Set the run
+suffix printed by `demo-cuj.sh`, then load that run's table directly:
 
 ```shell
+RUN_SUFFIX=<printed-run-suffix>
+SCHEMA="customer_data_${RUN_SUFFIX}"
+TABLE="encrypted_customer_records_${RUN_SUFFIX}"
+
 curl --fail --silent \
-  http://localhost:9001/iceberg/v1/namespaces/customer_data/tables/encrypted_customer_records \
+  "http://localhost:9001/iceberg/v1/namespaces/${SCHEMA}/tables/${TABLE}" \
   | jq '{metadata_location: .["metadata-location"], encryption_keys: .metadata["encryption-keys"]}'
 ```
 
@@ -111,7 +119,7 @@ and Spark. Inspect the committed metadata and object files from the IRC containe
 docker compose \
   --project-directory dev/docker/governed-encryption-demo \
   --file dev/docker/governed-encryption-demo/docker-compose.yaml \
-  exec iceberg-rest find /warehouse/customer_data/encrypted_customer_records -type f -print
+  exec iceberg-rest find "/warehouse/${SCHEMA}/${TABLE}" -type f -print
 ```
 
 The CUJ correlates the load-table `metadata-location` with that mounted warehouse path and also
