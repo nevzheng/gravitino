@@ -19,6 +19,7 @@
 package org.apache.gravitino.dto.policy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.time.Instant;
@@ -27,6 +28,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.policy.IcebergDataCompactionContent;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -170,5 +172,84 @@ public class TestPolicyDTO {
         IcebergDataCompactionContent.DEFAULT_MAX_PARTITION_NUM, contentDTO.maxPartitionNum());
     Assertions.assertTrue(contentDTO.rewriteOptions().isEmpty());
     Assertions.assertDoesNotThrow(contentDTO::validate);
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicySerDe() throws JsonProcessingException {
+    AuditDTO audit = AuditDTO.builder().withCreator("user1").withCreateTime(Instant.now()).build();
+    PolicyContentDTO.IcebergEncryptionContentDTO typedContent =
+        PolicyContentDTO.IcebergEncryptionContentDTO.builder()
+            .withSchemaVersion(1)
+            .withTag("PII")
+            .withRequired(true)
+            .withAllowedKeyIds(ImmutableList.of("key-A", "key-a"))
+            .withEnforcement(IcebergEncryptionContent.Enforcement.DENY_CREATE)
+            .build();
+    PolicyDTO policyDTO =
+        PolicyDTO.builder()
+            .withName("iceberg-encryption")
+            .withComment("typed policy")
+            .withPolicyType("system_iceberg_encryption")
+            .withEnabled(true)
+            .withContent(typedContent)
+            .withAudit(audit)
+            .build();
+
+    String serialized = JsonUtils.objectMapper().writeValueAsString(policyDTO);
+    PolicyDTO deserialized = JsonUtils.objectMapper().readValue(serialized, PolicyDTO.class);
+
+    Assertions.assertTrue(serialized.contains("\"enforcement\":\"deny-create\""));
+    Assertions.assertEquals(policyDTO, deserialized);
+    Assertions.assertInstanceOf(
+        PolicyContentDTO.IcebergEncryptionContentDTO.class, deserialized.content());
+    PolicyContentDTO.IcebergEncryptionContentDTO deserializedContent =
+        (PolicyContentDTO.IcebergEncryptionContentDTO) deserialized.content();
+    Assertions.assertEquals("PII", deserializedContent.tag());
+    Assertions.assertEquals(
+        ImmutableList.of("key-A", "key-a"), deserializedContent.allowedKeyIds());
+    Assertions.assertDoesNotThrow(deserializedContent::validate);
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicyDefaults() throws JsonProcessingException {
+    String json =
+        "{"
+            + "\"name\":\"iceberg-encryption-default\","
+            + "\"policyType\":\"system_iceberg_encryption\","
+            + "\"enabled\":true,"
+            + "\"content\":{"
+            + "\"schemaVersion\":1,"
+            + "\"tag\":\"PII\","
+            + "\"allowedKeyIds\":[\"key-a\"]"
+            + "}"
+            + "}";
+
+    PolicyDTO policyDTO = JsonUtils.objectMapper().readValue(json, PolicyDTO.class);
+    PolicyContentDTO.IcebergEncryptionContentDTO contentDTO =
+        (PolicyContentDTO.IcebergEncryptionContentDTO) policyDTO.content();
+
+    Assertions.assertTrue(contentDTO.required());
+    Assertions.assertEquals(IcebergEncryptionContent.Enforcement.REPORT, contentDTO.enforcement());
+    Assertions.assertDoesNotThrow(contentDTO::validate);
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicyRejectsNonCanonicalEnforcement() {
+    String json =
+        "{"
+            + "\"name\":\"iceberg-encryption\","
+            + "\"policyType\":\"system_iceberg_encryption\","
+            + "\"enabled\":true,"
+            + "\"content\":{"
+            + "\"schemaVersion\":1,"
+            + "\"tag\":\"PII\","
+            + "\"allowedKeyIds\":[\"key-a\"],"
+            + "\"enforcement\":\"REPORT\""
+            + "}"
+            + "}";
+
+    Assertions.assertThrows(
+        JsonProcessingException.class,
+        () -> JsonUtils.objectMapper().readValue(json, PolicyDTO.class));
   }
 }

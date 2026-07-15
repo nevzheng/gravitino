@@ -1,0 +1,9 @@
+**
+!build/gravitino/**
+!build/iceberg-rest/**
+!build/spark/**
+!iceberg-rest-server.conf
+!spark-defaults.conf
+!Dockerfile.gravitino
+!Dockerfile.iceberg-rest
+!Dockerfile.spark

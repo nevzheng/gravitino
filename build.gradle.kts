@@ -373,6 +373,7 @@ subprojects {
     ":maintenance:updaters",
     ":clients",
     ":bundles",
+    ":iceberg:iceberg-kms",
     ":spark-connector",
     ":flink-connector"
   )

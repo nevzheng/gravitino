@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
@@ -41,6 +42,7 @@ import org.apache.gravitino.credential.CredentialConstants;
 import org.apache.gravitino.credential.CredentialPrivilege;
 import org.apache.gravitino.credential.CredentialPropertyUtils;
 import org.apache.gravitino.credential.PathBasedCredentialContext;
+import org.apache.gravitino.exceptions.EncryptedTableServerSideReadException;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
 import org.apache.gravitino.iceberg.service.cache.ScanPlanCache;
@@ -50,6 +52,7 @@ import org.apache.gravitino.utils.ClassUtils;
 import org.apache.gravitino.utils.MapUtils;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.IncrementalAppendScan;
 import org.apache.iceberg.Scan;
@@ -74,20 +77,21 @@ import org.apache.iceberg.rest.responses.PlanTableScanResponse;
 /** Process Iceberg REST specific operations, like credential vending. */
 public class CatalogWrapperForREST extends IcebergCatalogWrapper {
 
-  /** Vends Gravitino-managed credentials and exposes the catalog name for credential refresh. */
-  protected final CatalogCredentialManager catalogCredentialManager;
-
-  private volatile Map<String, String> catalogConfigToClients;
-  private final Object catalogConfigToClientsLock = new Object();
-
-  private final ScanPlanCache scanPlanCache;
-
   private static final String DATA_ACCESS_VENDED_CREDENTIALS = "vended-credentials";
   private static final String DATA_ACCESS_REMOTE_SIGNING = "remote-signing";
+  private static final String ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED =
+      "ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED";
+  private static final String PLAN_TABLE_SCAN_OPERATION = "PLAN_TABLE_SCAN";
+  private static final String OPENBAO_KMS_ENDPOINT_PROPERTY = "encryption.kms.openbao.endpoint";
+  private static final String OPENBAO_KMS_TRANSIT_MOUNT_PROPERTY =
+      "encryption.kms.openbao.transit-mount";
 
   /**
    * Client-facing catalog property keys retained when building the IRC {@code /v1/config} defaults
    * and when extracting FileIO-derived config in {@link FederatedCatalogWrapper}.
+   *
+   * <p>The KMS entries are an explicit non-secret allowlist. Credential sources such as the OpenBao
+   * token-file path and arbitrary {@code encryption.kms.*} properties are never forwarded.
    */
   protected static final Set<String> catalogPropertiesToClientKeys =
       ImmutableSet.of(
@@ -96,7 +100,11 @@ public class CatalogWrapperForREST extends IcebergCatalogWrapper {
           IcebergConstants.ICEBERG_S3_ENDPOINT,
           IcebergConstants.ICEBERG_OSS_ENDPOINT,
           IcebergConstants.ICEBERG_S3_PATH_STYLE_ACCESS,
-          IcebergConstants.ICEBERG_ACCESS_DELEGATION);
+          IcebergConstants.ICEBERG_ACCESS_DELEGATION,
+          CatalogProperties.ENCRYPTION_KMS_IMPL,
+          CatalogProperties.ENCRYPTION_KMS_TYPE,
+          OPENBAO_KMS_ENDPOINT_PROPERTY,
+          OPENBAO_KMS_TRANSIT_MOUNT_PROPERTY);
 
   @SuppressWarnings("deprecation")
   private static Map<String, String> deprecatedProperties =
@@ -105,6 +113,13 @@ public class CatalogWrapperForREST extends IcebergCatalogWrapper {
           CredentialConstants.CREDENTIAL_PROVIDERS,
           "gcs-credential-file-path",
           GCSProperties.GRAVITINO_GCS_SERVICE_ACCOUNT_FILE);
+
+  /** Vends Gravitino-managed credentials and exposes the catalog name for credential refresh. */
+  protected final CatalogCredentialManager catalogCredentialManager;
+
+  private volatile Map<String, String> catalogConfigToClients;
+  private final Object catalogConfigToClientsLock = new Object();
+  private final ScanPlanCache scanPlanCache;
 
   public CatalogWrapperForREST(String catalogName, IcebergConfig config) {
     super(config);
@@ -431,6 +446,7 @@ public class CatalogWrapperForREST extends IcebergCatalogWrapper {
 
     try {
       Table table = getCatalog().loadTable(tableIdentifier);
+      rejectEncryptedTableServerSideRead(tableIdentifier, table, PLAN_TABLE_SCAN_OPERATION);
       Optional<PlanTableScanResponse> cachedResponse =
           scanPlanCache.get(ScanPlanCacheKey.create(tableIdentifier, table, scanRequest));
 
@@ -476,6 +492,8 @@ public class CatalogWrapperForREST extends IcebergCatalogWrapper {
       }
       return response;
 
+    } catch (EncryptedTableServerSideReadException e) {
+      throw e;
     } catch (IllegalArgumentException e) {
       LOG.error("Invalid scan request for table {}: {}", tableIdentifier, e.getMessage());
       throw new IllegalArgumentException("Invalid scan parameters: " + e.getMessage(), e);
@@ -487,6 +505,48 @@ public class CatalogWrapperForREST extends IcebergCatalogWrapper {
       throw new RuntimeException(
           "Scan planning failed for table " + tableIdentifier + ": " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * Rejects an operation that would make IRC read an encrypted table's files on the server.
+   *
+   * <p>The current server-side file-reader inventory is scan planning and table purge. Custom
+   * statistics APIs do not read table files, and IRC has no server-side compaction implementation.
+   * Metadata-only operations such as {@code loadTable} and non-purge {@code dropTable} remain
+   * supported.
+   *
+   * @param tableIdentifier the table that the operation would read
+   * @param operation the attributed server-side operation name
+   * @throws EncryptedTableServerSideReadException if the table has an encryption key ID
+   */
+  public void rejectEncryptedTableServerSideRead(
+      TableIdentifier tableIdentifier, String operation) {
+    Table table = getCatalog().loadTable(tableIdentifier);
+    rejectEncryptedTableServerSideRead(tableIdentifier, table, operation);
+  }
+
+  private void rejectEncryptedTableServerSideRead(
+      TableIdentifier tableIdentifier, Table table, String operation) {
+    String keyId = table.properties().get(TableProperties.ENCRYPTION_TABLE_KEY);
+    if (keyId == null) {
+      return;
+    }
+
+    String decisionId = UUID.randomUUID().toString();
+    LOG.warn(
+        "Rejected encrypted table server-side file read decisionId={} actor={} catalog={} "
+            + "operation={} table={} keyId={} reason={} outcome=DENIED",
+        decisionId,
+        PrincipalUtils.getCurrentUserName(),
+        catalogCredentialManager.catalogName(),
+        operation,
+        tableIdentifier,
+        keyId,
+        ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED);
+    throw new EncryptedTableServerSideReadException(
+        "Server-side encrypted table file read is unsupported: decisionId=%s, reason=%s, "
+            + "operation=%s, table=%s, keyId=%s",
+        decisionId, ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED, operation, tableIdentifier, keyId);
   }
 
   /**

@@ -19,11 +19,13 @@
 package org.apache.gravitino.dto.requests;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.dto.policy.PolicyContentDTO;
 import org.apache.gravitino.json.JsonUtils;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -71,5 +73,45 @@ public class TestPolicyCreateRequest {
 
     Exception e = Assertions.assertThrows(IllegalArgumentException.class, request::validate);
     Assertions.assertEquals("supportedObjectTypes cannot be empty", e.getMessage());
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicyCreateRequestSerDe() throws JsonProcessingException {
+    PolicyContentDTO.IcebergEncryptionContentDTO content =
+        PolicyContentDTO.IcebergEncryptionContentDTO.builder()
+            .withSchemaVersion(1)
+            .withTag("PII")
+            .withAllowedKeyIds(ImmutableList.of("key-a"))
+            .withEnforcement(IcebergEncryptionContent.Enforcement.REPORT)
+            .build();
+    PolicyCreateRequest request =
+        new PolicyCreateRequest(
+            "iceberg-encryption", "system_iceberg_encryption", null, true, content);
+
+    String serialized = JsonUtils.objectMapper().writeValueAsString(request);
+    PolicyCreateRequest deserialized =
+        JsonUtils.objectMapper().readValue(serialized, PolicyCreateRequest.class);
+
+    Assertions.assertEquals(request, deserialized);
+    Assertions.assertInstanceOf(
+        PolicyContentDTO.IcebergEncryptionContentDTO.class, deserialized.getPolicyContent());
+    Assertions.assertDoesNotThrow(deserialized::validate);
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicyCreateRequestRejectsDuplicateKeys() {
+    PolicyContentDTO.IcebergEncryptionContentDTO content =
+        PolicyContentDTO.IcebergEncryptionContentDTO.builder()
+            .withSchemaVersion(1)
+            .withTag("PII")
+            .withAllowedKeyIds(ImmutableList.of("key-a", "key-a"))
+            .build();
+    PolicyCreateRequest request =
+        new PolicyCreateRequest(
+            "iceberg-encryption", "system_iceberg_encryption", null, true, content);
+
+    IllegalArgumentException exception =
+        Assertions.assertThrows(IllegalArgumentException.class, request::validate);
+    Assertions.assertTrue(exception.getMessage().contains("duplicate"));
   }
 }

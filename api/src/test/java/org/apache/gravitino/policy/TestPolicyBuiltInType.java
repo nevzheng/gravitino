@@ -29,6 +29,9 @@ public class TestPolicyBuiltInType {
     Assertions.assertEquals(
         Policy.BuiltInType.ICEBERG_COMPACTION,
         Policy.BuiltInType.fromPolicyType("system_iceberg_compaction"));
+    Assertions.assertEquals(
+        Policy.BuiltInType.ICEBERG_ENCRYPTION,
+        Policy.BuiltInType.fromPolicyType("system_iceberg_encryption"));
   }
 
   @Test
@@ -44,11 +47,15 @@ public class TestPolicyBuiltInType {
   void testBuiltInTypePolicyTypeValue() {
     Assertions.assertEquals(
         "system_iceberg_compaction", Policy.BuiltInType.ICEBERG_COMPACTION.policyType());
+    Assertions.assertEquals(
+        "system_iceberg_encryption", Policy.BuiltInType.ICEBERG_ENCRYPTION.policyType());
   }
 
   @Test
   void testBuiltInTypeContentClass() {
     Assertions.assertEquals(
         IcebergDataCompactionContent.class, Policy.BuiltInType.ICEBERG_COMPACTION.contentClass());
+    Assertions.assertEquals(
+        IcebergEncryptionContent.class, Policy.BuiltInType.ICEBERG_ENCRYPTION.contentClass());
   }
 }

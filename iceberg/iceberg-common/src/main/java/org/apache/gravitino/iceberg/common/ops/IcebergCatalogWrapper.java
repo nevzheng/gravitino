@@ -24,11 +24,13 @@ import java.sql.DriverManager;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.catalog.hadoop.fs.FileSystemUtils;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergCatalogBackend;
+import org.apache.gravitino.exceptions.EncryptionKeyIdImmutableException;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.common.cache.SupportsMetadataLocation;
 import org.apache.gravitino.iceberg.common.cache.TableMetadataCache;
@@ -38,7 +40,9 @@ import org.apache.gravitino.utils.IsolatedClassLoader;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -204,6 +208,7 @@ public class IcebergCatalogWrapper implements AutoCloseable {
   }
 
   public LoadTableResponse registerTable(Namespace namespace, RegisterTableRequest request) {
+    rejectEncryptionKeyIdRegistrationOverwrite(namespace, request);
     return CatalogHandlers.registerTable(getCatalog(), namespace, request);
   }
 
@@ -321,6 +326,7 @@ public class IcebergCatalogWrapper implements AutoCloseable {
 
   public LoadTableResponse updateTable(
       TableIdentifier tableIdentifier, UpdateTableRequest updateTableRequest) {
+    rejectEncryptionKeyIdUpdate(tableIdentifier, updateTableRequest);
     getMetadataCache().invalidate(tableIdentifier);
     LoadTableResponse loadTableResponse =
         CatalogHandlers.updateTable(getCatalog(), tableIdentifier, updateTableRequest);
@@ -328,6 +334,101 @@ public class IcebergCatalogWrapper implements AutoCloseable {
       getMetadataCache().updateTableMetadata(tableIdentifier, loadTableResponse.tableMetadata());
     }
     return loadTableResponse;
+  }
+
+  /**
+   * Rejects property updates that touch the create-time-only Iceberg encryption key ID.
+   *
+   * @param tableIdentifier table being updated
+   * @param updateTableRequest requested metadata updates
+   */
+  protected void rejectEncryptionKeyIdUpdate(
+      TableIdentifier tableIdentifier, UpdateTableRequest updateTableRequest) {
+    Catalog loadedCatalog = getCatalog();
+    if (!loadedCatalog.tableExists(tableIdentifier)) {
+      return;
+    }
+
+    String currentKeyId =
+        loadedCatalog
+            .loadTable(tableIdentifier)
+            .properties()
+            .get(TableProperties.ENCRYPTION_TABLE_KEY);
+    if (!touchesEncryptionKeyId(updateTableRequest)) {
+      return;
+    }
+
+    String decisionId = UUID.randomUUID().toString();
+    LOG.warn(
+        "Rejected immutable Iceberg encryption key ID update decisionId={} catalog={} table={} "
+            + "currentKeyId={} reason=KEY_ID_IMMUTABLE outcome=DENIED",
+        decisionId,
+        loadedCatalog.name(),
+        tableIdentifier,
+        currentKeyId == null ? "<unset>" : currentKeyId);
+    throw new EncryptionKeyIdImmutableException(
+        "Cannot modify or remove encryption.key-id after table creation for table %s: "
+            + "decisionId=%s, reason=KEY_ID_IMMUTABLE",
+        tableIdentifier, decisionId);
+  }
+
+  /**
+   * Rejects registration overwrite for an existing encrypted Iceberg table.
+   *
+   * @param namespace table namespace
+   * @param request registration request
+   */
+  protected void rejectEncryptionKeyIdRegistrationOverwrite(
+      Namespace namespace, RegisterTableRequest request) {
+    if (!request.overwrite()) {
+      return;
+    }
+
+    TableIdentifier tableIdentifier = TableIdentifier.of(namespace, request.name());
+    Catalog loadedCatalog = getCatalog();
+    if (!loadedCatalog.tableExists(tableIdentifier)) {
+      return;
+    }
+
+    String currentKeyId =
+        loadedCatalog
+            .loadTable(tableIdentifier)
+            .properties()
+            .get(TableProperties.ENCRYPTION_TABLE_KEY);
+    if (currentKeyId == null) {
+      return;
+    }
+
+    String decisionId = UUID.randomUUID().toString();
+    LOG.warn(
+        "Rejected encrypted Iceberg table registration overwrite decisionId={} catalog={} "
+            + "table={} currentKeyId={} reason=KEY_ID_IMMUTABLE outcome=DENIED",
+        decisionId,
+        loadedCatalog.name(),
+        tableIdentifier,
+        currentKeyId);
+    throw new EncryptionKeyIdImmutableException(
+        "Cannot overwrite registration for encrypted table %s: decisionId=%s, "
+            + "reason=KEY_ID_IMMUTABLE",
+        tableIdentifier, decisionId);
+  }
+
+  private boolean touchesEncryptionKeyId(UpdateTableRequest updateTableRequest) {
+    for (MetadataUpdate update : updateTableRequest.updates()) {
+      if (update instanceof MetadataUpdate.SetProperties
+          && ((MetadataUpdate.SetProperties) update)
+              .updated()
+              .containsKey(TableProperties.ENCRYPTION_TABLE_KEY)) {
+        return true;
+      }
+      if (update instanceof MetadataUpdate.RemoveProperties
+          && ((MetadataUpdate.RemoveProperties) update)
+              .removed()
+              .contains(TableProperties.ENCRYPTION_TABLE_KEY)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public LoadTableResponse updateTable(IcebergTableChange icebergTableChange) {

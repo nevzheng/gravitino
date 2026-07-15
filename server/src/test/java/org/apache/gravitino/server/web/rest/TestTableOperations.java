@@ -71,6 +71,7 @@ import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.TableResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.EncryptionPolicyViolationException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
@@ -335,6 +336,26 @@ public class TestTableOperations extends BaseOperationsTest {
     Assertions.assertEquals(ErrorConstants.ALREADY_EXISTS_CODE, errorResp2.getCode());
     Assertions.assertEquals(
         TableAlreadyExistsException.class.getSimpleName(), errorResp2.getType());
+
+    // Test governed encryption denial remains a typed client error
+    doThrow(new EncryptionPolicyViolationException("mock policy denial"))
+        .when(dispatcher)
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+
+    Response policyDenialResp =
+        target(tablePath(metalake, catalog, schema))
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .post(Entity.entity(req, MediaType.APPLICATION_JSON_TYPE));
+
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), policyDenialResp.getStatus());
+
+    ErrorResponse policyDenialError = policyDenialResp.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.ILLEGAL_ARGUMENTS_CODE, policyDenialError.getCode());
+    Assertions.assertEquals(
+        EncryptionPolicyViolationException.class.getSimpleName(), policyDenialError.getType());
+    Assertions.assertTrue(policyDenialError.getMessage().contains("mock policy denial"));
 
     // Test throw RuntimeException
     doThrow(new RuntimeException("mock error"))

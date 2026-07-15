@@ -70,6 +70,8 @@ paths:
             examples:
               PolicyCreate:
                 $ref: "#/components/examples/PolicyCreate"
+              IcebergEncryptionPolicyCreate:
+                $ref: "#/components/examples/IcebergEncryptionPolicyCreate"
 
       responses:
         "200":
@@ -415,6 +417,70 @@ components:
                 rule1: "rule1"
                 rule2: 123
 
+    IcebergEncryptionPolicyContent:
+      type: object
+      description: Content for the built-in policy that governs Iceberg table encryption.
+      required:
+        - schemaVersion
+        - tag
+      properties:
+        schemaVersion:
+          type: integer
+          format: int32
+          description: The version of this policy content schema.
+          enum:
+            - 1
+        tag:
+          type: string
+          description: The exact, case-sensitive tag that makes the policy applicable.
+          minLength: 1
+          pattern: '.*\S.*'
+        required:
+          type: boolean
+          description: Whether matching tables must declare an encryption key ID.
+          default: true
+        allowedKeyIds:
+          type: array
+          description: >-
+            Exact, case-sensitive key IDs that matching tables may declare. At least one is required
+            when encryption is required.
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            pattern: '.*\S.*'
+        enforcement:
+          type: string
+          description: Whether a violation is reported or causes table creation to be denied.
+          default: report
+          enum:
+            - report
+            - deny-create
+      oneOf:
+        - title: Encryption required
+          required:
+            - allowedKeyIds
+          properties:
+            required:
+              enum:
+                - true
+            allowedKeyIds:
+              minItems: 1
+        - title: Encryption optional
+          required:
+            - required
+          properties:
+            required:
+              enum:
+                - false
+      example:
+        schemaVersion: 1
+        tag: PII
+        required: true
+        allowedKeyIds:
+          - customer-pii-v1
+        enforcement: deny-create
+
     PolicyBase:
       type: object
       description: A basic policy without content
@@ -452,18 +518,39 @@ components:
           required:
             - content
           properties:
+            policyType:
+              type: string
+              enum:
+                - custom
             content:
               $ref: '#/components/schemas/CustomPolicyContent'
 
+    IcebergEncryptionPolicy:
+      description: A policy with typed Iceberg encryption content.
+      allOf:
+        - $ref: '#/components/schemas/PolicyBase'
+        - type: object
+          required:
+            - content
+          properties:
+            policyType:
+              type: string
+              enum:
+                - system_iceberg_encryption
+            content:
+              $ref: '#/components/schemas/IcebergEncryptionPolicyContent'
+
     Policy:
       type: object
-      description: A basic policy without content
+      description: A policy whose content is determined by its policy type.
       oneOf:
         - $ref: '#/components/schemas/CustomPolicy'
+        - $ref: '#/components/schemas/IcebergEncryptionPolicy'
       discriminator:
         propertyName: policyType
         mapping:
           custom: '#/components/schemas/CustomPolicy'
+          system_iceberg_encryption: '#/components/schemas/IcebergEncryptionPolicy'
 
     PolicyListResponse:
       type: object
@@ -529,18 +616,39 @@ components:
           required:
             - content
           properties:
+            policyType:
+              type: string
+              enum:
+                - custom
             content:
               $ref: '#/components/schemas/CustomPolicyContent'
+
+    IcebergEncryptionPolicyCreateRequest:
+      description: A request to create a policy with typed Iceberg encryption content.
+      allOf:
+        - $ref: '#/components/schemas/PolicyCreateRequestBase'
+        - type: object
+          required:
+            - content
+          properties:
+            policyType:
+              type: string
+              enum:
+                - system_iceberg_encryption
+            content:
+              $ref: '#/components/schemas/IcebergEncryptionPolicyContent'
 
     PolicyCreateRequest:
       description: A request to create a policy.
       type: object
       oneOf:
         - $ref: '#/components/schemas/CustomPolicyCreateRequest'
+        - $ref: '#/components/schemas/IcebergEncryptionPolicyCreateRequest'
       discriminator:
         propertyName: policyType
         mapping:
           custom: '#/components/schemas/CustomPolicyCreateRequest'
+          system_iceberg_encryption: '#/components/schemas/IcebergEncryptionPolicyCreateRequest'
 
 
     PolicyUpdatesRequest:
@@ -608,12 +716,11 @@ components:
         "newComment": "This is my new policy comment"
       }
 
-    UpdatePolicyContentRequest:
+    UpdatePolicyContentRequestBase:
       type: object
       required:
         - "@type"
         - policyType
-        - newContent
       properties:
         "@type":
           type: string
@@ -622,15 +729,48 @@ components:
         policyType:
           type: string
           description: The type of the policy
-        newContent:
-          type: object
-          description: The new content of the policy, its structure depends on the 'policyType'.
-          oneOf:
-              - $ref: '#/components/schemas/CustomPolicyContent'
-          discriminator:
-            propertyName: policyType
-            mapping:
-              custom: '#/components/schemas/CustomPolicyContent'
+
+    UpdateCustomPolicyContentRequest:
+      description: A request to replace custom policy content.
+      allOf:
+        - $ref: '#/components/schemas/UpdatePolicyContentRequestBase'
+        - type: object
+          required:
+            - newContent
+          properties:
+            policyType:
+              type: string
+              enum:
+                - custom
+            newContent:
+              $ref: '#/components/schemas/CustomPolicyContent'
+
+    UpdateIcebergEncryptionPolicyContentRequest:
+      description: A request to replace typed Iceberg encryption policy content.
+      allOf:
+        - $ref: '#/components/schemas/UpdatePolicyContentRequestBase'
+        - type: object
+          required:
+            - newContent
+          properties:
+            policyType:
+              type: string
+              enum:
+                - system_iceberg_encryption
+            newContent:
+              $ref: '#/components/schemas/IcebergEncryptionPolicyContent'
+
+    UpdatePolicyContentRequest:
+      type: object
+      description: A request to replace policy content.
+      oneOf:
+        - $ref: '#/components/schemas/UpdateCustomPolicyContentRequest'
+        - $ref: '#/components/schemas/UpdateIcebergEncryptionPolicyContentRequest'
+      discriminator:
+        propertyName: policyType
+        mapping:
+          custom: '#/components/schemas/UpdateCustomPolicyContentRequest'
+          system_iceberg_encryption: '#/components/schemas/UpdateIcebergEncryptionPolicyContentRequest'
       example: {
         "@type": "updateContent",
         "policyType": "custom",
@@ -760,6 +900,20 @@ components:
           }
         }
       }
+
+    IcebergEncryptionPolicyCreate:
+      value:
+        name: customer_data_encryption
+        comment: Require an approved key for PII tables
+        policyType: system_iceberg_encryption
+        enabled: true
+        content:
+          schemaVersion: 1
+          tag: PII
+          required: true
+          allowedKeyIds:
+            - customer-pii-v1
+          enforcement: deny-create
 
     PolicyAssociate:
       value: {

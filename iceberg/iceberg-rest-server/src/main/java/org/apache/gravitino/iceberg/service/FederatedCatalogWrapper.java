@@ -121,12 +121,14 @@ public class FederatedCatalogWrapper extends CatalogWrapperForREST {
   @Override
   public LoadTableResponse registerTable(
       Namespace namespace, RegisterTableRequest request, boolean requestCredential) {
+    rejectEncryptionKeyIdRegistrationOverwrite(namespace, request);
     return registerTableInternal(namespace, request);
   }
 
   @Override
   public LoadTableResponse updateTable(
       TableIdentifier tableIdentifier, UpdateTableRequest updateTableRequest) {
+    rejectEncryptionKeyIdUpdate(tableIdentifier, updateTableRequest);
     return tableUpdateInternal(tableIdentifier, updateTableRequest);
   }
 

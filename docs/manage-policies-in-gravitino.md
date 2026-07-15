@@ -111,6 +111,11 @@ Policy policy = client.createPolicy(
 
 For the built-in `system_iceberg_compaction` policy content, field definitions, and examples, see [Iceberg compaction policy](./iceberg-compaction-policy.md).
 
+### Experimental Governed Iceberg Encryption Policy
+
+For the `system_iceberg_encryption` proof of concept, including REST and Spark examples, see
+[Governed Iceberg encryption POC](./governed-iceberg-encryption-poc.md).
+
 ### List Policies
 
 List all the policy names as well as policy objects in a metalake in Gravitino.

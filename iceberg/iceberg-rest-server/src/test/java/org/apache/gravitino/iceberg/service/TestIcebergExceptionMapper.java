@@ -20,6 +20,8 @@ package org.apache.gravitino.iceberg.service;
 
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.exceptions.EncryptedTableServerSideReadException;
+import org.apache.gravitino.exceptions.EncryptionKeyIdImmutableException;
 import org.apache.gravitino.exceptions.TokenExpiredException;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -47,6 +49,8 @@ public class TestIcebergExceptionMapper {
   @Test
   public void testIcebergExceptionMapper() {
     checkExceptionStatus(new IllegalArgumentException(""), 400);
+    checkExceptionStatus(new EncryptedTableServerSideReadException("unsupported"), 400);
+    checkExceptionStatus(new EncryptionKeyIdImmutableException("immutable"), 400);
     checkExceptionStatus(new ValidationException(""), 400);
     checkExceptionStatus(new NamespaceNotEmptyException(""), 409);
     checkExceptionStatus(new NotAuthorizedException(""), 401);

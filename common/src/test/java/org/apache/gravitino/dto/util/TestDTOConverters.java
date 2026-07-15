@@ -22,6 +22,7 @@ package org.apache.gravitino.dto.util;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import org.apache.gravitino.dto.policy.PolicyContentDTO;
 import org.apache.gravitino.dto.rel.expressions.LiteralDTO;
 import org.apache.gravitino.dto.rel.partitioning.ListPartitioningDTO;
 import org.apache.gravitino.dto.rel.partitioning.RangePartitioningDTO;
@@ -29,6 +30,9 @@ import org.apache.gravitino.dto.rel.partitions.IdentityPartitionDTO;
 import org.apache.gravitino.dto.rel.partitions.ListPartitionDTO;
 import org.apache.gravitino.dto.rel.partitions.PartitionDTO;
 import org.apache.gravitino.dto.rel.partitions.RangePartitionDTO;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
+import org.apache.gravitino.policy.PolicyContent;
+import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.rel.expressions.literals.Literal;
 import org.apache.gravitino.rel.expressions.literals.Literals;
 import org.apache.gravitino.rel.expressions.transforms.Transform;
@@ -245,5 +249,22 @@ public class TestDTOConverters {
     Assertions.assertEquals(
         Types.StringType.get().simpleString(), listPartitionAssignments[0].lists()[0][0].value());
     Assertions.assertEquals(properties, listPartitionAssignments[0].properties());
+  }
+
+  @Test
+  void testIcebergEncryptionPolicyContentConvert() {
+    PolicyContent content =
+        PolicyContents.icebergEncryption(
+            1,
+            "PII",
+            true,
+            Arrays.asList("key-A", "key-a"),
+            IcebergEncryptionContent.Enforcement.DENY_CREATE);
+
+    PolicyContentDTO dto = DTOConverters.toDTO(content);
+    PolicyContent converted = DTOConverters.fromDTO(dto);
+
+    Assertions.assertInstanceOf(PolicyContentDTO.IcebergEncryptionContentDTO.class, dto);
+    Assertions.assertEquals(content, converted);
   }
 }

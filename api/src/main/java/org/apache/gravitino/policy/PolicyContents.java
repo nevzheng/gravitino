@@ -19,6 +19,7 @@
 package org.apache.gravitino.policy;
 
 import com.google.common.collect.ImmutableSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -101,6 +102,38 @@ public class PolicyContents {
         deleteFileNumberWeight,
         maxPartitionNum,
         rewriteOptions);
+  }
+
+  /**
+   * Creates an Iceberg encryption policy content with default requirement and enforcement values.
+   *
+   * @param schemaVersion policy content schema version
+   * @param tag governed tag
+   * @param allowedKeyIds allowed key identifiers
+   * @return Iceberg encryption policy content
+   */
+  public static PolicyContent icebergEncryption(
+      int schemaVersion, String tag, List<String> allowedKeyIds) {
+    return icebergEncryption(schemaVersion, tag, null, allowedKeyIds, null);
+  }
+
+  /**
+   * Creates an Iceberg encryption policy content.
+   *
+   * @param schemaVersion policy content schema version
+   * @param tag governed tag
+   * @param required whether encryption is required; {@code null} uses the default
+   * @param allowedKeyIds allowed key identifiers
+   * @param enforcement enforcement behavior; {@code null} uses the default
+   * @return Iceberg encryption policy content
+   */
+  public static PolicyContent icebergEncryption(
+      int schemaVersion,
+      String tag,
+      Boolean required,
+      List<String> allowedKeyIds,
+      IcebergEncryptionContent.Enforcement enforcement) {
+    return new IcebergEncryptionContent(schemaVersion, tag, required, allowedKeyIds, enforcement);
   }
 
   private PolicyContents() {}

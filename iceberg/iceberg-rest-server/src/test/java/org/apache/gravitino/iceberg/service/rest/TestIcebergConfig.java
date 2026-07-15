@@ -25,6 +25,7 @@ import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -72,20 +73,26 @@ public class TestIcebergConfig extends IcebergTestBase {
     Assertions.assertEquals(MediaType.APPLICATION_JSON_TYPE, resp.getMediaType());
     ConfigResponse response = resp.readEntity(ConfigResponse.class);
     Map<String, String> expectedConfig =
-        ImmutableMap.of(
-            "prefix",
-            warehouseName,
-            IcebergConstants.IO_IMPL,
-            "org.apache.iceberg.aws.s3.S3FileIO",
-            IcebergConstants.ICEBERG_S3_ENDPOINT,
-            "https://s3-endpoint.example.com",
-            IcebergConstants.AWS_S3_REGION,
-            "us-west-2",
-            IcebergConstants.ICEBERG_OSS_ENDPOINT,
-            "https://oss-endpoint.example.com",
-            IcebergConstants.ICEBERG_S3_PATH_STYLE_ACCESS,
-            "true");
+        ImmutableMap.<String, String>builder()
+            .put("prefix", warehouseName)
+            .put(IcebergConstants.IO_IMPL, "org.apache.iceberg.aws.s3.S3FileIO")
+            .put(IcebergConstants.ICEBERG_S3_ENDPOINT, "https://s3-endpoint.example.com")
+            .put(IcebergConstants.AWS_S3_REGION, "us-west-2")
+            .put(IcebergConstants.ICEBERG_OSS_ENDPOINT, "https://oss-endpoint.example.com")
+            .put(IcebergConstants.ICEBERG_S3_PATH_STYLE_ACCESS, "true")
+            .put(CatalogProperties.ENCRYPTION_KMS_IMPL, "example.KmsClient")
+            .put(
+                IcebergRestTestUtil.TEST_KMS_ENDPOINT_PROPERTY,
+                IcebergRestTestUtil.TEST_KMS_ENDPOINT)
+            .put(
+                IcebergRestTestUtil.TEST_KMS_TRANSIT_MOUNT_PROPERTY,
+                IcebergRestTestUtil.TEST_KMS_TRANSIT_MOUNT)
+            .build();
     Assertions.assertEquals(expectedConfig, response.defaults());
+    Assertions.assertFalse(
+        response.defaults().containsKey(IcebergRestTestUtil.TEST_KMS_TOKEN_FILE_PROPERTY));
+    Assertions.assertFalse(
+        response.defaults().containsValue(IcebergRestTestUtil.TEST_UNSAFE_KMS_TOKEN));
     Assertions.assertEquals(0, response.overrides().size());
   }
 

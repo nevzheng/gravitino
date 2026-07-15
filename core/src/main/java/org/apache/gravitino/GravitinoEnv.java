@@ -37,6 +37,7 @@ import org.apache.gravitino.catalog.FilesetOperationDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.FunctionNormalizeDispatcher;
 import org.apache.gravitino.catalog.FunctionOperationDispatcher;
+import org.apache.gravitino.catalog.IcebergEncryptionPolicyTableDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.ModelNormalizeDispatcher;
 import org.apache.gravitino.catalog.ModelOperationDispatcher;
@@ -702,8 +703,14 @@ public class GravitinoEnv {
     TableOperationDispatcher tableOperationDispatcher =
         new TableOperationDispatcher(catalogManager, entityStore, idGenerator);
     this.internalTableDispatcher = tableOperationDispatcher;
+    IcebergEncryptionPolicyTableDispatcher encryptionPolicyTableDispatcher =
+        new IcebergEncryptionPolicyTableDispatcher(
+            tableOperationDispatcher,
+            catalogManager,
+            () -> this.tagDispatcher,
+            () -> this.policyDispatcher);
     TableNormalizeDispatcher tableNormalizeDispatcher =
-        new TableNormalizeDispatcher(tableOperationDispatcher, catalogManager);
+        new TableNormalizeDispatcher(encryptionPolicyTableDispatcher, catalogManager);
     TableOperationDispatcher internalTableOperationDispatcher =
         new TableOperationDispatcher(
             catalogManager, entityStore, idGenerator, () -> internalSchemaDispatcher);

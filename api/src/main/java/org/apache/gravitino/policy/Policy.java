@@ -43,6 +43,9 @@ public interface Policy extends Auditable {
     ICEBERG_COMPACTION(
         BUILT_IN_TYPE_PREFIX + "iceberg_compaction", IcebergDataCompactionContent.class),
 
+    /** Built-in policy type for governing encryption of Iceberg tables. */
+    ICEBERG_ENCRYPTION(BUILT_IN_TYPE_PREFIX + "iceberg_encryption", IcebergEncryptionContent.class),
+
     /**
      * Custom policy type. "custom" is a fixed string that indicates the policy is a non-built-in
      * type.

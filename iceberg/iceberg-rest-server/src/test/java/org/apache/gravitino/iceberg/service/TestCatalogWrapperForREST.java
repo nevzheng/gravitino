@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.credential.CredentialConstants;
 import org.apache.gravitino.credential.CredentialPrivilege;
+import org.apache.gravitino.exceptions.EncryptedTableServerSideReadException;
+import org.apache.gravitino.exceptions.EncryptionKeyIdImmutableException;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.cache.LocalScanPlanCache;
 import org.apache.gravitino.iceberg.service.extension.DummyCredentialProvider;
@@ -59,6 +61,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.Catalog;
@@ -93,6 +96,10 @@ import org.junit.jupiter.api.Test;
 public class TestCatalogWrapperForREST {
 
   private static final AtomicBoolean CONSTRUCTION_IN_PROGRESS = new AtomicBoolean(false);
+  private static final String OPENBAO_KMS_ENDPOINT_PROPERTY = "encryption.kms.openbao.endpoint";
+  private static final String OPENBAO_KMS_TOKEN_FILE_PROPERTY = "encryption.kms.openbao.token-file";
+  private static final String OPENBAO_KMS_TRANSIT_MOUNT_PROPERTY =
+      "encryption.kms.openbao.transit-mount";
 
   @Test
   void testCheckPropertiesForCompatibility() {
@@ -420,6 +427,39 @@ public class TestCatalogWrapperForREST {
 
     Assertions.assertEquals(1, response.credentials().size());
     Assertions.assertEquals("s3://bucket/wh/db/tbl", response.credentials().get(0).prefix());
+  }
+
+  @Test
+  void testPlanTableScanRejectsEncryptedTableBeforeReadingFiles() {
+    Catalog catalog = mock(Catalog.class);
+    Table table = mock(Table.class);
+    TableIdentifier tableId = TableIdentifier.of("db", "encrypted");
+    when(catalog.loadTable(tableId)).thenReturn(table);
+    when(table.properties())
+        .thenReturn(ImmutableMap.of(TableProperties.ENCRYPTION_TABLE_KEY, "customer-pii-v1"));
+    IcebergConfig config =
+        new IcebergConfig(
+            ImmutableMap.of(
+                IcebergConstants.CATALOG_BACKEND,
+                "memory",
+                IcebergConstants.WAREHOUSE,
+                "/tmp/warehouse"));
+    CatalogWrapperForREST wrapper = new StaticLocalCatalogWrapperForREST("test", config, catalog);
+
+    EncryptedTableServerSideReadException exception =
+        Assertions.assertThrows(
+            EncryptedTableServerSideReadException.class,
+            () -> wrapper.planTableScan(tableId, PlanTableScanRequest.builder().build()));
+
+    Assertions.assertTrue(
+        exception.getMessage().contains("reason=ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED"),
+        exception.getMessage());
+    Assertions.assertTrue(
+        exception.getMessage().contains("operation=PLAN_TABLE_SCAN"), exception.getMessage());
+    Assertions.assertTrue(exception.getMessage().contains("table=db.encrypted"));
+    Assertions.assertTrue(exception.getMessage().contains("keyId=customer-pii-v1"));
+    Assertions.assertTrue(exception.getMessage().contains("decisionId="));
+    verify(table, never()).newScan();
   }
 
   @Test
@@ -904,6 +944,30 @@ public class TestCatalogWrapperForREST {
   }
 
   @Test
+  void testCatalogConfigToClientsIncludesOnlySafeKmsConfiguration() {
+    String unsafeTokenProperty = "encryption.kms.openbao.token";
+    Map<String, String> configToClients =
+        CatalogWrapperForREST.filterCatalogConfigForClients(
+            ImmutableMap.<String, String>builder()
+                .put(CatalogProperties.ENCRYPTION_KMS_IMPL, "example.KmsClient")
+                .put(CatalogProperties.ENCRYPTION_KMS_TYPE, "custom")
+                .put(OPENBAO_KMS_ENDPOINT_PROPERTY, "http://openbao:8200")
+                .put(OPENBAO_KMS_TOKEN_FILE_PROPERTY, "/run/secrets/kms/token")
+                .put(OPENBAO_KMS_TRANSIT_MOUNT_PROPERTY, "transit")
+                .put(unsafeTokenProperty, "must-not-leak")
+                .build());
+
+    Assertions.assertEquals("example.KmsClient", configToClients.get("encryption.kms-impl"));
+    Assertions.assertEquals("custom", configToClients.get("encryption.kms-type"));
+    Assertions.assertEquals(
+        "http://openbao:8200", configToClients.get(OPENBAO_KMS_ENDPOINT_PROPERTY));
+    Assertions.assertFalse(configToClients.containsKey(OPENBAO_KMS_TOKEN_FILE_PROPERTY));
+    Assertions.assertEquals("transit", configToClients.get(OPENBAO_KMS_TRANSIT_MOUNT_PROPERTY));
+    Assertions.assertFalse(configToClients.containsKey(unsafeTokenProperty));
+    Assertions.assertFalse(configToClients.containsValue("must-not-leak"));
+  }
+
+  @Test
   void testNonRestCatalogClientConfig() {
     Map<String, String> configToClients =
         CatalogWrapperForREST.filterCatalogConfigForClients(
@@ -1008,6 +1072,47 @@ public class TestCatalogWrapperForREST {
 
     verify(catalog).registerTable(ident, request.metadataLocation(), true);
     verify(catalog).loadTable(ident);
+  }
+
+  @Test
+  void testFederatedEncryptedTableRejectsKeyUpdateAndRegistrationOverwrite() {
+    RESTCatalog catalog = mock(RESTCatalog.class);
+    Table table = mock(Table.class);
+    TableIdentifier ident = TableIdentifier.of("db", "encrypted_tbl");
+    when(catalog.tableExists(ident)).thenReturn(true);
+    when(catalog.loadTable(ident)).thenReturn(table);
+    when(table.properties())
+        .thenReturn(ImmutableMap.of(TableProperties.ENCRYPTION_TABLE_KEY, "customer-pii-v1"));
+
+    IcebergConfig config =
+        new IcebergConfig(
+            ImmutableMap.of(
+                IcebergConstants.CATALOG_BACKEND,
+                "memory",
+                IcebergConstants.WAREHOUSE,
+                "/tmp/warehouse"));
+    CatalogWrapperForREST wrapper = new StaticCatalogWrapperForREST("test", config, catalog);
+
+    UpdateTableRequest updateRequest =
+        new UpdateTableRequest(
+            List.of(),
+            List.of(
+                new MetadataUpdate.SetProperties(
+                    Map.of(TableProperties.ENCRYPTION_TABLE_KEY, "replacement-key"))));
+    Assertions.assertThrows(
+        EncryptionKeyIdImmutableException.class, () -> wrapper.updateTable(ident, updateRequest));
+
+    RegisterTableRequest registerRequest =
+        ImmutableRegisterTableRequest.builder()
+            .name(ident.name())
+            .metadataLocation("s3://bucket/replacement.metadata.json")
+            .overwrite(true)
+            .build();
+    Assertions.assertThrows(
+        EncryptionKeyIdImmutableException.class,
+        () -> wrapper.registerTable(ident.namespace(), registerRequest, false));
+
+    verify(catalog, never()).registerTable(any(), anyString(), anyBoolean());
   }
 
   @Test
@@ -1357,6 +1462,20 @@ public class TestCatalogWrapperForREST {
         throw new AssertionError("Catalog should not be loaded during wrapper construction");
       }
       return super.getCatalog();
+    }
+  }
+
+  private static class StaticLocalCatalogWrapperForREST extends CatalogWrapperForREST {
+    private final Catalog catalog;
+
+    StaticLocalCatalogWrapperForREST(String catalogName, IcebergConfig config, Catalog catalog) {
+      super(catalogName, config);
+      this.catalog = catalog;
+    }
+
+    @Override
+    public Catalog getCatalog() {
+      return catalog;
     }
   }
 

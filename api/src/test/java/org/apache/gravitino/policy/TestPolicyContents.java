@@ -20,7 +20,11 @@
 package org.apache.gravitino.policy;
 
 import com.google.common.collect.ImmutableSet;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.MetadataObject;
 import org.junit.jupiter.api.Assertions;
@@ -117,6 +121,81 @@ public class TestPolicyContents {
     IllegalArgumentException exception =
         Assertions.assertThrows(IllegalArgumentException.class, content::validate);
     Assertions.assertTrue(exception.getMessage().contains("maxPartitionNum"));
+  }
+
+  @Test
+  void testIcebergEncryptionContentUsesDefaultsAndPreservesExactValues() {
+    List<String> allowedKeyIds = new ArrayList<>(Arrays.asList("key-A", "key-a"));
+    IcebergEncryptionContent content =
+        (IcebergEncryptionContent) PolicyContents.icebergEncryption(1, "PII", allowedKeyIds);
+
+    allowedKeyIds.add("mutated-after-construction");
+
+    Assertions.assertEquals(1, content.schemaVersion());
+    Assertions.assertEquals("PII", content.tag());
+    Assertions.assertTrue(content.required());
+    Assertions.assertEquals(Arrays.asList("key-A", "key-a"), content.allowedKeyIds());
+    Assertions.assertEquals(IcebergEncryptionContent.Enforcement.REPORT, content.enforcement());
+    Assertions.assertEquals("report", content.rules().get("enforcement"));
+    Assertions.assertEquals(
+        ImmutableSet.of(MetadataObject.Type.TABLE), content.supportedObjectTypes());
+    Assertions.assertDoesNotThrow(content::validate);
+    Assertions.assertThrows(
+        UnsupportedOperationException.class, () -> content.allowedKeyIds().add("another-key"));
+  }
+
+  @Test
+  void testIcebergEncryptionContentSupportsDenyAndOptionalEncryption() {
+    IcebergEncryptionContent content =
+        (IcebergEncryptionContent)
+            PolicyContents.icebergEncryption(
+                1,
+                "PII",
+                false,
+                Collections.emptyList(),
+                IcebergEncryptionContent.Enforcement.DENY_CREATE);
+
+    Assertions.assertFalse(content.required());
+    Assertions.assertTrue(content.allowedKeyIds().isEmpty());
+    Assertions.assertEquals(
+        IcebergEncryptionContent.Enforcement.DENY_CREATE, content.enforcement());
+    Assertions.assertEquals("deny-create", content.rules().get("enforcement"));
+    Assertions.assertDoesNotThrow(content::validate);
+  }
+
+  @Test
+  void testIcebergEncryptionContentRejectsInvalidContent() {
+    assertInvalidIcebergEncryptionContent(
+        PolicyContents.icebergEncryption(2, "PII", Collections.singletonList("key-a")),
+        "schemaVersion");
+    assertInvalidIcebergEncryptionContent(
+        PolicyContents.icebergEncryption(1, " ", Collections.singletonList("key-a")), "tag");
+    assertInvalidIcebergEncryptionContent(
+        PolicyContents.icebergEncryption(1, "PII", Collections.emptyList()), "allowedKeyIds");
+    assertInvalidIcebergEncryptionContent(
+        PolicyContents.icebergEncryption(1, "PII", Arrays.asList("key-a", " ")), "blanks");
+    assertInvalidIcebergEncryptionContent(
+        PolicyContents.icebergEncryption(1, "PII", Arrays.asList("key-a", "key-a")), "duplicate");
+  }
+
+  @Test
+  void testIcebergEncryptionEnforcementWireValuesAreCaseSensitive() {
+    Assertions.assertEquals(
+        IcebergEncryptionContent.Enforcement.REPORT,
+        IcebergEncryptionContent.Enforcement.fromValue("report"));
+    Assertions.assertEquals(
+        IcebergEncryptionContent.Enforcement.DENY_CREATE,
+        IcebergEncryptionContent.Enforcement.fromValue("deny-create"));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> IcebergEncryptionContent.Enforcement.fromValue("REPORT"));
+  }
+
+  private static void assertInvalidIcebergEncryptionContent(
+      PolicyContent content, String expectedMessage) {
+    IllegalArgumentException exception =
+        Assertions.assertThrows(IllegalArgumentException.class, content::validate);
+    Assertions.assertTrue(exception.getMessage().contains(expectedMessage));
   }
 
   private static Map<String, String> mapOf(String key, String value) {

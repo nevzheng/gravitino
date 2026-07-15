@@ -25,6 +25,8 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 import javax.ws.rs.ext.ExceptionMapper;
 import javax.ws.rs.ext.Provider;
+import org.apache.gravitino.exceptions.EncryptedTableServerSideReadException;
+import org.apache.gravitino.exceptions.EncryptionKeyIdImmutableException;
 import org.apache.gravitino.exceptions.IllegalNameIdentifierException;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.TokenExpiredException;
@@ -57,6 +59,8 @@ public class IcebergExceptionMapper implements ExceptionMapper<Exception> {
   private static final Map<Class<? extends Exception>, Integer> EXCEPTION_ERROR_CODES =
       ImmutableMap.<Class<? extends Exception>, Integer>builder()
           .put(IllegalArgumentException.class, 400)
+          .put(EncryptedTableServerSideReadException.class, 400)
+          .put(EncryptionKeyIdImmutableException.class, 400)
           .put(ValidationException.class, 400)
           .put(IllegalNameIdentifierException.class, 400)
           .put(NamespaceNotEmptyException.class, 409)

@@ -1,0 +1,137 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+name: gravitino-governed-encryption-demo
+
+services:
+  openbao-kms:
+    image: ${TRANSIT_SERVER_IMAGE:-openbao/openbao:2.6.0}
+    command:
+      - server
+      - -dev
+      - -dev-no-store-token
+      - -dev-listen-address=0.0.0.0:8200
+      - -dev-root-token-id=${TRANSIT_ROOT_TOKEN:-gravitino-transit-demo-root}
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "${TRANSIT_HOST_PORT:-18200}:8200"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=-", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  openbao-kms-bootstrap:
+    image: ${TRANSIT_CLI_IMAGE:-openbao/openbao:2.6.0}
+    user: "0:0"
+    environment:
+      BAO_ADDR: http://openbao-kms:8200
+      BAO_TOKEN: ${TRANSIT_ROOT_TOKEN:-gravitino-transit-demo-root}
+      VAULT_ADDR: http://openbao-kms:8200
+      VAULT_TOKEN: ${TRANSIT_ROOT_TOKEN:-gravitino-transit-demo-root}
+    entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
+    volumes:
+      - ../openbao-kms/bootstrap.sh:/bootstrap/bootstrap.sh:ro
+      - ../openbao-kms/transit-policy.hcl:/bootstrap/transit-policy.hcl:ro
+      - kms-client-token:/run/openbao-client
+    depends_on:
+      openbao-kms:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  iceberg-rest:
+    image: gravitino-governed-encryption-iceberg-rest-demo:local
+    build:
+      context: .
+      dockerfile: Dockerfile.iceberg-rest
+    entrypoint: ["/bin/bash", "-lc"]
+    command: ["umask 0002 && exec ./bin/gravitino-iceberg-rest-server.sh run"]
+    ports:
+      - "${ICEBERG_REST_HOST_PORT:-9001}:9001"
+    volumes:
+      - warehouse:/warehouse
+    depends_on:
+      openbao-kms-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9001/iceberg/v1/config"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+    restart: unless-stopped
+
+  gravitino:
+    image: gravitino-governed-encryption-demo:local
+    build:
+      context: .
+      dockerfile: Dockerfile.gravitino
+    ports:
+      - "${GRAVITINO_HOST_PORT:-8090}:8090"
+    volumes:
+      - warehouse:/warehouse
+    depends_on:
+      iceberg-rest:
+        condition: service_healthy
+      openbao-kms-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/api/health/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+    restart: unless-stopped
+
+  spark:
+    image: gravitino-governed-encryption-spark-demo:local
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    command:
+      - /bin/bash
+      - -lc
+      - trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done
+    group_add:
+      - "0"
+    volumes:
+      - kms-client-token:/run/secrets/kms:ro
+      - warehouse:/warehouse
+      - ./:/opt/demo:ro
+    depends_on:
+      gravitino:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/secrets/kms/token"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  kms-client-token:
+    name: gravitino-governed-encryption-kms-token
+  warehouse:
+    name: gravitino-governed-encryption-warehouse

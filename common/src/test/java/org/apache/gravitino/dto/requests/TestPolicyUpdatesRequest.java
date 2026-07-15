@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import org.apache.gravitino.dto.policy.PolicyContentDTO;
 import org.apache.gravitino.json.JsonUtils;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -90,5 +91,33 @@ public class TestPolicyUpdatesRequest {
         JsonUtils.objectMapper().readValue(serJson, PolicyUpdatesRequest.class);
     Assertions.assertEquals(policyUpdatesRequest, deserRequest);
     Assertions.assertEquals(updates, deserRequest.getUpdates());
+  }
+
+  @Test
+  public void testIcebergEncryptionPolicyUpdateRequestSerDe() throws JsonProcessingException {
+    PolicyContentDTO.IcebergEncryptionContentDTO content =
+        PolicyContentDTO.IcebergEncryptionContentDTO.builder()
+            .withSchemaVersion(1)
+            .withTag("PII")
+            .withRequired(true)
+            .withAllowedKeyIds(ImmutableList.of("key-a"))
+            .withEnforcement(IcebergEncryptionContent.Enforcement.DENY_CREATE)
+            .build();
+    PolicyUpdatesRequest request =
+        new PolicyUpdatesRequest(
+            ImmutableList.of(
+                new PolicyUpdateRequest.UpdatePolicyContentRequest(
+                    "system_iceberg_encryption", content)));
+
+    String serialized = JsonUtils.objectMapper().writeValueAsString(request);
+    PolicyUpdatesRequest deserialized =
+        JsonUtils.objectMapper().readValue(serialized, PolicyUpdatesRequest.class);
+
+    Assertions.assertEquals(request, deserialized);
+    PolicyUpdateRequest.UpdatePolicyContentRequest contentUpdate =
+        (PolicyUpdateRequest.UpdatePolicyContentRequest) deserialized.getUpdates().get(0);
+    Assertions.assertInstanceOf(
+        PolicyContentDTO.IcebergEncryptionContentDTO.class, contentUpdate.getNewContent());
+    Assertions.assertDoesNotThrow(deserialized::validate);
   }
 }

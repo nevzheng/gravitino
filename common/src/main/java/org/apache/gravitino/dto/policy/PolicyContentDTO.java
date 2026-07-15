@@ -19,8 +19,10 @@
 package org.apache.gravitino.dto.policy;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.AllArgsConstructor;
@@ -29,6 +31,7 @@ import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.policy.IcebergDataCompactionContent;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
 import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
 
@@ -197,6 +200,105 @@ public interface PolicyContentDTO extends PolicyContent {
           deleteFileNumberWeight(),
           maxPartitionNum(),
           rewriteOptions());
+    }
+  }
+
+  /** Represents a typed Iceberg encryption policy content DTO. */
+  @EqualsAndHashCode
+  @ToString
+  @Builder(setterPrefix = "with")
+  @AllArgsConstructor(access = lombok.AccessLevel.PRIVATE)
+  class IcebergEncryptionContentDTO implements PolicyContentDTO {
+
+    @JsonProperty("schemaVersion")
+    private Integer schemaVersion;
+
+    @JsonProperty("tag")
+    private String tag;
+
+    @JsonProperty("required")
+    private Boolean required;
+
+    @JsonProperty("allowedKeyIds")
+    private List<String> allowedKeyIds;
+
+    @JsonProperty("enforcement")
+    private IcebergEncryptionContent.Enforcement enforcement;
+
+    // Default constructor for Jackson deserialization only.
+    private IcebergEncryptionContentDTO() {}
+
+    /**
+     * Returns the policy content schema version.
+     *
+     * @return schema version, or zero when omitted
+     */
+    public int schemaVersion() {
+      return schemaVersion == null ? 0 : schemaVersion;
+    }
+
+    /**
+     * Returns the governed tag.
+     *
+     * @return governed tag
+     */
+    public String tag() {
+      return tag;
+    }
+
+    /**
+     * Returns whether encryption is required.
+     *
+     * @return {@code true} if encryption is required
+     */
+    public boolean required() {
+      return required == null ? IcebergEncryptionContent.DEFAULT_REQUIRED : required;
+    }
+
+    /**
+     * Returns the allowed key identifiers.
+     *
+     * @return immutable allowed key identifier list
+     */
+    public List<String> allowedKeyIds() {
+      return allowedKeyIds == null
+          ? Collections.emptyList()
+          : Collections.unmodifiableList(new ArrayList<>(allowedKeyIds));
+    }
+
+    /**
+     * Returns the enforcement behavior.
+     *
+     * @return enforcement behavior
+     */
+    public IcebergEncryptionContent.Enforcement enforcement() {
+      return enforcement == null ? IcebergEncryptionContent.DEFAULT_ENFORCEMENT : enforcement;
+    }
+
+    @Override
+    public Set<MetadataObject.Type> supportedObjectTypes() {
+      return toDomainContent().supportedObjectTypes();
+    }
+
+    @Override
+    public Map<String, String> properties() {
+      return toDomainContent().properties();
+    }
+
+    @Override
+    public Map<String, Object> rules() {
+      return toDomainContent().rules();
+    }
+
+    @Override
+    public void validate() throws IllegalArgumentException {
+      PolicyContentDTO.super.validate();
+      toDomainContent().validate();
+    }
+
+    private PolicyContent toDomainContent() {
+      return PolicyContents.icebergEncryption(
+          schemaVersion(), tag(), required(), allowedKeyIds(), enforcement());
     }
   }
 }

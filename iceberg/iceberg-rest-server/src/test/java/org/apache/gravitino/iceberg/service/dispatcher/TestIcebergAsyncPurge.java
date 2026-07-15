@@ -21,6 +21,7 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -34,6 +35,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.exceptions.EncryptedTableServerSideReadException;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
@@ -54,6 +56,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
@@ -96,6 +100,7 @@ class TestIcebergAsyncPurge {
     }
 
     InOrder ordered = inOrder(wrapper, cleanup);
+    ordered.verify(wrapper).rejectEncryptedTableServerSideRead(TABLE, "PURGE_TABLE");
     ordered.verify(wrapper).loadTableMetadata(TABLE);
     ordered.verify(wrapper).dropTable(TABLE);
     ArgumentCaptor<IcebergCleanupJob> captor = ArgumentCaptor.forClass(IcebergCleanupJob.class);
@@ -116,6 +121,7 @@ class TestIcebergAsyncPurge {
 
     tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(false), TABLE, true);
 
+    verify(wrapper).rejectEncryptedTableServerSideRead(TABLE, "PURGE_TABLE");
     verify(wrapper).purgeTable(TABLE);
     verify(cleanup, never()).addJob(any());
   }
@@ -126,6 +132,7 @@ class TestIcebergAsyncPurge {
 
     tableExecutor(wrapper, Optional.empty()).dropTable(context(true), TABLE, true);
 
+    verify(wrapper).rejectEncryptedTableServerSideRead(TABLE, "PURGE_TABLE");
     verify(wrapper).purgeTable(TABLE);
     verify(wrapper, never()).loadTableMetadata(any());
   }
@@ -138,6 +145,34 @@ class TestIcebergAsyncPurge {
     tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(false), TABLE, false);
 
     verify(wrapper).dropTable(TABLE);
+    verify(wrapper, never()).rejectEncryptedTableServerSideRead(any(), any());
+    verify(cleanup, never()).addJob(any());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void testEncryptedTablePurgeRejectedBeforeFileRead(boolean asyncPurge) {
+    CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
+    IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
+    doThrow(
+            new EncryptedTableServerSideReadException(
+                "reason=ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED, operation=PURGE_TABLE"))
+        .when(wrapper)
+        .rejectEncryptedTableServerSideRead(TABLE, "PURGE_TABLE");
+
+    EncryptedTableServerSideReadException exception =
+        Assertions.assertThrows(
+            EncryptedTableServerSideReadException.class,
+            () ->
+                tableExecutor(wrapper, Optional.of(cleanup))
+                    .dropTable(context(asyncPurge), TABLE, true));
+
+    Assertions.assertTrue(
+        exception.getMessage().contains("ENCRYPTED_TABLE_SERVER_READ_UNSUPPORTED"));
+    verify(wrapper).rejectEncryptedTableServerSideRead(TABLE, "PURGE_TABLE");
+    verify(wrapper, never()).purgeTable(any());
+    verify(wrapper, never()).loadTableMetadata(any());
+    verify(wrapper, never()).dropTable(any());
     verify(cleanup, never()).addJob(any());
   }
 

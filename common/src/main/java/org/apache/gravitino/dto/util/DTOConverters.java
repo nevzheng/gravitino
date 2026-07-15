@@ -101,6 +101,7 @@ import org.apache.gravitino.messaging.Topic;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.policy.IcebergDataCompactionContent;
+import org.apache.gravitino.policy.IcebergEncryptionContent;
 import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.rel.Column;
@@ -647,6 +648,17 @@ public class DTOConverters {
           .withDeleteFileNumberWeight(icebergCompactionContent.deleteFileNumberWeight())
           .withMaxPartitionNum(icebergCompactionContent.maxPartitionNum())
           .withRewriteOptions(icebergCompactionContent.rewriteOptions())
+          .build();
+    }
+
+    if (policyContent instanceof IcebergEncryptionContent) {
+      IcebergEncryptionContent icebergEncryptionContent = (IcebergEncryptionContent) policyContent;
+      return PolicyContentDTO.IcebergEncryptionContentDTO.builder()
+          .withSchemaVersion(icebergEncryptionContent.schemaVersion())
+          .withTag(icebergEncryptionContent.tag())
+          .withRequired(icebergEncryptionContent.required())
+          .withAllowedKeyIds(icebergEncryptionContent.allowedKeyIds())
+          .withEnforcement(icebergEncryptionContent.enforcement())
           .build();
     }
 
@@ -1423,6 +1435,17 @@ public class DTOConverters {
           icebergCompactionContentDTO.deleteFileNumberWeight(),
           icebergCompactionContentDTO.maxPartitionNum(),
           icebergCompactionContentDTO.rewriteOptions());
+    }
+
+    if (policyContentDTO instanceof PolicyContentDTO.IcebergEncryptionContentDTO) {
+      PolicyContentDTO.IcebergEncryptionContentDTO icebergEncryptionContentDTO =
+          (PolicyContentDTO.IcebergEncryptionContentDTO) policyContentDTO;
+      return PolicyContents.icebergEncryption(
+          icebergEncryptionContentDTO.schemaVersion(),
+          icebergEncryptionContentDTO.tag(),
+          icebergEncryptionContentDTO.required(),
+          icebergEncryptionContentDTO.allowedKeyIds(),
+          icebergEncryptionContentDTO.enforcement());
     }
 
     throw new IllegalArgumentException(

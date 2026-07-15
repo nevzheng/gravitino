@@ -56,6 +56,7 @@ import org.apache.gravitino.iceberg.service.provider.IcebergConfigProviderFactor
 import org.apache.gravitino.iceberg.service.provider.StaticIcebergConfigProvider;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.EventListenerPlugin;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.rest.RESTUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
@@ -69,6 +70,14 @@ public class IcebergRestTestUtil {
 
   private static final String V_1 = "v1";
   public static final String PREFIX = "prefix_gravitino";
+  public static final String TEST_KMS_ENDPOINT_PROPERTY = "encryption.kms.openbao.endpoint";
+  public static final String TEST_KMS_TOKEN_FILE_PROPERTY = "encryption.kms.openbao.token-file";
+  public static final String TEST_KMS_TRANSIT_MOUNT_PROPERTY =
+      "encryption.kms.openbao.transit-mount";
+  public static final String TEST_KMS_ENDPOINT = "http://openbao.example:8200";
+  public static final String TEST_KMS_TOKEN_FILE = "/run/secrets/kms/token";
+  public static final String TEST_KMS_TRANSIT_MOUNT = "transit";
+  public static final String TEST_UNSAFE_KMS_TOKEN = "must-not-leak";
   public static final String CONFIG_PATH = V_1 + "/config";
   public static final String NAMESPACE_PATH = V_1 + "/namespaces";
   public static final String UPDATE_NAMESPACE_POSTFIX = "properties";
@@ -136,6 +145,21 @@ public class IcebergRestTestUtil {
           String.format(
               "%s.%s", catalogConfigPrefix, IcebergConstants.ICEBERG_S3_PATH_STYLE_ACCESS),
           "true");
+      catalogConf.put(
+          String.format("%s.%s", catalogConfigPrefix, CatalogProperties.ENCRYPTION_KMS_IMPL),
+          "example.KmsClient");
+      catalogConf.put(
+          String.format("%s.%s", catalogConfigPrefix, TEST_KMS_ENDPOINT_PROPERTY),
+          TEST_KMS_ENDPOINT);
+      catalogConf.put(
+          String.format("%s.%s", catalogConfigPrefix, TEST_KMS_TOKEN_FILE_PROPERTY),
+          TEST_KMS_TOKEN_FILE);
+      catalogConf.put(
+          String.format("%s.%s", catalogConfigPrefix, TEST_KMS_TRANSIT_MOUNT_PROPERTY),
+          TEST_KMS_TRANSIT_MOUNT);
+      catalogConf.put(
+          String.format("%s.encryption.kms.openbao.token", catalogConfigPrefix),
+          TEST_UNSAFE_KMS_TOKEN);
       IcebergConfigProvider configProvider = IcebergConfigProviderFactory.create(catalogConf);
       configProvider.initialize(catalogConf);
       // used to override register table interface
