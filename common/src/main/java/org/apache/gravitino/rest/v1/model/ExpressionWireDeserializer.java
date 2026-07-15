@@ -61,6 +61,22 @@ public final class ExpressionWireDeserializer extends JsonDeserializer<ValueExpr
   }
 
   /**
+   * Keeps an absent optional expression member distinct from an explicit JSON {@code null}.
+   *
+   * <p>Jackson's default absent-value implementation delegates to {@link #getNullValue}, which
+   * would turn an omitted {@code defaultValue} into a literal-null default. V1 needs the usual JSON
+   * distinction: an absent member means no default, while an explicit JSON {@code null} means a
+   * literal-null default.
+   *
+   * @param context Jackson deserialization context.
+   * @return {@code null} when the enclosing optional member is absent.
+   */
+  @Override
+  public ValueExpression getAbsentValue(DeserializationContext context) {
+    return null;
+  }
+
+  /**
    * Deserializes a node admitted in an {@code ApplyExpression.arguments} array.
    *
    * <p>A bare JSON boolean is parsed as a raw {@link LiteralValue}. Predicate constants remain
@@ -85,6 +101,17 @@ public final class ExpressionWireDeserializer extends JsonDeserializer<ValueExpr
     @Override
     public ExpressionNode getNullValue(DeserializationContext context) {
       return new LiteralValue(null);
+    }
+
+    /**
+     * Keeps an absent optional expression-node member distinct from an explicit JSON {@code null}.
+     *
+     * @param context Jackson deserialization context.
+     * @return {@code null} when the enclosing optional member is absent.
+     */
+    @Override
+    public ExpressionNode getAbsentValue(DeserializationContext context) {
+      return null;
     }
   }
 

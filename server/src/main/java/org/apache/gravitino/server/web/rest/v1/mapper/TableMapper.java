@@ -97,7 +97,7 @@ public final class TableMapper {
     }
 
     TableOptionsMapper.PublicTableState options =
-        TableOptionsMapper.toPublic(catalogProvider, table.properties());
+        TableOptionsMapper.toPublic(catalogProvider, table.name(), table.properties());
 
     return new TableResource(
         resourceName,

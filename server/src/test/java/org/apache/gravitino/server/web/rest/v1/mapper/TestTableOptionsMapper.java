@@ -204,25 +204,37 @@ public class TestTableOptionsMapper {
   }
 
   @Test
-  public void testHiveKeepsNamedStandardDescriptorAsTypedOptions() {
-    TableOptionsMapper.PublicTableState state =
-        TableOptionsMapper.toPublic(
-            "hive",
-            Map.of(
-                "table-type", "EXTERNAL_TABLE",
-                "location", "hdfs:///warehouse/orders",
-                "input-format", "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-                "output-format", "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
-                "serde-lib", "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
-                "serde-name", "orders"));
+  public void testHiveNormalizesNamedStandardDescriptorOnlyForMatchingLoadedTableName() {
+    Map<String, String> properties =
+        Map.of(
+            "table-type", "EXTERNAL_TABLE",
+            "location", "hdfs:///warehouse/orders",
+            "input-format", "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+            "output-format", "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+            "serde-lib", "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+            "serde-name", "orders");
+
+    TableOptionsMapper.PublicTableState normalized =
+        TableOptionsMapper.toPublic("hive", "orders", properties);
 
     assertStorage(
-        state.storage(),
+        normalized.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "hdfs:///warehouse/orders",
+        TableStorage.FileFormat.ORC);
+    assertNull(normalized.hiveOptions());
+
+    TableOptionsMapper.PublicTableState preserved =
+        TableOptionsMapper.toPublic("hive", "different_orders", properties);
+
+    assertStorage(
+        preserved.storage(),
         TableStorage.Ownership.EXTERNAL,
         TableStorage.TableFormat.HIVE,
         "hdfs:///warehouse/orders",
         null);
-    assertEquals("orders", state.hiveOptions().getSerdeName());
+    assertEquals("orders", preserved.hiveOptions().getSerdeName());
   }
 
   @Test
@@ -312,6 +324,29 @@ public class TestTableOptionsMapper {
             "format", "parquet"),
         TableOptionsMapper.toInternalProperties(
             "glue", state.storage(), null, state.hiveOptions(), null, null));
+  }
+
+  @Test
+  public void testGlueKeepsNamedStandardDescriptorAsTypedOptions() {
+    TableOptionsMapper.PublicTableState state =
+        TableOptionsMapper.toPublic(
+            "glue",
+            "orders",
+            Map.of(
+                "table-format", "HIVE",
+                "location", "s3://warehouse/glue-orders",
+                "input-format", "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "output-format", "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+                "serde-lib", "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+                "serde-name", "orders"));
+
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "s3://warehouse/glue-orders",
+        null);
+    assertEquals("orders", state.hiveOptions().getSerdeName());
   }
 
   @Test

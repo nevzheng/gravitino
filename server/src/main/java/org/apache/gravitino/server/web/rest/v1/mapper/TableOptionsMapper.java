@@ -183,11 +183,11 @@ public final class TableOptionsMapper {
   }
 
   /**
-   * Converts a loaded internal property map into V1 typed persistent state.
+   * Converts a loaded internal property map into V1 typed persistent state without table-name
+   * normalization.
    *
-   * <p>All map keys must be explicitly represented by this V1 slice, or intentionally recognized as
-   * derived/read-only connector metadata. Any other visible key fails closed so a full V1 PUT
-   * cannot silently discard it.
+   * <p>The overload that accepts the loaded table name can additionally recognize a connector's
+   * default Hive SerDe name.
    *
    * @param catalogProvider configured catalog provider returned by the catalog dispatcher.
    * @param properties internal table properties.
@@ -196,6 +196,27 @@ public final class TableOptionsMapper {
    */
   static PublicTableState toPublic(
       String catalogProvider, @Nullable Map<String, String> properties) {
+    return toPublic(catalogProvider, null, properties);
+  }
+
+  /**
+   * Converts a loaded internal property map into V1 typed persistent state.
+   *
+   * <p>All map keys must be explicitly represented by this V1 slice, or intentionally recognized as
+   * derived/read-only connector metadata. Any other visible key fails closed so a full V1 PUT
+   * cannot silently discard it. The loaded table name permits best-effort normalization of a Hive
+   * descriptor whose SerDe name is the connector's default table name.
+   *
+   * @param catalogProvider configured catalog provider returned by the catalog dispatcher.
+   * @param tableName loaded internal table name, if available.
+   * @param properties internal table properties.
+   * @return V1 typed persistent state.
+   * @throws UnsupportedOperationException if visible internal properties are not representable.
+   */
+  static PublicTableState toPublic(
+      String catalogProvider,
+      @Nullable String tableName,
+      @Nullable Map<String, String> properties) {
     String provider = normalizedProvider(catalogProvider);
     TreeMap<String, String> remaining = new TreeMap<>();
     if (properties != null) {
@@ -215,7 +236,7 @@ public final class TableOptionsMapper {
       return publicIceberg(provider, remaining);
     }
     if (HIVE.equals(provider)) {
-      return publicHive(provider, remaining);
+      return publicHive(provider, tableName, remaining);
     }
     if (GLUE.equals(provider)) {
       return publicGlue(provider, remaining);
@@ -481,13 +502,15 @@ public final class TableOptionsMapper {
     return new PublicTableState(storage, icebergOptions, null, null, null);
   }
 
-  private static PublicTableState publicHive(String provider, TreeMap<String, String> properties) {
+  private static PublicTableState publicHive(
+      String provider, @Nullable String tableName, TreeMap<String, String> properties) {
     String tableType = properties.remove(TABLE_TYPE);
     String external = properties.remove("EXTERNAL");
     String location = properties.remove(LOCATION);
     String fileFormat = properties.remove(FORMAT);
     HiveOptions hiveOptions = removeHiveOptions(properties, provider);
-    CanonicalHiveDescriptor descriptor = canonicalHiveDescriptor(fileFormat, hiveOptions, provider);
+    CanonicalHiveDescriptor descriptor =
+        canonicalHiveDescriptor(fileFormat, hiveOptions, tableName, provider);
     TableStorage storage = null;
     if (tableType != null
         || external != null
@@ -547,7 +570,7 @@ public final class TableOptionsMapper {
       CanonicalHiveDescriptor descriptor =
           publicTableFormat == TableStorage.TableFormat.ICEBERG
               ? CanonicalHiveDescriptor.empty()
-              : canonicalHiveDescriptor(fileFormat, hiveOptions, provider);
+              : canonicalHiveDescriptor(fileFormat, hiveOptions, null, provider);
       storage =
           publicStorage(
               TableStorage.Ownership.EXTERNAL,
@@ -635,14 +658,20 @@ public final class TableOptionsMapper {
   }
 
   private static CanonicalHiveDescriptor canonicalHiveDescriptor(
-      @Nullable String declaredFileFormat, @Nullable HiveOptions hiveOptions, String provider) {
+      @Nullable String declaredFileFormat,
+      @Nullable HiveOptions hiveOptions,
+      @Nullable String tableName,
+      String provider) {
+    // Best-effort normalization for the exploratory V1 profile: collapse only an exact standard
+    // descriptor. Keep every near-match or custom descriptor explicit rather than guessing what a
+    // connector may normalize after a create or load.
     TableStorage.FileFormat fileFormat =
         declaredFileFormat == null ? null : fileFormat(declaredFileFormat, provider);
     if (hiveOptions == null) {
       return new CanonicalHiveDescriptor(fileFormat, null);
     }
 
-    TableStorage.FileFormat inferredFileFormat = standardHiveFileFormat(hiveOptions);
+    TableStorage.FileFormat inferredFileFormat = standardHiveFileFormat(hiveOptions, tableName);
     if (fileFormat == null) {
       return inferredFileFormat == null
           ? new CanonicalHiveDescriptor(null, hiveOptions)
@@ -656,10 +685,11 @@ public final class TableOptionsMapper {
   }
 
   @Nullable
-  private static TableStorage.FileFormat standardHiveFileFormat(HiveOptions hiveOptions) {
-    // TODO: Catalogs commonly materialize a default SerDe name equal to the table name. Preserve
-    // that as a typed descriptor until a future V1 profile can prove it is connector-derived.
-    if (hiveOptions.getSerdeName() != null) {
+  private static TableStorage.FileFormat standardHiveFileFormat(
+      HiveOptions hiveOptions, @Nullable String tableName) {
+    // TODO: This recognizes only the current Hive connector's table-name default. Preserve every
+    // other named descriptor until connector-specific normalization is verified by live tests.
+    if (hiveOptions.getSerdeName() != null && !hiveOptions.getSerdeName().equals(tableName)) {
       return null;
     }
     for (HiveStorageDescriptor descriptor : STANDARD_HIVE_STORAGE_DESCRIPTORS) {

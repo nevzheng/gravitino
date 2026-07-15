@@ -149,7 +149,9 @@ public class TestExpressionModel {
             + "\"nullable\":false,\"autoIncrement\":false,\"defaultValue\":null},"
             + "{\"name\":\"priority\",\"type\":{\"kind\":\"INTEGER\",\"signed\":true},"
             + "\"nullable\":false,\"autoIncrement\":false,\"defaultValue\":{\"type\":\"literal\","
-            + "\"value\":3,\"data-type\":{\"kind\":\"INTEGER\",\"signed\":true}}}],"
+            + "\"value\":3,\"data-type\":{\"kind\":\"INTEGER\",\"signed\":true}}},"
+            + "{\"name\":\"no_default\",\"type\":{\"kind\":\"INTEGER\",\"signed\":true},"
+            + "\"nullable\":false,\"autoIncrement\":false}],"
             + "\"partitioning\":[],"
             + "\"distribution\":{\"strategy\":\"HASH\",\"expressions\":[{\"type\":\"reference\","
             + "\"name\":\"id\"}]},"
@@ -164,6 +166,7 @@ public class TestExpressionModel {
     assertTrue(request.getColumns().get(1).getDefaultValue() instanceof Expression.Literal);
     assertEquals(
         3, ((Expression.Literal) request.getColumns().get(1).getDefaultValue()).getValue());
+    assertNull(request.getColumns().get(2).getDefaultValue());
     assertTrue(request.getDistribution().getExpressions().get(0) instanceof Expression.Reference);
     assertEquals(
         "id", ((Expression.Reference) request.getDistribution().getExpressions().get(0)).getName());

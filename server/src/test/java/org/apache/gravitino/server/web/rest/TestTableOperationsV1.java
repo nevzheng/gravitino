@@ -280,11 +280,11 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
             .request(MediaType.APPLICATION_JSON_TYPE)
             .header(HttpHeaders.IF_MATCH, entityTag)
             .put(Entity.json(completeTableUpdatePayload()));
-    assertEquals(200, updateResponse.getStatus());
+    String updateBody = updateResponse.readEntity(String.class);
+    assertEquals(200, updateResponse.getStatus(), updateBody);
     assertEquals("private, no-cache", updateResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
     String updatedEntityTag = updateResponse.getHeaderString(HttpHeaders.ETAG);
     assertStrongEntityTag(updatedEntityTag);
-    String updateBody = updateResponse.readEntity(String.class);
     assertTrue(updateBody.contains("\"comment\":\"Replaced\""));
     assertTrue(updateBody.contains("\"mysqlOptions\""));
     assertTrue(updateBody.contains("\"engine\":\"InnoDB\""));

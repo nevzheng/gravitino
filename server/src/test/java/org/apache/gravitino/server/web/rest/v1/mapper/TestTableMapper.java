@@ -75,6 +75,7 @@ import org.apache.gravitino.rest.v1.model.DataType;
 import org.apache.gravitino.rest.v1.model.Expression;
 import org.apache.gravitino.rest.v1.model.PartitionAssignment;
 import org.apache.gravitino.rest.v1.model.TableResource;
+import org.apache.gravitino.rest.v1.model.TableStorage;
 import org.apache.gravitino.server.web.ObjectMapperProvider;
 import org.junit.jupiter.api.Test;
 
@@ -506,6 +507,25 @@ public class TestTableMapper {
     TableResource resource = TableMapper.toResource(RESOURCE_NAME, filtered, "jdbc-mysql");
     assertEquals("InnoDB", resource.getMysqlOptions().getEngine());
     assertNull(resource.getAudit());
+  }
+
+  @Test
+  public void testUsesLoadedTableNameForStandardHiveDescriptorNormalization() {
+    Table hiveTable = table(new Column[0]);
+    when(hiveTable.properties())
+        .thenReturn(
+            Map.of(
+                "table-type", "EXTERNAL_TABLE",
+                "location", "hdfs:///warehouse/orders",
+                "input-format", "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+                "output-format", "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+                "serde-lib", "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+                "serde-name", "orders"));
+
+    TableResource resource = TableMapper.toResource(RESOURCE_NAME, hiveTable, "hive");
+
+    assertEquals(TableStorage.FileFormat.ORC, resource.getStorage().getFileFormat());
+    assertNull(resource.getHiveOptions());
   }
 
   @Test
