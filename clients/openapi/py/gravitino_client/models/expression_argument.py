@@ -150,4 +150,3 @@ from gravitino_client.models.predicate import Predicate
 from gravitino_client.models.value_expression import ValueExpression
 # TODO: Rewrite to not use raise_errors
 ExpressionArgument.model_rebuild(raise_errors=False)
-

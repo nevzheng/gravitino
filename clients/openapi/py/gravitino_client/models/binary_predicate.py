@@ -135,4 +135,3 @@ class BinaryPredicate(BaseModel):
 from gravitino_client.models.predicate import Predicate
 # TODO: Rewrite to not use raise_errors
 BinaryPredicate.model_rebuild(raise_errors=False)
-

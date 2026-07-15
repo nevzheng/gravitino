@@ -135,4 +135,3 @@ class ComparisonPredicate(BaseModel):
 from gravitino_client.models.value_expression import ValueExpression
 # TODO: Rewrite to not use raise_errors
 ComparisonPredicate.model_rebuild(raise_errors=False)
-

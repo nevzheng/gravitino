@@ -296,4 +296,3 @@ from gravitino_client.models.struct_data_type import StructDataType
 from gravitino_client.models.union_data_type import UnionDataType
 # TODO: Rewrite to not use raise_errors
 DataType.model_rebuild(raise_errors=False)
-

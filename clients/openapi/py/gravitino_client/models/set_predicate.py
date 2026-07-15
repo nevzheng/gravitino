@@ -136,4 +136,3 @@ class SetPredicate(BaseModel):
 from gravitino_client.models.value_expression import ValueExpression
 # TODO: Rewrite to not use raise_errors
 SetPredicate.model_rebuild(raise_errors=False)
-

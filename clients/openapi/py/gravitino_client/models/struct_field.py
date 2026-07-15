@@ -151,4 +151,3 @@ class StructField(BaseModel):
 from gravitino_client.models.data_type import DataType
 # TODO: Rewrite to not use raise_errors
 StructField.model_rebuild(raise_errors=False)
-

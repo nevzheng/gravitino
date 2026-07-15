@@ -118,5 +118,3 @@ class NotImplementedErrorResponse(BaseModel):
                 _obj.additional_properties[_key] = obj.get(_key)
 
         return _obj
-
-

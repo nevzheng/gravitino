@@ -19,4 +19,3 @@
 
 # import apis into api package
 from gravitino_client.api.tables_api import TablesApi
-

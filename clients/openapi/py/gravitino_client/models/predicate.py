@@ -212,4 +212,3 @@ from gravitino_client.models.set_predicate import SetPredicate
 from gravitino_client.models.test_predicate import TestPredicate
 # TODO: Rewrite to not use raise_errors
 Predicate.model_rebuild(raise_errors=False)
-

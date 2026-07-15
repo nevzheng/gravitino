@@ -227,4 +227,3 @@ class LiteralValue(BaseModel):
 from gravitino_client.models.literal_map_value import LiteralMapValue
 # TODO: Rewrite to not use raise_errors
 LiteralValue.model_rebuild(raise_errors=False)
-

@@ -180,4 +180,3 @@ class ValueExpression(BaseModel):
 from gravitino_client.models.apply_expression import ApplyExpression
 # TODO: Rewrite to not use raise_errors
 ValueExpression.model_rebuild(raise_errors=False)
-

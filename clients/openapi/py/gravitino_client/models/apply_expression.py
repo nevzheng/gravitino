@@ -141,4 +141,3 @@ class ApplyExpression(BaseModel):
 from gravitino_client.models.expression_argument import ExpressionArgument
 # TODO: Rewrite to not use raise_errors
 ApplyExpression.model_rebuild(raise_errors=False)
-

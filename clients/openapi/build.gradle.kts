@@ -201,6 +201,31 @@ fun addApacheHeadersToGeneratedPython(directory: File) {
   }
 }
 
+/** Removes generator whitespace noise so checked-in sources pass the repository diff checks. */
+fun normalizeGeneratedPythonWhitespace(directory: File) {
+  var patchedFiles = 0
+
+  directory
+    .walkTopDown()
+    .filter { it.isFile && it.extension == "py" }
+    .forEach { file ->
+      val source = file.readText()
+      val normalizedLines = source.lineSequence().map { it.trimEnd() }.toList()
+      val normalized =
+        normalizedLines
+          .dropLastWhile { it.isEmpty() }
+          .joinToString("\n", postfix = "\n")
+      if (normalized != source) {
+        file.writeText(normalized)
+        patchedFiles++
+      }
+    }
+
+  if (patchedFiles > 0) {
+    project.logger.lifecycle("Normalized whitespace in $patchedFiles generated Python source file(s).")
+  }
+}
+
 val generatePythonClient by tasks.registering(GenerateTask::class) {
   group = "openapi"
   description = "Generates the Python V1 client from the bundled OpenAPI contract."
@@ -230,6 +255,7 @@ val generatePythonClient by tasks.registering(GenerateTask::class) {
   doLast {
     val generatedPackage = generatedPythonClient.get().dir(pythonPackageName).asFile
     addApacheHeadersToGeneratedPython(generatedPackage)
+    normalizeGeneratedPythonWhitespace(generatedPackage)
     patchPythonBooleanConstantValidators(generatedPackage)
   }
 }
