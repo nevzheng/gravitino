@@ -191,6 +191,20 @@ if (v1SourceSpec.asFile.exists()) {
     )
   }
 
+  val testOpenApiV1ProviderOptions by tasks.registering(NpmTask::class) {
+    group = "verification"
+    description =
+      "Validates bundled V1 provider-options cardinality instances with JSON Schema 2020-12."
+    dependsOn(bundleOpenApiV1)
+    args.set(listOf("run", "test:v1:provider-options"))
+    inputs.file(v1BundledSpec)
+    inputs.files(
+      openApiToolingDirectory.file("package-lock.json"),
+      openApiToolingDirectory.file("package.json"),
+      openApiToolingDirectory.file("test-v1-provider-options.mjs")
+    )
+  }
+
   val testOpenApiV1Rules by tasks.registering(NpmTask::class) {
     group = "verification"
     description = "Regression-tests the null-safe V1 Spectral rules."
@@ -296,7 +310,13 @@ if (v1SourceSpec.asFile.exists()) {
   val openApiV1Check by tasks.registering {
     group = "verification"
     description = "Runs every blocking V1 OpenAPI contract check."
-    dependsOn(lintOpenApiV1, testOpenApiV1Rules, validateOpenApiV1, openApiV1ClientCheck)
+    dependsOn(
+      lintOpenApiV1,
+      testOpenApiV1ProviderOptions,
+      testOpenApiV1Rules,
+      validateOpenApiV1,
+      openApiV1ClientCheck
+    )
   }
 
   tasks.named("check") {

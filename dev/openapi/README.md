@@ -40,6 +40,7 @@ For the V1 adapter's place beside the legacy API and core, see
 | File                          | Purpose                                                                        |
 | ----------------------------- | ------------------------------------------------------------------------------ |
 | `package.json`                | Pinned tool versions (`@redocly/cli`, `@stoplight/spectral-cli`, rulesets).    |
+| `test-v1-provider-options.mjs` | AJV 2020-12 instance regression test for the bundled V1 provider-options rule. |
 | `tsconfig.v1-codegen.json`    | Strict, no-emit check for the generated TypeScript V1 client.                  |
 | `../../docs/build.gradle.kts` | Pinned OpenAPI Generator validation, generation, and client compilation tasks. |
 | `redocly.yaml`                | The `apis` Redocly lints/bundles (strictness is passed on the CLI).            |
@@ -59,6 +60,7 @@ npm run bundle          # -> build/openapi.json and build/openapi.yaml
 # Once docs/open-api/v1/openapi.yaml exists, run the blocking V1 gate:
 npm run lint:v1         # Redocly strict + Spectral, warnings fail
 npm run bundle:v1       # -> build/v1/openapi.json and build/v1/openapi.yaml
+npm run test:v1:provider-options  # bundled-schema zero/one provider-options cases
 npm run codegen:v1      # Gradle-pinned generation + Rust/TypeScript compilation
 npm run test:rules:v1   # regression-test V1-specific Spectral rules
 
@@ -83,6 +85,7 @@ cd dev/openapi
 npm ci
 npm run lint:v1
 npm run bundle:v1
+npm run test:v1:provider-options
 
 ../../gradlew -p ../.. :docs:validateOpenApiV1
 ../../gradlew -p ../.. :docs:generateOpenApiV1Rust
