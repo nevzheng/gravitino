@@ -30,9 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 public class TestTableUpdateRequest {
@@ -45,7 +43,15 @@ public class TestTableUpdateRequest {
         new TableUpdateRequest(
             null,
             Collections.singletonList(column()),
-            Collections.singletonMap("format", "iceberg"),
+            new TableStorage(
+                TableStorage.Ownership.MANAGED,
+                TableStorage.TableFormat.ICEBERG,
+                "s3://warehouse/orders",
+                TableStorage.FileFormat.ORC),
+            new IcebergOptions(3),
+            null,
+            null,
+            null,
             Collections.emptyList(),
             new Distribution(Distribution.Strategy.NONE, null, Collections.emptyList()),
             Collections.emptyList(),
@@ -56,44 +62,66 @@ public class TestTableUpdateRequest {
     assertEquals("NONE", json.get("distribution").get("strategy").asText());
     assertFalse(json.has("updates"));
     assertFalse(json.has("name"));
+    assertFalse(json.has("properties"));
+    assertEquals("ORC", json.get("storage").get("fileFormat").asText());
+    assertEquals(3, json.get("icebergOptions").get("formatVersion").asInt());
     assertEquals(1, json.get("columns").size());
 
     TableUpdateRequest parsed = objectMapper.readValue(json.toString(), TableUpdateRequest.class);
     assertNull(parsed.getComment());
     assertEquals("id", parsed.getColumns().get(0).getName());
-    assertEquals("iceberg", parsed.getProperties().get("format"));
+    assertEquals(TableStorage.FileFormat.ORC, parsed.getStorage().getFileFormat());
+    assertEquals(3, parsed.getIcebergOptions().getFormatVersion());
     assertEquals(Distribution.Strategy.NONE, parsed.getDistribution().getStrategy());
   }
 
   @Test
   public void testAllowsEmptyColumnsForConnectorOwnedSchemaAndDefensiveCopies() {
     List<Column> columns = new ArrayList<>();
-    Map<String, String> properties = new LinkedHashMap<>();
-    properties.put("format", "lance");
+    MysqlOptions mysqlOptions = new MysqlOptions("InnoDB", null);
     TableUpdateRequest request =
         new TableUpdateRequest(
             "Managed by connector",
             columns,
-            properties,
+            null,
+            null,
+            null,
+            null,
+            mysqlOptions,
             Collections.emptyList(),
             null,
             Collections.emptyList(),
             Collections.emptyList());
 
     columns.add(column());
-    properties.clear();
     assertTrue(request.getColumns().isEmpty());
-    assertEquals("lance", request.getProperties().get("format"));
+    assertEquals("InnoDB", request.getMysqlOptions().getEngine());
     assertThrows(UnsupportedOperationException.class, () -> request.getColumns().add(column()));
+  }
+
+  @Test
+  public void testRejectsMultipleProviderOptions() {
     assertThrows(
-        UnsupportedOperationException.class, () -> request.getProperties().put("key", "value"));
+        IllegalArgumentException.class,
+        () ->
+            new TableUpdateRequest(
+                null,
+                Collections.emptyList(),
+                null,
+                null,
+                new HiveOptions("input", null, null, null),
+                new ClickHouseOptions("MergeTree", null, null, null, null, null),
+                null,
+                Collections.emptyList(),
+                null,
+                Collections.emptyList(),
+                Collections.emptyList()));
   }
 
   @Test
   public void testRejectsMissingOrUnknownDesiredStateFields() {
     String requiredFields =
-        "\"comment\":null,\"columns\":[],\"properties\":{},\"partitioning\":[],"
-            + "\"sortOrders\":[],\"indexes\":[]";
+        "\"comment\":null,\"columns\":[],\"partitioning\":[]," + "\"sortOrders\":[],\"indexes\":[]";
 
     assertThrows(
         JsonProcessingException.class,
@@ -104,15 +132,18 @@ public class TestTableUpdateRequest {
         JsonProcessingException.class,
         () ->
             objectMapper.readValue(
-                "{\"comment\":null,\"properties\":{},\"partitioning\":[],"
-                    + "\"sortOrders\":[],\"indexes\":[]}",
+                "{" + requiredFields + ",\"properties\":{}}", TableUpdateRequest.class));
+    assertThrows(
+        JsonProcessingException.class,
+        () ->
+            objectMapper.readValue(
+                "{\"comment\":null,\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]}",
                 TableUpdateRequest.class));
     assertThrows(
         JsonProcessingException.class,
         () ->
             objectMapper.readValue(
-                "{\"columns\":[],\"properties\":{},\"partitioning\":[],"
-                    + "\"sortOrders\":[],\"indexes\":[]}",
+                "{\"columns\":[],\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]}",
                 TableUpdateRequest.class));
   }
 

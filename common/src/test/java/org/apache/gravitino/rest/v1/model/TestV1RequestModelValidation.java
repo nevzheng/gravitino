@@ -82,17 +82,24 @@ public class TestV1RequestModelValidation {
   }
 
   @Test
-  public void testTableRequestsValidateDocumentedBoundsWithoutTighteningProperties() {
-    TableCreateRequest emptyTableProperty =
+  public void testTableRequestsValidateDocumentedBoundsAndTypedState() {
+    TableStorage typedStorage =
+        new TableStorage(
+            TableStorage.Ownership.MANAGED,
+            TableStorage.TableFormat.ICEBERG,
+            null,
+            TableStorage.FileFormat.PARQUET);
+    TableCreateRequest typedTable =
         createTable(
             "orders",
             null,
             Collections.emptyList(),
-            Collections.singletonMap("format", ""),
+            typedStorage,
             Collections.emptyList(),
             Collections.emptyList(),
             Collections.emptyList());
-    assertEquals("", emptyTableProperty.getProperties().get("format"));
+    assertEquals(TableStorage.TableFormat.ICEBERG, typedTable.getStorage().getTableFormat());
+    assertEquals(TableStorage.FileFormat.PARQUET, typedTable.getStorage().getFileFormat());
 
     assertThrows(
         IllegalArgumentException.class,
@@ -101,7 +108,7 @@ public class TestV1RequestModelValidation {
                 " orders",
                 null,
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList()));
@@ -112,21 +119,23 @@ public class TestV1RequestModelValidation {
                 "orders",
                 "orders ",
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList()));
     assertThrows(
         IllegalArgumentException.class,
         () ->
-            createTable(
-                "orders",
-                null,
-                Collections.emptyList(),
-                Collections.singletonMap("format", repeated('v', 1_048_577)),
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Collections.emptyList()));
+            new TableStorage(
+                TableStorage.Ownership.MANAGED,
+                TableStorage.TableFormat.ICEBERG,
+                repeated('l', 4_097),
+                null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new TableStorage(
+                TableStorage.Ownership.EXTERNAL, TableStorage.TableFormat.HIVE, null, null));
     assertThrows(
         IllegalArgumentException.class,
         () ->
@@ -134,7 +143,7 @@ public class TestV1RequestModelValidation {
                 "orders",
                 null,
                 Collections.nCopies(10_001, column()),
-                Collections.emptyMap(),
+                null,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList()));
@@ -145,7 +154,7 @@ public class TestV1RequestModelValidation {
                 "orders",
                 null,
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
                 Collections.nCopies(1_025, partitioning()),
                 Collections.emptyList(),
                 Collections.emptyList()));
@@ -156,7 +165,7 @@ public class TestV1RequestModelValidation {
                 "orders",
                 null,
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
                 Collections.emptyList(),
                 Collections.nCopies(1_025, sortOrder()),
                 Collections.emptyList()));
@@ -167,7 +176,7 @@ public class TestV1RequestModelValidation {
                 "orders",
                 null,
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.nCopies(1_025, index())));
@@ -180,7 +189,11 @@ public class TestV1RequestModelValidation {
             new TableUpdateRequest(
                 null,
                 Collections.emptyList(),
-                Collections.singletonMap("format", ""),
+                null,
+                null,
+                null,
+                null,
+                null,
                 Collections.emptyList(),
                 null,
                 Collections.emptyList(),
@@ -191,10 +204,41 @@ public class TestV1RequestModelValidation {
             new TableUpdateRequest(
                 null,
                 Collections.emptyList(),
-                Collections.emptyMap(),
+                null,
+                null,
+                null,
+                null,
+                null,
                 Collections.emptyList(),
                 null,
                 Collections.nCopies(1_025, sortOrder()),
+                Collections.emptyList()));
+  }
+
+  @Test
+  public void testTypedProviderOptionsValidateTheirDocumentedConstraints() {
+    assertDoesNotThrow(() -> new IcebergOptions(4));
+    assertThrows(IllegalArgumentException.class, () -> new IcebergOptions(0));
+    assertThrows(IllegalArgumentException.class, () -> new HiveOptions(null, null, null, null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ClickHouseOptions("Distributed", null, null, null, null, null));
+    assertThrows(IllegalArgumentException.class, () -> new MysqlOptions("InnoDB", 0));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new TableCreateRequest(
+                "orders",
+                null,
+                Collections.emptyList(),
+                null,
+                new IcebergOptions(2),
+                new HiveOptions("input", null, null, null),
+                null,
+                null,
+                Collections.emptyList(),
+                null,
+                Collections.emptyList(),
                 Collections.emptyList()));
   }
 
@@ -202,12 +246,23 @@ public class TestV1RequestModelValidation {
       String name,
       String comment,
       List<Column> columns,
-      Map<String, String> properties,
+      TableStorage storage,
       List<Transform> partitioning,
       List<SortOrder> sortOrders,
       List<Index> indexes) {
     return new TableCreateRequest(
-        name, comment, columns, properties, partitioning, null, sortOrders, indexes);
+        name,
+        comment,
+        columns,
+        storage,
+        null,
+        null,
+        null,
+        null,
+        partitioning,
+        null,
+        sortOrders,
+        indexes);
   }
 
   private static Column column() {
