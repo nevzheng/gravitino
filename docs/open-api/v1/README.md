@@ -88,3 +88,8 @@ convenience bindings: OpenAPI Generator 7.23.0 renders these fields as
 optional but does not enforce this cross-field rule during direct model
 construction. Bundled schema validation and the server's strict V1 input
 boundary are authoritative.
+
+> **Follow-up (TODO):** V1 runtime already rejects unknown nested request
+> members. Several table components are currently shared with intentionally
+> open response schemas, so the contract still needs directional `*Input`
+> variants before closure is fully expressed throughout the request graph.

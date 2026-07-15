@@ -20,6 +20,7 @@ package org.apache.gravitino.server.web.rest.v1.validation;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
@@ -98,6 +99,8 @@ public final class V1JsonBodyFilter implements ContainerRequestFilter {
     }
 
     try {
+      JsonNode bodyNode = STRICT_BODY_MAPPER.readTree(body);
+      V1JsonNullValidator.validate(bodyNode, requestType);
       STRICT_BODY_MAPPER.readValue(body, requestType);
     } catch (IOException | RuntimeException exception) {
       requestContext.abortWith(

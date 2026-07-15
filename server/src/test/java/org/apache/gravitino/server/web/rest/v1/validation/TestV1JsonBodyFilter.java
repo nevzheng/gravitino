@@ -18,13 +18,17 @@
  */
 package org.apache.gravitino.server.web.rest.v1.validation;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -37,11 +41,14 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 import org.apache.gravitino.rest.v1.error.V1ErrorResponse;
 import org.apache.gravitino.rest.v1.error.V1FieldViolationErrorDetail;
+import org.apache.gravitino.rest.v1.model.TableCreateRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /** Tests V1 strict-body validation independent of Jersey resource-method binding. */
 public class TestV1JsonBodyFilter {
+
+  private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
   private final V1JsonBodyFilter filter = new V1JsonBodyFilter();
 
@@ -93,6 +100,88 @@ public class TestV1JsonBodyFilter {
     verify(readRequest, never()).setEntityStream(any(InputStream.class));
   }
 
+  @Test
+  public void testRejectsExplicitNullInTableCreateOptionThatJacksonWouldTreatAsAbsent()
+      throws Exception {
+    ContainerRequestContext request =
+        request(
+            "POST",
+            "/api/v1/metalakes/demo/catalogs/catalog/schemas/schema/tables",
+            tableCreateBody("\"mysqlOptions\":{\"engine\":null,\"autoIncrementOffset\":1}"));
+
+    filter.filter(request);
+
+    verify(request).abortWith(any(Response.class));
+  }
+
+  @Test
+  public void testRejectsNullProviderEnvelopeInsteadOfIgnoringItForMutualExclusion()
+      throws Exception {
+    JsonNode body =
+        JSON_MAPPER.readTree(
+            tableCreateBody("\"icebergOptions\":null,\"mysqlOptions\":{\"engine\":\"InnoDB\"}"));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> V1JsonNullValidator.validate(body, TableCreateRequest.class));
+  }
+
+  @Test
+  public void testRejectsExplicitNullInNestedTableCreateObjects() throws Exception {
+    JsonNode columnNull =
+        JSON_MAPPER.readTree(
+            tableCreateBody(
+                "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+                    + "\"signed\":true},\"comment\":null,\"nullable\":false,"
+                    + "\"autoIncrement\":false}]"));
+    JsonNode storageNull =
+        JSON_MAPPER.readTree(
+            tableCreateBody("\"storage\":{\"ownership\":\"MANAGED\",\"fileFormat\":null}"));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> V1JsonNullValidator.validate(columnNull, TableCreateRequest.class));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> V1JsonNullValidator.validate(storageNull, TableCreateRequest.class));
+  }
+
+  @Test
+  public void testAllowsDocumentedTableUpdateCommentClear() throws Exception {
+    ContainerRequestContext request =
+        request(
+            "PUT",
+            "/api/v1/metalakes/demo/catalogs/catalog/schemas/schema/tables/orders",
+            "{\"comment\":null,\"columns\":[],\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]}");
+
+    filter.filter(request);
+
+    verify(request, never()).abortWith(any(Response.class));
+  }
+
+  @Test
+  public void testAllowsNullInsideATypedLiteralValue() throws Exception {
+    JsonNode body =
+        JSON_MAPPER.readTree(
+            tableCreateBody(
+                "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"NULL\"},"
+                    + "\"nullable\":true,\"autoIncrement\":false,\"defaultValue\":{"
+                    + "\"type\":\"literal\",\"value\":null,\"data-type\":{\"kind\":\"NULL\"}}}]"));
+
+    assertDoesNotThrow(() -> V1JsonNullValidator.validate(body, TableCreateRequest.class));
+  }
+
+  @Test
+  public void testAllowsRawNullAtATableDefaultValueExpressionSlot() throws Exception {
+    JsonNode body =
+        JSON_MAPPER.readTree(
+            tableCreateBody(
+                "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"NULL\"},"
+                    + "\"nullable\":true,\"autoIncrement\":false,\"defaultValue\":null}]"));
+
+    assertDoesNotThrow(() -> V1JsonNullValidator.validate(body, TableCreateRequest.class));
+  }
+
   private static ContainerRequestContext request(String method, String path, String body) {
     ContainerRequestContext request = mock(ContainerRequestContext.class);
     UriInfo uriInfo = mock(UriInfo.class);
@@ -104,6 +193,20 @@ public class TestV1JsonBodyFilter {
     when(request.getEntityStream())
         .thenReturn(new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
     return request;
+  }
+
+  private static String tableCreateBody(String replacementMember) {
+    String defaultColumns =
+        "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+            + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}]";
+    String columns =
+        replacementMember.startsWith("\"columns\"") ? replacementMember : defaultColumns;
+    String extraMember = replacementMember.startsWith("\"columns\"") ? "" : "," + replacementMember;
+    return "{\"name\":\"orders\","
+        + columns
+        + extraMember
+        + ",\"partitioning\":[],\"sortOrders\":[],"
+        + "\"indexes\":[]}";
   }
 
   private static String readUtf8(InputStream input) throws IOException {
