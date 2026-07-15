@@ -47,6 +47,7 @@ public final class TableOptionsMapper {
 
   private static final String LAKEHOUSE_GENERIC = "lakehouse-generic";
   private static final String LAKEHOUSE_ICEBERG = "lakehouse-iceberg";
+  private static final String LAKEHOUSE_PAIMON = "lakehouse-paimon";
   private static final String HIVE = "hive";
   private static final String GLUE = "glue";
   private static final String CLICKHOUSE = "jdbc-clickhouse";
@@ -76,6 +77,54 @@ public final class TableOptionsMapper {
   private static final String SHARDING_KEY = "cluster-sharding-key";
   private static final String AUTO_INCREMENT_OFFSET = "auto-increment-offset";
 
+  private static final HiveStorageDescriptor[] STANDARD_HIVE_STORAGE_DESCRIPTORS = {
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.SEQUENCEFILE,
+        "org.apache.hadoop.mapred.SequenceFileInputFormat",
+        "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+        "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.TEXTFILE,
+        "org.apache.hadoop.mapred.TextInputFormat",
+        "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+        "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.RCFILE,
+        "org.apache.hadoop.hive.ql.io.RCFileInputFormat",
+        "org.apache.hadoop.hive.ql.io.RCFileOutputFormat",
+        "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.ORC,
+        "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+        "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+        "org.apache.hadoop.hive.ql.io.orc.OrcSerde"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.PARQUET,
+        "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+        "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+        "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.AVRO,
+        "org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat",
+        "org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat",
+        "org.apache.hadoop.hive.serde2.avro.AvroSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.JSON,
+        "org.apache.hadoop.mapred.TextInputFormat",
+        "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+        "org.apache.hive.hcatalog.data.JsonSerDe"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.CSV,
+        "org.apache.hadoop.mapred.TextInputFormat",
+        "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+        "org.apache.hadoop.hive.serde2.OpenCSVSerde"),
+    new HiveStorageDescriptor(
+        TableStorage.FileFormat.REGEX,
+        "org.apache.hadoop.mapred.TextInputFormat",
+        "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+        "org.apache.hadoop.hive.serde2.RegexSerDe")
+  };
+
   private TableOptionsMapper() {}
 
   /**
@@ -90,6 +139,8 @@ public final class TableOptionsMapper {
    * @param mysqlOptions optional MySQL-specific state.
    * @return the internal property map to pass to the existing table dispatcher.
    * @throws V1ClientInputException if a typed field is incompatible with the selected provider.
+   * @throws UnsupportedOperationException if the selected provider has no typed V1 options profile
+   *     yet.
    */
   public static Map<String, String> toInternalProperties(
       String catalogProvider,
@@ -106,6 +157,10 @@ public final class TableOptionsMapper {
     if (LAKEHOUSE_ICEBERG.equals(provider)) {
       return toIcebergProperties(
           storage, icebergOptions, hiveOptions, clickhouseOptions, mysqlOptions);
+    }
+    if (LAKEHOUSE_PAIMON.equals(provider)) {
+      throw new UnsupportedOperationException(
+          "The V1 table contract does not yet have a typed Paimon options profile.");
     }
     if (HIVE.equals(provider)) {
       return toHiveProperties(
@@ -146,9 +201,10 @@ public final class TableOptionsMapper {
     if (properties != null) {
       properties.forEach(
           (key, value) -> {
-            if (key != null && value != null) {
-              remaining.put(key, value);
+            if (key == null || value == null) {
+              throw unsupportedProperties(provider, "a null internal table property");
             }
+            remaining.put(key, value);
           });
     }
 
@@ -248,6 +304,7 @@ public final class TableOptionsMapper {
       @Nullable ClickHouseOptions clickhouseOptions,
       @Nullable MysqlOptions mysqlOptions) {
     rejectOptions(icebergOptions, null, clickhouseOptions, mysqlOptions, HIVE);
+    rejectAmbiguousHiveStorage(storage, hiveOptions, HIVE);
     Map<String, String> properties = new HashMap<>();
     if (storage != null) {
       if (storage.getTableFormat() != null
@@ -278,6 +335,7 @@ public final class TableOptionsMapper {
     if (storage == null) {
       throw invalid("storage", "is required by the Glue V1 profile.");
     }
+    rejectAmbiguousHiveStorage(storage, hiveOptions, GLUE);
     Map<String, String> properties = new HashMap<>();
     if (storage.getOwnership() != TableStorage.Ownership.EXTERNAL) {
       throw invalid("storage.ownership", "must be EXTERNAL for Glue tables.");
@@ -429,6 +487,7 @@ public final class TableOptionsMapper {
     String location = properties.remove(LOCATION);
     String fileFormat = properties.remove(FORMAT);
     HiveOptions hiveOptions = removeHiveOptions(properties, provider);
+    CanonicalHiveDescriptor descriptor = canonicalHiveDescriptor(fileFormat, hiveOptions, provider);
     TableStorage storage = null;
     if (tableType != null
         || external != null
@@ -440,13 +499,13 @@ public final class TableOptionsMapper {
               hiveOwnership(tableType, external, provider),
               TableStorage.TableFormat.HIVE,
               location,
-              fileFormat == null ? null : fileFormat(fileFormat, provider),
+              descriptor.fileFormat(),
               provider);
     }
     // Hive metastore maintains this timestamp independently from public table state.
     properties.remove(HIVE_TRANSIENT_LAST_DDL_TIME);
     requireNoUnrepresentedProperties(provider, properties);
-    return new PublicTableState(storage, null, hiveOptions, null, null);
+    return new PublicTableState(storage, null, descriptor.hiveOptions(), null, null);
   }
 
   private static PublicTableState publicGlue(String provider, TreeMap<String, String> properties) {
@@ -461,7 +520,8 @@ public final class TableOptionsMapper {
         || glueTableType != null
         || location != null
         || fileFormat != null
-        || icebergWriteFileFormat != null) {
+        || icebergWriteFileFormat != null
+        || hiveOptions != null) {
       TableStorage.TableFormat publicTableFormat =
           tableFormat == null
               ? glueIcebergTableFormat(glueTableType, provider)
@@ -484,13 +544,20 @@ public final class TableOptionsMapper {
       } else if (glueTableType != null) {
         throw unsupportedProperties(provider, "an unrepresentable Glue table type");
       }
+      CanonicalHiveDescriptor descriptor =
+          publicTableFormat == TableStorage.TableFormat.ICEBERG
+              ? CanonicalHiveDescriptor.empty()
+              : canonicalHiveDescriptor(fileFormat, hiveOptions, provider);
       storage =
           publicStorage(
               TableStorage.Ownership.EXTERNAL,
               publicTableFormat,
               location,
-              glueFileFormat(publicTableFormat, fileFormat, icebergWriteFileFormat, provider),
+              publicTableFormat == TableStorage.TableFormat.ICEBERG
+                  ? glueFileFormat(publicTableFormat, fileFormat, icebergWriteFileFormat, provider)
+                  : descriptor.fileFormat(),
               provider);
+      hiveOptions = descriptor.hiveOptions();
     }
     requireNoUnrepresentedProperties(provider, properties);
     return new PublicTableState(storage, null, hiveOptions, null, null);
@@ -556,6 +623,51 @@ public final class TableOptionsMapper {
     putIfNonNull(properties, OUTPUT_FORMAT, options.getOutputFormat());
     putIfNonNull(properties, SERDE_LIBRARY, options.getSerdeLibrary());
     putIfNonNull(properties, SERDE_NAME, options.getSerdeName());
+  }
+
+  private static void rejectAmbiguousHiveStorage(
+      @Nullable TableStorage storage, @Nullable HiveOptions hiveOptions, String provider) {
+    if (storage != null && storage.getFileFormat() != null && hiveOptions != null) {
+      throw invalid(
+          "hiveOptions",
+          "cannot be combined with storage.fileFormat for catalog provider '" + provider + "'.");
+    }
+  }
+
+  private static CanonicalHiveDescriptor canonicalHiveDescriptor(
+      @Nullable String declaredFileFormat, @Nullable HiveOptions hiveOptions, String provider) {
+    TableStorage.FileFormat fileFormat =
+        declaredFileFormat == null ? null : fileFormat(declaredFileFormat, provider);
+    if (hiveOptions == null) {
+      return new CanonicalHiveDescriptor(fileFormat, null);
+    }
+
+    TableStorage.FileFormat inferredFileFormat = standardHiveFileFormat(hiveOptions);
+    if (fileFormat == null) {
+      return inferredFileFormat == null
+          ? new CanonicalHiveDescriptor(null, hiveOptions)
+          : new CanonicalHiveDescriptor(inferredFileFormat, null);
+    }
+    if (inferredFileFormat == null || inferredFileFormat != fileFormat) {
+      throw unsupportedProperties(
+          provider, "a legacy table with both a file format and a custom Hive storage descriptor");
+    }
+    return new CanonicalHiveDescriptor(fileFormat, null);
+  }
+
+  @Nullable
+  private static TableStorage.FileFormat standardHiveFileFormat(HiveOptions hiveOptions) {
+    // TODO: Catalogs commonly materialize a default SerDe name equal to the table name. Preserve
+    // that as a typed descriptor until a future V1 profile can prove it is connector-derived.
+    if (hiveOptions.getSerdeName() != null) {
+      return null;
+    }
+    for (HiveStorageDescriptor descriptor : STANDARD_HIVE_STORAGE_DESCRIPTORS) {
+      if (descriptor.matches(hiveOptions)) {
+        return descriptor.fileFormat();
+      }
+    }
+    return null;
   }
 
   @Nullable
@@ -888,6 +1000,61 @@ public final class TableOptionsMapper {
     @Nullable
     MysqlOptions mysqlOptions() {
       return mysqlOptions;
+    }
+  }
+
+  private static final class CanonicalHiveDescriptor {
+
+    @Nullable private final TableStorage.FileFormat fileFormat;
+    @Nullable private final HiveOptions hiveOptions;
+
+    private CanonicalHiveDescriptor(
+        @Nullable TableStorage.FileFormat fileFormat, @Nullable HiveOptions hiveOptions) {
+      this.fileFormat = fileFormat;
+      this.hiveOptions = hiveOptions;
+    }
+
+    private static CanonicalHiveDescriptor empty() {
+      return new CanonicalHiveDescriptor(null, null);
+    }
+
+    @Nullable
+    private TableStorage.FileFormat fileFormat() {
+      return fileFormat;
+    }
+
+    @Nullable
+    private HiveOptions hiveOptions() {
+      return hiveOptions;
+    }
+  }
+
+  private static final class HiveStorageDescriptor {
+
+    private final TableStorage.FileFormat fileFormat;
+    private final String inputFormat;
+    private final String outputFormat;
+    private final String serdeLibrary;
+
+    private HiveStorageDescriptor(
+        TableStorage.FileFormat fileFormat,
+        String inputFormat,
+        String outputFormat,
+        String serdeLibrary) {
+      this.fileFormat = fileFormat;
+      this.inputFormat = inputFormat;
+      this.outputFormat = outputFormat;
+      this.serdeLibrary = serdeLibrary;
+    }
+
+    private TableStorage.FileFormat fileFormat() {
+      return fileFormat;
+    }
+
+    private boolean matches(HiveOptions hiveOptions) {
+      return inputFormat.equals(hiveOptions.getInputFormat())
+          && outputFormat.equals(hiveOptions.getOutputFormat())
+          && serdeLibrary.equals(hiveOptions.getSerdeLibrary());
     }
   }
 }

@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import org.apache.gravitino.rest.v1.model.ClickHouseOptions;
 import org.apache.gravitino.rest.v1.model.HiveOptions;
@@ -124,19 +125,12 @@ public class TestTableOptionsMapper {
             TableStorage.TableFormat.HIVE,
             "hdfs:///warehouse/orders",
             TableStorage.FileFormat.ORC);
-    HiveOptions options =
-        new HiveOptions(
-            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-            "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
-            "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
-            "orders_serde");
 
     Map<String, String> properties =
-        TableOptionsMapper.toInternalProperties("hive", storage, null, options, null, null);
+        TableOptionsMapper.toInternalProperties("hive", storage, null, null, null, null);
 
     assertEquals("EXTERNAL_TABLE", properties.get("table-type"));
     assertEquals("ORC", properties.get("format"));
-    assertEquals("orders_serde", properties.get("serde-name"));
     properties.put("transient_lastDdlTime", "1720987200");
     TableOptionsMapper.PublicTableState state = TableOptionsMapper.toPublic("hive", properties);
     assertStorage(
@@ -145,10 +139,90 @@ public class TestTableOptionsMapper {
         TableStorage.TableFormat.HIVE,
         "hdfs:///warehouse/orders",
         TableStorage.FileFormat.ORC);
+    assertNull(state.hiveOptions());
+  }
+
+  @Test
+  public void testHiveMapsCustomDescriptorWithoutPortableFileFormat() {
+    TableStorage storage =
+        new TableStorage(
+            TableStorage.Ownership.EXTERNAL,
+            TableStorage.TableFormat.HIVE,
+            "hdfs:///warehouse/orders",
+            null);
+    HiveOptions options =
+        new HiveOptions(
+            "org.example.CustomInputFormat",
+            "org.example.CustomOutputFormat",
+            "org.example.CustomSerde",
+            "orders_serde");
+
+    Map<String, String> properties =
+        TableOptionsMapper.toInternalProperties("hive", storage, null, options, null, null);
+
+    assertFalse(properties.containsKey("format"));
+    TableOptionsMapper.PublicTableState state = TableOptionsMapper.toPublic("hive", properties);
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "hdfs:///warehouse/orders",
+        null);
     assertEquals(options.getInputFormat(), state.hiveOptions().getInputFormat());
     assertEquals(options.getOutputFormat(), state.hiveOptions().getOutputFormat());
     assertEquals(options.getSerdeLibrary(), state.hiveOptions().getSerdeLibrary());
     assertEquals(options.getSerdeName(), state.hiveOptions().getSerdeName());
+  }
+
+  @Test
+  public void testHiveNormalizesAnExactLoadedStandardDescriptor() {
+    TableOptionsMapper.PublicTableState state =
+        TableOptionsMapper.toPublic(
+            "hive",
+            Map.of(
+                "table-type", "EXTERNAL_TABLE",
+                "location", "hdfs:///warehouse/orders",
+                "input-format", "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+                "output-format", "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+                "serde-lib", "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+                "transient_lastDdlTime", "1720987200"));
+
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "hdfs:///warehouse/orders",
+        TableStorage.FileFormat.ORC);
+    assertNull(state.hiveOptions());
+    assertEquals(
+        Map.of(
+            "table-type", "EXTERNAL_TABLE",
+            "location", "hdfs:///warehouse/orders",
+            "format", "ORC"),
+        TableOptionsMapper.toInternalProperties(
+            "hive", state.storage(), null, state.hiveOptions(), null, null));
+  }
+
+  @Test
+  public void testHiveKeepsNamedStandardDescriptorAsTypedOptions() {
+    TableOptionsMapper.PublicTableState state =
+        TableOptionsMapper.toPublic(
+            "hive",
+            Map.of(
+                "table-type", "EXTERNAL_TABLE",
+                "location", "hdfs:///warehouse/orders",
+                "input-format", "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
+                "output-format", "org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat",
+                "serde-lib", "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+                "serde-name", "orders"));
+
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "hdfs:///warehouse/orders",
+        null);
+    assertEquals("orders", state.hiveOptions().getSerdeName());
   }
 
   @Test
@@ -166,8 +240,12 @@ public class TestTableOptionsMapper {
     HiveOptions options =
         new HiveOptions(null, null, "org.apache.iceberg.mr.hive.HiveIcebergSerDe", null);
 
+    assertThrows(
+        V1ClientInputException.class,
+        () -> TableOptionsMapper.toInternalProperties("glue", storage, null, options, null, null));
+
     Map<String, String> properties =
-        TableOptionsMapper.toInternalProperties("glue", storage, null, options, null, null);
+        TableOptionsMapper.toInternalProperties("glue", storage, null, null, null, null);
 
     assertEquals("HIVE", properties.get("table-format"));
     assertEquals("parquet", properties.get("format"));
@@ -179,7 +257,61 @@ public class TestTableOptionsMapper {
         TableStorage.TableFormat.HIVE,
         "s3://warehouse/glue-orders",
         TableStorage.FileFormat.PARQUET);
+    assertNull(state.hiveOptions());
+  }
+
+  @Test
+  public void testGlueMapsCustomDescriptorWithoutPortableFileFormat() {
+    TableStorage storage =
+        new TableStorage(
+            TableStorage.Ownership.EXTERNAL,
+            TableStorage.TableFormat.HIVE,
+            "s3://warehouse/glue-orders",
+            null);
+    HiveOptions options =
+        new HiveOptions(null, null, "org.apache.iceberg.mr.hive.HiveIcebergSerDe", null);
+
+    Map<String, String> properties =
+        TableOptionsMapper.toInternalProperties("glue", storage, null, options, null, null);
+
+    assertEquals("HIVE", properties.get("table-format"));
+    assertEquals("s3://warehouse/glue-orders", properties.get("location"));
+    TableOptionsMapper.PublicTableState state = TableOptionsMapper.toPublic("glue", properties);
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "s3://warehouse/glue-orders",
+        null);
     assertEquals(options.getSerdeLibrary(), state.hiveOptions().getSerdeLibrary());
+  }
+
+  @Test
+  public void testGlueNormalizesAnExactLoadedStandardDescriptor() {
+    TableOptionsMapper.PublicTableState state =
+        TableOptionsMapper.toPublic(
+            "glue",
+            Map.of(
+                "table-format", "HIVE",
+                "location", "s3://warehouse/glue-orders",
+                "input-format", "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "output-format", "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+                "serde-lib", "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"));
+
+    assertStorage(
+        state.storage(),
+        TableStorage.Ownership.EXTERNAL,
+        TableStorage.TableFormat.HIVE,
+        "s3://warehouse/glue-orders",
+        TableStorage.FileFormat.PARQUET);
+    assertNull(state.hiveOptions());
+    assertEquals(
+        Map.of(
+            "table-format", "HIVE",
+            "location", "s3://warehouse/glue-orders",
+            "format", "parquet"),
+        TableOptionsMapper.toInternalProperties(
+            "glue", state.storage(), null, state.hiveOptions(), null, null));
   }
 
   @Test
@@ -298,13 +430,15 @@ public class TestTableOptionsMapper {
   }
 
   @Test
-  public void testBasicJdbcAndPaimonProfilesOnlyAcceptAnEmptyTypedState() {
+  public void testBasicJdbcProfileAcceptsAnEmptyTypedStateAndPaimonFailsBeforeCreate() {
     assertEquals(
         Collections.emptyMap(),
         TableOptionsMapper.toInternalProperties("jdbc-postgresql", null, null, null, null, null));
-    assertEquals(
-        Collections.emptyMap(),
-        TableOptionsMapper.toInternalProperties("lakehouse-paimon", null, null, null, null, null));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            TableOptionsMapper.toInternalProperties(
+                "lakehouse-paimon", null, null, null, null, null));
     assertNull(TableOptionsMapper.toPublic("jdbc-postgresql", Collections.emptyMap()).storage());
     assertNull(TableOptionsMapper.toPublic("lakehouse-paimon", Collections.emptyMap()).storage());
   }
@@ -333,6 +467,11 @@ public class TestTableOptionsMapper {
     assertThrows(
         UnsupportedOperationException.class,
         () -> TableOptionsMapper.toPublic("glue", Map.of("arbitrary", "value")));
+    Map<String, String> nullValuedProperties = new HashMap<>();
+    nullValuedProperties.put("arbitrary", null);
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> TableOptionsMapper.toPublic("glue", nullValuedProperties));
   }
 
   @Test

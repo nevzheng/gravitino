@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
@@ -183,13 +184,16 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         listBody.contains(
             "\"resourceName\":\"metalakes/demo/catalogs/catalog/schemas/schema/tables/orders\""));
 
-    Table createdTable =
+    Table createReturn =
+        mockV1Table("created_orders", "Transient create result", Map.of("legacy", "value"));
+    Table canonicalTable =
         mockV1Table(
             "created_orders",
             "Created through V1",
             Map.of("engine", "InnoDB", "auto-increment-offset", "1"));
     when(dispatcher.createTable(any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(createdTable);
+        .thenReturn(createReturn);
+    when(dispatcher.loadTable(any())).thenReturn(canonicalTable);
 
     Response createResponse =
         tableCollectionTarget()
@@ -210,14 +214,23 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     assertTrue(createBody.contains("\"kind\":\"INTEGER\""));
     assertTrue(createBody.contains("\"mysqlOptions\""));
     assertTrue(createBody.contains("\"autoIncrementOffset\":1"));
+    Mockito.verify(dispatcher).loadTable(any());
   }
 
   @Test
   public void testPutRequiresStrongIfMatchAndReplacesCompleteDesiredState() {
     Table currentTable = mockV1Table("orders", "Original", Map.of("engine", "InnoDB"));
     Table updatedTable = mockV1Table("orders", "Replaced", Map.of("engine", "InnoDB"));
-    when(dispatcher.loadTable(any())).thenReturn(currentTable);
-    when(dispatcher.alterTable(any(), any(TableChange[].class))).thenReturn(updatedTable);
+    Table alterReturn = mockV1Table("orders", "Transient alter result", Map.of("legacy", "value"));
+    AtomicBoolean altered = new AtomicBoolean();
+    when(dispatcher.loadTable(any()))
+        .thenAnswer(ignored -> altered.get() ? updatedTable : currentTable);
+    when(dispatcher.alterTable(any(), any(TableChange[].class)))
+        .thenAnswer(
+            ignored -> {
+              altered.set(true);
+              return alterReturn;
+            });
 
     Response getResponse = tableTarget().request(MediaType.APPLICATION_JSON_TYPE).get();
     assertEquals(200, getResponse.getStatus());
@@ -269,12 +282,18 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
             .put(Entity.json(completeTableUpdatePayload()));
     assertEquals(200, updateResponse.getStatus());
     assertEquals("private, no-cache", updateResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
-    assertStrongEntityTag(updateResponse.getHeaderString(HttpHeaders.ETAG));
+    String updatedEntityTag = updateResponse.getHeaderString(HttpHeaders.ETAG);
+    assertStrongEntityTag(updatedEntityTag);
     String updateBody = updateResponse.readEntity(String.class);
     assertTrue(updateBody.contains("\"comment\":\"Replaced\""));
     assertTrue(updateBody.contains("\"mysqlOptions\""));
     assertTrue(updateBody.contains("\"engine\":\"InnoDB\""));
     assertTrue(updateBody.contains("\"kind\":\"INTEGER\""));
+
+    Response immediatelyLoaded = tableTarget().request(MediaType.APPLICATION_JSON_TYPE).get();
+    assertEquals(200, immediatelyLoaded.getStatus());
+    assertEquals(updatedEntityTag, immediatelyLoaded.getHeaderString(HttpHeaders.ETAG));
+    assertTrue(immediatelyLoaded.readEntity(String.class).contains("\"comment\":\"Replaced\""));
   }
 
   @Test
@@ -384,6 +403,38 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     String body = response.readEntity(String.class);
     assertTrue(body.contains("\"type\":\"INVALID_ARGUMENT\""));
     assertTrue(body.contains("\"field\":\"partitioning[0]\""));
+    Mockito.verify(dispatcher, Mockito.never())
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void testCreateRejectsAmbiguousHiveStorageAndDescriptorWithPublicInputError() {
+    when(catalogInfo.provider()).thenReturn("hive");
+
+    Response response =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(Entity.json(hiveTableWithFileFormatAndDescriptorPayload()));
+
+    assertEquals(400, response.getStatus());
+    String body = response.readEntity(String.class);
+    assertTrue(body.contains("\"type\":\"INVALID_ARGUMENT\""));
+    assertTrue(body.contains("\"field\":\"hiveOptions\""));
+    Mockito.verify(dispatcher, Mockito.never())
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void testCreateRejectsPaimonBeforeAResponseWouldLoseTypedState() {
+    when(catalogInfo.provider()).thenReturn("lakehouse-paimon");
+
+    Response response =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(Entity.json(createTablePayload()));
+
+    assertEquals(501, response.getStatus());
+    assertTrue(response.readEntity(String.class).contains("\"type\":\"UNSUPPORTED_OPERATION\""));
     Mockito.verify(dispatcher, Mockito.never())
         .createTable(any(), any(), any(), any(), any(), any(), any(), any());
   }
@@ -580,6 +631,18 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         + "\"location\":\"s3://warehouse/delta-orders\"},"
         + "\"partitioning\":[{\"kind\":\"YEAR\",\"fieldName\":[\"id\"]}],"
         + "\"sortOrders\":[],\"indexes\":[]"
+        + "}";
+  }
+
+  private static String hiveTableWithFileFormatAndDescriptorPayload() {
+    return "{"
+        + "\"name\":\"hive_orders\","
+        + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+        + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
+        + "\"storage\":{\"ownership\":\"EXTERNAL\",\"tableFormat\":\"HIVE\","
+        + "\"location\":\"s3://warehouse/hive-orders\",\"fileFormat\":\"ORC\"},"
+        + "\"hiveOptions\":{\"serdeLibrary\":\"org.apache.hadoop.hive.ql.io.orc.OrcSerde\"},"
+        + "\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]"
         + "}";
   }
 

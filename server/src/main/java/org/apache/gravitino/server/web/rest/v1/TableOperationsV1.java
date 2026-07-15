@@ -197,22 +197,24 @@ public class TableOperationsV1 {
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, request.getName());
             String provider = catalogProvider(metalake, catalog);
             validateKnownCreateConstraints(provider, request);
-            Table internal =
-                dispatcher.createTable(
-                    identifier,
-                    TableRequestMapper.toColumns(request.getColumns()),
-                    request.getComment(),
-                    TableOptionsMapper.toInternalProperties(
-                        provider,
-                        request.getStorage(),
-                        request.getIcebergOptions(),
-                        request.getHiveOptions(),
-                        request.getClickhouseOptions(),
-                        request.getMysqlOptions()),
-                    TableRequestMapper.toTransforms(request.getPartitioning()),
-                    TableRequestMapper.toDistribution(request.getDistribution()),
-                    TableRequestMapper.toSortOrders(request.getSortOrders()),
-                    TableRequestMapper.toIndexes(request.getIndexes()));
+            dispatcher.createTable(
+                identifier,
+                TableRequestMapper.toColumns(request.getColumns()),
+                request.getComment(),
+                TableOptionsMapper.toInternalProperties(
+                    provider,
+                    request.getStorage(),
+                    request.getIcebergOptions(),
+                    request.getHiveOptions(),
+                    request.getClickhouseOptions(),
+                    request.getMysqlOptions()),
+                TableRequestMapper.toTransforms(request.getPartitioning()),
+                TableRequestMapper.toDistribution(request.getDistribution()),
+                TableRequestMapper.toSortOrders(request.getSortOrders()),
+                TableRequestMapper.toIndexes(request.getIndexes()));
+            // Connector create operations can return a pre-persistence view. Reload so the 201 body
+            // is exactly the canonical state GET and full PUT use, including connector defaults.
+            Table internal = dispatcher.loadTable(identifier);
             TableResource resource =
                 TableMapper.toResource(
                     canonicalResourceName(metalake, catalog, schema, internal.name()),
@@ -348,9 +350,15 @@ public class TableOperationsV1 {
                           TableMapper.toResource(resourceName, current, provider);
                       TableChange[] changes =
                           TableMutationMapper.toChanges(currentResource, update);
-                      return changes.length == 0
-                          ? current
-                          : dispatcher.alterTable(identifier, changes);
+                      if (changes.length == 0) {
+                        return current;
+                      }
+
+                      dispatcher.alterTable(identifier, changes);
+                      // Return a canonical loaded representation while the conditional mutation
+                      // lock is still held. This keeps the PUT ETag/body aligned with an immediate
+                      // GET without opening a CAS gap after alteration.
+                      return dispatcher.loadTable(identifier);
                     });
             TableResource resource = TableMapper.toResource(resourceName, updated, provider);
             return cacheable(Response.ok(resource).tag(V1ResourceSupport.entityTag(resource)))
