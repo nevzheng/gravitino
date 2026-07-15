@@ -121,10 +121,12 @@ put:
   summary: Update a table
   description: |-
     Requires the complete mutable desired state. The current V1 adapter applies
-    comment and property changes only. `columns`, `partitioning`,
-    `distribution`, `sortOrders`, and `indexes` must equal the current table;
-    a requested change to one of them returns `501 UNSUPPORTED_OPERATION`
-    until the core exposes a correct replacement mutation. The result is the
+    comment changes only. `columns`, `storage`, provider options,
+    `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the
+    current table; a requested change to one of them returns
+    `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement
+    mutation. When the current table has storage or provider options, clients
+    copy that persistent state unchanged into full PUT. The result is the
     current V1 table representation.
   operationId: updateTableV1
   requestBody:

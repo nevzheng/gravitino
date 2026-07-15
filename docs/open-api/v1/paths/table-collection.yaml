@@ -42,9 +42,11 @@ post:
   summary: Create a table
   description: |-
     Creates one relational table under the schema. The request is a strict V1
-    wire object, not a legacy Gravitino DTO. A successful create returns 201,
-    a public representation, and the resource Location. Creating the same
-    name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
+    wire object, not a legacy Gravitino DTO. It uses shared `storage` intent
+    plus zero or one typed provider-options envelope; it never accepts the
+    legacy connector property map. A successful create returns 201, a public
+    representation, and the resource Location. Creating the same name returns
+    non-retryable `409 TABLE_ALREADY_EXISTS`.
   operationId: createTableV1
   requestBody:
     required: true

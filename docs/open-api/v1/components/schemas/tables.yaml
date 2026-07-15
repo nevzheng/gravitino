@@ -22,13 +22,21 @@ components:
       type: object
       additionalProperties: false
       description: |-
-        A strict V1 request to create one relational table. Required arrays and
-        maps must be present even when empty. `columns: []` is reserved for a
+        A strict V1 request to create one relational table. Required arrays
+        must be present even when empty. `columns: []` is reserved for a
         connector-owned schema discovery or registration flow; ordinary table
-        creation supplies at least one column. The server rejects unknown
-        members and connector-incompatible physical layout with a typed public
-        error.
-      required: [name, columns, properties, partitioning, sortOrders, indexes]
+        creation supplies at least one column.
+
+        V1 does not expose the legacy connector `properties` string map. Use
+        the shared `storage` object for portable table-storage intent and at
+        most one typed provider-options object for a connector-specific
+        capability. The V1 adapter maps these public values to its internal
+        domain and connector property maps. The server rejects unknown
+        members and connector-incompatible storage, options, or physical
+        layout with a typed public error.
+      required: [name, columns, partitioning, sortOrders, indexes]
+      allOf:
+        - $ref: "#/components/schemas/TableProviderOptionsConstraint"
       properties:
         name:
           $ref: "./types.yaml#/components/schemas/Identifier"
@@ -43,13 +51,16 @@ components:
           maxItems: 10000
           items:
             $ref: "#/components/schemas/TableColumn"
-        properties:
-          type: object
-          maxProperties: 10000
-          additionalProperties:
-            type: string
-            maxLength: 1048576
-            pattern: "^[\\s\\S]*$"
+        storage:
+          $ref: "#/components/schemas/TableStorageInput"
+        icebergOptions:
+          $ref: "#/components/schemas/IcebergOptionsInput"
+        hiveOptions:
+          $ref: "#/components/schemas/HiveOptionsInput"
+        clickhouseOptions:
+          $ref: "#/components/schemas/ClickHouseOptionsInput"
+        mysqlOptions:
+          $ref: "#/components/schemas/MysqlOptionsInput"
         partitioning:
           type: array
           maxItems: 1024
@@ -72,14 +83,20 @@ components:
       type: object
       additionalProperties: false
       description: |-
-        The complete mutable desired state for an existing table. The route
-        identifies the immutable table name. The current V1 adapter supports
-        comment and property changes only; `columns`, `partitioning`,
-        `distribution`, `sortOrders`, and `indexes` must equal the current
-        representation. A requested change to any of those fields returns
-        `501 UNSUPPORTED_OPERATION` until the core has a correct replacement
-        mutation. `comment: null` explicitly clears the comment.
-      required: [comment, columns, properties, partitioning, sortOrders, indexes]
+        The complete desired state for an existing table. The route identifies
+        the immutable table name. `comment: null` explicitly clears the
+        comment.
+
+        The initial V1 slice treats storage and provider options as immutable
+        persistent state. When the current resource contains `storage` or a
+        provider-options block, a full PUT copies it unchanged. The server
+        rejects a missing or incompatible immutable value with a typed public
+        error, and returns `501 UNSUPPORTED_OPERATION` for a requested change
+        until the core exposes a correct replacement mutation. V1 does not
+        accept a generic table `properties` map.
+      required: [comment, columns, partitioning, sortOrders, indexes]
+      allOf:
+        - $ref: "#/components/schemas/TableProviderOptionsConstraint"
       properties:
         comment:
           type: [string, "null"]
@@ -92,13 +109,16 @@ components:
           maxItems: 10000
           items:
             $ref: "#/components/schemas/TableColumn"
-        properties:
-          type: object
-          maxProperties: 10000
-          additionalProperties:
-            type: string
-            maxLength: 1048576
-            pattern: "^[\\s\\S]*$"
+        storage:
+          $ref: "#/components/schemas/TableStorageInput"
+        icebergOptions:
+          $ref: "#/components/schemas/IcebergOptionsInput"
+        hiveOptions:
+          $ref: "#/components/schemas/HiveOptionsInput"
+        clickhouseOptions:
+          $ref: "#/components/schemas/ClickHouseOptionsInput"
+        mysqlOptions:
+          $ref: "#/components/schemas/MysqlOptionsInput"
         partitioning:
           type: array
           maxItems: 1024
@@ -149,18 +169,23 @@ components:
       description: |-
         The public V1 representation of a relational table. This is a wire
         resource and does not expose Gravitino implementation interfaces.
-        Required collections and maps are always present, including when empty.
-        Optional scalar properties are omitted rather than set to JSON null.
-        Clients must ignore additional response members so later V1 contract
-        minors can add optional table metadata.
+        Required collections are always present, including when empty. Optional
+        scalar properties are omitted rather than set to JSON null.
+
+        The representation exposes portable `storage` and one typed provider
+        options block instead of a connector property bag. Storage and options
+        are returned as persistent state so a client can carry them unchanged
+        through a full PUT. Clients must ignore additional response members so
+        later V1 contract minors can add optional table metadata.
       required:
         - resourceName
         - name
         - columns
-        - properties
         - partitioning
         - sortOrders
         - indexes
+      allOf:
+        - $ref: "#/components/schemas/TableProviderOptionsConstraint"
       properties:
         resourceName:
           type: string
@@ -182,16 +207,16 @@ components:
           items:
             $ref: "#/components/schemas/TableColumn"
           description: Ordered table columns. Present as an empty array if the catalog reports none.
-        properties:
-          type: object
-          maxProperties: 10000
-          additionalProperties:
-            type: string
-            maxLength: 1048576
-            pattern: "^[\\s\\S]*$"
-          description: |
-            Public catalog properties after Gravitino's hidden-property filtering.
-            Present as an empty object when none are exposed.
+        storage:
+          $ref: "#/components/schemas/TableStorageResponse"
+        icebergOptions:
+          $ref: "#/components/schemas/IcebergOptionsResponse"
+        hiveOptions:
+          $ref: "#/components/schemas/HiveOptionsResponse"
+        clickhouseOptions:
+          $ref: "#/components/schemas/ClickHouseOptionsResponse"
+        mysqlOptions:
+          $ref: "#/components/schemas/MysqlOptionsResponse"
         partitioning:
           type: array
           maxItems: 1024
@@ -214,6 +239,415 @@ components:
           description: Table indexes; empty when none are declared.
         audit:
           $ref: "#/components/schemas/AuditInfo"
+
+    TableProviderOptionsConstraint:
+      type: object
+      description: |-
+        Structural zero-or-one rule for the public provider option envelopes.
+        The no-options branch supports JDBC and other providers whose table
+        create has no provider-specific persistent state. This rule establishes
+        only wire cardinality. The server separately validates that an option
+        block is supported by the selected catalog and table format.
+      oneOf:
+        - title: No provider-specific options
+          not:
+            anyOf:
+              - properties:
+                  icebergOptions: {}
+                required: [icebergOptions]
+              - properties:
+                  hiveOptions: {}
+                required: [hiveOptions]
+              - properties:
+                  clickhouseOptions: {}
+                required: [clickhouseOptions]
+              - properties:
+                  mysqlOptions: {}
+                required: [mysqlOptions]
+        - title: Iceberg options
+          properties:
+            icebergOptions: {}
+          required: [icebergOptions]
+        - title: Hive options
+          properties:
+            hiveOptions: {}
+          required: [hiveOptions]
+        - title: ClickHouse options
+          properties:
+            clickhouseOptions: {}
+          required: [clickhouseOptions]
+        - title: MySQL options
+          properties:
+            mysqlOptions: {}
+          required: [mysqlOptions]
+
+    TableStorageInput:
+      type: object
+      additionalProperties: false
+      description: |-
+        Portable table storage intent. Omit this object for JDBC-style tables
+        whose backing database owns storage. `fileFormat` is the
+        format selected for future writes; it does not assert that every
+        historical data file uses that format.
+      required: [ownership]
+      allOf:
+        - if:
+            properties:
+              ownership:
+                const: EXTERNAL
+            required: [ownership]
+          then:
+            properties:
+              location: {}
+            required: [location]
+      properties:
+        ownership:
+          $ref: "#/components/schemas/TableStorageOwnership"
+        tableFormat:
+          $ref: "#/components/schemas/TableFormat"
+        location:
+          $ref: "#/components/schemas/TableLocation"
+        fileFormat:
+          $ref: "#/components/schemas/TableWriteFileFormat"
+
+    TableStorageResponse:
+      type: object
+      additionalProperties: true
+      description: |-
+        The resolved public storage state for a table. It uses the same
+        persistent fields as `TableStorageInput` but remains open so a later
+        V1 minor can add a response-only storage detail.
+      required: [ownership]
+      allOf:
+        - if:
+            properties:
+              ownership:
+                const: EXTERNAL
+            required: [ownership]
+          then:
+            properties:
+              location: {}
+            required: [location]
+      properties:
+        ownership:
+          $ref: "#/components/schemas/TableStorageOwnership"
+        tableFormat:
+          $ref: "#/components/schemas/TableFormat"
+        location:
+          $ref: "#/components/schemas/TableLocation"
+        fileFormat:
+          $ref: "#/components/schemas/TableWriteFileFormat"
+
+    TableStorageOwnership:
+      type: string
+      description: |-
+        Who owns physical data lifecycle. `MANAGED` permits the catalog to
+        derive or create storage. `EXTERNAL` records caller-owned data and
+        requires a location; deletion detaches metadata and does not promise
+        physical-data removal.
+      enum: [MANAGED, EXTERNAL]
+
+    TableFormat:
+      type: string
+      description: |-
+        The table metadata format selected by the table, not the file format
+        used for individual data files. The configured catalog advertises and
+        validates which values it supports.
+      enum: [ICEBERG, DELTA, LANCE, PAIMON, HUDI, HIVE]
+
+    TableLocation:
+      type: string
+      format: uri-reference
+      minLength: 1
+      maxLength: 4096
+      pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+      description: |-
+        A URI or connector-recognized filesystem location, such as
+        `s3://warehouse/orders` or `/warehouse/orders`.
+
+    TableWriteFileFormat:
+      type: string
+      description: |-
+        The default file format for future data writes. Catalogs reject values
+        they do not support; existing tables can contain files written in more
+        than one format over their lifetime.
+      enum: [PARQUET, ORC, AVRO, TEXTFILE, SEQUENCEFILE, RCFILE, JSON, CSV, REGEX]
+
+    IcebergOptionsInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |-
+        Immutable Iceberg-specific creation options. File format belongs in
+        `storage.fileFormat`, not in this provider envelope.
+      properties:
+        formatVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 4
+          enum: [1, 2, 3, 4]
+          description: The Iceberg table format version to create.
+
+    IcebergOptionsResponse:
+      type: object
+      additionalProperties: true
+      minProperties: 1
+      description: |-
+        Resolved Iceberg-specific persistent state. The response form is open
+        for compatible additive V1 metadata while the corresponding input form
+        remains strict.
+      properties:
+        formatVersion:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 4
+          enum: [1, 2, 3, 4]
+          description: The resolved Iceberg table format version.
+
+    HiveOptionsInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |-
+        Immutable Hive storage-descriptor overrides. For a standard format,
+        prefer `storage.fileFormat`; the catalog derives the
+        input, output, and SerDe classes. These fields are for a custom Hive
+        descriptor that cannot be expressed by the shared storage fields.
+      properties:
+        inputFormat:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        outputFormat:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        serdeLibrary:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        serdeName:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+
+    HiveOptionsResponse:
+      type: object
+      additionalProperties: true
+      minProperties: 1
+      description: Resolved Hive storage-descriptor state; this response form is forward-compatible.
+      properties:
+        inputFormat:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        outputFormat:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        serdeLibrary:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        serdeName:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+
+    ClickHouseOptionsInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |-
+        Immutable ClickHouse table-engine and cluster configuration. V1 does
+        not expose an unbounded `settings.*` property bag; a future setting
+        needs a typed public field and review.
+      allOf:
+        - if:
+            properties:
+              onCluster:
+                const: true
+            required: [onCluster]
+          then:
+            properties:
+              clusterName: {}
+            required: [clusterName]
+        - if:
+            properties:
+              engine:
+                const: Distributed
+            required: [engine]
+          then:
+            properties:
+              remoteDatabase: {}
+              remoteTable: {}
+              shardingKey: {}
+            required: [remoteDatabase, remoteTable, shardingKey]
+      properties:
+        engine:
+          $ref: "#/components/schemas/ClickHouseEngine"
+        onCluster:
+          type: boolean
+          description: Whether creation uses ClickHouse `ON CLUSTER`.
+        clusterName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        remoteDatabase:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        remoteTable:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        shardingKey:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: A ClickHouse sharding-key expression for a Distributed table.
+
+    ClickHouseOptionsResponse:
+      type: object
+      additionalProperties: true
+      minProperties: 1
+      description: Resolved ClickHouse engine and cluster state; this response form is forward-compatible.
+      allOf:
+        - if:
+            properties:
+              onCluster:
+                const: true
+            required: [onCluster]
+          then:
+            properties:
+              clusterName: {}
+            required: [clusterName]
+        - if:
+            properties:
+              engine:
+                const: Distributed
+            required: [engine]
+          then:
+            properties:
+              remoteDatabase: {}
+              remoteTable: {}
+              shardingKey: {}
+            required: [remoteDatabase, remoteTable, shardingKey]
+      properties:
+        engine:
+          $ref: "#/components/schemas/ClickHouseEngine"
+        onCluster:
+          type: boolean
+          description: Whether creation used ClickHouse `ON CLUSTER`.
+        clusterName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        remoteDatabase:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        remoteTable:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        shardingKey:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: The ClickHouse sharding-key expression for a Distributed table.
+
+    ClickHouseEngine:
+      type: string
+      description: A ClickHouse engine supported by the initial V1 typed options contract.
+      enum:
+        - MergeTree
+        - ReplacingMergeTree
+        - SummingMergeTree
+        - AggregatingMergeTree
+        - CollapsingMergeTree
+        - VersionedCollapsingMergeTree
+        - GraphiteMergeTree
+        - TinyLog
+        - StripeLog
+        - Log
+        - ODBC
+        - JDBC
+        - MySQL
+        - MongoDB
+        - Redis
+        - HDFS
+        - S3
+        - Kafka
+        - EmbeddedRocksDB
+        - RabbitMQ
+        - PostgreSQL
+        - S3Queue
+        - TimeSeries
+        - Distributed
+        - Dictionary
+        - Merge
+        - File
+        - "Null"
+        - Set
+        - Join
+        - URL
+        - View
+        - Memory
+        - Buffer
+        - KeeperMap
+
+    MysqlOptionsInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Immutable MySQL table-engine options.
+      properties:
+        engine:
+          $ref: "#/components/schemas/MysqlEngine"
+        autoIncrementOffset:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          description: The initial value for an auto-increment column.
+
+    MysqlOptionsResponse:
+      type: object
+      additionalProperties: true
+      minProperties: 1
+      description: Resolved MySQL table-engine state; this response form is forward-compatible.
+      properties:
+        engine:
+          $ref: "#/components/schemas/MysqlEngine"
+        autoIncrementOffset:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          description: The configured initial value for an auto-increment column.
+
+    MysqlEngine:
+      type: string
+      description: A MySQL storage engine supported by the configured server.
+      enum:
+        - NDBCLUSTER
+        - FEDERATED
+        - MEMORY
+        - InnoDB
+        - PERFORMANCE_SCHEMA
+        - MyISAM
+        - NDBINFO
+        - MRG_MYISAM
+        - BLACKHOLE
+        - CSV
+        - ARCHIVE
 
     TableColumn:
       type: object
@@ -318,7 +752,7 @@ components:
 
   examples:
     TableCreateRequest:
-      summary: Create a simple orders table
+      summary: Create a managed Iceberg orders table
       value:
         name: orders
         columns:
@@ -328,7 +762,13 @@ components:
               signed: true
             nullable: false
             autoIncrement: false
-        properties: {}
+        storage:
+          ownership: MANAGED
+          tableFormat: ICEBERG
+          location: s3://warehouse/sales/orders
+          fileFormat: PARQUET
+        icebergOptions:
+          formatVersion: 2
         partitioning: []
         sortOrders: []
         indexes: []
@@ -343,8 +783,13 @@ components:
               signed: true
             nullable: false
             autoIncrement: false
-        properties:
-          format: iceberg
+        storage:
+          ownership: MANAGED
+          tableFormat: ICEBERG
+          location: s3://warehouse/sales/orders
+          fileFormat: PARQUET
+        icebergOptions:
+          formatVersion: 2
         partitioning: []
         sortOrders: []
         indexes: []
@@ -410,9 +855,13 @@ components:
               function:
                 identifier: [current_timestamp]
               arguments: []
-        properties:
-          format: iceberg
-          external: "false"
+        storage:
+          ownership: MANAGED
+          tableFormat: ICEBERG
+          location: s3://warehouse/sales/orders
+          fileFormat: PARQUET
+        icebergOptions:
+          formatVersion: 2
         partitioning:
           - kind: YEAR
             fieldName: [created_at]
