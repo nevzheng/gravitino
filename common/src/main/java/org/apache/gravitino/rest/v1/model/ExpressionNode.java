@@ -18,5 +18,8 @@
  */
 package org.apache.gravitino.rest.v1.model;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 /** A value expression or predicate accepted as an argument to an applied function. */
+@JsonDeserialize(using = ExpressionWireDeserializer.ExpressionNodeDeserializer.class)
 public interface ExpressionNode {}

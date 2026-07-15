@@ -18,5 +18,8 @@
  */
 package org.apache.gravitino.rest.v1.model;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 /** A raw literal or structured value expression from the Iceberg expression grammar. */
+@JsonDeserialize(using = ExpressionWireDeserializer.class)
 public interface ValueExpression extends ExpressionNode {}

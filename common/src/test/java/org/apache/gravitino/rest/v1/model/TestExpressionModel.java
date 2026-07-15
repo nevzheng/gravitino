@@ -20,6 +20,8 @@ package org.apache.gravitino.rest.v1.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,6 +71,106 @@ public class TestExpressionModel {
     assertEquals("iceberg_functions", applyJson.get("function").get("catalog").asText());
     assertEquals("bucket", applyJson.get("function").get("identifier").get(0).asText());
     assertEquals(2, applyJson.get("arguments").size());
+  }
+
+  @Test
+  public void testDeserializesRawAndTaggedValueExpressions() throws Exception {
+    ValueExpression rawString = objectMapper.readValue("\"orders\"", ValueExpression.class);
+    assertTrue(rawString instanceof LiteralValue);
+    assertEquals("orders", ((LiteralValue) rawString).getValue());
+
+    ValueExpression rawNull = objectMapper.readValue("null", ValueExpression.class);
+    assertNotNull(rawNull);
+    assertTrue(rawNull instanceof LiteralValue);
+    assertNull(((LiteralValue) rawNull).getValue());
+
+    ValueExpression rawList = objectMapper.readValue("[1,null,\"east\"]", ValueExpression.class);
+    assertTrue(rawList instanceof LiteralValue);
+    @SuppressWarnings("unchecked")
+    List<Object> list = (List<Object>) ((LiteralValue) rawList).getValue();
+    assertEquals(3, list.size());
+    assertEquals(1, list.get(0));
+    assertNull(list.get(1));
+    assertEquals("east", list.get(2));
+
+    ValueExpression rawStruct =
+        objectMapper.readValue("{\"2\":\"west\",\"1\":7}", ValueExpression.class);
+    assertTrue(rawStruct instanceof LiteralValue);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> struct = (Map<String, Object>) ((LiteralValue) rawStruct).getValue();
+    assertEquals(7, struct.get("1"));
+    assertEquals("west", struct.get("2"));
+
+    ValueExpression literal =
+        objectMapper.readValue(
+            "{\"type\":\"literal\",\"value\":7,\"data-type\":{\"kind\":\"INTEGER\","
+                + "\"signed\":true}}",
+            ValueExpression.class);
+    assertTrue(literal instanceof Expression.Literal);
+    Expression.Literal typedLiteral = (Expression.Literal) literal;
+    assertEquals(7, typedLiteral.getValue());
+    assertEquals(DataType.Kind.INTEGER, typedLiteral.getDataType().getKind());
+
+    ValueExpression reference =
+        objectMapper.readValue(
+            "{\"type\":\"reference\",\"name\":\"order_id\"}", ValueExpression.class);
+    assertTrue(reference instanceof Expression.Reference);
+    assertEquals("order_id", ((Expression.Reference) reference).getName());
+
+    ValueExpression apply =
+        objectMapper.readValue(
+            "{\"type\":\"apply\",\"function\":\"coalesce\",\"arguments\":[null,"
+                + "{\"type\":\"reference\",\"name\":\"region\"},"
+                + "{\"type\":\"literal\",\"value\":\"unknown\"},"
+                + "{\"type\":\"eq\",\"left\":{\"type\":\"reference\",\"name\":\"enabled\"},"
+                + "\"right\":true}]}",
+            ValueExpression.class);
+    assertTrue(apply instanceof Expression.Apply);
+    Expression.Apply parsedApply = (Expression.Apply) apply;
+    assertEquals("coalesce", parsedApply.getFunction().getIdentifier().get(0));
+    assertEquals(4, parsedApply.getArguments().size());
+    assertTrue(parsedApply.getArguments().get(0) instanceof LiteralValue);
+    assertNull(((LiteralValue) parsedApply.getArguments().get(0)).getValue());
+    assertTrue(parsedApply.getArguments().get(1) instanceof Expression.Reference);
+    assertTrue(parsedApply.getArguments().get(2) instanceof Expression.Literal);
+    assertTrue(parsedApply.getArguments().get(3) instanceof Predicate.Comparison);
+    Predicate.Comparison comparison = (Predicate.Comparison) parsedApply.getArguments().get(3);
+    assertTrue(comparison.getRight() instanceof LiteralValue);
+    assertEquals(true, ((LiteralValue) comparison.getRight()).getValue());
+  }
+
+  @Test
+  public void testBindsValueExpressionsInsideTableRequestModels() throws Exception {
+    String json =
+        "{"
+            + "\"name\":\"orders\","
+            + "\"columns\":["
+            + "{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\",\"signed\":true},"
+            + "\"nullable\":false,\"autoIncrement\":false,\"defaultValue\":null},"
+            + "{\"name\":\"priority\",\"type\":{\"kind\":\"INTEGER\",\"signed\":true},"
+            + "\"nullable\":false,\"autoIncrement\":false,\"defaultValue\":{\"type\":\"literal\","
+            + "\"value\":3,\"data-type\":{\"kind\":\"INTEGER\",\"signed\":true}}}],"
+            + "\"partitioning\":[],"
+            + "\"distribution\":{\"strategy\":\"HASH\",\"expressions\":[{\"type\":\"reference\","
+            + "\"name\":\"id\"}]},"
+            + "\"sortOrders\":[{\"expression\":{\"type\":\"reference\",\"name\":\"priority\"},"
+            + "\"direction\":\"ASC\",\"nullOrdering\":\"NULLS_LAST\"}],"
+            + "\"indexes\":[]"
+            + "}";
+
+    TableCreateRequest request = objectMapper.readValue(json, TableCreateRequest.class);
+    assertTrue(request.getColumns().get(0).getDefaultValue() instanceof LiteralValue);
+    assertNull(((LiteralValue) request.getColumns().get(0).getDefaultValue()).getValue());
+    assertTrue(request.getColumns().get(1).getDefaultValue() instanceof Expression.Literal);
+    assertEquals(
+        3, ((Expression.Literal) request.getColumns().get(1).getDefaultValue()).getValue());
+    assertTrue(request.getDistribution().getExpressions().get(0) instanceof Expression.Reference);
+    assertEquals(
+        "id", ((Expression.Reference) request.getDistribution().getExpressions().get(0)).getName());
+    assertTrue(request.getSortOrders().get(0).getExpression() instanceof Expression.Reference);
+    assertEquals(
+        "priority",
+        ((Expression.Reference) request.getSortOrders().get(0).getExpression()).getName());
   }
 
   @Test
