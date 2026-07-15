@@ -42,18 +42,23 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Request;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
+import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.rel.TableChange;
+import org.apache.gravitino.rest.v1.model.Distribution;
 import org.apache.gravitino.rest.v1.model.TableCreateRequest;
 import org.apache.gravitino.rest.v1.model.TableListResponse;
 import org.apache.gravitino.rest.v1.model.TableReference;
 import org.apache.gravitino.rest.v1.model.TableResource;
+import org.apache.gravitino.rest.v1.model.TableStorage;
 import org.apache.gravitino.rest.v1.model.TableUpdateRequest;
+import org.apache.gravitino.rest.v1.model.Transform;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -63,6 +68,7 @@ import org.apache.gravitino.server.web.rest.v1.error.V1ClientInputException;
 import org.apache.gravitino.server.web.rest.v1.error.V1ErrorContext;
 import org.apache.gravitino.server.web.rest.v1.mapper.TableMapper;
 import org.apache.gravitino.server.web.rest.v1.mapper.TableMutationMapper;
+import org.apache.gravitino.server.web.rest.v1.mapper.TableOptionsMapper;
 import org.apache.gravitino.server.web.rest.v1.mapper.TableRequestMapper;
 import org.apache.gravitino.server.web.rest.v1.support.V1ConditionalMutation;
 import org.apache.gravitino.server.web.rest.v1.support.V1ResourceSupport;
@@ -84,7 +90,10 @@ public class TableOperationsV1 {
   private static final Pattern IF_NONE_MATCH_PATTERN =
       Pattern.compile("^(\\*|(?:W/)?\"[^\"\\\\]+\"(?:\\s*,\\s*(?:W/)?\"[^\"\\\\]+\")*)$");
 
+  private static final String LAKEHOUSE_GENERIC_PROVIDER = "lakehouse-generic";
+
   private final TableDispatcher dispatcher;
+  private final CatalogDispatcher catalogDispatcher;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -92,10 +101,12 @@ public class TableOperationsV1 {
    * Creates the V1 table resource.
    *
    * @param dispatcher the internal table dispatcher.
+   * @param catalogDispatcher the internal catalog dispatcher used to resolve the provider profile.
    */
   @Inject
-  public TableOperationsV1(TableDispatcher dispatcher) {
+  public TableOperationsV1(TableDispatcher dispatcher, CatalogDispatcher catalogDispatcher) {
     this.dispatcher = dispatcher;
+    this.catalogDispatcher = catalogDispatcher;
   }
 
   /**
@@ -184,19 +195,29 @@ public class TableOperationsV1 {
           () -> {
             NameIdentifier identifier =
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, request.getName());
+            String provider = catalogProvider(metalake, catalog);
+            validateKnownCreateConstraints(provider, request);
             Table internal =
                 dispatcher.createTable(
                     identifier,
                     TableRequestMapper.toColumns(request.getColumns()),
                     request.getComment(),
-                    request.getProperties(),
+                    TableOptionsMapper.toInternalProperties(
+                        provider,
+                        request.getStorage(),
+                        request.getIcebergOptions(),
+                        request.getHiveOptions(),
+                        request.getClickhouseOptions(),
+                        request.getMysqlOptions()),
                     TableRequestMapper.toTransforms(request.getPartitioning()),
                     TableRequestMapper.toDistribution(request.getDistribution()),
                     TableRequestMapper.toSortOrders(request.getSortOrders()),
                     TableRequestMapper.toIndexes(request.getIndexes()));
             TableResource resource =
                 TableMapper.toResource(
-                    canonicalResourceName(metalake, catalog, schema, internal.name()), internal);
+                    canonicalResourceName(metalake, catalog, schema, internal.name()),
+                    internal,
+                    provider);
             return V1ResourceSupport.noStore(
                     Response.created(
                             uriInfo.getAbsolutePathBuilder().path(resource.getName()).build())
@@ -316,20 +337,22 @@ public class TableOperationsV1 {
             NameIdentifier identifier =
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
             String resourceName = canonicalResourceName(metalake, catalog, schema, table);
+            String provider = catalogProvider(metalake, catalog);
             Table updated =
                 V1ConditionalMutation.execute(
                     headers,
                     () -> dispatcher.loadTable(identifier),
-                    current -> TableMapper.toResource(resourceName, current),
+                    current -> TableMapper.toResource(resourceName, current, provider),
                     current -> {
-                      TableResource currentResource = TableMapper.toResource(resourceName, current);
+                      TableResource currentResource =
+                          TableMapper.toResource(resourceName, current, provider);
                       TableChange[] changes =
                           TableMutationMapper.toChanges(currentResource, update);
                       return changes.length == 0
                           ? current
                           : dispatcher.alterTable(identifier, changes);
                     });
-            TableResource resource = TableMapper.toResource(resourceName, updated);
+            TableResource resource = TableMapper.toResource(resourceName, updated, provider);
             return cacheable(Response.ok(resource).tag(V1ResourceSupport.entityTag(resource)))
                 .build();
           });
@@ -381,11 +404,12 @@ public class TableOperationsV1 {
             NameIdentifier identifier =
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
             String resourceName = canonicalResourceName(metalake, catalog, schema, table);
+            String provider = catalogProvider(metalake, catalog);
             boolean deleted =
                 V1ConditionalMutation.execute(
                     headers,
                     () -> dispatcher.loadTable(identifier),
-                    current -> TableMapper.toResource(resourceName, current),
+                    current -> TableMapper.toResource(resourceName, current, provider),
                     () ->
                         purge
                             ? dispatcher.purgeTable(identifier)
@@ -423,8 +447,9 @@ public class TableOperationsV1 {
           () -> {
             NameIdentifier identifier =
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
+            String provider = catalogProvider(metalake, catalog);
             Table internalTable = dispatcher.loadTable(identifier);
-            TableResource resource = TableMapper.toResource(resourceName, internalTable);
+            TableResource resource = TableMapper.toResource(resourceName, internalTable, provider);
             EntityTag entityTag = V1ResourceSupport.entityTag(resource);
             Response.ResponseBuilder precondition = request.evaluatePreconditions(entityTag);
             if (precondition != null) {
@@ -444,6 +469,41 @@ public class TableOperationsV1 {
     return responseBuilder
         .header(HttpHeaders.CACHE_CONTROL, "private, no-cache")
         .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION + ", Accept, Accept-Encoding");
+  }
+
+  private String catalogProvider(String metalake, String catalog) {
+    Catalog catalogInfo =
+        catalogDispatcher.loadCatalog(NameIdentifierUtil.ofCatalog(metalake, catalog));
+    return catalogInfo.provider();
+  }
+
+  private static void validateKnownCreateConstraints(String provider, TableCreateRequest request) {
+    TableStorage storage = request.getStorage();
+    if (!LAKEHOUSE_GENERIC_PROVIDER.equalsIgnoreCase(provider)
+        || storage == null
+        || storage.getTableFormat() != TableStorage.TableFormat.DELTA) {
+      return;
+    }
+    for (int index = 0; index < request.getPartitioning().size(); index++) {
+      if (!(request.getPartitioning().get(index) instanceof Transform.Identity)) {
+        throw new V1ClientInputException(
+            "partitioning[" + index + "]",
+            "Delta tables support identity partition transforms only.");
+      }
+    }
+    Distribution distribution = request.getDistribution();
+    if (distribution != null && distribution.getStrategy() != Distribution.Strategy.NONE) {
+      throw new V1ClientInputException(
+          "distribution", "Delta tables do not support an explicit data distribution.");
+    }
+    if (!request.getSortOrders().isEmpty()) {
+      throw new V1ClientInputException(
+          "sortOrders", "Delta tables do not support sort orders in this V1 profile.");
+    }
+    if (!request.getIndexes().isEmpty()) {
+      throw new V1ClientInputException(
+          "indexes", "Delta tables do not support indexes in this V1 profile.");
+    }
   }
 
   private static String canonicalResourceName(

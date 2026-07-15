@@ -490,10 +490,10 @@ public class TestTableMapper {
   }
 
   @Test
-  public void testUsesOnlyFilteredPublicPropertiesAndDropsNullEntries() {
+  public void testUsesOnlyRepresentableFilteredProperties() {
     Table catalogTable = table(new Column[0]);
     Map<String, String> properties = new HashMap<>();
-    properties.put("visible", "yes");
+    properties.put("engine", "InnoDB");
     properties.put("secret", "credential");
     properties.put("null-value", null);
     properties.put(null, "null-key");
@@ -503,9 +503,8 @@ public class TestTableMapper {
     EntityCombinedTable filtered =
         EntityCombinedTable.of(catalogTable).withHiddenProperties(Collections.singleton("secret"));
 
-    TableResource resource = TableMapper.toResource(RESOURCE_NAME, filtered);
-    assertEquals(Collections.singletonMap("visible", "yes"), resource.getProperties());
-    assertFalse(resource.getProperties().containsKey("secret"));
+    TableResource resource = TableMapper.toResource(RESOURCE_NAME, filtered, "jdbc-mysql");
+    assertEquals("InnoDB", resource.getMysqlOptions().getEngine());
     assertNull(resource.getAudit());
   }
 
@@ -513,7 +512,11 @@ public class TestTableMapper {
   public void testRequiredEmptyCollectionsOptionalDistributionAndSerialization() {
     TableResource resource = TableMapper.toResource(RESOURCE_NAME, table(new Column[0]));
     assertTrue(resource.getColumns().isEmpty());
-    assertTrue(resource.getProperties().isEmpty());
+    assertNull(resource.getStorage());
+    assertNull(resource.getIcebergOptions());
+    assertNull(resource.getHiveOptions());
+    assertNull(resource.getClickhouseOptions());
+    assertNull(resource.getMysqlOptions());
     assertTrue(resource.getPartitioning().isEmpty());
     assertTrue(resource.getSortOrders().isEmpty());
     assertTrue(resource.getIndexes().isEmpty());
@@ -524,7 +527,7 @@ public class TestTableMapper {
     JsonNode json = objectMapper.valueToTree(resource);
     assertEquals(RESOURCE_NAME, json.get("resourceName").asText());
     assertTrue(json.get("columns").isArray());
-    assertTrue(json.get("properties").isObject());
+    assertFalse(json.has("properties"));
     assertFalse(json.has("comment"));
     assertFalse(json.has("distribution"));
     assertFalse(json.has("audit"));

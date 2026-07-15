@@ -23,7 +23,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
-import java.util.Map;
 import javax.annotation.Nullable;
 
 /** A request to create a relational table through the public Gravitino V1 API. */
@@ -41,8 +40,25 @@ public final class TableCreateRequest {
   @JsonProperty(value = "columns", required = true)
   private final List<Column> columns;
 
-  @JsonProperty(value = "properties", required = true)
-  private final Map<String, String> properties;
+  @Nullable
+  @JsonProperty("storage")
+  private final TableStorage storage;
+
+  @Nullable
+  @JsonProperty("icebergOptions")
+  private final IcebergOptions icebergOptions;
+
+  @Nullable
+  @JsonProperty("hiveOptions")
+  private final HiveOptions hiveOptions;
+
+  @Nullable
+  @JsonProperty("clickhouseOptions")
+  private final ClickHouseOptions clickhouseOptions;
+
+  @Nullable
+  @JsonProperty("mysqlOptions")
+  private final MysqlOptions mysqlOptions;
 
   @JsonProperty(value = "partitioning", required = true)
   private final List<Transform> partitioning;
@@ -64,7 +80,11 @@ public final class TableCreateRequest {
    * @param comment optional table comment.
    * @param columns ordered table columns; use an empty list when the connector owns schema
    *     discovery.
-   * @param properties table properties; use an empty map when none are supplied.
+   * @param storage optional portable table storage intent.
+   * @param icebergOptions optional immutable Iceberg-specific state.
+   * @param hiveOptions optional immutable Hive-specific state.
+   * @param clickhouseOptions optional immutable ClickHouse-specific state.
+   * @param mysqlOptions optional immutable MySQL-specific state.
    * @param partitioning physical partition transforms; use an empty list when unpartitioned.
    * @param distribution optional physical data distribution.
    * @param sortOrders physical sort orders; use an empty list when unsorted.
@@ -75,7 +95,11 @@ public final class TableCreateRequest {
       @JsonProperty(value = "name", required = true) String name,
       @Nullable @JsonProperty("comment") String comment,
       @JsonProperty(value = "columns", required = true) List<Column> columns,
-      @JsonProperty(value = "properties", required = true) Map<String, String> properties,
+      @Nullable @JsonProperty("storage") TableStorage storage,
+      @Nullable @JsonProperty("icebergOptions") IcebergOptions icebergOptions,
+      @Nullable @JsonProperty("hiveOptions") HiveOptions hiveOptions,
+      @Nullable @JsonProperty("clickhouseOptions") ClickHouseOptions clickhouseOptions,
+      @Nullable @JsonProperty("mysqlOptions") MysqlOptions mysqlOptions,
       @JsonProperty(value = "partitioning", required = true) List<Transform> partitioning,
       @Nullable @JsonProperty("distribution") Distribution distribution,
       @JsonProperty(value = "sortOrders", required = true) List<SortOrder> sortOrders,
@@ -83,7 +107,13 @@ public final class TableCreateRequest {
     this.name = ModelSupport.requireIdentifier(name, "name");
     this.comment = ModelSupport.requireNullableComment(comment, "comment");
     this.columns = ModelSupport.immutableBoundedRequestList(columns, "columns", 10_000);
-    this.properties = ModelSupport.immutableRequestProperties(properties, "properties", false);
+    ModelSupport.requireAtMostOneNonNull(
+        "provider options", icebergOptions, hiveOptions, clickhouseOptions, mysqlOptions);
+    this.storage = storage;
+    this.icebergOptions = icebergOptions;
+    this.hiveOptions = hiveOptions;
+    this.clickhouseOptions = clickhouseOptions;
+    this.mysqlOptions = mysqlOptions;
     this.partitioning =
         ModelSupport.immutableBoundedRequestList(partitioning, "partitioning", 1_024);
     this.distribution = distribution;
@@ -114,10 +144,43 @@ public final class TableCreateRequest {
   }
 
   /**
-   * @return immutable table properties.
+   * @return optional portable table storage intent.
    */
-  public Map<String, String> getProperties() {
-    return properties;
+  @Nullable
+  public TableStorage getStorage() {
+    return storage;
+  }
+
+  /**
+   * @return optional immutable Iceberg-specific state.
+   */
+  @Nullable
+  public IcebergOptions getIcebergOptions() {
+    return icebergOptions;
+  }
+
+  /**
+   * @return optional immutable Hive-specific state.
+   */
+  @Nullable
+  public HiveOptions getHiveOptions() {
+    return hiveOptions;
+  }
+
+  /**
+   * @return optional immutable ClickHouse-specific state.
+   */
+  @Nullable
+  public ClickHouseOptions getClickhouseOptions() {
+    return clickhouseOptions;
+  }
+
+  /**
+   * @return optional immutable MySQL-specific state.
+   */
+  @Nullable
+  public MysqlOptions getMysqlOptions() {
+    return mysqlOptions;
   }
 
   /**

@@ -62,6 +62,27 @@ final class ModelSupport {
     return requireBoundedNonblankString(value, "provider", MAX_PROVIDER_LENGTH);
   }
 
+  @Nullable
+  static String requireNullableBoundedNonblankString(
+      @Nullable String value, String name, int maximumLength) {
+    if (value == null) {
+      return null;
+    }
+    return requireBoundedNonblankString(value, name, maximumLength);
+  }
+
+  static void requireAtMostOneNonNull(String name, @Nullable Object... values) {
+    int count = 0;
+    for (Object value : values) {
+      if (value != null) {
+        count++;
+      }
+    }
+    if (count > 1) {
+      throw new IllegalArgumentException(name + " must contain at most one option object");
+    }
+  }
+
   static <T> List<T> immutableBoundedRequestList(List<T> values, String name, int maximumSize) {
     Objects.requireNonNull(values, name + " cannot be null");
     requireMaximumSize(values.size(), name, maximumSize);

@@ -45,9 +45,11 @@ import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.lock.LockManager;
@@ -71,6 +73,7 @@ import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -78,6 +81,8 @@ import org.mockito.Mockito;
 public class TestTableOperationsV1 extends BaseOperationsTest {
 
   private final TableDispatcher dispatcher = mock(TableDispatcher.class);
+  private final CatalogDispatcher catalogDispatcher = mock(CatalogDispatcher.class);
+  private final Catalog catalogInfo = mock(Catalog.class);
 
   @BeforeAll
   public static void setupLockManager() throws IllegalAccessException {
@@ -89,6 +94,12 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+  }
+
+  @BeforeEach
+  public void setupCatalogProvider() {
+    when(catalogDispatcher.loadCatalog(any())).thenReturn(catalogInfo);
+    when(catalogInfo.provider()).thenReturn("jdbc-mysql");
   }
 
   @Override
@@ -113,6 +124,7 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(dispatcher).to(TableDispatcher.class).ranked(1);
+            bind(catalogDispatcher).to(CatalogDispatcher.class).ranked(1);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -171,7 +183,11 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         listBody.contains(
             "\"resourceName\":\"metalakes/demo/catalogs/catalog/schemas/schema/tables/orders\""));
 
-    Table createdTable = mockV1Table("created_orders", "Created through V1", Map.of("owner", "qa"));
+    Table createdTable =
+        mockV1Table(
+            "created_orders",
+            "Created through V1",
+            Map.of("engine", "InnoDB", "auto-increment-offset", "1"));
     when(dispatcher.createTable(any(), any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(createdTable);
 
@@ -192,12 +208,14 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     assertTrue(createBody.contains("\"name\":\"created_orders\""));
     assertTrue(createBody.contains("\"comment\":\"Created through V1\""));
     assertTrue(createBody.contains("\"kind\":\"INTEGER\""));
+    assertTrue(createBody.contains("\"mysqlOptions\""));
+    assertTrue(createBody.contains("\"autoIncrementOffset\":1"));
   }
 
   @Test
   public void testPutRequiresStrongIfMatchAndReplacesCompleteDesiredState() {
-    Table currentTable = mockV1Table("orders", "Original", Map.of("owner", "before"));
-    Table updatedTable = mockV1Table("orders", "Replaced", Map.of("owner", "after"));
+    Table currentTable = mockV1Table("orders", "Original", Map.of("engine", "InnoDB"));
+    Table updatedTable = mockV1Table("orders", "Replaced", Map.of("engine", "InnoDB"));
     when(dispatcher.loadTable(any())).thenReturn(currentTable);
     when(dispatcher.alterTable(any(), any(TableChange[].class))).thenReturn(updatedTable);
 
@@ -254,7 +272,8 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     assertStrongEntityTag(updateResponse.getHeaderString(HttpHeaders.ETAG));
     String updateBody = updateResponse.readEntity(String.class);
     assertTrue(updateBody.contains("\"comment\":\"Replaced\""));
-    assertTrue(updateBody.contains("\"owner\":\"after\""));
+    assertTrue(updateBody.contains("\"mysqlOptions\""));
+    assertTrue(updateBody.contains("\"engine\":\"InnoDB\""));
     assertTrue(updateBody.contains("\"kind\":\"INTEGER\""));
   }
 
@@ -331,6 +350,40 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
             .post(Entity.json(createTablePayload() + "{}"));
 
     assertStrictBodyFailure(response);
+    Mockito.verify(dispatcher, Mockito.never())
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void testCreateRejectsTheLegacyGenericPropertyBag() {
+    Response response =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(
+                Entity.json(
+                    createTablePayload()
+                        .replace(
+                            "\"mysqlOptions\":{\"engine\":\"InnoDB\",\"autoIncrementOffset\":1}",
+                            "\"properties\":{\"owner\":\"qa\"}")));
+
+    assertStrictBodyFailure(response);
+    Mockito.verify(dispatcher, Mockito.never())
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void testCreateRejectsUnsupportedDeltaLayoutWithPublicInputError() {
+    when(catalogInfo.provider()).thenReturn("lakehouse-generic");
+
+    Response response =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(Entity.json(deltaTableWithYearPartitionPayload()));
+
+    assertEquals(400, response.getStatus());
+    String body = response.readEntity(String.class);
+    assertTrue(body.contains("\"type\":\"INVALID_ARGUMENT\""));
+    assertTrue(body.contains("\"field\":\"partitioning[0]\""));
     Mockito.verify(dispatcher, Mockito.never())
         .createTable(any(), any(), any(), any(), any(), any(), any(), any());
   }
@@ -503,7 +556,7 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         + "\"comment\":\"Created through V1\","
         + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
         + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
-        + "\"properties\":{\"owner\":\"qa\"},"
+        + "\"mysqlOptions\":{\"engine\":\"InnoDB\",\"autoIncrementOffset\":1},"
         + "\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]"
         + "}";
   }
@@ -513,8 +566,20 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         + "\"comment\":\"Replaced\","
         + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
         + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
-        + "\"properties\":{\"owner\":\"after\"},"
+        + "\"mysqlOptions\":{\"engine\":\"InnoDB\"},"
         + "\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]"
+        + "}";
+  }
+
+  private static String deltaTableWithYearPartitionPayload() {
+    return "{"
+        + "\"name\":\"delta_orders\","
+        + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+        + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
+        + "\"storage\":{\"ownership\":\"EXTERNAL\",\"tableFormat\":\"DELTA\","
+        + "\"location\":\"s3://warehouse/delta-orders\"},"
+        + "\"partitioning\":[{\"kind\":\"YEAR\",\"fieldName\":[\"id\"]}],"
+        + "\"sortOrders\":[],\"indexes\":[]"
         + "}";
   }
 

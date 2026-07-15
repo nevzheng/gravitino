@@ -76,16 +76,39 @@ public final class TableMapper {
    * @return immutable V1 table resource.
    */
   public static TableResource toResource(String resourceName, Table table) {
+    return toResource(resourceName, table, TableOptionsMapper.UNPROFILED_PROVIDER);
+  }
+
+  /**
+   * Maps a table through its public accessors and the configured catalog provider's V1 profile.
+   *
+   * <p>The provider is required because legacy connector property names are not portable. In
+   * particular, {@code format} means a table format for generic lakehouse but a file-format
+   * description for native Iceberg.
+   *
+   * @param resourceName canonical V1 resource name supplied by the request path.
+   * @param table internal table returned by the dispatcher.
+   * @param catalogProvider configured catalog provider returned by the catalog dispatcher.
+   * @return immutable V1 table resource.
+   */
+  public static TableResource toResource(String resourceName, Table table, String catalogProvider) {
     if (table == null) {
       throw new IllegalArgumentException("table cannot be null");
     }
+
+    TableOptionsMapper.PublicTableState options =
+        TableOptionsMapper.toPublic(catalogProvider, table.properties());
 
     return new TableResource(
         resourceName,
         table.name(),
         table.comment(),
         mapColumns(table.columns()),
-        publicProperties(table.properties()),
+        options.storage(),
+        options.icebergOptions(),
+        options.hiveOptions(),
+        options.clickhouseOptions(),
+        options.mysqlOptions(),
         mapTransforms(table.partitioning()),
         mapDistribution(table.distribution()),
         mapSortOrders(table.sortOrder()),

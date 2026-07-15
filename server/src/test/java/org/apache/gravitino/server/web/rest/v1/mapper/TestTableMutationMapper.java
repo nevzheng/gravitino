@@ -24,15 +24,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import org.apache.gravitino.rel.TableChange;
+import org.apache.gravitino.rest.v1.model.ClickHouseOptions;
 import org.apache.gravitino.rest.v1.model.Column;
 import org.apache.gravitino.rest.v1.model.DataType;
 import org.apache.gravitino.rest.v1.model.Distribution;
 import org.apache.gravitino.rest.v1.model.Expression;
+import org.apache.gravitino.rest.v1.model.HiveOptions;
+import org.apache.gravitino.rest.v1.model.IcebergOptions;
 import org.apache.gravitino.rest.v1.model.Index;
+import org.apache.gravitino.rest.v1.model.MysqlOptions;
 import org.apache.gravitino.rest.v1.model.SortOrder;
 import org.apache.gravitino.rest.v1.model.TableResource;
+import org.apache.gravitino.rest.v1.model.TableStorage;
 import org.apache.gravitino.rest.v1.model.TableUpdateRequest;
 import org.apache.gravitino.rest.v1.model.Transform;
 import org.junit.jupiter.api.Test;
@@ -44,45 +48,22 @@ public class TestTableMutationMapper {
       "metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders";
 
   @Test
-  public void testDesiredStateProducesDeterministicCommentAndPropertyMutations() {
-    TableResource current =
-        resource(
-            "old comment",
-            Map.of(
-                "change", "old",
-                "remove-a", "old",
-                "remove-z", "old",
-                "same", "same"),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList());
-    TableUpdateRequest desired =
-        desired(
-            "new comment",
-            Map.of("add-a", "new", "change", "new", "add-z", "new", "same", "same"),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList());
-
+  public void testDesiredStateProducesDeterministicCommentMutation() {
     assertArrayEquals(
-        new TableChange[] {
-          TableChange.updateComment("new comment"),
-          TableChange.setProperty("add-a", "new"),
-          TableChange.setProperty("add-z", "new"),
-          TableChange.setProperty("change", "new"),
-          TableChange.removeProperty("remove-a"),
-          TableChange.removeProperty("remove-z")
-        },
-        TableMutationMapper.toChanges(current, desired));
+        new TableChange[] {TableChange.updateComment("new comment")},
+        TableMutationMapper.toChanges(emptyResource("old comment"), emptyDesired("new comment")));
   }
 
   @Test
   public void testMatchingDesiredStateProducesNoMutations() {
     List<Column> columns = Collections.singletonList(column());
+    TableStorage storage =
+        new TableStorage(
+            TableStorage.Ownership.MANAGED,
+            TableStorage.TableFormat.ICEBERG,
+            null,
+            TableStorage.FileFormat.PARQUET);
+    IcebergOptions icebergOptions = new IcebergOptions(2);
     List<Transform> partitioning =
         Collections.singletonList(new Transform.Identity(Collections.singletonList("id")));
     Distribution distribution =
@@ -103,44 +84,49 @@ public class TestTableMutationMapper {
                 "pk_orders",
                 Collections.singletonList(Collections.singletonList("id")),
                 Collections.singletonMap("enforced", "true")));
-    TableResource current =
-        resource(
-            "same comment",
-            Collections.singletonMap("format", "iceberg"),
-            columns,
-            partitioning,
-            distribution,
-            sortOrders,
-            indexes);
-    TableUpdateRequest desired =
-        desired(
-            "same comment",
-            Collections.singletonMap("format", "iceberg"),
-            columns,
-            partitioning,
-            distribution,
-            sortOrders,
-            indexes);
 
-    assertArrayEquals(new TableChange[0], TableMutationMapper.toChanges(current, desired));
+    assertArrayEquals(
+        new TableChange[0],
+        TableMutationMapper.toChanges(
+            resource(
+                "same comment",
+                columns,
+                storage,
+                icebergOptions,
+                null,
+                null,
+                null,
+                partitioning,
+                distribution,
+                sortOrders,
+                indexes),
+            desired(
+                "same comment",
+                columns,
+                storage,
+                icebergOptions,
+                null,
+                null,
+                null,
+                partitioning,
+                distribution,
+                sortOrders,
+                indexes)));
   }
 
   @Test
   public void testRejectsDifferingColumnsBeforeProducingChanges() {
     assertUnsupportedReplacement(
         "columns",
-        resource(
-            "comment",
-            Collections.emptyMap(),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList()),
+        emptyResource("comment"),
         desired(
             "comment",
-            Collections.emptyMap(),
             Collections.singletonList(column()),
+            null,
+            null,
+            null,
+            null,
+            null,
             Collections.emptyList(),
             null,
             Collections.emptyList(),
@@ -148,21 +134,59 @@ public class TestTableMutationMapper {
   }
 
   @Test
-  public void testRejectsDifferingPartitioningBeforeProducingChanges() {
+  public void testRejectsDifferingStorageBeforeProducingChanges() {
     assertUnsupportedReplacement(
-        "partitioning",
-        resource(
+        "storage",
+        emptyResource("comment"),
+        desired(
             "comment",
-            Collections.emptyMap(),
             Collections.emptyList(),
+            new TableStorage(
+                TableStorage.Ownership.MANAGED, TableStorage.TableFormat.ICEBERG, null, null),
+            null,
+            null,
+            null,
+            null,
             Collections.emptyList(),
             null,
             Collections.emptyList(),
-            Collections.emptyList()),
+            Collections.emptyList()));
+  }
+
+  @Test
+  public void testRejectsDifferingProviderOptionsBeforeProducingChanges() {
+    assertUnsupportedReplacement(
+        "icebergOptions",
+        emptyResource("comment"),
+        desiredWithOptions(new IcebergOptions(2), null, null, null));
+    assertUnsupportedReplacement(
+        "hiveOptions",
+        emptyResource("comment"),
+        desiredWithOptions(null, new HiveOptions("input", null, null, null), null, null));
+    assertUnsupportedReplacement(
+        "clickhouseOptions",
+        emptyResource("comment"),
+        desiredWithOptions(
+            null, null, new ClickHouseOptions("MergeTree", null, null, null, null, null), null));
+    assertUnsupportedReplacement(
+        "mysqlOptions",
+        emptyResource("comment"),
+        desiredWithOptions(null, null, null, new MysqlOptions("InnoDB", null)));
+  }
+
+  @Test
+  public void testRejectsDifferingPartitioningBeforeProducingChanges() {
+    assertUnsupportedReplacement(
+        "partitioning",
+        emptyResource("comment"),
         desired(
             "comment",
-            Collections.emptyMap(),
             Collections.emptyList(),
+            null,
+            null,
+            null,
+            null,
+            null,
             Collections.singletonList(new Transform.Identity(Collections.singletonList("id"))),
             null,
             Collections.emptyList(),
@@ -173,18 +197,15 @@ public class TestTableMutationMapper {
   public void testRejectsDifferingDistributionBeforeProducingChanges() {
     assertUnsupportedReplacement(
         "distribution",
-        resource(
-            "comment",
-            Collections.emptyMap(),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList()),
+        emptyResource("comment"),
         desired(
             "comment",
-            Collections.emptyMap(),
             Collections.emptyList(),
+            null,
+            null,
+            null,
+            null,
+            null,
             Collections.emptyList(),
             new Distribution(
                 Distribution.Strategy.HASH,
@@ -198,18 +219,15 @@ public class TestTableMutationMapper {
   public void testRejectsDifferingSortOrdersBeforeProducingChanges() {
     assertUnsupportedReplacement(
         "sortOrders",
-        resource(
-            "comment",
-            Collections.emptyMap(),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList()),
+        emptyResource("comment"),
         desired(
             "comment",
-            Collections.emptyMap(),
             Collections.emptyList(),
+            null,
+            null,
+            null,
+            null,
+            null,
             Collections.emptyList(),
             null,
             Collections.singletonList(
@@ -224,18 +242,15 @@ public class TestTableMutationMapper {
   public void testRejectsDifferingIndexesBeforeProducingChanges() {
     assertUnsupportedReplacement(
         "indexes",
-        resource(
-            "comment",
-            Collections.emptyMap(),
-            Collections.emptyList(),
-            Collections.emptyList(),
-            null,
-            Collections.emptyList(),
-            Collections.emptyList()),
+        emptyResource("comment"),
         desired(
             "comment",
-            Collections.emptyMap(),
             Collections.emptyList(),
+            null,
+            null,
+            null,
+            null,
+            null,
             Collections.emptyList(),
             null,
             Collections.emptyList(),
@@ -258,10 +273,63 @@ public class TestTableMutationMapper {
         exception.getMessage());
   }
 
+  private static TableResource emptyResource(String comment) {
+    return resource(
+        comment,
+        Collections.emptyList(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        Collections.emptyList(),
+        null,
+        Collections.emptyList(),
+        Collections.emptyList());
+  }
+
+  private static TableUpdateRequest emptyDesired(String comment) {
+    return desired(
+        comment,
+        Collections.emptyList(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        Collections.emptyList(),
+        null,
+        Collections.emptyList(),
+        Collections.emptyList());
+  }
+
+  private static TableUpdateRequest desiredWithOptions(
+      IcebergOptions icebergOptions,
+      HiveOptions hiveOptions,
+      ClickHouseOptions clickhouseOptions,
+      MysqlOptions mysqlOptions) {
+    return desired(
+        "comment",
+        Collections.emptyList(),
+        null,
+        icebergOptions,
+        hiveOptions,
+        clickhouseOptions,
+        mysqlOptions,
+        Collections.emptyList(),
+        null,
+        Collections.emptyList(),
+        Collections.emptyList());
+  }
+
   private static TableResource resource(
       String comment,
-      Map<String, String> properties,
       List<Column> columns,
+      TableStorage storage,
+      IcebergOptions icebergOptions,
+      HiveOptions hiveOptions,
+      ClickHouseOptions clickhouseOptions,
+      MysqlOptions mysqlOptions,
       List<Transform> partitioning,
       Distribution distribution,
       List<SortOrder> sortOrders,
@@ -271,7 +339,11 @@ public class TestTableMutationMapper {
         "orders",
         comment,
         columns,
-        properties,
+        storage,
+        icebergOptions,
+        hiveOptions,
+        clickhouseOptions,
+        mysqlOptions,
         partitioning,
         distribution,
         sortOrders,
@@ -281,14 +353,28 @@ public class TestTableMutationMapper {
 
   private static TableUpdateRequest desired(
       String comment,
-      Map<String, String> properties,
       List<Column> columns,
+      TableStorage storage,
+      IcebergOptions icebergOptions,
+      HiveOptions hiveOptions,
+      ClickHouseOptions clickhouseOptions,
+      MysqlOptions mysqlOptions,
       List<Transform> partitioning,
       Distribution distribution,
       List<SortOrder> sortOrders,
       List<Index> indexes) {
     return new TableUpdateRequest(
-        comment, columns, properties, partitioning, distribution, sortOrders, indexes);
+        comment,
+        columns,
+        storage,
+        icebergOptions,
+        hiveOptions,
+        clickhouseOptions,
+        mysqlOptions,
+        partitioning,
+        distribution,
+        sortOrders,
+        indexes);
   }
 
   private static Column column() {

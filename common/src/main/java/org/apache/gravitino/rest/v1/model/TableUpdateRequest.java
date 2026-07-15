@@ -23,7 +23,6 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
-import java.util.Map;
 import javax.annotation.Nullable;
 
 /** The full desired mutable state of a table for a public Gravitino V1 PUT request. */
@@ -39,8 +38,25 @@ public final class TableUpdateRequest {
   @JsonProperty(value = "columns", required = true)
   private final List<Column> columns;
 
-  @JsonProperty(value = "properties", required = true)
-  private final Map<String, String> properties;
+  @Nullable
+  @JsonProperty("storage")
+  private final TableStorage storage;
+
+  @Nullable
+  @JsonProperty("icebergOptions")
+  private final IcebergOptions icebergOptions;
+
+  @Nullable
+  @JsonProperty("hiveOptions")
+  private final HiveOptions hiveOptions;
+
+  @Nullable
+  @JsonProperty("clickhouseOptions")
+  private final ClickHouseOptions clickhouseOptions;
+
+  @Nullable
+  @JsonProperty("mysqlOptions")
+  private final MysqlOptions mysqlOptions;
 
   @JsonProperty(value = "partitioning", required = true)
   private final List<Transform> partitioning;
@@ -60,7 +76,11 @@ public final class TableUpdateRequest {
    *
    * @param comment replacement comment, or null to clear it.
    * @param columns complete desired table columns, potentially empty for connector-owned discovery.
-   * @param properties complete desired table properties, potentially empty.
+   * @param storage complete desired portable table storage intent, potentially absent.
+   * @param icebergOptions complete desired Iceberg-specific state, potentially absent.
+   * @param hiveOptions complete desired Hive-specific state, potentially absent.
+   * @param clickhouseOptions complete desired ClickHouse-specific state, potentially absent.
+   * @param mysqlOptions complete desired MySQL-specific state, potentially absent.
    * @param partitioning complete desired partition transforms, potentially empty.
    * @param distribution optional desired physical data distribution.
    * @param sortOrders complete desired sort orders, potentially empty.
@@ -70,14 +90,24 @@ public final class TableUpdateRequest {
   public TableUpdateRequest(
       @Nullable @JsonProperty(value = "comment", required = true) String comment,
       @JsonProperty(value = "columns", required = true) List<Column> columns,
-      @JsonProperty(value = "properties", required = true) Map<String, String> properties,
+      @Nullable @JsonProperty("storage") TableStorage storage,
+      @Nullable @JsonProperty("icebergOptions") IcebergOptions icebergOptions,
+      @Nullable @JsonProperty("hiveOptions") HiveOptions hiveOptions,
+      @Nullable @JsonProperty("clickhouseOptions") ClickHouseOptions clickhouseOptions,
+      @Nullable @JsonProperty("mysqlOptions") MysqlOptions mysqlOptions,
       @JsonProperty(value = "partitioning", required = true) List<Transform> partitioning,
       @Nullable @JsonProperty("distribution") Distribution distribution,
       @JsonProperty(value = "sortOrders", required = true) List<SortOrder> sortOrders,
       @JsonProperty(value = "indexes", required = true) List<Index> indexes) {
     this.comment = ModelSupport.requireNullableComment(comment, "comment");
     this.columns = ModelSupport.immutableBoundedRequestList(columns, "columns", 10_000);
-    this.properties = ModelSupport.immutableRequestProperties(properties, "properties", false);
+    ModelSupport.requireAtMostOneNonNull(
+        "provider options", icebergOptions, hiveOptions, clickhouseOptions, mysqlOptions);
+    this.storage = storage;
+    this.icebergOptions = icebergOptions;
+    this.hiveOptions = hiveOptions;
+    this.clickhouseOptions = clickhouseOptions;
+    this.mysqlOptions = mysqlOptions;
     this.partitioning =
         ModelSupport.immutableBoundedRequestList(partitioning, "partitioning", 1_024);
     this.distribution = distribution;
@@ -101,10 +131,43 @@ public final class TableUpdateRequest {
   }
 
   /**
-   * @return immutable complete desired table properties.
+   * @return complete desired portable table storage intent, potentially absent.
    */
-  public Map<String, String> getProperties() {
-    return properties;
+  @Nullable
+  public TableStorage getStorage() {
+    return storage;
+  }
+
+  /**
+   * @return complete desired Iceberg-specific state, potentially absent.
+   */
+  @Nullable
+  public IcebergOptions getIcebergOptions() {
+    return icebergOptions;
+  }
+
+  /**
+   * @return complete desired Hive-specific state, potentially absent.
+   */
+  @Nullable
+  public HiveOptions getHiveOptions() {
+    return hiveOptions;
+  }
+
+  /**
+   * @return complete desired ClickHouse-specific state, potentially absent.
+   */
+  @Nullable
+  public ClickHouseOptions getClickhouseOptions() {
+    return clickhouseOptions;
+  }
+
+  /**
+   * @return complete desired MySQL-specific state, potentially absent.
+   */
+  @Nullable
+  public MysqlOptions getMysqlOptions() {
+    return mysqlOptions;
   }
 
   /**

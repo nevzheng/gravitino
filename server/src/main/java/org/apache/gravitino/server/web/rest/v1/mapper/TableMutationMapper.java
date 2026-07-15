@@ -21,9 +21,7 @@ package org.apache.gravitino.server.web.rest.v1.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.TreeSet;
 import org.apache.gravitino.rel.TableChange;
 import org.apache.gravitino.rest.v1.model.TableResource;
 import org.apache.gravitino.rest.v1.model.TableUpdateRequest;
@@ -38,11 +36,11 @@ public final class TableMutationMapper {
    * Builds the internal changes that replace the mutable V1 table state currently supported by
    * Gravitino.
    *
-   * <p>Every V1 table PUT contains the entire desired state. The current dispatcher can replace
-   * table comments and properties in one {@link TableChange} batch, but it has no replacement
-   * primitive for physical layout or the complete column/index graph. Those fields must therefore
-   * equal the loaded representation; a differing desired state fails before the dispatcher is
-   * called rather than risking a partial update.
+   * <p>Every V1 table PUT contains the entire desired state. The current dispatcher can replace a
+   * table comment, but it has no correct replacement primitive for storage, provider options,
+   * physical layout, or the complete column/index graph. Those fields must therefore equal the
+   * loaded representation; a differing desired state fails before the dispatcher is called rather
+   * than risking a partial update.
    *
    * @param current current public V1 table representation.
    * @param desired complete desired V1 mutable table state.
@@ -55,6 +53,12 @@ public final class TableMutationMapper {
     Objects.requireNonNull(desired, "desired cannot be null");
 
     requireUnchanged("columns", current.getColumns(), desired.getColumns());
+    requireUnchanged("storage", current.getStorage(), desired.getStorage());
+    requireUnchanged("icebergOptions", current.getIcebergOptions(), desired.getIcebergOptions());
+    requireUnchanged("hiveOptions", current.getHiveOptions(), desired.getHiveOptions());
+    requireUnchanged(
+        "clickhouseOptions", current.getClickhouseOptions(), desired.getClickhouseOptions());
+    requireUnchanged("mysqlOptions", current.getMysqlOptions(), desired.getMysqlOptions());
     requireUnchanged("partitioning", current.getPartitioning(), desired.getPartitioning());
     requireUnchanged("distribution", current.getDistribution(), desired.getDistribution());
     requireUnchanged("sortOrders", current.getSortOrders(), desired.getSortOrders());
@@ -64,44 +68,7 @@ public final class TableMutationMapper {
     if (!Objects.equals(current.getComment(), desired.getComment())) {
       changes.add(TableChange.updateComment(desired.getComment()));
     }
-    addPropertyChanges(changes, current.getProperties(), desired.getProperties());
     return changes.toArray(new TableChange[0]);
-  }
-
-  private static void addPropertyChanges(
-      List<TableChange> changes, Map<String, String> current, Map<String, String> desired) {
-    for (String key : changedOrAddedPropertyNames(current, desired)) {
-      changes.add(TableChange.setProperty(key, desired.get(key)));
-    }
-    for (String key : removedPropertyNames(current, desired)) {
-      changes.add(TableChange.removeProperty(key));
-    }
-  }
-
-  private static TreeSet<String> changedOrAddedPropertyNames(
-      Map<String, String> current, Map<String, String> desired) {
-    TreeSet<String> result = new TreeSet<>();
-    desired.forEach(
-        (key, value) -> {
-          if (!Objects.equals(current.get(key), value)) {
-            result.add(key);
-          }
-        });
-    return result;
-  }
-
-  private static TreeSet<String> removedPropertyNames(
-      Map<String, String> current, Map<String, String> desired) {
-    TreeSet<String> result = new TreeSet<>();
-    current
-        .keySet()
-        .forEach(
-            key -> {
-              if (!desired.containsKey(key)) {
-                result.add(key);
-              }
-            });
-    return result;
   }
 
   private static void requireUnchanged(String field, Object current, Object desired) {
