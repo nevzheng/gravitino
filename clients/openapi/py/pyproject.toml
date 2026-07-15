@@ -1,0 +1,71 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apache-gravitino-openapi"
+version = "1.0.0.dev0"
+description = "Python client for the Apache Gravitino V1 OpenAPI contract"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+  {name = "Apache Gravitino Community", email = "dev@gravitino.apache.org"},
+]
+classifiers = [
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "pydantic>=2.11,<3",
+  "python-dateutil>=2.8.2,<3",
+  "typing-extensions>=4.7.1,<5",
+  "urllib3>=2.1.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "pytest>=8,<9",
+]
+
+[project.urls]
+Homepage = "https://gravitino.apache.org/"
+Documentation = "https://gravitino.apache.org/docs/overview"
+Repository = "https://github.com/apache/gravitino"
+Issues = "https://github.com/apache/gravitino/issues"
+
+[tool.setuptools.packages.find]
+include = ["gravitino_client*"]
+
+[tool.setuptools.package-data]
+gravitino_client = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+markers = [
+  "endpoint: an individual endpoint contract test",
+  "cuj: a multi-endpoint customer-journey test",
+]
+pythonpath = ["test"]
+testpaths = ["test"]

@@ -110,7 +110,7 @@ repositories { mavenCentral() }
 
 allprojects {
   // Gravitino Python client project didn't need to apply the Spotless plugin
-  if (project.name == "client-python") {
+  if (project.path == ":clients:client-python" || project.path == ":clients:openapi") {
     return@allprojects
   }
 
@@ -331,7 +331,7 @@ val commonsBeanutilsVersion: String = libs.versions.commons.beanutils.get()
 
 subprojects {
   // Gravitino Python client project didn't need to apply the java plugin
-  if (project.name == "client-python") {
+  if (project.path == ":clients:client-python" || project.path == ":clients:openapi") {
     return@subprojects
   }
 
@@ -742,6 +742,8 @@ tasks.rat {
     "clients/client-python/docs/build",
     "clients/client-python/docs/source/generated",
     "clients/client-python/gravitino/utils/http_client.py",
+    // PEP 561 marker files are intentionally empty and cannot carry an ASF header.
+    "clients/openapi/py/gravitino_client/py.typed",
     "clients/client-python/tests/unittests/htmlcov/*",
     "clients/client-python/tests/integration/htmlcov/*",
     "clients/filesystem-fuse/Cargo.lock",
@@ -1132,6 +1134,7 @@ tasks {
         !it.name.startsWith("catalog") &&
         !it.name.startsWith("cli") &&
         !it.name.startsWith("client") &&
+        it.path != ":clients:openapi" &&
         !it.name.startsWith("filesystem") &&
         !it.name.startsWith("flink") &&
         !it.name.startsWith("iceberg") &&
@@ -1179,6 +1182,7 @@ tasks {
         !it.name.startsWith("catalog") &&
         !it.name.startsWith("cli") &&
         !it.name.startsWith("client") &&
+        it.path != ":clients:openapi" &&
         !it.name.startsWith("filesystem") &&
         !it.name.startsWith("flink") &&
         !it.name.startsWith("iceberg") &&
