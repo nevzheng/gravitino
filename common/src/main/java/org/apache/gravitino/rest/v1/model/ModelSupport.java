@@ -31,6 +31,11 @@ import javax.annotation.Nullable;
 
 final class ModelSupport {
 
+  private static final int MAX_IDENTIFIER_LENGTH = 255;
+  private static final int MAX_COMMENT_LENGTH = 16_384;
+  private static final int MAX_PROVIDER_LENGTH = 1_024;
+  private static final int MAX_REQUEST_PROPERTY_COUNT = 10_000;
+  private static final int MAX_PROPERTY_VALUE_LENGTH = 1_048_576;
   private static final int MAX_JSON_CONTAINER_SIZE = 10_000;
 
   static String requireNonEmpty(String value, String name) {
@@ -39,6 +44,46 @@ final class ModelSupport {
       throw new IllegalArgumentException(name + " cannot be empty");
     }
     return value;
+  }
+
+  static String requireIdentifier(String value, String name) {
+    return requireBoundedNonblankString(value, name, MAX_IDENTIFIER_LENGTH);
+  }
+
+  @Nullable
+  static String requireNullableComment(@Nullable String value, String name) {
+    if (value == null) {
+      return null;
+    }
+    return requireBoundedNonblankString(value, name, MAX_COMMENT_LENGTH);
+  }
+
+  static String requireProvider(String value) {
+    return requireBoundedNonblankString(value, "provider", MAX_PROVIDER_LENGTH);
+  }
+
+  static <T> List<T> immutableBoundedRequestList(List<T> values, String name, int maximumSize) {
+    Objects.requireNonNull(values, name + " cannot be null");
+    requireMaximumSize(values.size(), name, maximumSize);
+    return immutableList(values, name);
+  }
+
+  static Map<String, String> immutableRequestProperties(
+      Map<String, String> values, String name, boolean requireNonEmptyValues) {
+    Objects.requireNonNull(values, name + " cannot be null");
+    requireMaximumSize(values.size(), name, MAX_REQUEST_PROPERTY_COUNT);
+
+    TreeMap<String, String> copy = new TreeMap<>();
+    for (Map.Entry<String, String> entry : values.entrySet()) {
+      String key = Objects.requireNonNull(entry.getKey(), name + " cannot contain null keys");
+      String value = Objects.requireNonNull(entry.getValue(), name + " cannot contain null values");
+      if (requireNonEmptyValues && value.isEmpty()) {
+        throw new IllegalArgumentException(name + " cannot contain empty values");
+      }
+      requireMaximumSize(value.length(), name + " value for key " + key, MAX_PROPERTY_VALUE_LENGTH);
+      copy.put(key, value);
+    }
+    return Collections.unmodifiableMap(copy);
   }
 
   static <T> List<T> immutableList(List<T> values, String name) {
@@ -204,6 +249,23 @@ final class ModelSupport {
     if (size > MAX_JSON_CONTAINER_SIZE) {
       throw new IllegalArgumentException(
           name + " cannot contain more than " + MAX_JSON_CONTAINER_SIZE + " values");
+    }
+  }
+
+  private static String requireBoundedNonblankString(String value, String name, int maximumLength) {
+    Objects.requireNonNull(value, name + " cannot be null");
+    requireMaximumSize(value.length(), name, maximumLength);
+    if (!value.matches("\\S(?:[\\s\\S]*\\S)?")) {
+      throw new IllegalArgumentException(
+          name + " must be nonblank without leading or trailing whitespace");
+    }
+    return value;
+  }
+
+  private static void requireMaximumSize(int size, String name, int maximumSize) {
+    if (size > maximumSize) {
+      throw new IllegalArgumentException(
+          name + " cannot exceed " + maximumSize + " characters or entries");
     }
   }
 

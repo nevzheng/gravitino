@@ -74,10 +74,13 @@ public class TestV1RequestContractFilter {
     HttpServletResponse response = mock(HttpServletResponse.class);
     FilterChain authenticationChain = mock(FilterChain.class);
     StringWriter output = new StringWriter();
+    when(request.getMethod()).thenReturn("POST");
     when(request.getHeaders(HttpHeaders.ACCEPT))
         .thenReturn(
             new Vector<>(List.of("application/json, application/vnd.gravitino.v1+json"))
                 .elements());
+    when(request.getHeaders(HttpHeaders.CONTENT_TYPE))
+        .thenReturn(new Vector<>(List.of("text/plain")).elements());
     when(response.getWriter()).thenReturn(new PrintWriter(output));
 
     filter.doFilter(request, response, authenticationChain);
@@ -85,6 +88,43 @@ public class TestV1RequestContractFilter {
     verify(response).setStatus(HttpServletResponse.SC_NOT_ACCEPTABLE);
     verify(authenticationChain, never()).doFilter(request, response);
     assertTrue(output.toString().contains("\"type\":\"NOT_ACCEPTABLE\""));
+  }
+
+  @Test
+  public void testRejectsUnsupportedContentTypeBeforeDownstreamAuthentication() throws Exception {
+    HttpServletRequest request = v1Request();
+    HttpServletResponse response = mock(HttpServletResponse.class);
+    FilterChain authenticationChain = mock(FilterChain.class);
+    StringWriter output = new StringWriter();
+    when(request.getMethod()).thenReturn("POST");
+    when(request.getHeaders(HttpHeaders.ACCEPT)).thenReturn(Collections.emptyEnumeration());
+    when(request.getHeaders(HttpHeaders.CONTENT_TYPE))
+        .thenReturn(new Vector<>(List.of("text/plain")).elements());
+    when(response.getWriter()).thenReturn(new PrintWriter(output));
+
+    filter.doFilter(request, response, authenticationChain);
+
+    verify(response).setStatus(HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE);
+    verify(authenticationChain, never()).doFilter(request, response);
+    assertTrue(output.toString().contains("\"type\":\"UNSUPPORTED_MEDIA_TYPE\""));
+    assertTrue(output.toString().contains("\"field\":\"Content-Type\""));
+  }
+
+  @Test
+  public void testRejectsMissingContentTypeBeforeDownstreamAuthentication() throws Exception {
+    HttpServletRequest request = v1Request();
+    HttpServletResponse response = mock(HttpServletResponse.class);
+    FilterChain authenticationChain = mock(FilterChain.class);
+    StringWriter output = new StringWriter();
+    when(request.getMethod()).thenReturn("POST");
+    when(request.getHeaders(HttpHeaders.ACCEPT)).thenReturn(Collections.emptyEnumeration());
+    when(response.getWriter()).thenReturn(new PrintWriter(output));
+
+    filter.doFilter(request, response, authenticationChain);
+
+    verify(response).setStatus(HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE);
+    verify(authenticationChain, never()).doFilter(request, response);
+    assertTrue(output.toString().contains("\"type\":\"UNSUPPORTED_MEDIA_TYPE\""));
   }
 
   @Test
@@ -112,6 +152,21 @@ public class TestV1RequestContractFilter {
     when(request.getHeader(RequestContextFilter.REQUEST_ID_HEADER)).thenReturn("client-request-42");
     when(request.getHeaders(HttpHeaders.ACCEPT))
         .thenReturn(new Vector<>(List.of("application/json")).elements());
+
+    filter.doFilter(request, response, authenticationChain);
+
+    verify(authenticationChain).doFilter(request, response);
+  }
+
+  @Test
+  public void testPassesJsonMutationRequestToDownstreamAuthentication() throws Exception {
+    HttpServletRequest request = v1Request();
+    HttpServletResponse response = mock(HttpServletResponse.class);
+    FilterChain authenticationChain = mock(FilterChain.class);
+    when(request.getMethod()).thenReturn("PUT");
+    when(request.getHeaders(HttpHeaders.ACCEPT)).thenReturn(Collections.emptyEnumeration());
+    when(request.getHeaders(HttpHeaders.CONTENT_TYPE))
+        .thenReturn(new Vector<>(List.of("application/json; charset=UTF-8")).elements());
 
     filter.doFilter(request, response, authenticationChain);
 

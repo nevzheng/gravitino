@@ -22,6 +22,9 @@ import os
 
 import pytest
 
+from gravitino_client.api.catalogs_api import CatalogsApi
+from gravitino_client.api.metalakes_api import MetalakesApi
+from gravitino_client.api.schemas_api import SchemasApi
 from gravitino_client.api.tables_api import TablesApi
 from gravitino_client.api_client import ApiClient
 from gravitino_client.configuration import Configuration
@@ -39,3 +42,27 @@ def tables_api(gravitino_openapi_base_url: str) -> Iterator[TablesApi]:
     configuration = Configuration(host=gravitino_openapi_base_url)
     with ApiClient(configuration) as api_client:
         yield TablesApi(api_client)
+
+
+@pytest.fixture
+def metalakes_api(gravitino_openapi_base_url: str) -> Iterator[MetalakesApi]:
+    """Creates a generated V1 metalakes API client for one endpoint test."""
+    configuration = Configuration(host=gravitino_openapi_base_url)
+    with ApiClient(configuration) as api_client:
+        yield MetalakesApi(api_client)
+
+
+@pytest.fixture
+def catalogs_api(gravitino_openapi_base_url: str) -> Iterator[CatalogsApi]:
+    """Creates a generated V1 catalogs API client for one endpoint test."""
+    configuration = Configuration(host=gravitino_openapi_base_url)
+    with ApiClient(configuration) as api_client:
+        yield CatalogsApi(api_client)
+
+
+@pytest.fixture
+def schemas_api(gravitino_openapi_base_url: str) -> Iterator[SchemasApi]:
+    """Creates a generated V1 schemas API client for one endpoint test."""
+    configuration = Configuration(host=gravitino_openapi_base_url)
+    with ApiClient(configuration) as api_client:
+        yield SchemasApi(api_client)

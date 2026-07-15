@@ -1,0 +1,344 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    MetalakeCreateRequest:
+      type: object
+      additionalProperties: false
+      description: A strict V1 request to create one top-level metalake.
+      required: [name, properties]
+      properties:
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    CatalogCreateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        A strict V1 request to create one catalog under a metalake. `provider`
+        is required for relational and messaging catalogs; managed fileset and
+        model catalogs may omit it.
+      required: [name, type, properties]
+      properties:
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        type:
+          $ref: "#/components/schemas/CatalogType"
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    SchemaCreateRequest:
+      type: object
+      additionalProperties: false
+      description: A strict V1 request to create one schema under a catalog.
+      required: [name, properties]
+      properties:
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    MetalakeUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        The complete mutable desired state for an existing metalake. The path
+        identifies the immutable resource name. V1 validates this whole state
+        under `If-Match` before sending one mutation to the existing core;
+        this contract does not claim a distributed/provider transaction.
+        `comment: null` explicitly clears the comment.
+      required: [comment, properties]
+      properties:
+        comment:
+          $ref: "#/components/schemas/NullableComment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    CatalogUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        The complete mutable desired state for an existing catalog. `type` and
+        `provider` are creation-time identity/configuration and are immutable
+        in V1; the path identifies the catalog being replaced. V1 validates
+        this state under `If-Match` before sending one mutation to the existing
+        core; this contract does not claim a distributed/provider transaction.
+      required: [comment, properties]
+      properties:
+        comment:
+          $ref: "#/components/schemas/NullableComment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    SchemaUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        The complete mutable desired state for an existing schema. The current
+        V1 adapter supports property replacement. A request that changes the
+        existing comment returns `501 UNSUPPORTED_OPERATION` until the core
+        exposes a correct schema-comment mutation.
+      required: [comment, properties]
+      properties:
+        comment:
+          $ref: "#/components/schemas/NullableComment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+
+    MetalakeResource:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public V1 representation of one metalake.
+      required: [resourceName, name, properties]
+      properties:
+        resourceName:
+          type: string
+          pattern: "^metalakes/[^/]+$"
+          minLength: 1
+          maxLength: 1280
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+        audit:
+          $ref: "./tables.yaml#/components/schemas/AuditInfo"
+
+    CatalogResource:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public V1 representation of one catalog.
+      required: [resourceName, name, type, provider, properties]
+      properties:
+        resourceName:
+          type: string
+          pattern: "^metalakes/[^/]+/catalogs/[^/]+$"
+          minLength: 1
+          maxLength: 1280
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        type:
+          $ref: "#/components/schemas/CatalogType"
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+        audit:
+          $ref: "./tables.yaml#/components/schemas/AuditInfo"
+
+    SchemaResource:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public V1 representation of one schema.
+      required: [resourceName, name, properties]
+      properties:
+        resourceName:
+          type: string
+          pattern: "^metalakes/[^/]+/catalogs/[^/]+/schemas/[^/]+$"
+          minLength: 1
+          maxLength: 1280
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        properties:
+          $ref: "#/components/schemas/StringProperties"
+        audit:
+          $ref: "./tables.yaml#/components/schemas/AuditInfo"
+
+    MetalakeListResponse:
+      type: object
+      additionalProperties: true
+      description: A complete, unpaged V1 metalake collection result.
+      required: [metalakes]
+      properties:
+        metalakes:
+          type: array
+          maxItems: 100000
+          items:
+            $ref: "#/components/schemas/MetalakeResource"
+    CatalogListResponse:
+      type: object
+      additionalProperties: true
+      description: A complete, unpaged V1 catalog collection result.
+      required: [catalogs]
+      properties:
+        catalogs:
+          type: array
+          maxItems: 100000
+          items:
+            $ref: "#/components/schemas/CatalogResource"
+    SchemaListResponse:
+      type: object
+      additionalProperties: true
+      description: A complete, unpaged V1 schema collection result.
+      required: [schemas]
+      properties:
+        schemas:
+          type: array
+          maxItems: 100000
+          items:
+            $ref: "#/components/schemas/SchemaResource"
+
+    CatalogType:
+      type: string
+      enum: [RELATIONAL, FILESET, MESSAGING, MODEL]
+      description: The public catalog type.
+    StringProperties:
+      type: object
+      description: A string-to-string public property map.
+      maxProperties: 10000
+      additionalProperties:
+        $ref: "#/components/schemas/PropertyValue"
+    PropertyValue:
+      type: string
+      description: A non-empty public property value.
+      minLength: 1
+      maxLength: 1048576
+      pattern: "^[\\s\\S]*$"
+    Comment:
+      type: string
+      description: A non-empty comment with no leading or trailing whitespace.
+      minLength: 1
+      maxLength: 16384
+      pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+    NullableComment:
+      type: [string, "null"]
+      description: A comment, or JSON null when a full-state update clears it.
+      minLength: 1
+      maxLength: 16384
+      pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+
+  examples:
+    MetalakeCreateRequest:
+      summary: Create a demo metalake
+      value:
+        name: demo
+        comment: Metadata for the demo environment
+        properties:
+          owner: data-platform
+    MetalakeUpdateRequest:
+      summary: Replace mutable metalake state
+      value:
+        comment: Metadata for the shared demo environment
+        properties:
+          owner: data-platform
+          environment: shared
+    MetalakeResource:
+      summary: A metalake resource
+      value:
+        resourceName: metalakes/demo
+        name: demo
+        comment: Metadata for the demo environment
+        properties:
+          owner: data-platform
+    MetalakeListResponse:
+      summary: A metalake collection
+      value:
+        metalakes:
+          - resourceName: metalakes/demo
+            name: demo
+            properties:
+              owner: data-platform
+
+    CatalogCreateRequest:
+      summary: Create a relational catalog
+      value:
+        name: lakehouse
+        type: RELATIONAL
+        provider: hive
+        comment: Shared warehouse catalog
+        properties:
+          warehouse: s3://example-bucket/warehouse
+    CatalogUpdateRequest:
+      summary: Replace mutable catalog state
+      value:
+        comment: Shared warehouse catalog
+        properties:
+          warehouse: s3://example-bucket/warehouse
+          owner: data-platform
+    CatalogResource:
+      summary: A catalog resource
+      value:
+        resourceName: metalakes/demo/catalogs/lakehouse
+        name: lakehouse
+        type: RELATIONAL
+        provider: hive
+        comment: Shared warehouse catalog
+        properties:
+          warehouse: s3://example-bucket/warehouse
+    CatalogListResponse:
+      summary: A catalog collection
+      value:
+        catalogs:
+          - resourceName: metalakes/demo/catalogs/lakehouse
+            name: lakehouse
+            type: RELATIONAL
+            provider: hive
+            properties:
+              warehouse: s3://example-bucket/warehouse
+
+    SchemaCreateRequest:
+      summary: Create a sales schema
+      value:
+        name: sales
+        comment: Sales analytics objects
+        properties:
+          owner: analytics
+    SchemaUpdateRequest:
+      summary: Replace mutable schema state
+      value:
+        comment: Sales analytics objects
+        properties:
+          owner: data-platform
+    SchemaResource:
+      summary: A schema resource
+      value:
+        resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales
+        name: sales
+        comment: Sales analytics objects
+        properties:
+          owner: analytics
+    SchemaListResponse:
+      summary: A schema collection
+      value:
+        schemas:
+          - resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales
+            name: sales
+            properties:
+              owner: analytics

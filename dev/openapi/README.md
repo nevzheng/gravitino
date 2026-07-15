@@ -32,6 +32,8 @@ Dependabot can update both reproducibly.
 For the full picture — objectives, how it works, and how to publish the
 artifact — see
 [`docs/openapi-validation-and-publishing.md`](../../docs/openapi-validation-and-publishing.md).
+For the V1 adapter's place beside the legacy API and core, see
+[`docs/open-api/v1/README.md`](../../docs/open-api/v1/README.md).
 
 ## Layout
 

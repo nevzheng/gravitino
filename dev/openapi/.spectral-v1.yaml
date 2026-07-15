@@ -472,6 +472,10 @@ rules:
   # reference or SDK is published; Authorization is not modeled as a Parameter
   # Object.
   owasp:api2:2023-read-restricted: off
+  # The same deployment-profile constraint applies to write operations. The
+  # base V1 contract uses explicit `security: []` rather than inventing a
+  # universal scheme; an authenticated deployment supplies a reviewed overlay.
+  owasp:api2:2023-write-restricted: off
 
   gravitino-v1-error-responses-400:
     description: "Every non-HEAD V1 operation must define a JSON 400 response."

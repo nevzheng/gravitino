@@ -27,13 +27,17 @@ import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.auth.AuthConstants;
+import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.exceptions.NotInUseException;
+import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
+import org.apache.gravitino.exceptions.TableAlreadyExistsException;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.rest.v1.error.V1Error;
 import org.apache.gravitino.rest.v1.error.V1ErrorDetail;
@@ -201,6 +205,31 @@ public final class V1PublicErrorTranslator {
       return notFound(
           "TABLE_NOT_FOUND", "The requested table was not found.", "TABLE", errorContext);
     }
+    if (cause instanceof MetalakeAlreadyExistsException) {
+      return alreadyExists(
+          "METALAKE_ALREADY_EXISTS", "The metalake already exists.", "METALAKE", errorContext);
+    }
+    if (cause instanceof CatalogAlreadyExistsException) {
+      return alreadyExists(
+          "CATALOG_ALREADY_EXISTS", "The catalog already exists.", "CATALOG", errorContext);
+    }
+    if (cause instanceof SchemaAlreadyExistsException) {
+      return alreadyExists(
+          "SCHEMA_ALREADY_EXISTS", "The schema already exists.", "SCHEMA", errorContext);
+    }
+    if (cause instanceof TableAlreadyExistsException) {
+      return alreadyExists(
+          "TABLE_ALREADY_EXISTS", "The table already exists.", "TABLE", errorContext);
+    }
+    if (cause instanceof V1PreconditionFailedException) {
+      return PublicError.of(
+          412,
+          "PRECONDITION_FAILED",
+          V1PreconditionFailedException.SAFE_DESCRIPTION,
+          false,
+          null,
+          deepestResourceDetails(errorContext));
+    }
     if (cause instanceof V1ClientInputException) {
       V1ClientInputException inputException = (V1ClientInputException) cause;
       return PublicError.of(
@@ -246,6 +275,19 @@ public final class V1PublicErrorTranslator {
       case 406:
         return PublicError.of(
             406, "NOT_ACCEPTABLE", "The requested representation is not supported.");
+      case 415:
+        return PublicError.of(
+            415,
+            "UNSUPPORTED_MEDIA_TYPE",
+            "The request Content-Type is not supported.",
+            false,
+            null,
+            Collections.singletonList(
+                new V1FieldViolationErrorDetail(
+                    HttpHeaders.CONTENT_TYPE, "Must be application/json.")));
+      case 412:
+        return PublicError.of(
+            412, "PRECONDITION_FAILED", V1PreconditionFailedException.SAFE_DESCRIPTION);
       default:
         return PublicError.of(500, "INTERNAL_ERROR", "The server encountered an internal error.");
     }
@@ -293,6 +335,12 @@ public final class V1PublicErrorTranslator {
         404, type, message, false, null, resourceDetails(errorContext, resourceType));
   }
 
+  private static PublicError alreadyExists(
+      String type, String message, String resourceType, V1ErrorContext errorContext) {
+    return PublicError.of(
+        409, type, message, false, null, resourceDetails(errorContext, resourceType));
+  }
+
   private static List<V1ErrorDetail> resourceDetails(
       V1ErrorContext errorContext, String resourceType) {
     String resourceName = errorContext.resourceName(resourceType);
@@ -300,6 +348,17 @@ public final class V1PublicErrorTranslator {
       return Collections.emptyList();
     }
     return Collections.singletonList(new V1ResourceInfoErrorDetail(resourceType, resourceName));
+  }
+
+  private static List<V1ErrorDetail> deepestResourceDetails(V1ErrorContext errorContext) {
+    String[] resourceTypes = {"TABLE", "SCHEMA", "CATALOG", "METALAKE"};
+    for (String resourceType : resourceTypes) {
+      String resourceName = errorContext.resourceName(resourceType);
+      if (resourceName != null) {
+        return Collections.singletonList(new V1ResourceInfoErrorDetail(resourceType, resourceName));
+      }
+    }
+    return Collections.emptyList();
   }
 
   private static Throwable unwrap(Throwable throwable) {

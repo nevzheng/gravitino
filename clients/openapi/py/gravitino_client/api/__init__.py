@@ -18,4 +18,7 @@
 # flake8: noqa
 
 # import apis into api package
+from gravitino_client.api.catalogs_api import CatalogsApi
+from gravitino_client.api.metalakes_api import MetalakesApi
+from gravitino_client.api.schemas_api import SchemasApi
 from gravitino_client.api.tables_api import TablesApi

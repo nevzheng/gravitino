@@ -18,6 +18,11 @@
  */
 package org.apache.gravitino.server.web.rest;
 
+import static org.apache.gravitino.Configs.CACHE_ENABLED;
+import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
+import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
+import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
+import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -29,6 +34,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
@@ -38,25 +44,52 @@ import javax.ws.rs.core.Application;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchTableException;
+import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.Table;
+import org.apache.gravitino.rel.TableChange;
+import org.apache.gravitino.rel.expressions.sorts.SortOrder;
+import org.apache.gravitino.rel.expressions.transforms.Transform;
+import org.apache.gravitino.rel.indexes.Index;
+import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.web.ObjectMapperProvider;
 import org.apache.gravitino.server.web.rest.v1.TableOperationsV1;
 import org.apache.gravitino.server.web.rest.v1.error.V1ErrorResponseFilter;
 import org.apache.gravitino.server.web.rest.v1.error.V1MediaTypeFilter;
 import org.apache.gravitino.server.web.rest.v1.error.V1PublicExceptionMapper;
+import org.apache.gravitino.server.web.rest.v1.validation.V1JsonBodyFilter;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-/** End-to-end Jersey tests for the route-versioned V1 table-read slice. */
+/** End-to-end Jersey tests for the route-versioned V1 table REST slice. */
 public class TestTableOperationsV1 extends BaseOperationsTest {
 
   private final TableDispatcher dispatcher = mock(TableDispatcher.class);
+
+  @BeforeAll
+  public static void setupLockManager() throws IllegalAccessException {
+    Config config = mock(Config.class);
+    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
+    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
+    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
+    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
+    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+  }
 
   @Override
   protected Application configure() {
@@ -72,6 +105,7 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     resourceConfig.register(V1PublicExceptionMapper.class);
     resourceConfig.register(V1ErrorResponseFilter.class);
     resourceConfig.register(V1MediaTypeFilter.class);
+    resourceConfig.register(V1JsonBodyFilter.class);
     resourceConfig.register(ObjectMapperProvider.class);
     resourceConfig.register(JacksonFeature.class);
     resourceConfig.register(
@@ -97,7 +131,8 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     assertEquals(MediaType.APPLICATION_JSON_TYPE, getResponse.getMediaType());
     String entityTag = getResponse.getHeaderString(HttpHeaders.ETAG);
     assertNotNull(entityTag);
-    assertTrue(entityTag.startsWith("W/\""));
+    assertTrue(entityTag.startsWith("\""));
+    assertFalse(entityTag.startsWith("W/\""));
     assertEquals("private, no-cache", getResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
     assertEquals(
         "Authorization, Accept, Accept-Encoding", getResponse.getHeaderString(HttpHeaders.VARY));
@@ -116,6 +151,202 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
     assertEquals(200, headResponse.getStatus());
     assertFalse(headResponse.hasEntity());
     assertEquals(entityTag, headResponse.getHeaderString(HttpHeaders.ETAG));
+  }
+
+  @Test
+  public void testCollectionGetAndPostCreateUsePublicV1WireObjects() {
+    when(dispatcher.listTables(any()))
+        .thenReturn(
+            new NameIdentifier[] {NameIdentifier.of("demo", "catalog", "schema", "orders")});
+
+    Response listResponse = tableCollectionTarget().request(MediaType.APPLICATION_JSON_TYPE).get();
+
+    assertEquals(200, listResponse.getStatus());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, listResponse.getMediaType());
+    assertEquals("no-store", listResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
+    String listBody = listResponse.readEntity(String.class);
+    assertTrue(listBody.contains("\"tables\""));
+    assertTrue(listBody.contains("\"name\":\"orders\""));
+    assertTrue(
+        listBody.contains(
+            "\"resourceName\":\"metalakes/demo/catalogs/catalog/schemas/schema/tables/orders\""));
+
+    Table createdTable = mockV1Table("created_orders", "Created through V1", Map.of("owner", "qa"));
+    when(dispatcher.createTable(any(), any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(createdTable);
+
+    Response createResponse =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(Entity.json(createTablePayload()));
+
+    assertEquals(201, createResponse.getStatus());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, createResponse.getMediaType());
+    assertEquals("no-store", createResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
+    assertNotNull(createResponse.getHeaderString(HttpHeaders.LOCATION));
+    assertTrue(
+        createResponse
+            .getHeaderString(HttpHeaders.LOCATION)
+            .endsWith("/v1/metalakes/demo/catalogs/catalog/schemas/schema/tables/created_orders"));
+    String createBody = createResponse.readEntity(String.class);
+    assertTrue(createBody.contains("\"name\":\"created_orders\""));
+    assertTrue(createBody.contains("\"comment\":\"Created through V1\""));
+    assertTrue(createBody.contains("\"kind\":\"INTEGER\""));
+  }
+
+  @Test
+  public void testPutRequiresStrongIfMatchAndReplacesCompleteDesiredState() {
+    Table currentTable = mockV1Table("orders", "Original", Map.of("owner", "before"));
+    Table updatedTable = mockV1Table("orders", "Replaced", Map.of("owner", "after"));
+    when(dispatcher.loadTable(any())).thenReturn(currentTable);
+    when(dispatcher.alterTable(any(), any(TableChange[].class))).thenReturn(updatedTable);
+
+    Response getResponse = tableTarget().request(MediaType.APPLICATION_JSON_TYPE).get();
+    assertEquals(200, getResponse.getStatus());
+    String entityTag = getResponse.getHeaderString(HttpHeaders.ETAG);
+    assertStrongEntityTag(entityTag);
+
+    Response missingPrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .put(Entity.json(completeTableUpdatePayload()));
+    assertPreconditionFailed(missingPrecondition);
+
+    Response weakPrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "W/\"weak\"")
+            .put(Entity.json(completeTableUpdatePayload()));
+    assertPreconditionFailed(weakPrecondition);
+
+    Response wildcardPrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "*")
+            .put(Entity.json(completeTableUpdatePayload()));
+    assertPreconditionFailed(wildcardPrecondition);
+
+    Response partialReplacement =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, entityTag)
+            .put(Entity.json("{\"comment\":\"partial\"}"));
+    assertEquals(400, partialReplacement.getStatus());
+    assertTrue(
+        partialReplacement.readEntity(String.class).contains("\"type\":\"INVALID_ARGUMENT\""));
+
+    Response stalePrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "\"stale\"")
+            .put(Entity.json(completeTableUpdatePayload()));
+    assertEquals(412, stalePrecondition.getStatus());
+    assertTrue(
+        stalePrecondition.readEntity(String.class).contains("\"type\":\"PRECONDITION_FAILED\""));
+
+    Response updateResponse =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, entityTag)
+            .put(Entity.json(completeTableUpdatePayload()));
+    assertEquals(200, updateResponse.getStatus());
+    assertEquals("private, no-cache", updateResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
+    assertStrongEntityTag(updateResponse.getHeaderString(HttpHeaders.ETAG));
+    String updateBody = updateResponse.readEntity(String.class);
+    assertTrue(updateBody.contains("\"comment\":\"Replaced\""));
+    assertTrue(updateBody.contains("\"owner\":\"after\""));
+    assertTrue(updateBody.contains("\"kind\":\"INTEGER\""));
+  }
+
+  @Test
+  public void testDeleteRequiresStrongCurrentIfMatch() {
+    Table table = mockV1Table("orders", "Delete me", Map.of());
+    when(dispatcher.loadTable(any())).thenReturn(table);
+    when(dispatcher.dropTable(any())).thenReturn(true);
+
+    Response getResponse = tableTarget().request(MediaType.APPLICATION_JSON_TYPE).get();
+    assertEquals(200, getResponse.getStatus());
+    String entityTag = getResponse.getHeaderString(HttpHeaders.ETAG);
+    assertStrongEntityTag(entityTag);
+
+    Response missingPrecondition = tableTarget().request(MediaType.APPLICATION_JSON_TYPE).delete();
+    assertPreconditionFailed(missingPrecondition);
+
+    Response weakPrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "W/\"weak\"")
+            .delete();
+    assertPreconditionFailed(weakPrecondition);
+
+    Response wildcardPrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "*")
+            .delete();
+    assertPreconditionFailed(wildcardPrecondition);
+
+    Response stalePrecondition =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, "\"stale\"")
+            .delete();
+    assertEquals(412, stalePrecondition.getStatus());
+    assertTrue(
+        stalePrecondition.readEntity(String.class).contains("\"type\":\"PRECONDITION_FAILED\""));
+
+    Response deleteResponse =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .header(HttpHeaders.IF_MATCH, entityTag)
+            .delete();
+    assertEquals(204, deleteResponse.getStatus());
+    assertEquals("no-store", deleteResponse.getHeaderString(HttpHeaders.CACHE_CONTROL));
+    assertFalse(deleteResponse.hasEntity());
+  }
+
+  @Test
+  public void testPatchIsNotPartOfTheV1TableMutationContract() {
+    Response response =
+        tableTarget()
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .method("PATCH", Entity.json(completeTableUpdatePayload()));
+
+    assertEquals(405, response.getStatus());
+    Set<String> allowedMethods =
+        Arrays.stream(response.getHeaderString(HttpHeaders.ALLOW).split(","))
+            .map(String::trim)
+            .collect(Collectors.toSet());
+    assertEquals(Set.of("GET", "HEAD", "OPTIONS", "PUT", "DELETE"), allowedMethods);
+    assertFalse(allowedMethods.contains("PATCH"));
+    assertTrue(response.readEntity(String.class).contains("\"type\":\"METHOD_NOT_ALLOWED\""));
+  }
+
+  @Test
+  public void testStrictBodyFilterRejectsTrailingValuesOnTableCreate() {
+    Response response =
+        tableCollectionTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .post(Entity.json(createTablePayload() + "{}"));
+
+    assertStrictBodyFailure(response);
+    Mockito.verify(dispatcher, Mockito.never())
+        .createTable(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void testStrictBodyFilterRejectsScalarCoercionOnTableUpdate() {
+    Response response =
+        tableTarget()
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .put(
+                Entity.json(
+                    completeTableUpdatePayload()
+                        .replace("\"comment\":\"Replaced\"", "\"comment\":42")));
+
+    assertStrictBodyFailure(response);
+    Mockito.verify(dispatcher, Mockito.never()).loadTable(any());
   }
 
   @Test
@@ -231,7 +462,7 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
         Arrays.stream(response.getHeaderString(HttpHeaders.ALLOW).split(","))
             .map(String::trim)
             .collect(Collectors.toSet());
-    assertEquals(Set.of("GET", "HEAD", "OPTIONS"), allowedMethods);
+    assertEquals(Set.of("GET", "HEAD", "OPTIONS", "PUT", "DELETE"), allowedMethods);
     String body = response.readEntity(String.class);
     assertTrue(body.contains("\"type\":\"METHOD_NOT_ALLOWED\""));
     assertTrue(body.contains("\"details\":[]"));
@@ -239,6 +470,66 @@ public class TestTableOperationsV1 extends BaseOperationsTest {
 
   private WebTarget tableTarget() {
     return target("v1/metalakes/demo/catalogs/catalog/schemas/schema/tables/orders");
+  }
+
+  private WebTarget tableCollectionTarget() {
+    return target("v1/metalakes/demo/catalogs/catalog/schemas/schema/tables");
+  }
+
+  private static void assertStrongEntityTag(String entityTag) {
+    assertNotNull(entityTag);
+    assertTrue(entityTag.startsWith("\""));
+    assertTrue(entityTag.endsWith("\""));
+    assertFalse(entityTag.startsWith("W/\""));
+  }
+
+  private static void assertPreconditionFailed(Response response) {
+    assertEquals(412, response.getStatus());
+    String body = response.readEntity(String.class);
+    assertTrue(body.contains("\"type\":\"PRECONDITION_FAILED\""));
+  }
+
+  private static void assertStrictBodyFailure(Response response) {
+    assertEquals(400, response.getStatus());
+    String body = response.readEntity(String.class);
+    assertTrue(body.contains("\"type\":\"INVALID_ARGUMENT\""));
+    assertTrue(body.contains("\"kind\":\"FIELD_VIOLATION\""));
+    assertTrue(body.contains("\"field\":\"body\""));
+  }
+
+  private static String createTablePayload() {
+    return "{"
+        + "\"name\":\"created_orders\","
+        + "\"comment\":\"Created through V1\","
+        + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+        + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
+        + "\"properties\":{\"owner\":\"qa\"},"
+        + "\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]"
+        + "}";
+  }
+
+  private static String completeTableUpdatePayload() {
+    return "{"
+        + "\"comment\":\"Replaced\","
+        + "\"columns\":[{\"name\":\"id\",\"type\":{\"kind\":\"INTEGER\","
+        + "\"signed\":true},\"nullable\":false,\"autoIncrement\":false}],"
+        + "\"properties\":{\"owner\":\"after\"},"
+        + "\"partitioning\":[],\"sortOrders\":[],\"indexes\":[]"
+        + "}";
+  }
+
+  private static Table mockV1Table(String name, String comment, Map<String, String> properties) {
+    Table table = mock(Table.class);
+    when(table.name()).thenReturn(name);
+    when(table.comment()).thenReturn(comment);
+    when(table.columns())
+        .thenReturn(
+            new Column[] {Column.of("id", Types.IntegerType.get(), null, false, false, null)});
+    when(table.properties()).thenReturn(properties);
+    when(table.partitioning()).thenReturn(new Transform[0]);
+    when(table.sortOrder()).thenReturn(new SortOrder[0]);
+    when(table.index()).thenReturn(new Index[0]);
+    return table;
   }
 
   private static class MockServletRequestFactory extends ServletRequestFactoryBase {

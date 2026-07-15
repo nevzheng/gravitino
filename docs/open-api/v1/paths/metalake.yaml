@@ -1,0 +1,83 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+parameters:
+  - $ref: "../components/parameters.yaml#/components/parameters/MetalakeName"
+  - $ref: "../components/parameters.yaml#/components/parameters/RequestId"
+get:
+  tags: [Metalakes]
+  security: []
+  summary: Get a metalake
+  description: Returns one public V1 metalake representation.
+  operationId: getMetalakeV1
+  responses:
+    "200": { $ref: "../components/responses.yaml#/components/responses/GetMetalakeOk" }
+    "400": { $ref: "../components/responses.yaml#/components/responses/BadRequest" }
+    "401": { $ref: "../components/responses.yaml#/components/responses/Unauthorized" }
+    "403": { $ref: "../components/responses.yaml#/components/responses/Forbidden" }
+    "404": { $ref: "../components/responses.yaml#/components/responses/NotFound" }
+    "500": { $ref: "../components/responses.yaml#/components/responses/InternalError" }
+put:
+  tags: [Metalakes]
+  security: []
+  summary: Update a metalake
+  description: |-
+    Replaces the complete mutable desired state under `If-Match` and returns
+    the V1 metalake. The V1 server serializes the read, validator check, and
+    core mutation locally; this route does not claim a distributed/provider
+    transaction.
+  operationId: updateMetalakeV1
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../components/schemas/resources.yaml#/components/schemas/MetalakeUpdateRequest"
+        examples:
+          Metalake:
+            $ref: "../components/schemas/resources.yaml#/components/examples/MetalakeUpdateRequest"
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/IfMatch"
+  responses:
+    "200": { $ref: "../components/responses.yaml#/components/responses/GetMetalakeOk" }
+    "400": { $ref: "../components/responses.yaml#/components/responses/BadRequest" }
+    "401": { $ref: "../components/responses.yaml#/components/responses/Unauthorized" }
+    "403": { $ref: "../components/responses.yaml#/components/responses/Forbidden" }
+    "404": { $ref: "../components/responses.yaml#/components/responses/NotFound" }
+    "409": { $ref: "../components/responses.yaml#/components/responses/Conflict" }
+    "412": { $ref: "../components/responses.yaml#/components/responses/PreconditionFailed" }
+    "415": { $ref: "../components/responses.yaml#/components/responses/UnsupportedMediaType" }
+    "500": { $ref: "../components/responses.yaml#/components/responses/InternalError" }
+delete:
+  tags: [Metalakes]
+  security: []
+  summary: Delete a metalake
+  description: Deletes a metalake. `force` is explicit and defaults to false.
+  operationId: deleteMetalakeV1
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/Force"
+    - $ref: "../components/parameters.yaml#/components/parameters/IfMatch"
+  responses:
+    "204": { $ref: "../components/responses.yaml#/components/responses/NoContent" }
+    "400": { $ref: "../components/responses.yaml#/components/responses/BadRequest" }
+    "401": { $ref: "../components/responses.yaml#/components/responses/Unauthorized" }
+    "403": { $ref: "../components/responses.yaml#/components/responses/Forbidden" }
+    "404": { $ref: "../components/responses.yaml#/components/responses/NotFound" }
+    "409": { $ref: "../components/responses.yaml#/components/responses/Conflict" }
+    "412": { $ref: "../components/responses.yaml#/components/responses/PreconditionFailed" }
+    "500": { $ref: "../components/responses.yaml#/components/responses/InternalError" }

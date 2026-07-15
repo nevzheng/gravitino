@@ -1,0 +1,68 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+parameters:
+  - $ref: "../components/parameters.yaml#/components/parameters/MetalakeName"
+  - $ref: "../components/parameters.yaml#/components/parameters/CatalogName"
+  - $ref: "../components/parameters.yaml#/components/parameters/SchemaName"
+  - $ref: "../components/parameters.yaml#/components/parameters/RequestId"
+get:
+  tags: [Tables]
+  security: []
+  summary: List tables
+  description: Returns the complete public V1 table collection for one schema.
+  operationId: listTablesV1
+  responses:
+    "200": { $ref: "../components/responses.yaml#/components/responses/ListTablesOk" }
+    "400": { $ref: "../components/responses.yaml#/components/responses/BadRequest" }
+    "401": { $ref: "../components/responses.yaml#/components/responses/Unauthorized" }
+    "403": { $ref: "../components/responses.yaml#/components/responses/Forbidden" }
+    "404": { $ref: "../components/responses.yaml#/components/responses/NotFound" }
+    "500": { $ref: "../components/responses.yaml#/components/responses/InternalError" }
+    "501": { $ref: "../components/responses.yaml#/components/responses/NotImplemented" }
+    "502": { $ref: "../components/responses.yaml#/components/responses/BadGateway" }
+post:
+  tags: [Tables]
+  security: []
+  summary: Create a table
+  description: |-
+    Creates one relational table under the schema. The request is a strict V1
+    wire object, not a legacy Gravitino DTO. A successful create returns 201,
+    a public representation, and the resource Location. Creating the same
+    name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
+  operationId: createTableV1
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../components/schemas/tables.yaml#/components/schemas/TableCreateRequest"
+        examples:
+          Table:
+            $ref: "../components/schemas/tables.yaml#/components/examples/TableCreateRequest"
+  responses:
+    "201": { $ref: "../components/responses.yaml#/components/responses/CreatedTable" }
+    "400": { $ref: "../components/responses.yaml#/components/responses/BadRequest" }
+    "401": { $ref: "../components/responses.yaml#/components/responses/Unauthorized" }
+    "403": { $ref: "../components/responses.yaml#/components/responses/Forbidden" }
+    "404": { $ref: "../components/responses.yaml#/components/responses/NotFound" }
+    "409": { $ref: "../components/responses.yaml#/components/responses/Conflict" }
+    "415": { $ref: "../components/responses.yaml#/components/responses/UnsupportedMediaType" }
+    "500": { $ref: "../components/responses.yaml#/components/responses/InternalError" }
+    "501": { $ref: "../components/responses.yaml#/components/responses/NotImplemented" }
+    "502": { $ref: "../components/responses.yaml#/components/responses/BadGateway" }

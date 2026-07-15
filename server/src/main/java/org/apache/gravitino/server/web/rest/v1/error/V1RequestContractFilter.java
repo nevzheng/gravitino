@@ -43,7 +43,7 @@ import org.apache.gravitino.server.web.VersioningFilter;
  *
  * <p>Jersey also performs these checks as defense in depth, but authentication is a servlet filter
  * and therefore runs before Jersey. Keeping the primary check here preserves V1's documented {@code
- * 400} and {@code 406} outcomes for unauthenticated requests.
+ * 400}, {@code 406}, and {@code 415} outcomes for unauthenticated requests.
  */
 public final class V1RequestContractFilter implements Filter {
 
@@ -83,7 +83,9 @@ public final class V1RequestContractFilter implements Filter {
     Response validationFailure =
         V1RequestContract.validationFailure(
             httpRequest.getHeader(RequestContextFilter.REQUEST_ID_HEADER),
-            acceptValues(httpRequest));
+            headerValues(httpRequest, HttpHeaders.ACCEPT),
+            httpRequest.getMethod(),
+            headerValues(httpRequest, HttpHeaders.CONTENT_TYPE));
     if (validationFailure == null) {
       chain.doFilter(request, response);
       return;
@@ -96,17 +98,17 @@ public final class V1RequestContractFilter implements Filter {
   @Override
   public void destroy() {}
 
-  private static List<String> acceptValues(HttpServletRequest request) {
-    Enumeration<String> values = request.getHeaders(HttpHeaders.ACCEPT);
+  private static List<String> headerValues(HttpServletRequest request, String headerName) {
+    Enumeration<String> values = request.getHeaders(headerName);
     if (values == null) {
       return new ArrayList<>();
     }
 
-    List<String> acceptValues = new ArrayList<>();
+    List<String> headerValues = new ArrayList<>();
     while (values.hasMoreElements()) {
-      acceptValues.add(values.nextElement());
+      headerValues.add(values.nextElement());
     }
-    return acceptValues;
+    return headerValues;
   }
 
   private static void writePublicError(

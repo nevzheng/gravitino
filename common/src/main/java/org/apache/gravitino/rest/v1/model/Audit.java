@@ -28,7 +28,7 @@ import javax.annotation.Nullable;
 
 /** Partial audit information in the public Gravitino V1 wire contract. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(ignoreUnknown = false)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public final class Audit {
 
   @Nullable

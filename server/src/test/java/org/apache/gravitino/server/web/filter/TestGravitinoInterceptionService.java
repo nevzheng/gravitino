@@ -61,6 +61,7 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationMetada
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.server.web.filter.authorization.AuthorizationExecutor;
 import org.apache.gravitino.server.web.filter.authorization.AuthorizeExecutorFactory;
+import org.apache.gravitino.server.web.rest.v1.MetalakeOperationsV1;
 import org.apache.gravitino.server.web.rest.v1.TableOperationsV1;
 import org.apache.gravitino.server.web.rest.v1.error.V1ApiException;
 import org.apache.gravitino.server.web.rest.v1.error.V1ClientInputException;
@@ -88,6 +89,15 @@ public class TestGravitinoInterceptionService {
   public void testV1TableRouteIsEligibleForAuthorizationInterception() {
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(TableOperationsV1.class.getName());
+
+    Assertions.assertTrue(
+        new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));
+  }
+
+  @Test
+  public void testV1ParentRouteIsEligibleForAuthorizationInterception() {
+    Descriptor descriptor = mock(Descriptor.class);
+    when(descriptor.getImplementation()).thenReturn(MetalakeOperationsV1.class.getName());
 
     Assertions.assertTrue(
         new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));

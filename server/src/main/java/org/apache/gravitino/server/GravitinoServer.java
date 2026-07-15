@@ -67,6 +67,7 @@ import org.apache.gravitino.server.web.rest.v1.error.V1ErrorResponseFilter;
 import org.apache.gravitino.server.web.rest.v1.error.V1MediaTypeFilter;
 import org.apache.gravitino.server.web.rest.v1.error.V1PublicExceptionMapper;
 import org.apache.gravitino.server.web.rest.v1.error.V1RequestContractFilter;
+import org.apache.gravitino.server.web.rest.v1.validation.V1JsonBodyFilter;
 import org.apache.gravitino.server.web.ui.WebUIFilter;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.tag.TagDispatcher;
@@ -173,6 +174,7 @@ public class GravitinoServer extends ResourceConfig {
     register(V1PublicExceptionMapper.class);
     register(V1ErrorResponseFilter.class);
     register(V1MediaTypeFilter.class);
+    register(V1JsonBodyFilter.class);
     register(ObjectMapperProvider.class).register(JacksonFeature.class);
     property(CommonProperties.JSON_JACKSON_DISABLED_MODULES, "DefaultScalaModule");
 

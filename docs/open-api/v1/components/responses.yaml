@@ -18,6 +18,193 @@
 ---
 components:
   responses:
+    CreatedMetalake:
+      description: The metalake was created.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Location:
+          $ref: "./headers.yaml#/components/headers/Location"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/MetalakeResource"
+          examples:
+            Metalake:
+              $ref: "./schemas/resources.yaml#/components/examples/MetalakeResource"
+    CreatedCatalog:
+      description: The catalog was created.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Location:
+          $ref: "./headers.yaml#/components/headers/Location"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/CatalogResource"
+          examples:
+            Catalog:
+              $ref: "./schemas/resources.yaml#/components/examples/CatalogResource"
+    CreatedSchema:
+      description: The schema was created.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Location:
+          $ref: "./headers.yaml#/components/headers/Location"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/SchemaResource"
+          examples:
+            Schema:
+              $ref: "./schemas/resources.yaml#/components/examples/SchemaResource"
+    CreatedTable:
+      description: The table was created.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Location:
+          $ref: "./headers.yaml#/components/headers/Location"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/tables.yaml#/components/schemas/TableResource"
+          examples:
+            Table:
+              $ref: "./schemas/tables.yaml#/components/examples/TableResource"
+
+    GetMetalakeOk:
+      description: The current metalake representation.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/MetalakeResource"
+          examples:
+            Metalake:
+              $ref: "./schemas/resources.yaml#/components/examples/MetalakeResource"
+    GetCatalogOk:
+      description: The current catalog representation.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/CatalogResource"
+          examples:
+            Catalog:
+              $ref: "./schemas/resources.yaml#/components/examples/CatalogResource"
+    GetSchemaOk:
+      description: The current schema representation.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/SchemaResource"
+          examples:
+            Schema:
+              $ref: "./schemas/resources.yaml#/components/examples/SchemaResource"
+
+    ListMetalakesOk:
+      description: The complete current metalake collection.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/MetalakeListResponse"
+          examples:
+            Metalakes:
+              $ref: "./schemas/resources.yaml#/components/examples/MetalakeListResponse"
+    ListCatalogsOk:
+      description: The complete current catalog collection for the metalake.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/CatalogListResponse"
+          examples:
+            Catalogs:
+              $ref: "./schemas/resources.yaml#/components/examples/CatalogListResponse"
+    ListSchemasOk:
+      description: The complete current schema collection for the catalog.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/resources.yaml#/components/schemas/SchemaListResponse"
+          examples:
+            Schemas:
+              $ref: "./schemas/resources.yaml#/components/examples/SchemaListResponse"
+    ListTablesOk:
+      description: The complete current table collection for the schema.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/tables.yaml#/components/schemas/TableListResponse"
+          examples:
+            Tables:
+              $ref: "./schemas/tables.yaml#/components/examples/TableListResponse"
+
+    NoContent:
+      description: The resource was deleted. The response has no body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/NoStoreCacheControl"
+
     GetTableOk:
       description: The current table representation.
       headers:
@@ -221,7 +408,7 @@ components:
               $ref: "./schemas/errors.yaml#/components/examples/NotAcceptable"
 
     Conflict:
-      description: The requested catalog resource exists but is not in an active state.
+      description: The request conflicts with the current state of a named resource.
       headers:
         X-Request-Id:
           $ref: "./headers.yaml#/components/headers/RequestId"
@@ -234,6 +421,42 @@ components:
           examples:
             ResourceNotActive:
               $ref: "./schemas/errors.yaml#/components/examples/ResourceNotActive"
+            TableAlreadyExists:
+              $ref: "./schemas/errors.yaml#/components/examples/TableAlreadyExists"
+
+    PreconditionFailed:
+      description: The supplied `If-Match` validator does not match the current resource state.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/PreconditionFailedErrorResponse"
+          examples:
+            PreconditionFailed:
+              $ref: "./schemas/errors.yaml#/components/examples/PreconditionFailed"
+
+    UnsupportedMediaType:
+      description: |-
+        A V1 JSON mutation must declare `Content-Type: application/json`.
+        Standard media-type parameters such as `charset` are accepted; a
+        missing, ambiguous, malformed, or other media type (including
+        `application/*+json`) is rejected.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/UnsupportedMediaTypeErrorResponse"
+          examples:
+            UnsupportedMediaType:
+              $ref: "./schemas/errors.yaml#/components/examples/UnsupportedMediaType"
 
     RateLimited:
       description: The caller exceeded a configured request limit and may retry after the delay.

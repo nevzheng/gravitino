@@ -29,6 +29,12 @@ info:
     not part of this contract. The unversioned `/api` API is a separate legacy
     surface and is not described here.
 
+    V1 JSON mutation bodies on `POST` and `PUT` must declare
+    `Content-Type: application/json`. Standard media-type parameters, such as
+    `charset`, are accepted; an absent, ambiguous, malformed, or other media
+    type, including `application/*+json`, receives `415 UNSUPPORTED_MEDIA_TYPE`
+    before authentication.
+
     Optional resource properties are omitted when no value exists. JSON `null`
     is serialized only where a schema explicitly permits it, such as an
     Iceberg `NULL` literal. Required collections and maps are serialized as
@@ -80,8 +86,28 @@ servers:
       port:
         default: "8090"
 tags:
+  - name: Catalogs
+    description: Catalog resources under a metalake.
+  - name: Metalakes
+    description: Top-level Gravitino metadata containers.
+  - name: Schemas
+    description: Schema resources under a catalog.
   - name: Tables
     description: Relational table resources.
 paths:
+  /api/v1/metalakes:
+    $ref: "./paths/metalakes.yaml"
+  /api/v1/metalakes/{metalake}:
+    $ref: "./paths/metalake.yaml"
+  /api/v1/metalakes/{metalake}/catalogs:
+    $ref: "./paths/catalogs.yaml"
+  /api/v1/metalakes/{metalake}/catalogs/{catalog}:
+    $ref: "./paths/catalog.yaml"
+  /api/v1/metalakes/{metalake}/catalogs/{catalog}/schemas:
+    $ref: "./paths/schemas.yaml"
+  /api/v1/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}:
+    $ref: "./paths/schema.yaml"
+  /api/v1/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables:
+    $ref: "./paths/table-collection.yaml"
   /api/v1/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}:
     $ref: "./paths/tables.yaml"

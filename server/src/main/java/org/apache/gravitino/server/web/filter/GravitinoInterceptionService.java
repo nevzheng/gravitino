@@ -73,6 +73,9 @@ import org.apache.gravitino.server.web.rest.TableOperations;
 import org.apache.gravitino.server.web.rest.TagOperations;
 import org.apache.gravitino.server.web.rest.TopicOperations;
 import org.apache.gravitino.server.web.rest.UserOperations;
+import org.apache.gravitino.server.web.rest.v1.CatalogOperationsV1;
+import org.apache.gravitino.server.web.rest.v1.MetalakeOperationsV1;
+import org.apache.gravitino.server.web.rest.v1.SchemaOperationsV1;
 import org.apache.gravitino.server.web.rest.v1.TableOperationsV1;
 import org.apache.gravitino.server.web.rest.v1.error.V1ApiException;
 import org.apache.gravitino.server.web.rest.v1.error.V1ErrorContext;
@@ -101,6 +104,9 @@ public class GravitinoInterceptionService implements InterceptionService {
             CatalogOperations.class.getName(),
             SchemaOperations.class.getName(),
             TableOperations.class.getName(),
+            MetalakeOperationsV1.class.getName(),
+            CatalogOperationsV1.class.getName(),
+            SchemaOperationsV1.class.getName(),
             TableOperationsV1.class.getName(),
             ModelOperations.class.getName(),
             FunctionOperations.class.getName(),

@@ -30,8 +30,10 @@ import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
+import org.apache.gravitino.exceptions.TableAlreadyExistsException;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.rest.v1.error.V1ErrorResponse;
+import org.apache.gravitino.rest.v1.error.V1FieldViolationErrorDetail;
 import org.apache.gravitino.rest.v1.error.V1ResourceInfoErrorDetail;
 import org.apache.gravitino.utils.RequestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -105,6 +107,47 @@ public class TestV1PublicErrorTranslator {
   }
 
   @Test
+  public void testMapsExistingTableToStablePublicConflict() {
+    RequestContext.setRequestId("request-409");
+
+    Response response =
+        V1PublicErrorTranslator.toResponse(
+            new TableAlreadyExistsException("internal table topology"),
+            V1ErrorContext.tableWrite("demo", "catalog", "schema", "table"));
+
+    assertEquals(409, response.getStatus());
+    V1ErrorResponse body = (V1ErrorResponse) response.getEntity();
+    assertEquals("TABLE_ALREADY_EXISTS", body.getError().getType());
+    assertFalse(body.getError().isRetryable());
+    V1ResourceInfoErrorDetail detail =
+        (V1ResourceInfoErrorDetail) body.getError().getDetails().get(0);
+    assertEquals("TABLE", detail.getResourceType());
+    assertEquals(
+        "metalakes/demo/catalogs/catalog/schemas/schema/tables/table", detail.getResourceName());
+  }
+
+  @Test
+  public void testMapsFailedRepresentationPreconditionToStablePublicError() {
+    RequestContext.setRequestId("request-412");
+
+    Response response =
+        V1PublicErrorTranslator.toResponse(
+            new V1PreconditionFailedException(),
+            V1ErrorContext.tableWrite("demo", "catalog", "schema", "table"));
+
+    assertEquals(412, response.getStatus());
+    V1ErrorResponse body = (V1ErrorResponse) response.getEntity();
+    assertEquals("PRECONDITION_FAILED", body.getError().getType());
+    assertEquals(V1PreconditionFailedException.SAFE_DESCRIPTION, body.getError().getMessage());
+    assertFalse(body.getError().isRetryable());
+    V1ResourceInfoErrorDetail detail =
+        (V1ResourceInfoErrorDetail) body.getError().getDetails().get(0);
+    assertEquals("TABLE", detail.getResourceType());
+    assertEquals(
+        "metalakes/demo/catalogs/catalog/schemas/schema/tables/table", detail.getResourceName());
+  }
+
+  @Test
   public void testSanitizesUnknownFailures() {
     RequestContext.setRequestId("request-500");
 
@@ -147,6 +190,23 @@ public class TestV1PublicErrorTranslator {
     assertEquals("NOT_ACCEPTABLE", body.getError().getType());
     assertFalse(body.getError().isRetryable());
     assertEquals("request-406", body.getError().getRequestId());
+  }
+
+  @Test
+  public void testMapsFrameworkUnsupportedMediaTypeResponse() {
+    RequestContext.setRequestId("request-415");
+
+    Response response = V1PublicErrorTranslator.toResponseForStatus(415);
+    V1ErrorResponse body = (V1ErrorResponse) response.getEntity();
+
+    assertEquals(415, response.getStatus());
+    assertEquals(415, body.getError().getCode());
+    assertEquals("UNSUPPORTED_MEDIA_TYPE", body.getError().getType());
+    assertFalse(body.getError().isRetryable());
+    assertEquals("request-415", body.getError().getRequestId());
+    V1FieldViolationErrorDetail detail =
+        (V1FieldViolationErrorDetail) body.getError().getDetails().get(0);
+    assertEquals("Content-Type", detail.getField());
   }
 
   @Test

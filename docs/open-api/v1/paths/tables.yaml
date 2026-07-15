@@ -46,7 +46,7 @@ get:
     documented `400` or `406` response rather than an authentication response.
 
     Successful authenticated responses permit private storage but require
-    revalidation. Use the returned weak `ETag` with `If-None-Match`; a match
+    revalidation. Use the returned strong `ETag` with `If-None-Match`; a match
     returns 304 without a body. Errors are never stored.
   operationId: getTableV1
   parameters:
@@ -114,3 +114,83 @@ head:
       $ref: "../components/responses.yaml#/components/responses/HeadError"
     "502":
       $ref: "../components/responses.yaml#/components/responses/HeadError"
+
+put:
+  tags: [Tables]
+  security: []
+  summary: Update a table
+  description: |-
+    Requires the complete mutable desired state. The current V1 adapter applies
+    comment and property changes only. `columns`, `partitioning`,
+    `distribution`, `sortOrders`, and `indexes` must equal the current table;
+    a requested change to one of them returns `501 UNSUPPORTED_OPERATION`
+    until the core exposes a correct replacement mutation. The result is the
+    current V1 table representation.
+  operationId: updateTableV1
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../components/schemas/tables.yaml#/components/schemas/TableUpdateRequest"
+        examples:
+          Table:
+            $ref: "../components/schemas/tables.yaml#/components/examples/TableUpdateRequest"
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/IfMatch"
+  responses:
+    "200":
+      $ref: "../components/responses.yaml#/components/responses/GetTableOk"
+    "400":
+      $ref: "../components/responses.yaml#/components/responses/BadRequest"
+    "401":
+      $ref: "../components/responses.yaml#/components/responses/Unauthorized"
+    "403":
+      $ref: "../components/responses.yaml#/components/responses/Forbidden"
+    "404":
+      $ref: "../components/responses.yaml#/components/responses/NotFound"
+    "409":
+      $ref: "../components/responses.yaml#/components/responses/Conflict"
+    "412":
+      $ref: "../components/responses.yaml#/components/responses/PreconditionFailed"
+    "415":
+      $ref: "../components/responses.yaml#/components/responses/UnsupportedMediaType"
+    "500":
+      $ref: "../components/responses.yaml#/components/responses/InternalError"
+    "501":
+      $ref: "../components/responses.yaml#/components/responses/NotImplemented"
+    "502":
+      $ref: "../components/responses.yaml#/components/responses/BadGateway"
+
+delete:
+  tags: [Tables]
+  security: []
+  summary: Delete a table
+  description: |-
+    Deletes one table. `purge` is explicit and defaults to false; callers use
+    it only when the backing catalog's documented purge behavior is intended.
+  operationId: deleteTableV1
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/Purge"
+    - $ref: "../components/parameters.yaml#/components/parameters/IfMatch"
+  responses:
+    "204":
+      $ref: "../components/responses.yaml#/components/responses/NoContent"
+    "400":
+      $ref: "../components/responses.yaml#/components/responses/BadRequest"
+    "401":
+      $ref: "../components/responses.yaml#/components/responses/Unauthorized"
+    "403":
+      $ref: "../components/responses.yaml#/components/responses/Forbidden"
+    "404":
+      $ref: "../components/responses.yaml#/components/responses/NotFound"
+    "409":
+      $ref: "../components/responses.yaml#/components/responses/Conflict"
+    "412":
+      $ref: "../components/responses.yaml#/components/responses/PreconditionFailed"
+    "500":
+      $ref: "../components/responses.yaml#/components/responses/InternalError"
+    "501":
+      $ref: "../components/responses.yaml#/components/responses/NotImplemented"
+    "502":
+      $ref: "../components/responses.yaml#/components/responses/BadGateway"

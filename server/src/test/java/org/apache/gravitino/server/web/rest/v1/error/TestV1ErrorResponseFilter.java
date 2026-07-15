@@ -95,6 +95,21 @@ public class TestV1ErrorResponseFilter {
     assertEquals(List.of("Bearer"), headers.get(AuthConstants.HTTP_CHALLENGE_HEADER));
   }
 
+  @Test
+  public void testHeadUnsupportedMediaTypeResponseHasNoBody() throws Exception {
+    ContainerRequestContext requestContext = requestContext("HEAD");
+    ContainerResponseContext responseContext = responseContext(415, new Object());
+
+    filter.filter(requestContext, responseContext);
+
+    verify(responseContext).setStatus(415);
+    ArgumentCaptor<Object> entity = ArgumentCaptor.forClass(Object.class);
+    verify(responseContext, times(2)).setEntity(entity.capture());
+    V1ErrorResponse body = (V1ErrorResponse) entity.getAllValues().get(0);
+    assertEquals("UNSUPPORTED_MEDIA_TYPE", body.getError().getType());
+    assertNull(entity.getAllValues().get(1));
+  }
+
   private static ContainerRequestContext requestContext(String method) {
     ContainerRequestContext requestContext = mock(ContainerRequestContext.class);
     UriInfo uriInfo = mock(UriInfo.class);

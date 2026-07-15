@@ -62,6 +62,11 @@ val externallyManagedBaseUrl =
   providers
     .gradleProperty("gravitinoOpenapiBaseUrl")
     .orElse(providers.environmentVariable("GRAVITINO_OPENAPI_BASE_URL"))
+val configuredCujProfiles =
+  providers
+    .gradleProperty("gravitinoOpenapiCujProfiles")
+    .orElse(providers.environmentVariable("GRAVITINO_OPENAPI_CUJ_PROFILES"))
+val configuredCujProfilesValue = configuredCujProfiles.getOrElse("").trim()
 val pythonTestServerBaseUrl = externallyManagedBaseUrl.getOrElse("http://localhost:8090")
 val managesPythonTestServer = AtomicBoolean(false)
 val apacheLicenseHeader =
@@ -375,6 +380,62 @@ val pytestEndpoint by tasks.registering {
   group = "verification"
   description = "Runs generated OpenAPI endpoint unit and real-server contract tests."
   dependsOn(pytestEndpointUnit, pytestEndpointContract)
+}
+
+val pytestCujUnit by tasks.registering(VenvTask::class) {
+  group = "verification"
+  description = "Runs no-server unit checks for OpenAPI customer-journey test support."
+  dependsOn(installPythonClient)
+  workingDir = checkedInPythonRoot.asFile
+  venvExec = "pytest"
+  args = listOf("test/cuj/unit")
+}
+
+val pytestCujInventory by tasks.registering(VenvTask::class) {
+  group = "verification"
+  description = "Collects OpenAPI customer-journey scenarios without contacting a server."
+  dependsOn(installPythonClient)
+  workingDir = checkedInPythonRoot.asFile
+  venvExec = "pytest"
+  args = listOf("--collect-only", "test/cuj")
+}
+
+val pytestCuj by tasks.registering {
+  group = "verification"
+  description =
+    "Validates no-server OpenAPI customer-journey support and Gherkin scenario collection."
+  dependsOn(pytestCujUnit, pytestCujInventory)
+}
+
+val pytestCujIntegration by tasks.registering(VenvTask::class) {
+  group = "verification"
+  description =
+    "Runs opt-in OpenAPI customer-journey scenarios against an explicitly configured server."
+  dependsOn(installPythonClient)
+  workingDir = checkedInPythonRoot.asFile
+  venvExec = "pytest"
+  args = listOf("test/cuj", "--ignore=test/cuj/unit")
+  environment =
+    mapOf(
+      "GRAVITINO_OPENAPI_BASE_URL" to pythonTestServerBaseUrl,
+      "GRAVITINO_OPENAPI_CUJ_PROFILES" to configuredCujProfilesValue
+    )
+  doFirst {
+    if (configuredCujProfilesValue.isEmpty()) {
+      throw GradleException(
+        "Live OpenAPI CUJs are opt-in. Set -PgravitinoOpenapiCujProfiles=<profiles>."
+      )
+    }
+    if (!externallyManagedBaseUrl.isPresent) {
+      throw GradleException(
+        "Live OpenAPI CUJs require an explicitly managed server. "
+            + "Set -PgravitinoOpenapiBaseUrl=<base-url>."
+      )
+    }
+    project.logger.lifecycle(
+      "Running OpenAPI CUJs for profiles $configuredCujProfilesValue against $pythonTestServerBaseUrl"
+    )
+  }
 }
 
 val pythonDistribution by tasks.registering(VenvTask::class) {

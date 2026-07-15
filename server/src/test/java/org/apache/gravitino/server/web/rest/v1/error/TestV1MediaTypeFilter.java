@@ -19,7 +19,9 @@
 package org.apache.gravitino.server.web.rest.v1.error;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,6 +32,7 @@ import javax.ws.rs.core.MultivaluedHashMap;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriInfo;
 import org.apache.gravitino.rest.v1.error.V1ErrorResponse;
+import org.apache.gravitino.rest.v1.error.V1FieldViolationErrorDetail;
 import org.apache.gravitino.server.web.RequestContextFilter;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -71,6 +74,53 @@ public class TestV1MediaTypeFilter {
     assertEquals(406, response.getStatus());
     V1ErrorResponse body = (V1ErrorResponse) response.getEntity();
     assertEquals("NOT_ACCEPTABLE", body.getError().getType());
+  }
+
+  @Test
+  public void testRejectsUnsupportedContentTypeOnV1Mutation() throws Exception {
+    ContainerRequestContext requestContext = requestContext("/api/v1/metalakes");
+    MultivaluedHashMap<String, String> headers = new MultivaluedHashMap<>();
+    headers.add(HttpHeaders.CONTENT_TYPE, "text/plain");
+    when(requestContext.getHeaders()).thenReturn(headers);
+    when(requestContext.getMethod()).thenReturn("POST");
+
+    filter.filter(requestContext);
+
+    ArgumentCaptor<Response> responseCaptor = ArgumentCaptor.forClass(Response.class);
+    verify(requestContext).abortWith(responseCaptor.capture());
+    Response response = responseCaptor.getValue();
+    assertEquals(415, response.getStatus());
+    V1ErrorResponse body = (V1ErrorResponse) response.getEntity();
+    assertEquals("UNSUPPORTED_MEDIA_TYPE", body.getError().getType());
+    V1FieldViolationErrorDetail detail =
+        (V1FieldViolationErrorDetail) body.getError().getDetails().get(0);
+    assertEquals("Content-Type", detail.getField());
+  }
+
+  @Test
+  public void testAcceptsJsonContentTypeParametersOnV1Mutation() throws Exception {
+    ContainerRequestContext requestContext = requestContext("/api/v1/metalakes");
+    MultivaluedHashMap<String, String> headers = new MultivaluedHashMap<>();
+    headers.add(HttpHeaders.CONTENT_TYPE, "application/json; charset=UTF-8");
+    when(requestContext.getHeaders()).thenReturn(headers);
+    when(requestContext.getMethod()).thenReturn("POST");
+
+    filter.filter(requestContext);
+
+    verify(requestContext, never()).abortWith(any(Response.class));
+  }
+
+  @Test
+  public void testDoesNotValidateContentTypeOnV1Delete() throws Exception {
+    ContainerRequestContext requestContext = requestContext("/api/v1/metalakes/demo");
+    MultivaluedHashMap<String, String> headers = new MultivaluedHashMap<>();
+    headers.add(HttpHeaders.CONTENT_TYPE, "text/plain");
+    when(requestContext.getHeaders()).thenReturn(headers);
+    when(requestContext.getMethod()).thenReturn("DELETE");
+
+    filter.filter(requestContext);
+
+    verify(requestContext, never()).abortWith(any(Response.class));
   }
 
   private static ContainerRequestContext requestContext(String path) {

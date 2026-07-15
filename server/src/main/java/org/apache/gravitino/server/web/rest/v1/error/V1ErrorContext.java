@@ -76,6 +76,92 @@ public final class V1ErrorContext {
    */
   public static V1ErrorContext tableRead(
       String metalake, String catalog, String schema, String table) {
+    return tableContext(metalake, catalog, schema, table, true);
+  }
+
+  /**
+   * Returns context for a table mutation. Mutations are never automatically retryable without an
+   * idempotency guarantee.
+   *
+   * @param metalake the requested metalake.
+   * @param catalog the requested catalog.
+   * @param schema the requested schema.
+   * @param table the requested table.
+   * @return the table-write error context.
+   */
+  public static V1ErrorContext tableWrite(
+      String metalake, String catalog, String schema, String table) {
+    return tableContext(metalake, catalog, schema, table, false);
+  }
+
+  /**
+   * Returns context for a safe metalake read or list request.
+   *
+   * @param metalake the requested metalake.
+   * @return the metalake-read error context.
+   */
+  public static V1ErrorContext metalakeRead(String metalake) {
+    return hierarchyContext(metalake, null, null, null, true);
+  }
+
+  /**
+   * Returns context for a metalake mutation.
+   *
+   * @param metalake the requested metalake.
+   * @return the metalake-write error context.
+   */
+  public static V1ErrorContext metalakeWrite(String metalake) {
+    return hierarchyContext(metalake, null, null, null, false);
+  }
+
+  /**
+   * Returns context for a safe catalog read or list request.
+   *
+   * @param metalake the requested metalake.
+   * @param catalog the requested catalog.
+   * @return the catalog-read error context.
+   */
+  public static V1ErrorContext catalogRead(String metalake, String catalog) {
+    return hierarchyContext(metalake, catalog, null, null, true);
+  }
+
+  /**
+   * Returns context for a catalog mutation.
+   *
+   * @param metalake the requested metalake.
+   * @param catalog the requested catalog.
+   * @return the catalog-write error context.
+   */
+  public static V1ErrorContext catalogWrite(String metalake, String catalog) {
+    return hierarchyContext(metalake, catalog, null, null, false);
+  }
+
+  /**
+   * Returns context for a safe schema read or list request.
+   *
+   * @param metalake the requested metalake.
+   * @param catalog the requested catalog.
+   * @param schema the requested schema.
+   * @return the schema-read error context.
+   */
+  public static V1ErrorContext schemaRead(String metalake, String catalog, String schema) {
+    return hierarchyContext(metalake, catalog, schema, null, true);
+  }
+
+  /**
+   * Returns context for a schema mutation.
+   *
+   * @param metalake the requested metalake.
+   * @param catalog the requested catalog.
+   * @param schema the requested schema.
+   * @return the schema-write error context.
+   */
+  public static V1ErrorContext schemaWrite(String metalake, String catalog, String schema) {
+    return hierarchyContext(metalake, catalog, schema, null, false);
+  }
+
+  private static V1ErrorContext tableContext(
+      String metalake, String catalog, String schema, String table, boolean safeToRetry) {
     String checkedMetalake = Objects.requireNonNull(metalake, "metalake");
     String checkedCatalog = Objects.requireNonNull(catalog, "catalog");
     String checkedSchema = Objects.requireNonNull(schema, "schema");
@@ -88,7 +174,24 @@ public final class V1ErrorContext {
         catalogResource,
         schemaResource,
         schemaResource + "/tables/" + checkedTable,
-        true);
+        safeToRetry);
+  }
+
+  private static V1ErrorContext hierarchyContext(
+      String metalake,
+      @Nullable String catalog,
+      @Nullable String schema,
+      @Nullable String table,
+      boolean safeToRetry) {
+    String metalakeResource = "metalakes/" + Objects.requireNonNull(metalake, "metalake");
+    String catalogResource =
+        catalog == null ? null : metalakeResource + "/catalogs/" + Objects.requireNonNull(catalog);
+    String schemaResource =
+        schema == null ? null : catalogResource + "/schemas/" + Objects.requireNonNull(schema);
+    String tableResource =
+        table == null ? null : schemaResource + "/tables/" + Objects.requireNonNull(table);
+    return new V1ErrorContext(
+        metalakeResource, catalogResource, schemaResource, tableResource, safeToRetry);
   }
 
   /**

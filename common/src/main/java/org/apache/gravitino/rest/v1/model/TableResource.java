@@ -28,7 +28,7 @@ import javax.annotation.Nullable;
 
 /** A table resource returned directly by the public Gravitino V1 API. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonIgnoreProperties(ignoreUnknown = false)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public final class TableResource {
 
   @JsonProperty(value = "resourceName", required = true)

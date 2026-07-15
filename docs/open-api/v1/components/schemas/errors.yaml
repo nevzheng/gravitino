@@ -41,6 +41,8 @@ components:
         - $ref: "#/components/schemas/Error405"
         - $ref: "#/components/schemas/Error406"
         - $ref: "#/components/schemas/Error409"
+        - $ref: "#/components/schemas/Error412"
+        - $ref: "#/components/schemas/Error415"
         - $ref: "#/components/schemas/Error429"
         - $ref: "#/components/schemas/Error500"
         - $ref: "#/components/schemas/Error501"
@@ -155,6 +157,22 @@ components:
       properties:
         error:
           $ref: "#/components/schemas/Error409"
+    PreconditionFailedErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 412.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error412"
+    UnsupportedMediaTypeErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 415.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error415"
     RateLimitedErrorResponse:
       type: object
       additionalProperties: true
@@ -380,7 +398,7 @@ components:
     Error409:
       type: object
       additionalProperties: true
-      description: A non-retryable inactive-resource conflict.
+      description: A non-retryable resource-state or already-exists conflict.
       required: [code, type, message, retryable, requestId, details]
       properties:
         code:
@@ -392,7 +410,12 @@ components:
           description: The HTTP status code.
         type:
           type: string
-          const: RESOURCE_NOT_ACTIVE
+          enum:
+            - RESOURCE_NOT_ACTIVE
+            - METALAKE_ALREADY_EXISTS
+            - CATALOG_ALREADY_EXISTS
+            - SCHEMA_ALREADY_EXISTS
+            - TABLE_ALREADY_EXISTS
           description: The stable public reason code.
         message:
           $ref: "#/components/schemas/SafeErrorMessage"
@@ -400,6 +423,62 @@ components:
           type: boolean
           const: false
           description: Resource state must change before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error412:
+      type: object
+      additionalProperties: true
+      description: A non-retryable optimistic-concurrency precondition failure.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 412
+          maximum: 412
+          const: 412
+          description: The HTTP status code.
+        type:
+          type: string
+          const: PRECONDITION_FAILED
+          description: The supplied If-Match validator does not name the current resource state.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Reload the resource and intentionally construct a new desired state.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error415:
+      type: object
+      additionalProperties: true
+      description: A non-retryable request media-type error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 415
+          maximum: 415
+          const: 415
+          description: The HTTP status code.
+        type:
+          type: string
+          const: UNSUPPORTED_MEDIA_TYPE
+          description: The JSON mutation request Content-Type is not application/json.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: The client must send application/json before another attempt.
         requestId:
           $ref: "../parameters.yaml#/components/schemas/RequestId"
         details:
@@ -721,6 +800,42 @@ components:
           retryable: false
           requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
           details: []
+    TableAlreadyExists:
+      value:
+        error:
+          code: 409
+          type: TABLE_ALREADY_EXISTS
+          message: The table already exists.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: TABLE
+              resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+    PreconditionFailed:
+      value:
+        error:
+          code: 412
+          type: PRECONDITION_FAILED
+          message: The resource has changed since it was read.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: TABLE
+              resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+    UnsupportedMediaType:
+      value:
+        error:
+          code: 415
+          type: UNSUPPORTED_MEDIA_TYPE
+          message: The request Content-Type is not supported.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: FIELD_VIOLATION
+              field: Content-Type
+              description: Must be application/json.
     RateLimited:
       value:
         error:

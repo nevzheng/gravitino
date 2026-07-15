@@ -46,7 +46,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "build>=1.2,<2",
+  "playwright>=1.50,<2",
   "pytest>=8,<9",
+  "pytest-bdd>=8,<9",
 ]
 
 [project.urls]
@@ -64,8 +66,31 @@ gravitino_client = ["py.typed"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 markers = [
+  "api: an API-only test that uses an HTTP transport",
+  "common: a cross-provider customer-journey scenario",
+  "create_table: a table creation customer-journey scenario",
   "endpoint: an individual endpoint contract test",
   "cuj: a multi-endpoint customer-journey test",
+  "expected_error: a declared API error or known implementation divergence",
+  "failures: a negative customer-journey scenario",
+  "layout: a table layout customer-journey scenario",
+  "lifecycle: a resource lifecycle customer-journey scenario",
+  "metadata: a table metadata customer-journey scenario",
+  "registration: a table registration customer-journey scenario",
+  "provider_hive: a scenario for the Hive catalog provider",
+  "provider_iceberg: a scenario for the Iceberg catalog provider",
+  "provider_paimon: a scenario for the Paimon catalog provider",
+  "provider_hudi: a scenario for the Hudi catalog provider",
+  "provider_lance: a scenario for the Lance catalog provider",
+  "provider_delta: a scenario for the Delta Lake catalog provider",
+  "provider_mysql: a scenario for the MySQL catalog provider",
+  "provider_postgresql: a scenario for the PostgreSQL catalog provider",
+  "provider_doris: a scenario for the Doris catalog provider",
+  "provider_starrocks: a scenario for the StarRocks catalog provider",
+  "provider_oceanbase: a scenario for the OceanBase catalog provider",
+  "provider_clickhouse: a scenario for the ClickHouse catalog provider",
+  "provider_hologres: a scenario for the Hologres catalog provider",
+  "provider_glue: a scenario for the AWS Glue catalog provider",
 ]
 pythonpath = ["test"]
 testpaths = ["test"]

@@ -21,6 +21,7 @@ package org.apache.gravitino.server.web.rest.v1.error;
 import java.util.List;
 import java.util.Locale;
 import javax.annotation.Nullable;
+import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.server.web.RequestContextFilter;
 
@@ -41,6 +42,27 @@ final class V1RequestContract {
   @Nullable
   static Response validationFailure(
       @Nullable String requestId, @Nullable List<String> acceptValues) {
+    return validationFailure(requestId, acceptValues, null, null);
+  }
+
+  /**
+   * Returns a public error response when V1 request headers violate the public contract.
+   *
+   * <p>V1 currently has JSON request bodies only on POST and PUT operations. This deliberately does
+   * not validate DELETE or safe methods, which do not consume a JSON representation.
+   *
+   * @param requestId caller-provided request ID, if any.
+   * @param acceptValues all Accept header field values, if any.
+   * @param method the HTTP request method, if known.
+   * @param contentTypeValues all Content-Type header field values, if any.
+   * @return a public error response, or {@code null} when the headers are valid.
+   */
+  @Nullable
+  static Response validationFailure(
+      @Nullable String requestId,
+      @Nullable List<String> acceptValues,
+      @Nullable String method,
+      @Nullable List<String> contentTypeValues) {
     if (requestId != null && !RequestContextFilter.isValidRequestId(requestId)) {
       return V1PublicErrorTranslator.toInvalidArgumentResponse(
           RequestContextFilter.REQUEST_ID_HEADER,
@@ -49,7 +71,33 @@ final class V1RequestContract {
     if (hasLegacyVendorMediaType(acceptValues)) {
       return V1PublicErrorTranslator.toResponseForStatus(406);
     }
+    if (requiresJsonRequestBody(method) && !hasApplicationJsonContentType(contentTypeValues)) {
+      return V1PublicErrorTranslator.toResponseForStatus(415);
+    }
     return null;
+  }
+
+  private static boolean requiresJsonRequestBody(@Nullable String method) {
+    return "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method);
+  }
+
+  private static boolean hasApplicationJsonContentType(@Nullable List<String> contentTypeValues) {
+    if (contentTypeValues == null || contentTypeValues.size() != 1) {
+      return false;
+    }
+
+    String value = contentTypeValues.get(0);
+    if (value == null || value.indexOf(',') >= 0) {
+      return false;
+    }
+
+    try {
+      MediaType mediaType = MediaType.valueOf(value);
+      return MediaType.APPLICATION_JSON_TYPE.getType().equalsIgnoreCase(mediaType.getType())
+          && MediaType.APPLICATION_JSON_TYPE.getSubtype().equalsIgnoreCase(mediaType.getSubtype());
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
   }
 
   private static boolean hasLegacyVendorMediaType(@Nullable List<String> acceptValues) {

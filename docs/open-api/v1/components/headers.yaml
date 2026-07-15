@@ -26,12 +26,23 @@ components:
       example: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
     ETag:
       required: true
-      description: A weak validator for the canonical V1 table representation.
+      description: |-
+        A strong validator for the canonical V1 resource representation. Use
+        it in `If-Match` for PUT or DELETE and in `If-None-Match` for a
+        conditional GET.
       schema:
         type: string
         maxLength: 4096
-        pattern: '^W/"[^"\\]+"$'
-      example: 'W/"table-7b6fb8f7"'
+        pattern: '^"[^"\\]+"$'
+      example: '"table-7b6fb8f7"'
+    Location:
+      required: true
+      description: The absolute URI of the resource created by this request.
+      schema:
+        type: string
+        format: uri
+        maxLength: 4096
+      example: http://localhost:8090/api/v1/metalakes/demo
     SuccessCacheControl:
       required: true
       description: |
@@ -41,6 +52,17 @@ components:
         type: string
         const: private, no-cache
       example: private, no-cache
+    NoStoreCacheControl:
+      required: true
+      description: |-
+        Prevents storage of this success response. The initial V1 collection,
+        creation, deletion, and parent-resource routes do not yet expose
+        conditional-read semantics, so clients must re-request their
+        representation.
+      schema:
+        type: string
+        const: no-store
+      example: no-store
     ErrorCacheControl:
       required: true
       description: Prevents storage of public error responses.
@@ -72,7 +94,7 @@ components:
       required: true
       description: |-
         Comma-separated HTTP methods supported by this resource. For this
-        table route, the set includes GET, HEAD, and OPTIONS. Method-token
+        route, the set includes the supported resource methods and OPTIONS. Method-token
         order and optional whitespace are not semantically significant.
       schema:
         type: string

@@ -18,6 +18,131 @@
 ---
 components:
   schemas:
+    TableCreateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        A strict V1 request to create one relational table. Required arrays and
+        maps must be present even when empty. `columns: []` is reserved for a
+        connector-owned schema discovery or registration flow; ordinary table
+        creation supplies at least one column. The server rejects unknown
+        members and connector-incompatible physical layout with a typed public
+        error.
+      required: [name, columns, properties, partitioning, sortOrders, indexes]
+      properties:
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        columns:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/TableColumn"
+        properties:
+          type: object
+          maxProperties: 10000
+          additionalProperties:
+            type: string
+            maxLength: 1048576
+            pattern: "^[\\s\\S]*$"
+        partitioning:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./partitioning.yaml#/components/schemas/PartitionTransform"
+        distribution:
+          $ref: "#/components/schemas/Distribution"
+        sortOrders:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/TableSortOrder"
+        indexes:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./indexes.yaml#/components/schemas/TableIndex"
+
+    TableUpdateRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        The complete mutable desired state for an existing table. The route
+        identifies the immutable table name. The current V1 adapter supports
+        comment and property changes only; `columns`, `partitioning`,
+        `distribution`, `sortOrders`, and `indexes` must equal the current
+        representation. A requested change to any of those fields returns
+        `501 UNSUPPORTED_OPERATION` until the core has a correct replacement
+        mutation. `comment: null` explicitly clears the comment.
+      required: [comment, columns, properties, partitioning, sortOrders, indexes]
+      properties:
+        comment:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        columns:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/TableColumn"
+        properties:
+          type: object
+          maxProperties: 10000
+          additionalProperties:
+            type: string
+            maxLength: 1048576
+            pattern: "^[\\s\\S]*$"
+        partitioning:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./partitioning.yaml#/components/schemas/PartitionTransform"
+        distribution:
+          $ref: "#/components/schemas/Distribution"
+        sortOrders:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/TableSortOrder"
+        indexes:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./indexes.yaml#/components/schemas/TableIndex"
+
+    TableReference:
+      type: object
+      additionalProperties: true
+      description: A forward-compatible reference to a table in a collection response.
+      required: [resourceName, name]
+      properties:
+        resourceName:
+          type: string
+          minLength: 1
+          maxLength: 1280
+          pattern: "^metalakes/[^/]+/catalogs/[^/]+/schemas/[^/]+/tables/[^/]+$"
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+
+    TableListResponse:
+      type: object
+      additionalProperties: true
+      description: A complete, unpaged V1 table collection result for the requested schema.
+      required: [tables]
+      properties:
+        tables:
+          type: array
+          maxItems: 100000
+          items:
+            $ref: "#/components/schemas/TableReference"
+
     TableResource:
       type: object
       additionalProperties: true
@@ -192,6 +317,43 @@ components:
           description: An RFC 3339 timestamp normalized to UTC by the server.
 
   examples:
+    TableCreateRequest:
+      summary: Create a simple orders table
+      value:
+        name: orders
+        columns:
+          - name: id
+            type:
+              kind: LONG
+              signed: true
+            nullable: false
+            autoIncrement: false
+        properties: {}
+        partitioning: []
+        sortOrders: []
+        indexes: []
+    TableUpdateRequest:
+      summary: Replace mutable state while retaining the current table shape
+      value:
+        comment: Customer orders
+        columns:
+          - name: id
+            type:
+              kind: LONG
+              signed: true
+            nullable: false
+            autoIncrement: false
+        properties:
+          format: iceberg
+        partitioning: []
+        sortOrders: []
+        indexes: []
+    TableListResponse:
+      summary: A table collection
+      value:
+        tables:
+          - resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+            name: orders
     TableResource:
       summary: An Iceberg orders table using the full V1 table graph
       value:

@@ -78,6 +78,57 @@ components:
         maxLength: 4096
         pattern: '^(\*|(?:W/)?"[^"\\]+"(?:\s*,\s*(?:W/)?"[^"\\]+")*)$'
       example: 'W/"table-7b6fb8f7"'
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |-
+        The strong entity tag returned by the most recent GET of this resource.
+        Every V1 PUT and DELETE requires it to prevent a stale client from
+        overwriting or deleting a newer representation. A non-matching tag
+        returns `412 PRECONDITION_FAILED`; `*` is not accepted by V1.
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 4096
+        pattern: '^"[^"\\]+"$'
+      example: '"b6fb8f7"'
+    Force:
+      name: force
+      in: query
+      required: false
+      description: |-
+        When true, removes a metalake or catalog together with its Gravitino
+        metadata descendants. It does not promise deletion of external
+        provider data. Defaults to false.
+      schema:
+        type: boolean
+        default: false
+      example: false
+    Cascade:
+      name: cascade
+      in: query
+      required: false
+      description: |-
+        When true, removes a schema with its Gravitino metadata descendants.
+        It does not promise deletion of external provider data. Defaults to
+        false.
+      schema:
+        type: boolean
+        default: false
+      example: false
+    Purge:
+      name: purge
+      in: query
+      required: false
+      description: |-
+        When true, asks the backing catalog to purge table data as supported by
+        that catalog. When false, the operation drops only according to the
+        provider's normal table-drop semantics. Defaults to false.
+      schema:
+        type: boolean
+        default: false
+      example: false
   schemas:
     PathSegment:
       type: string

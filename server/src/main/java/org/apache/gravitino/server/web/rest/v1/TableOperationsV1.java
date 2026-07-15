@@ -20,16 +20,18 @@ package org.apache.gravitino.server.web.rest.v1;
 
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.HEAD;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
@@ -46,17 +48,26 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.rel.Table;
+import org.apache.gravitino.rel.TableChange;
+import org.apache.gravitino.rest.v1.model.TableCreateRequest;
+import org.apache.gravitino.rest.v1.model.TableListResponse;
+import org.apache.gravitino.rest.v1.model.TableReference;
 import org.apache.gravitino.rest.v1.model.TableResource;
+import org.apache.gravitino.rest.v1.model.TableUpdateRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
-import org.apache.gravitino.server.web.ObjectMapperProvider;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.server.web.rest.v1.error.V1ApiException;
 import org.apache.gravitino.server.web.rest.v1.error.V1ClientInputException;
 import org.apache.gravitino.server.web.rest.v1.error.V1ErrorContext;
 import org.apache.gravitino.server.web.rest.v1.mapper.TableMapper;
+import org.apache.gravitino.server.web.rest.v1.mapper.TableMutationMapper;
+import org.apache.gravitino.server.web.rest.v1.mapper.TableRequestMapper;
+import org.apache.gravitino.server.web.rest.v1.support.V1ConditionalMutation;
+import org.apache.gravitino.server.web.rest.v1.support.V1ResourceSupport;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.gravitino.utils.NamespaceUtil;
 
 /**
  * Route-versioned public V1 table representation endpoints.
@@ -66,10 +77,10 @@ import org.apache.gravitino.utils.NameIdentifierUtil;
  * mapper at the internal-domain boundary.
  */
 @Path("v1/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables")
+@Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public class TableOperationsV1 {
 
-  private static final Pattern PATH_SEGMENT_PATTERN = Pattern.compile("[^/?#]{1,255}");
   private static final Pattern IF_NONE_MATCH_PATTERN =
       Pattern.compile("^(\\*|(?:W/)?\"[^\"\\\\]+\"(?:\\s*,\\s*(?:W/)?\"[^\"\\\\]+\")*)$");
 
@@ -85,6 +96,117 @@ public class TableOperationsV1 {
   @Inject
   public TableOperationsV1(TableDispatcher dispatcher) {
     this.dispatcher = dispatcher;
+  }
+
+  /**
+   * Lists table references visible under one schema.
+   *
+   * @param metalake metalake name.
+   * @param catalog catalog name.
+   * @param schema schema name.
+   * @param uriInfo request URI and query parameters.
+   * @return stable-name-ordered V1 table references.
+   */
+  @GET
+  @Timed(name = "list-v1-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "list-v1-table", absolute = true)
+  @AuthorizationExpression(
+      expression = AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION,
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response listTables(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @Context UriInfo uriInfo) {
+    try {
+      V1ResourceSupport.validatePathSegment("metalake", metalake);
+      V1ResourceSupport.validatePathSegment("catalog", catalog);
+      V1ResourceSupport.validatePathSegment("schema", schema);
+      V1ResourceSupport.rejectUnexpectedQueryParameters(uriInfo);
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier[] identifiers =
+                dispatcher.listTables(NamespaceUtil.ofTable(metalake, catalog, schema));
+            List<TableReference> references =
+                Arrays.stream(identifiers)
+                    .map(NameIdentifier::name)
+                    .sorted()
+                    .map(
+                        name ->
+                            new TableReference(
+                                canonicalResourceName(metalake, catalog, schema, name), name))
+                    .collect(Collectors.toList());
+            return V1ResourceSupport.noStore(Response.ok(new TableListResponse(references)))
+                .build();
+          });
+    } catch (Exception exception) {
+      throw new V1ApiException(exception, V1ErrorContext.schemaRead(metalake, catalog, schema));
+    }
+  }
+
+  /**
+   * Creates a table using the V1 wire model and explicit internal-domain translation.
+   *
+   * @param metalake metalake name.
+   * @param catalog catalog name.
+   * @param schema schema name.
+   * @param request strict V1 table-create request.
+   * @param uriInfo request URI used to construct the created resource location.
+   * @return the created V1 table representation.
+   */
+  @POST
+  @Timed(name = "create-v1-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "create-v1-table", absolute = true)
+  @AuthorizationExpression(
+      expression =
+          "ANY(OWNER, METALAKE, CATALOG) || "
+              + "SCHEMA_OWNER_WITH_USE_CATALOG || "
+              + "ANY_USE_CATALOG && ANY_USE_SCHEMA && ANY_CREATE_TABLE",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response createTable(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      TableCreateRequest request,
+      @Context UriInfo uriInfo) {
+    try {
+      requireRequest(request);
+      V1ResourceSupport.validatePathSegment("metalake", metalake);
+      V1ResourceSupport.validatePathSegment("catalog", catalog);
+      V1ResourceSupport.validatePathSegment("schema", schema);
+      V1ResourceSupport.validatePathSegment("name", request.getName());
+      V1ResourceSupport.rejectUnexpectedQueryParameters(uriInfo);
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier identifier =
+                NameIdentifierUtil.ofTable(metalake, catalog, schema, request.getName());
+            Table internal =
+                dispatcher.createTable(
+                    identifier,
+                    TableRequestMapper.toColumns(request.getColumns()),
+                    request.getComment(),
+                    request.getProperties(),
+                    TableRequestMapper.toTransforms(request.getPartitioning()),
+                    TableRequestMapper.toDistribution(request.getDistribution()),
+                    TableRequestMapper.toSortOrders(request.getSortOrders()),
+                    TableRequestMapper.toIndexes(request.getIndexes()));
+            TableResource resource =
+                TableMapper.toResource(
+                    canonicalResourceName(metalake, catalog, schema, internal.name()), internal);
+            return V1ResourceSupport.noStore(
+                    Response.created(
+                            uriInfo.getAbsolutePathBuilder().path(resource.getName()).build())
+                        .entity(resource)
+                        .tag(V1ResourceSupport.entityTag(resource)))
+                .build();
+          });
+    } catch (Exception exception) {
+      throw new V1ApiException(exception, createErrorContext(metalake, catalog, schema, request));
+    }
   }
 
   /**
@@ -149,6 +271,136 @@ public class TableOperationsV1 {
     return loadTable(metalake, catalog, schema, table, request, headers, uriInfo, true);
   }
 
+  /**
+   * Replaces the supported mutable table state after verifying the current strong ETag.
+   *
+   * <p>The request always contains the full desired V1 resource state. The current dispatcher only
+   * exposes atomic mutations for comments and properties; changes to the remaining resource shape
+   * are rejected before the dispatcher is called until a complete replacement primitive exists.
+   *
+   * @param metalake metalake name.
+   * @param catalog catalog name.
+   * @param schema schema name.
+   * @param table table name.
+   * @param update complete desired V1 table state.
+   * @param headers request headers containing the required strong {@code If-Match} value.
+   * @param uriInfo request URI and query parameters.
+   * @return the updated V1 table representation.
+   */
+  @PUT
+  @Path("{table}")
+  @Timed(name = "update-v1-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "update-v1-table", absolute = true)
+  @AuthorizationExpression(
+      expression = AuthorizationExpressionConstants.MODIFY_TABLE_AUTHORIZATION_EXPRESSION,
+      accessMetadataType = MetadataObject.Type.TABLE)
+  public Response updateTable(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("table") @AuthorizationMetadata(type = Entity.EntityType.TABLE) String table,
+      TableUpdateRequest update,
+      @Context HttpHeaders headers,
+      @Context UriInfo uriInfo) {
+    try {
+      requireRequest(update);
+      V1ResourceSupport.validatePathSegment("metalake", metalake);
+      V1ResourceSupport.validatePathSegment("catalog", catalog);
+      V1ResourceSupport.validatePathSegment("schema", schema);
+      V1ResourceSupport.validatePathSegment("table", table);
+      V1ResourceSupport.rejectUnexpectedQueryParameters(uriInfo);
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier identifier =
+                NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
+            String resourceName = canonicalResourceName(metalake, catalog, schema, table);
+            Table updated =
+                V1ConditionalMutation.execute(
+                    headers,
+                    () -> dispatcher.loadTable(identifier),
+                    current -> TableMapper.toResource(resourceName, current),
+                    current -> {
+                      TableResource currentResource = TableMapper.toResource(resourceName, current);
+                      TableChange[] changes =
+                          TableMutationMapper.toChanges(currentResource, update);
+                      return changes.length == 0
+                          ? current
+                          : dispatcher.alterTable(identifier, changes);
+                    });
+            TableResource resource = TableMapper.toResource(resourceName, updated);
+            return cacheable(Response.ok(resource).tag(V1ResourceSupport.entityTag(resource)))
+                .build();
+          });
+    } catch (Exception exception) {
+      throw new V1ApiException(
+          exception, V1ErrorContext.tableWrite(metalake, catalog, schema, table));
+    }
+  }
+
+  /**
+   * Deletes a table after verifying the current strong ETag.
+   *
+   * @param metalake metalake name.
+   * @param catalog catalog name.
+   * @param schema schema name.
+   * @param table table name.
+   * @param headers request headers containing the required strong {@code If-Match} value.
+   * @param uriInfo request URI and query parameters.
+   * @return an empty successful response.
+   */
+  @DELETE
+  @Path("{table}")
+  @Timed(name = "delete-v1-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "delete-v1-table", absolute = true)
+  @AuthorizationExpression(
+      expression =
+          "ANY(OWNER, METALAKE, CATALOG) || "
+              + "SCHEMA_OWNER_WITH_USE_CATALOG || "
+              + "ANY_USE_CATALOG && ANY_USE_SCHEMA && TABLE::OWNER",
+      accessMetadataType = MetadataObject.Type.TABLE)
+  public Response deleteTable(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("table") @AuthorizationMetadata(type = Entity.EntityType.TABLE) String table,
+      @Context HttpHeaders headers,
+      @Context UriInfo uriInfo) {
+    try {
+      V1ResourceSupport.validatePathSegment("metalake", metalake);
+      V1ResourceSupport.validatePathSegment("catalog", catalog);
+      V1ResourceSupport.validatePathSegment("schema", schema);
+      V1ResourceSupport.validatePathSegment("table", table);
+      V1ResourceSupport.rejectUnexpectedQueryParameters(uriInfo, "purge");
+      boolean purge = V1ResourceSupport.optionalBooleanQueryParameter(uriInfo, "purge");
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            NameIdentifier identifier =
+                NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
+            String resourceName = canonicalResourceName(metalake, catalog, schema, table);
+            boolean deleted =
+                V1ConditionalMutation.execute(
+                    headers,
+                    () -> dispatcher.loadTable(identifier),
+                    current -> TableMapper.toResource(resourceName, current),
+                    () ->
+                        purge
+                            ? dispatcher.purgeTable(identifier)
+                            : dispatcher.dropTable(identifier));
+            if (!deleted) {
+              throw new IllegalStateException("The validated table could not be deleted.");
+            }
+            return V1ResourceSupport.noStore(Response.noContent()).build();
+          });
+    } catch (Exception exception) {
+      throw new V1ApiException(
+          exception, V1ErrorContext.tableWrite(metalake, catalog, schema, table));
+    }
+  }
+
   private Response loadTable(
       String metalake,
       String catalog,
@@ -160,11 +412,11 @@ public class TableOperationsV1 {
       boolean headOnly) {
     String resourceName = canonicalResourceName(metalake, catalog, schema, table);
     try {
-      validatePathSegment("metalake", metalake);
-      validatePathSegment("catalog", catalog);
-      validatePathSegment("schema", schema);
-      validatePathSegment("table", table);
-      rejectQueryParameters(uriInfo);
+      V1ResourceSupport.validatePathSegment("metalake", metalake);
+      V1ResourceSupport.validatePathSegment("catalog", catalog);
+      V1ResourceSupport.validatePathSegment("schema", schema);
+      V1ResourceSupport.validatePathSegment("table", table);
+      V1ResourceSupport.rejectUnexpectedQueryParameters(uriInfo);
       validateIfNoneMatch(headers);
       return Utils.doAs(
           httpRequest,
@@ -173,7 +425,7 @@ public class TableOperationsV1 {
                 NameIdentifierUtil.ofTable(metalake, catalog, schema, table);
             Table internalTable = dispatcher.loadTable(identifier);
             TableResource resource = TableMapper.toResource(resourceName, internalTable);
-            EntityTag entityTag = entityTag(resource);
+            EntityTag entityTag = V1ResourceSupport.entityTag(resource);
             Response.ResponseBuilder precondition = request.evaluatePreconditions(entityTag);
             if (precondition != null) {
               return cacheable(precondition.tag(entityTag)).build();
@@ -194,37 +446,10 @@ public class TableOperationsV1 {
         .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION + ", Accept, Accept-Encoding");
   }
 
-  private static EntityTag entityTag(TableResource resource)
-      throws IOException, NoSuchAlgorithmException {
-    byte[] representation =
-        ObjectMapperProvider.objectMapper()
-            .writeValueAsString(resource)
-            .getBytes(StandardCharsets.UTF_8);
-    byte[] digest = MessageDigest.getInstance("SHA-256").digest(representation);
-    StringBuilder hexadecimal = new StringBuilder(digest.length * 2);
-    for (byte value : digest) {
-      hexadecimal.append(String.format("%02x", value & 0xff));
-    }
-    return new EntityTag(hexadecimal.toString(), true);
-  }
-
   private static String canonicalResourceName(
       String metalake, String catalog, String schema, String table) {
     return String.format(
         "metalakes/%s/catalogs/%s/schemas/%s/tables/%s", metalake, catalog, schema, table);
-  }
-
-  private static void rejectQueryParameters(UriInfo uriInfo) {
-    if (!uriInfo.getQueryParameters().isEmpty()) {
-      throw new V1ClientInputException("query", "This operation does not accept query parameters.");
-    }
-  }
-
-  private static void validatePathSegment(String field, String value) {
-    if (value == null || !PATH_SEGMENT_PATTERN.matcher(value).matches()) {
-      throw new V1ClientInputException(
-          field, "Must be a 1 to 255 character URI path segment without /, ?, or #.");
-    }
   }
 
   private static void validateIfNoneMatch(HttpHeaders headers) {
@@ -239,5 +464,18 @@ public class TableOperationsV1 {
           HttpHeaders.IF_NONE_MATCH,
           "Must be one 1 to 4096 character If-None-Match header containing valid entity tags.");
     }
+  }
+
+  private static void requireRequest(Object request) {
+    if (request == null) {
+      throw new V1ClientInputException("body", "Request body is required.");
+    }
+  }
+
+  private static V1ErrorContext createErrorContext(
+      String metalake, String catalog, String schema, TableCreateRequest request) {
+    return request == null
+        ? V1ErrorContext.schemaWrite(metalake, catalog, schema)
+        : V1ErrorContext.tableWrite(metalake, catalog, schema, request.getName());
   }
 }

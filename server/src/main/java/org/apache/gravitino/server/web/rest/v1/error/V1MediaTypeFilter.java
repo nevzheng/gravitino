@@ -45,7 +45,9 @@ public final class V1MediaTypeFilter implements ContainerRequestFilter {
     Response validationFailure =
         V1RequestContract.validationFailure(
             requestContext.getHeaderString(RequestContextFilter.REQUEST_ID_HEADER),
-            headers == null ? null : headers.get(HttpHeaders.ACCEPT));
+            headers == null ? null : headers.get(HttpHeaders.ACCEPT),
+            requestContext.getMethod(),
+            headers == null ? null : headers.get(HttpHeaders.CONTENT_TYPE));
     if (validationFailure != null) {
       requestContext.abortWith(validationFailure);
     }
