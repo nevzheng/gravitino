@@ -69,12 +69,11 @@ and a location; it has no separate registration route or `deltaOptions` block.
 
 Connector-specific persistent state is a named, typed envelope:
 `icebergOptions`, `hiveOptions`, `clickhouseOptions`, or `mysqlOptions`. A
-JSON Schema `oneOf` supplies an explicit no-options branch plus one branch for
-each named envelope, so a request or resource contains zero or one block, never
-a mixture. The server separately validates that the chosen block is compatible
-with the configured catalog and table format. It maps public fields to internal
-connector properties; the legacy arbitrary table `properties` map is not a V1
-input or response member.
+JSON Schema 2020-12 `dependentSchemas` constraint permits zero or one named
+envelope, never a mixture. The server separately validates that the chosen
+block is compatible with the configured catalog and table format. It maps
+public fields to internal connector properties; the legacy arbitrary table
+`properties` map is not a V1 input or response member.
 
 Each `*OptionsInput` object is closed. The corresponding `*OptionsResponse`
 object is open, so a future V1 minor can add response-only metadata without
@@ -82,8 +81,10 @@ breaking readers. Storage and options are persistent immutable state in the
 initial slice: GET returns them and a full PUT carries them unchanged. A
 requested change is rejected until a correct core mutation exists.
 
-The zero-or-one rule uses OpenAPI 3.1 / JSON Schema composition rather than a
-generator-specific discriminator. OpenAPI Generator 7.23.0 parses this form,
-but generated models can flatten or weaken composition validation. Generated
-clients are therefore convenience bindings only; bundled schema validation and
-the server's strict V1 input boundary remain authoritative.
+The zero-or-one rule uses OpenAPI 3.1 / JSON Schema 2020-12 composition rather
+than a generator-specific discriminator. It keeps standard generated models
+usable for both no-options and one-options requests. Generated clients remain
+convenience bindings: OpenAPI Generator 7.23.0 renders these fields as
+optional but does not enforce this cross-field rule during direct model
+construction. Bundled schema validation and the server's strict V1 input
+boundary are authoritative.

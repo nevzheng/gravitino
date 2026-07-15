@@ -244,42 +244,33 @@ components:
       type: object
       description: |-
         Structural zero-or-one rule for the public provider option envelopes.
-        The no-options branch supports JDBC and other providers whose table
-        create has no provider-specific persistent state. This rule establishes
-        only wire cardinality. The server separately validates that an option
-        block is supported by the selected catalog and table format.
-      oneOf:
-        - title: No provider-specific options
-          not:
-            anyOf:
-              - properties:
-                  icebergOptions: {}
-                required: [icebergOptions]
-              - properties:
-                  hiveOptions: {}
-                required: [hiveOptions]
-              - properties:
-                  clickhouseOptions: {}
-                required: [clickhouseOptions]
-              - properties:
-                  mysqlOptions: {}
-                required: [mysqlOptions]
-        - title: Iceberg options
+        Zero options supports JDBC and other providers whose table create has
+        no provider-specific persistent state. `dependentSchemas` rejects a
+        second named options member when any first member is present. This rule
+        establishes only wire cardinality. The server separately validates
+        that an option block is supported by the selected catalog and table
+        format.
+      dependentSchemas:
+        icebergOptions:
           properties:
-            icebergOptions: {}
-          required: [icebergOptions]
-        - title: Hive options
+            hiveOptions: false
+            clickhouseOptions: false
+            mysqlOptions: false
+        hiveOptions:
           properties:
-            hiveOptions: {}
-          required: [hiveOptions]
-        - title: ClickHouse options
+            icebergOptions: false
+            clickhouseOptions: false
+            mysqlOptions: false
+        clickhouseOptions:
           properties:
-            clickhouseOptions: {}
-          required: [clickhouseOptions]
-        - title: MySQL options
+            icebergOptions: false
+            hiveOptions: false
+            mysqlOptions: false
+        mysqlOptions:
           properties:
-            mysqlOptions: {}
-          required: [mysqlOptions]
+            icebergOptions: false
+            hiveOptions: false
+            clickhouseOptions: false
 
     TableStorageInput:
       type: object
