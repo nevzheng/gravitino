@@ -39,7 +39,6 @@ Feature: Exercise the typed V1 table contract across connector profiles
       | iceberg |
       | hive |
       | glue |
-      | paimon |
       | mysql |
       | postgresql |
       | doris |
@@ -47,6 +46,11 @@ Feature: Exercise the typed V1 table contract across connector profiles
       | oceanbase |
       | clickhouse |
       | hologres |
+
+  Scenario: Record the Paimon typed V1 create limitation without blocking
+    Given a configured "paimon" typed V1 table contract environment
+    When I create the minimal typed V1 table
+    Then the typed V1 table create outcome is accepted or recorded
 
   Scenario: Record the Hudi typed V1 create limitation without blocking
     Given a configured "hudi" typed V1 table contract environment

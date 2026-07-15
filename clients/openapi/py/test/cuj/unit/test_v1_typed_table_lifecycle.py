@@ -200,10 +200,13 @@ def test_delta_external_post_and_known_metadata_update_limitation_are_visible_no
 
 @pytest.mark.cuj
 @pytest.mark.expected_error
-def test_hudi_typed_post_is_a_nonblocking_documented_provider_error() -> None:
-    """Hudi appears in the matrix as a declared public-error path, not an omitted connector."""
+@pytest.mark.parametrize("provider", ("paimon", "hudi"))
+def test_declared_unavailable_typed_posts_are_nonblocking_provider_errors(
+    provider: str,
+) -> None:
+    """Paimon and Hudi remain declared public-error paths rather than omitted connectors."""
     context = FakeTypedTableContext(post_error=True)
-    lifecycle = _lifecycle("hudi", context)
+    lifecycle = _lifecycle(provider, context)
 
     with pytest.warns(UserWarning, match="Declared expected API error observed"):
         response = lifecycle.create()

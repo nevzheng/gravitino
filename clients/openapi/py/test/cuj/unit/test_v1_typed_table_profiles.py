@@ -95,9 +95,12 @@ def test_delta_uses_the_normal_collection_post_as_an_external_metadata_create() 
 
 
 @pytest.mark.cuj
-def test_hudi_create_is_a_visible_nonblocking_public_error_profile() -> None:
-    """Hudi remains in the matrix as a truthful negative create case, not a missing profile."""
-    plan = build_typed_table_create_plan("hudi", "orders")
+@pytest.mark.parametrize("provider", ("paimon", "hudi"))
+def test_declared_unavailable_creates_are_visible_nonblocking_public_error_profiles(
+    provider: str,
+) -> None:
+    """Paimon and Hudi remain explicit V1 public-error cases, not missing profiles."""
+    plan = build_typed_table_create_plan(provider, "orders")
 
     assert plan.is_ready_to_send
     assert plan.create_expected_error is not None
@@ -110,7 +113,7 @@ def test_hudi_create_is_a_visible_nonblocking_public_error_profile() -> None:
 
 @pytest.mark.cuj
 def test_glue_and_paimon_profiles_do_not_make_false_storage_claims() -> None:
-    """Glue is external at creation time; Paimon has no shared storage envelope yet."""
+    """Glue is external at creation time; Paimon does not claim a lossless V1 storage shape."""
     glue = build_typed_table_create_plan("glue", "orders")
     paimon = build_typed_table_create_plan("paimon", "orders")
 

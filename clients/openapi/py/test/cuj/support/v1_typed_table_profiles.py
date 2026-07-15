@@ -287,9 +287,12 @@ TYPED_TABLE_PROFILES: Mapping[str, TypedTableCreateProfile] = MappingProxyType(
         "paimon": _profile(
             "paimon",
             "Apache Paimon",
+            create_expected_error=_UNSUPPORTED_OPERATION,
             sources=("docs/lakehouse-paimon-catalog.md#table-properties",),
             notes=(
-                "Paimon currently builds its schema from connector metadata; it has no shared storage profile yet.",
+                "Paimon has no lossless typed V1 read profile yet, so POST returns a visible "
+                "non-blocking UNSUPPORTED_OPERATION until its persistent connector state can "
+                "round-trip through the public contract.",
             ),
         ),
         "hudi": _profile(

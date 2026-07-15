@@ -147,7 +147,7 @@ deletes it.
 | Iceberg | Managed Iceberg/Parquet storage plus `icebergOptions.formatVersion` | Full lifecycle |
 | Hive | Managed Hive/ORC storage plus `hiveOptions.serdeLibrary` | Full lifecycle |
 | Glue | External Hive/Parquet storage plus fixture location | Full lifecycle |
-| Paimon | No shared storage claim yet | Full lifecycle when provisioned |
+| Paimon | No lossless typed read/storage profile yet | `POST` is a non-blocking `501 UNSUPPORTED_OPERATION` observation until its persistent connector state can round-trip through V1 |
 | MySQL | `mysqlOptions.engine` | Full lifecycle |
 | PostgreSQL, Doris, StarRocks, OceanBase, Hologres | Shared relational table shape only | Full lifecycle |
 | ClickHouse | `clickhouseOptions.engine` | Full lifecycle |
