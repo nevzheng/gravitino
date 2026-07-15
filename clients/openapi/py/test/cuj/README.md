@@ -129,6 +129,47 @@ JSON body. A table lifecycle outline can instead use
 `GRAVITINO_OPENAPI_CUJ_<PROVIDER>_CATALOG_CREATE` for provider-specific hierarchy setup; that value
 takes precedence over the generic fallback.
 
+## Typed table-contract CUJs
+
+`v1_typed_table/lifecycle.feature` is the forward-looking table-create and
+round-trip matrix. It deliberately does **not** reuse the current generic
+table-property map. A typed POST has shared `storage` fields—`ownership`,
+`tableFormat`, `location`, and `fileFormat`—plus zero or one of
+`icebergOptions`, `hiveOptions`, `clickhouseOptions`, or `mysqlOptions`.
+The lifecycle reads the table, sends a complete conditional `PUT` that changes
+only the comment, verifies the storage/options round trip, then conditionally
+deletes it.
+
+| Profile | Minimal typed shape | Live expectation |
+| --- | --- | --- |
+| Lance | Managed `storage` plus fixture table location | Full lifecycle |
+| Delta | External `storage` with existing Delta dataset location | POST creates Gravitino metadata; PUT limitation is a visible non-blocking observation |
+| Iceberg | Managed Iceberg/Parquet storage plus `icebergOptions.formatVersion` | Full lifecycle |
+| Hive | Managed Hive/ORC storage plus `hiveOptions.serdeLibrary` | Full lifecycle |
+| Glue | External Hive/Parquet storage plus fixture location | Full lifecycle |
+| Paimon | No shared storage claim yet | Full lifecycle when provisioned |
+| MySQL | `mysqlOptions.engine` | Full lifecycle |
+| PostgreSQL, Doris, StarRocks, OceanBase, Hologres | Shared relational table shape only | Full lifecycle |
+| ClickHouse | `clickhouseOptions.engine` | Full lifecycle |
+| Hudi | Shared table shape only | `POST` is a non-blocking `501 UNSUPPORTED_OPERATION` observation |
+
+The Gherkin scenarios are intentionally skipped unless all of these are
+explicitly supplied:
+
+```text
+GRAVITINO_OPENAPI_CUJ_TYPED_TABLE_CONTRACT=true
+GRAVITINO_OPENAPI_CUJ_PROFILES=iceberg,...
+GRAVITINO_OPENAPI_CUJ_<PROVIDER>_CATALOG_CREATE='{"type":"RELATIONAL",...}'
+```
+
+Lance and Glue additionally require
+`GRAVITINO_OPENAPI_CUJ_<PROVIDER>_TABLE_LOCATION`; `{table}` in that value is
+replaced with the isolated generated table name. Delta requires
+`GRAVITINO_OPENAPI_CUJ_DELTA_EXISTING_DATASET_LOCATION`, which must already
+contain a valid `_delta_log`. The test suite never guesses credentials,
+catalog configuration, or writable storage paths, and it does not claim a
+skipped external provider has passed.
+
 ## Documented/source differences tracked by the CUJs
 
 The suite keeps documentation and current implementation differences visible instead of treating
