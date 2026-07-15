@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 # Spectral rules for the authoritative Gravitino API V1 contract.
 #
 # V1 is a separate public contract. It uses portable application/json rather
@@ -7,10 +24,538 @@ extends:
   - ".spectral.yaml"
 
 rules:
+  # Promote the portable OpenAPI checks that V1 treats as contract-quality
+  # requirements, rather than relying on their inherited recommended severity.
+  operation-description: error
+  operation-operationId: error
+  operation-operationId-unique: error
+  operation-operationId-valid-in-url: error
+  operation-parameters: error
+  operation-success-response: error
+  operation-tag-defined: error
+  operation-tags: error
+  array-items: error
+  info-contact: error
+  info-description: error
+  info-license: error
+  no-eval-in-markdown: error
+  no-script-tags-in-markdown: error
+  openapi-tags-alphabetical: error
+  openapi-tags-uniqueness: error
+  path-declarations-must-exist: error
+  path-keys-no-trailing-slash: error
+  path-not-include-query: error
+  path-params: error
+  typed-enum: error
+  oas3-api-servers: error
+  oas3-examples-value-or-externalValue: error
+  oas3-operation-security-defined: error
+  oas3-parameter-description: error
+  oas3-server-not-example.com: error
+  oas3-server-trailing-slash: error
+  oas3-server-variables: error
+  oas3-unused-component: error
+  oas3-valid-media-example: error
+  oas3-valid-schema-example: error
+  docs-description: error
+  docs-media-type-examples-or-schema: error
+  openapi-tags: error
+  tag-description: error
+
+  # Stable naming and documentation make the generated-client and public-docs
+  # surfaces predictable. These are intentionally style rules only where the
+  # convention applies to the V1 public contract.
+  gravitino-schema-names-pascal-case: error
+
+  gravitino-v1-component-parameter-names-pascal-case:
+    description: "Reusable V1 parameter component names must be PascalCase."
+    severity: error
+    given: "$.components.parameters[*]~"
+    then:
+      function: casing
+      functionOptions:
+        type: pascal
+
+  gravitino-v1-operation-summary:
+    description: "Every V1 operation must have a concise summary and a full description."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace]"
+    then:
+      - field: summary
+        function: truthy
+      - field: description
+        function: truthy
+
+  # An operation must say whether this portable base contract is explicitly
+  # unauthenticated (`security: []`) or whether a deployment profile supplies
+  # an OpenAPI Security Requirement. This prevents a new route from silently
+  # inheriting an accidental authorization posture.
+  gravitino-v1-operation-security-explicit:
+    description: "Every V1 operation must explicitly declare its security posture."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace]"
+    then:
+      field: security
+      function: defined
+
+  # Keep route-versioned read operations conventional and unsurprising. A
+  # future search/query operation needs its own explicitly designed method,
+  # rather than a request body on GET or HEAD.
+  gravitino-v1-get-head-no-request-body:
+    description: "GET and HEAD operations must not declare a request body."
+    severity: error
+    given: "$.paths[*][get,head].requestBody"
+    then:
+      function: falsy
+
+  gravitino-v1-head-no-content:
+    description: "HEAD responses must not declare response content."
+    severity: error
+    given: "$.paths[*].head.responses[*].content"
+    then:
+      function: falsy
+
+  # RFC 9110 defines these as bodyless responses. Keeping this separate from
+  # HEAD makes future conditional and mutation routes safe by default.
+  gravitino-v1-bodyless-status-no-content:
+    description: "204, 205, and 304 responses must not declare response content."
+    severity: error
+    given:
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.204.content"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.205.content"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.304.content"
+    then:
+      function: falsy
+
+  # V1 uses explicit statuses so generated clients and consumers have a
+  # reviewable error domain. A catch-all `default` response hides behavior and
+  # is not part of the public compatibility contract.
+  gravitino-v1-no-default-response:
+    description: "V1 operations must enumerate status responses instead of using default."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.default"
+    then:
+      function: falsy
+
+  # V1 promises end-to-end correlation and explicit caching behavior. Requiring
+  # these headers on every documented response prevents new endpoints from
+  # silently falling back to framework defaults.
+  gravitino-v1-response-correlation-and-cache:
+    description: "Every V1 response must declare X-Request-Id and Cache-Control headers."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses[*]"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [X-Request-Id, Cache-Control]
+
+  gravitino-v1-component-response-correlation-and-cache:
+    description: "Every reusable V1 response must declare X-Request-Id and Cache-Control headers."
+    severity: error
+    given: "$.components.responses[*]"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [X-Request-Id, Cache-Control]
+
+  # These status-specific HTTP headers have protocol-level meaning; they are
+  # not merely documentation. Requiring declarations at the operation boundary
+  # catches a future route that chooses the status but omits its required
+  # client behavior.
+  gravitino-v1-created-location:
+    description: "201 Created responses must declare a Location header."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.201"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [Location]
+
+  gravitino-v1-not-modified-etag:
+    description: "304 Not Modified responses must declare an ETag header."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.304"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [ETag]
+
+  gravitino-v1-unauthorized-challenge:
+    description: "401 Unauthorized responses must declare WWW-Authenticate."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.401"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [WWW-Authenticate]
+
+  gravitino-v1-method-not-allowed-allow:
+    description: "405 Method Not Allowed responses must declare Allow."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.405"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [Allow]
+
+  gravitino-v1-rate-limited-retry-after:
+    description: "429 Too Many Requests responses must declare Retry-After."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,head,trace].responses.429"
+    then:
+      field: headers
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [Retry-After]
+
+  gravitino-v1-media-type-schema-and-example:
+    description: "Every V1 JSON body must declare both a schema and a concrete example."
+    severity: error
+    given:
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].requestBody.content.application/json"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses[*].content.application/json"
+      - "$.components.responses[*].content.application/json"
+      - "$.components.requestBodies[*].content.application/json"
+    then:
+      - field: schema
+        function: truthy
+      - function: schema
+        functionOptions:
+          schema:
+            anyOf:
+              - required: [example]
+              - required: [examples]
+
+  gravitino-v1-path-parameter-contract:
+    description: "Every reusable V1 path parameter must be required, described, and schema-bound."
+    severity: error
+    given: "$.components.parameters[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          if:
+            required: [in]
+            properties:
+              in:
+                const: path
+          then:
+            type: object
+            required: [required, description, schema]
+            properties:
+              required:
+                const: true
+
+  # OpenAPI deliberately ignores a header Parameter named Authorization. HTTP
+  # header names are case-insensitive, so reject every casing at the API
+  # boundary rather than letting a generated client and the server disagree.
+  # Base V1 authentication profiles must therefore use Security Scheme Objects.
+  gravitino-v1-no-authorization-parameter-component:
+    description: "V1 must not declare an Authorization header Parameter component."
+    severity: error
+    given: "$.components.parameters[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            type: object
+            required: [in, name]
+            properties:
+              in:
+                const: header
+              name:
+                pattern: "^[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]$"
+
+  gravitino-v1-no-authorization-parameter-inline:
+    description: "V1 must not declare Authorization as an inline OpenAPI header parameter."
+    severity: error
+    given:
+      - "$.paths[*].parameters[*]"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].parameters[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            type: object
+            required: [in, name]
+            properties:
+              in:
+                const: header
+              name:
+                pattern: "^[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]$"
+
+  gravitino-v1-json-schema-dialect:
+    description: "V1 must explicitly use the JSON Schema 2020-12 dialect."
+    severity: error
+    given: "$"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [jsonSchemaDialect]
+          properties:
+            jsonSchemaDialect:
+              const: https://json-schema.org/draft/2020-12/schema
+
+  # The blocking generator stack currently supports OpenAPI 3.1 rather than
+  # 3.2. Changing this guard is therefore an intentional, reviewed toolchain
+  # migration, not a one-file version bump.
+  gravitino-v1-openapi-version:
+    description: "V1 must use a supported OpenAPI 3.1 patch release."
+    severity: error
+    given: "$.openapi"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^3\\.1\\.[0-9]+$"
+
+  # Spectral 6.16.1's inherited selector dereferences `.enum` on every node and
+  # crashes on a valid JSON null. Replace it with the same unique-items check
+  # applied directly to enum arrays. test-v1-rules.sh locks in both behaviors.
+  duplicated-entry-in-enum: off
+
+  gravitino-v1-no-duplicate-enum:
+    description: "Enum values must not contain duplicate entries."
+    severity: error
+    given: "$..enum"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          minItems: 1
+          uniqueItems: true
+
+  # Directional schemas make forward-compatible reads and strict writes
+  # reviewable. Every JSON response root is checked through the operation that
+  # exposes it, including a `$ref` to a public model such as TableResource.
+  # The named-component branch continues to protect reusable error envelopes
+  # before a route first adopts them. A model used in both directions must be
+  # split rather than inherit one default.
+  gravitino-v1-request-schemas-closed:
+    description: "Reusable *Request schemas must reject unknown members."
+    severity: error
+    given: "$.components.schemas[?(@property.match(/Request$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [additionalProperties]
+          properties:
+            additionalProperties:
+              const: false
+
+  gravitino-v1-response-schemas-open:
+    description: "V1 JSON response object schemas must allow forward-compatible members."
+    severity: error
+    given:
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses[*].content.application/json.schema"
+      - "$.components.schemas[?(@property.match(/Response$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          if:
+            type: object
+          then:
+            required: [additionalProperties]
+            properties:
+              additionalProperties:
+                const: true
+
+  gravitino-v1-error-envelope:
+    description: "Reusable public error envelopes must contain an error member and remain extensible."
+    severity: error
+    given: "$.components.schemas[?(@property.match(/ErrorResponse$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [type, additionalProperties, required, properties]
+          properties:
+            type:
+              const: object
+            additionalProperties:
+              const: true
+            required:
+              type: array
+              contains:
+                const: error
+            properties:
+              type: object
+              required: [error]
+
+  gravitino-v1-error-fields:
+    description: "Each status-specific public error must expose the V1 machine-readable fields."
+    severity: error
+    given: "$.components.schemas[?(@property.match(/^Error[45][0-9]{2}$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [type, additionalProperties, required, properties]
+          properties:
+            type:
+              const: object
+            additionalProperties:
+              const: true
+            required:
+              type: array
+              allOf:
+                - contains:
+                    const: code
+                - contains:
+                    const: type
+                - contains:
+                    const: message
+                - contains:
+                    const: retryable
+                - contains:
+                    const: requestId
+                - contains:
+                    const: details
+            properties:
+              type: object
+              required: [code, type, message, retryable, requestId, details]
+
+  # Iceberg Expressions Appendix B specifies the exact wire key `data-type`.
+  # Keep that single external-standard spelling and enforce camelCase on every
+  # other top-level component property.
+  gravitino-property-names-camel-case: off
+
+  gravitino-v1-property-names-camel-case:
+    description: "V1 property names should be camelCase except Iceberg's exact data-type key."
+    severity: error
+    given: "$.components.schemas[*].properties[?(@property !== 'data-type')]~"
+    then:
+      function: casing
+      functionOptions:
+        type: camel
+
+  # RFC 9110 forbids response content for HEAD. Preserve the OWASP status and
+  # content requirements for every operation that can legally carry a body,
+  # while HEAD continues to declare the same status and response headers.
+  owasp:api8:2023-define-error-responses-401: off
+  owasp:api8:2023-define-error-responses-500: off
+  owasp:api4:2023-rate-limit-responses-429: off
+
+  # Authentication is deployment-configured. The base V1 contract cannot
+  # honestly claim one security scheme while Gravitino supports Basic, Bearer,
+  # Negotiate, custom, and anonymous deployments. A deployment overlay must
+  # choose its OpenAPI security scheme and requirement before a hosted API
+  # reference or SDK is published; Authorization is not modeled as a Parameter
+  # Object.
+  owasp:api2:2023-read-restricted: off
+
+  gravitino-v1-error-responses-400:
+    description: "Every non-HEAD V1 operation must define a JSON 400 response."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,trace].responses"
+    then:
+      - field: "400"
+        function: truthy
+      - field: "400.content"
+        function: truthy
+
+  gravitino-v1-error-responses-401:
+    description: "Every non-HEAD V1 operation must define a JSON 401 response."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,trace].responses"
+    then:
+      - field: "401"
+        function: truthy
+      - field: "401.content"
+        function: truthy
+
+  gravitino-v1-error-responses-500:
+    description: "Every non-HEAD V1 operation must define a JSON 500 response."
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch,options,trace].responses"
+    then:
+      - field: "500"
+        function: truthy
+      - field: "500.content"
+        function: truthy
+
+  # CORS is an optional deployment filter rather than a property of every API
+  # response. Requiring this header would make the authoritative contract claim
+  # behavior that a default Gravitino deployment does not provide.
+  owasp:api8:2023-define-cors-origin: off
+
+  # Rate limiting is future API-governance work. Do not invent RateLimit headers
+  # until the server has a concrete, consistently-enforced policy.
+  owasp:api4:2023-rate-limit: off
+
+  # Free-form, human-readable fields cannot carry a meaningful regular
+  # expression or semantic format. Keep string bounds blocking, and require
+  # formats, patterns, or enums whenever the field's domain defines one.
+  owasp:api4:2023-string-restricted: off
+
   gravitino-vendor-media-type:
     description: "Gravitino API V1 JSON responses should use application/json."
     severity: error
-    given: "$.paths[*][*].responses[*].content"
+    given:
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].requestBody.content"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses[*].content"
+      - "$.components.requestBodies[*].content"
+      - "$.components.responses[*].content"
     then:
       field: "application/json"
       function: truthy
+
+  gravitino-v1-only-json-media-type:
+    description: "Gravitino API V1 does not expose vendor or header-selected media variants."
+    severity: error
+    given:
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].requestBody.content[*]~"
+      - "$.paths[*][get,put,post,delete,patch,options,head,trace].responses[*].content[*]~"
+      - "$.components.requestBodies[*].content[*]~"
+      - "$.components.responses[*].content[*]~"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^application/json$"
+
+  gravitino-v1-route-prefix:
+    description: "Every V1 path should be routed below /api/v1."
+    severity: error
+    given: "$.paths[*]~"
+    then:
+      function: pattern
+      functionOptions:
+        match: "^/api/v1(?:/|$)"
+
+  gravitino-v1-semantic-version:
+    description: "info.version should be a three-part V1 semantic version."
+    severity: error
+    given: "$.info.version"
+    then:
+      function: pattern
+      functionOptions:
+        match: '^1\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'

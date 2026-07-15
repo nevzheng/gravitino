@@ -9,16 +9,21 @@
     "lint:redocly": "redocly lint --extends=recommended-strict",
     "lint:spectral": "spectral lint ../../docs/open-api/openapi.yaml --ruleset .spectral.yaml",
     "bundle": "redocly bundle gravitino -o build/openapi.json && redocly bundle gravitino -o build/openapi.yaml",
-    "lint:v1": "npm run lint:v1:redocly && npm run lint:v1:spectral",
+    "lint:v1": "npm run lint:v1:redocly && npm run bundle:v1 && npm run lint:v1:spectral",
     "lint:v1:redocly": "redocly lint ../../docs/open-api/v1/openapi.yaml --extends=recommended-strict",
-    "lint:v1:spectral": "spectral lint ../../docs/open-api/v1/openapi.yaml --ruleset .spectral-v1.yaml --fail-severity=warn",
+    "lint:v1:spectral": "spectral lint build/v1/openapi.json --ruleset .spectral-v1.yaml --fail-severity=warn",
     "bundle:v1": "redocly bundle ../../docs/open-api/v1/openapi.yaml -o build/v1/openapi.json && redocly bundle ../../docs/open-api/v1/openapi.yaml -o build/v1/openapi.yaml",
-    "codegen:v1": "npm run bundle:v1 && npx --yes @openapitools/openapi-generator-cli generate -i build/v1/openapi.json -g rust -o generated/v1/rust && npx --yes @openapitools/openapi-generator-cli generate -i build/v1/openapi.json -g typescript-axios -o generated/v1/typescript"
+    "codegen:v1": "../../gradlew -p ../.. :docs:openApiV1ClientCheck",
+    "test:rules:v1": "./test-v1-rules.sh",
+    "typecheck:v1": "tsc --project tsconfig.v1-codegen.json"
   },
   "devDependencies": {
     "@redocly/cli": "^2.38.0",
     "@stoplight/spectral-cli": "^6.16.1",
     "@stoplight/spectral-documentation": "^1.3.1",
-    "@stoplight/spectral-owasp-ruleset": "^2.0.1"
+    "@stoplight/spectral-owasp-ruleset": "^2.0.1",
+    "@types/node": "12.20.42",
+    "axios": "1.18.1",
+    "typescript": "5.9.3"
   }
 }

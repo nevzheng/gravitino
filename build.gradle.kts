@@ -751,6 +751,7 @@ tasks.rat {
     "dev/docker/**/*.xml",
     "dev/docker/**/*.conf",
     "dev/docker/kerberos-hive/kadm5.acl",
+    "dev/openapi/node_modules/**/*",
     "docs/**/*.md",
     ".claude/**",
     "gradle/wrapper/gradle-wrapper.properties",

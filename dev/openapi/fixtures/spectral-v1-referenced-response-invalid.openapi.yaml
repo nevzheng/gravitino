@@ -1,0 +1,129 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# This fixture guards selectors that must follow an Operation Response Object's
+# local $ref. The deliberately incomplete 401 response lacks WWW-Authenticate.
+openapi: 3.1.2
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: V1 referenced response regression fixture
+  version: 1.0.0
+  description: A contract fixture that verifies V1 rules follow local response references.
+  contact:
+    name: Apache Gravitino
+    url: https://gravitino.apache.org/
+  license:
+    name: Apache License 2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://api.invalid
+    description: A server used only to test Spectral reference resolution behavior.
+    x-internal: true
+tags:
+  - name: RuleProbe
+    description: A route used only to exercise V1 Spectral governance checks.
+paths:
+  /api/v1/rule-probe:
+    get:
+      operationId: getReferencedResponseRuleProbe
+      summary: Exercise referenced response checks
+      description: A route that references response components rather than declaring them inline.
+      tags: [RuleProbe]
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/UnauthorizedWithoutChallenge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  responses:
+    Ok:
+      description: A valid response used only to make the fixture structurally complete.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+          example: ok
+    BadRequest:
+      description: A valid response used only to make the fixture structurally complete.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+          example: invalid
+    UnauthorizedWithoutChallenge:
+      description: A deliberately incomplete unauthorized response missing its HTTP challenge.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+          example: unauthenticated
+    InternalError:
+      description: A valid response used only to make the fixture structurally complete.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 32
+          example: internal
+  headers:
+    RequestId:
+      required: true
+      description: A bounded request correlation identifier returned with every response.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: request-123
+    NoStore:
+      required: true
+      description: A cache directive that prevents this fixture response from being stored.
+      schema:
+        type: string
+        const: no-store
+      example: no-store

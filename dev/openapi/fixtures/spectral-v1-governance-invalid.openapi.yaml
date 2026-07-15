@@ -1,0 +1,242 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Deliberately invalid V1 contract fragments. test-v1-rules.sh asserts the
+# named V1 governance rules below continue to reject these regressions.
+openapi: 3.0.3
+jsonSchemaDialect: https://example.invalid/not-json-schema-2020-12
+info:
+  title: Spectral V1 governance regression fixture
+  version: 2.0.0
+  description: A deliberately invalid contract used to test V1 governance rules.
+  contact:
+    name: Apache Gravitino
+    url: https://gravitino.apache.org/
+  license:
+    name: Apache License 2.0
+    identifier: Apache-2.0
+servers:
+  - url: https://api.invalid
+tags:
+  - name: RuleProbe
+    description: A route used only to exercise V1 Spectral governance checks.
+paths:
+  /wrong/{ruleProbe}:
+    parameters:
+      - name: authorization
+        in: header
+        description: A deliberately invalid lower-case OpenAPI Authorization parameter declaration.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: "#/components/parameters/badPath"
+    get:
+      operationId: get_rule_probe
+      description: A deliberately invalid GET operation used for rule coverage.
+      tags: [RuleProbe]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        default:
+          description: A deliberately hidden default response that V1 must reject.
+        "200":
+          description: A deliberately incomplete successful response.
+          content:
+            application/json:
+            schema:
+              $ref: "#/components/schemas/BrokenResource"
+        "201":
+          description: A deliberately incomplete created response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+        "304":
+          description: A deliberately malformed bodyless response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              example: {}
+        "400":
+          description: A deliberately incomplete invalid-request response.
+        "401":
+          description: A deliberately challenge-less unauthorized response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              example: {}
+        "405":
+          description: A deliberately Allow-less method response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+        "429":
+          description: A deliberately Retry-After-less rate-limit response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+        "500":
+          description: A deliberately incomplete internal-error response.
+    head:
+      operationId: headRuleProbe
+      summary: Exercise bodyless response checks
+      description: A deliberately invalid HEAD operation used for rule coverage.
+      tags: [RuleProbe]
+      security: []
+      responses:
+        "200":
+          description: A deliberately body-carrying HEAD response.
+          headers:
+            X-Request-Id:
+              description: A correlation identifier returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+            Cache-Control:
+              description: A cache policy returned with this response.
+              required: true
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+              example: {}
+components:
+  parameters:
+    AuthHeader:
+      name: Authorization
+      in: header
+      description: A deliberately invalid reusable Authorization parameter with an unrelated component name.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    badPath:
+      name: ruleProbe
+      in: path
+      required: false
+      description: A deliberately invalid reusable path parameter declaration.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  schemas:
+    BrokenRequest:
+      type: object
+      additionalProperties: true
+      description: A deliberately open request schema that V1 must reject.
+    BrokenResource:
+      type: object
+      additionalProperties: false
+      description: A deliberately closed response resource schema that V1 must reject.
+    BrokenErrorResponse:
+      type: object
+      additionalProperties: false
+      required: []
+      properties: {}
+      description: A deliberately malformed V1 public error envelope.
+    Error400:
+      type: object
+      additionalProperties: false
+      required: []
+      properties: {}
+      description: A deliberately malformed status-specific public error.
+    EmptyEnum:
+      type: string
+      enum: []
+      description: A deliberately impossible enum that V1 must reject.

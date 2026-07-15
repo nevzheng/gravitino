@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,19 +17,14 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Redocly configuration for the Gravitino OpenAPI spec.
-#
-# The ruleset is NOT pinned here — CI lints at several strictness levels
-# (`redocly lint --extends=minimal|recommended|recommended-strict`) to show
-# how findings grow with strictness, and `npm run lint:redocly` defaults to
-# recommended-strict. `redocly bundle gravitino -o build/openapi.json` resolves
-# the ~30 cross-referenced files into a single machine-readable artifact.
-#
-# Spec files live under docs/open-api; this tooling lives under dev/openapi
-# so paths below are repo-relative from this config's directory.
+set -euo pipefail
 
-apis:
-  gravitino:
-    root: ../../docs/open-api/openapi.yaml
-  idp:
-    root: ../../docs/open-api/idp/openapi.yaml
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd -- "${script_directory}/../.." && pwd)"
+
+if [[ ! -f "${repository_root}/docs/open-api/v1/openapi.yaml" ]]; then
+  echo "V1 contract not found: docs/open-api/v1/openapi.yaml" >&2
+  exit 2
+fi
+
+exec "${repository_root}/gradlew" -p "${repository_root}" :docs:openApiV1Check "$@"

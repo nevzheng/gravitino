@@ -15,19 +15,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Redocly configuration for the Gravitino OpenAPI spec.
-#
-# The ruleset is NOT pinned here — CI lints at several strictness levels
-# (`redocly lint --extends=minimal|recommended|recommended-strict`) to show
-# how findings grow with strictness, and `npm run lint:redocly` defaults to
-# recommended-strict. `redocly bundle gravitino -o build/openapi.json` resolves
-# the ~30 cross-referenced files into a single machine-readable artifact.
-#
-# Spec files live under docs/open-api; this tooling lives under dev/openapi
-# so paths below are repo-relative from this config's directory.
-
-apis:
-  gravitino:
-    root: ../../docs/open-api/openapi.yaml
-  idp:
-    root: ../../docs/open-api/idp/openapi.yaml
+openapi: 3.1.2
+info:
+  title: V1 Spectral regression fixture
+  version: 1.0.0
+paths:
+  /api/v1/rule-probe:
+    get:
+      operationId: getRuleProbe
+      summary: Exercise null-safe enum validation
+      description: Confirms that JSON null does not crash duplicate-enum validation.
+      tags: [RuleProbe]
+      responses:
+        "200":
+          description: A deliberately invalid enum fixture.
+          content:
+            application/json:
+              schema:
+                type: [string, "null"]
+                enum: [READY, READY, null]
+              example: null
