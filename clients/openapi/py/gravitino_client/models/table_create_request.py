@@ -37,28 +37,38 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
+from gravitino_client.models.click_house_options_input import ClickHouseOptionsInput
 from gravitino_client.models.distribution import Distribution
+from gravitino_client.models.hive_options_input import HiveOptionsInput
+from gravitino_client.models.iceberg_options_input import IcebergOptionsInput
+from gravitino_client.models.mysql_options_input import MysqlOptionsInput
 from gravitino_client.models.partition_transform import PartitionTransform
 from gravitino_client.models.table_column import TableColumn
 from gravitino_client.models.table_index import TableIndex
 from gravitino_client.models.table_sort_order import TableSortOrder
+from gravitino_client.models.table_storage_input import TableStorageInput
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
 class TableCreateRequest(BaseModel):
     """
-    A strict V1 request to create one relational table. Required arrays and maps must be present even when empty. `columns: []` is reserved for a connector-owned schema discovery or registration flow; ordinary table creation supplies at least one column. The server rejects unknown members and connector-incompatible physical layout with a typed public error.
+    TableCreateRequest
     """ # noqa: E501
     name: Annotated[str, Field(min_length=1, strict=True, max_length=255)] = Field(description="A case-sensitive SQL identifier as reported by the catalog.")
     comment: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=16384)]] = None
     columns: Annotated[List[TableColumn], Field(min_length=0, max_length=10000)]
-    properties: Dict[str, Annotated[str, Field(strict=True, max_length=1048576)]]
+    storage: Optional[TableStorageInput] = None
+    iceberg_options: Optional[IcebergOptionsInput] = Field(default=None, alias="icebergOptions")
+    hive_options: Optional[HiveOptionsInput] = Field(default=None, alias="hiveOptions")
+    clickhouse_options: Optional[ClickHouseOptionsInput] = Field(default=None, alias="clickhouseOptions")
+    mysql_options: Optional[MysqlOptionsInput] = Field(default=None, alias="mysqlOptions")
     partitioning: Annotated[List[PartitionTransform], Field(max_length=1024)]
     distribution: Optional[Distribution] = None
     sort_orders: Annotated[List[TableSortOrder], Field(max_length=1024)] = Field(alias="sortOrders")
     indexes: Annotated[List[TableIndex], Field(max_length=1024)]
-    __properties: ClassVar[List[str]] = ["name", "comment", "columns", "properties", "partitioning", "distribution", "sortOrders", "indexes"]
+    additional_properties: Dict[str, Any] = {}
+    __properties: ClassVar[List[str]] = ["name", "comment", "columns", "storage", "icebergOptions", "hiveOptions", "clickhouseOptions", "mysqlOptions", "partitioning", "distribution", "sortOrders", "indexes"]
 
     @field_validator('name')
     def name_validate_regular_expression(cls, value):
@@ -113,8 +123,10 @@ class TableCreateRequest(BaseModel):
         * `None` is only added to the output dict for nullable fields that
           were set at model initialization. Other fields with value `None`
           are ignored.
+        * Fields in `self.additional_properties` are added to the output dict.
         """
         excluded_fields: Set[str] = set([
+            "additional_properties",
         ])
 
         _dict = self.model_dump(
@@ -129,6 +141,21 @@ class TableCreateRequest(BaseModel):
                 if _item_columns:
                     _items.append(_item_columns.to_dict())
             _dict['columns'] = _items
+        # override the default output from pydantic by calling `to_dict()` of storage
+        if self.storage:
+            _dict['storage'] = self.storage.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of iceberg_options
+        if self.iceberg_options:
+            _dict['icebergOptions'] = self.iceberg_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of hive_options
+        if self.hive_options:
+            _dict['hiveOptions'] = self.hive_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of clickhouse_options
+        if self.clickhouse_options:
+            _dict['clickhouseOptions'] = self.clickhouse_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of mysql_options
+        if self.mysql_options:
+            _dict['mysqlOptions'] = self.mysql_options.to_dict()
         # override the default output from pydantic by calling `to_dict()` of each item in partitioning (list)
         _items = []
         if self.partitioning:
@@ -153,6 +180,11 @@ class TableCreateRequest(BaseModel):
                 if _item_indexes:
                     _items.append(_item_indexes.to_dict())
             _dict['indexes'] = _items
+        # puts key-value pairs in additional_properties in the top level
+        if self.additional_properties is not None:
+            for _key, _value in self.additional_properties.items():
+                _dict[_key] = _value
+
         return _dict
 
     @classmethod
@@ -168,10 +200,19 @@ class TableCreateRequest(BaseModel):
             "name": obj.get("name"),
             "comment": obj.get("comment"),
             "columns": [TableColumn.from_dict(_item) for _item in obj["columns"]] if obj.get("columns") is not None else None,
-            "properties": obj.get("properties"),
+            "storage": TableStorageInput.from_dict(obj["storage"]) if obj.get("storage") is not None else None,
+            "icebergOptions": IcebergOptionsInput.from_dict(obj["icebergOptions"]) if obj.get("icebergOptions") is not None else None,
+            "hiveOptions": HiveOptionsInput.from_dict(obj["hiveOptions"]) if obj.get("hiveOptions") is not None else None,
+            "clickhouseOptions": ClickHouseOptionsInput.from_dict(obj["clickhouseOptions"]) if obj.get("clickhouseOptions") is not None else None,
+            "mysqlOptions": MysqlOptionsInput.from_dict(obj["mysqlOptions"]) if obj.get("mysqlOptions") is not None else None,
             "partitioning": [PartitionTransform.from_dict(_item) for _item in obj["partitioning"]] if obj.get("partitioning") is not None else None,
             "distribution": Distribution.from_dict(obj["distribution"]) if obj.get("distribution") is not None else None,
             "sortOrders": [TableSortOrder.from_dict(_item) for _item in obj["sortOrders"]] if obj.get("sortOrders") is not None else None,
             "indexes": [TableIndex.from_dict(_item) for _item in obj["indexes"]] if obj.get("indexes") is not None else None
         })
+        # store additional fields in additional_properties
+        for _key in obj.keys():
+            if _key not in cls.__properties:
+                _obj.additional_properties[_key] = obj.get(_key)
+
         return _obj

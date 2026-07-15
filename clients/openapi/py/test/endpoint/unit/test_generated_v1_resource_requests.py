@@ -18,6 +18,7 @@
 """No-server request serialization coverage for generated V1 resource APIs."""
 
 import pytest
+from pydantic import ValidationError
 
 from gravitino_client.api.catalogs_api import CatalogsApi
 from gravitino_client.api.metalakes_api import MetalakesApi
@@ -30,13 +31,21 @@ from gravitino_client.models.catalog_type import CatalogType
 from gravitino_client.models.catalog_update_request import CatalogUpdateRequest
 from gravitino_client.models.data_type import DataType
 from gravitino_client.models.integral_data_type import IntegralDataType
+from gravitino_client.models.iceberg_options_input import IcebergOptionsInput
+from gravitino_client.models.iceberg_options_response import IcebergOptionsResponse
 from gravitino_client.models.metalake_create_request import MetalakeCreateRequest
 from gravitino_client.models.metalake_update_request import MetalakeUpdateRequest
 from gravitino_client.models.schema_create_request import SchemaCreateRequest
 from gravitino_client.models.schema_update_request import SchemaUpdateRequest
 from gravitino_client.models.table_column import TableColumn
 from gravitino_client.models.table_create_request import TableCreateRequest
+from gravitino_client.models.table_format import TableFormat
+from gravitino_client.models.table_resource import TableResource
+from gravitino_client.models.table_storage_input import TableStorageInput
+from gravitino_client.models.table_storage_ownership import TableStorageOwnership
+from gravitino_client.models.table_storage_response import TableStorageResponse
 from gravitino_client.models.table_update_request import TableUpdateRequest
+from gravitino_client.models.table_write_file_format import TableWriteFileFormat
 
 
 HOST = "http://gravitino.example.test:8090"
@@ -355,7 +364,12 @@ def test_generated_tables_api_serializes_full_crud_contract() -> None:
         name=TABLE,
         comment="test table",
         columns=[column],
-        properties={"format": "iceberg"},
+        storage=TableStorageInput(
+            ownership=TableStorageOwnership.MANAGED,
+            table_format=TableFormat.ICEBERG,
+            file_format=TableWriteFileFormat.PARQUET,
+        ),
+        iceberg_options=IcebergOptionsInput(format_version=2),
         partitioning=[],
         sortOrders=[],
         indexes=[],
@@ -363,7 +377,12 @@ def test_generated_tables_api_serializes_full_crud_contract() -> None:
     update = TableUpdateRequest(
         comment=None,
         columns=[column],
-        properties={"format": "iceberg"},
+        storage=TableStorageInput(
+            ownership=TableStorageOwnership.MANAGED,
+            table_format=TableFormat.ICEBERG,
+            file_format=TableWriteFileFormat.PARQUET,
+        ),
+        iceberg_options=IcebergOptionsInput(format_version=2),
         partitioning=[],
         sortOrders=[],
         indexes=[],
@@ -377,7 +396,12 @@ def test_generated_tables_api_serializes_full_crud_contract() -> None:
                 "autoIncrement": False,
             }
         ],
-        "properties": {"format": "iceberg"},
+        "storage": {
+            "ownership": "MANAGED",
+            "tableFormat": "ICEBERG",
+            "fileFormat": "PARQUET",
+        },
+        "icebergOptions": {"formatVersion": 2},
         "partitioning": [],
         "sortOrders": [],
         "indexes": [],
@@ -451,6 +475,99 @@ def test_generated_tables_api_serializes_full_crud_contract() -> None:
         ),
         path=item_path,
     )
+
+
+@pytest.mark.endpoint
+def test_generated_table_models_support_zero_or_one_typed_option_block() -> None:
+    """Generated table models construct portable storage without a legacy property map."""
+    column = TableColumn(
+        name="id",
+        type=DataType(IntegralDataType(kind="LONG", signed=True)),
+        nullable=False,
+        autoIncrement=False,
+    )
+    storage_input = TableStorageInput(
+        ownership=TableStorageOwnership.MANAGED,
+        table_format=TableFormat.ICEBERG,
+        file_format=TableWriteFileFormat.PARQUET,
+    )
+    no_options = TableCreateRequest(
+        name=TABLE,
+        columns=[column],
+        storage=storage_input,
+        partitioning=[],
+        sortOrders=[],
+        indexes=[],
+    )
+    one_option_update = TableUpdateRequest(
+        comment=None,
+        columns=[column],
+        storage=storage_input,
+        iceberg_options=IcebergOptionsInput(format_version=2),
+        partitioning=[],
+        sortOrders=[],
+        indexes=[],
+    )
+    one_option_resource = TableResource(
+        resource_name="metalakes/lake/catalogs/catalog/schemas/schema/tables/orders",
+        name=TABLE,
+        columns=[column],
+        storage=TableStorageResponse(
+            ownership=TableStorageOwnership.MANAGED,
+            table_format=TableFormat.ICEBERG,
+            file_format=TableWriteFileFormat.PARQUET,
+        ),
+        iceberg_options=IcebergOptionsResponse(format_version=2),
+        partitioning=[],
+        sortOrders=[],
+        indexes=[],
+    )
+
+    assert no_options.to_dict() == {
+        "name": TABLE,
+        "columns": [
+            {
+                "name": "id",
+                "type": {"kind": "LONG", "signed": True},
+                "nullable": False,
+                "autoIncrement": False,
+            }
+        ],
+        "storage": {
+            "ownership": "MANAGED",
+            "tableFormat": "ICEBERG",
+            "fileFormat": "PARQUET",
+        },
+        "partitioning": [],
+        "sortOrders": [],
+        "indexes": [],
+    }
+    assert one_option_update.to_dict()["icebergOptions"] == {"formatVersion": 2}
+    assert one_option_resource.to_dict()["icebergOptions"] == {"formatVersion": 2}
+    for model in (TableCreateRequest, TableUpdateRequest, TableResource):
+        assert "properties" not in model.model_fields
+
+
+@pytest.mark.endpoint
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "TODO: OpenAPI Generator 7.23.0's Python Pydantic template silently ignores "
+        "unknown direct-constructor arguments; rely on the strict server/schema boundary "
+        "until an upstream or template fix makes closed request models reject them."
+    ),
+)
+def test_generated_table_create_rejects_legacy_properties_argument() -> None:
+    """A future generated client should reject the removed legacy table property map."""
+    with pytest.raises(ValidationError):
+        TableCreateRequest(
+            name=TABLE,
+            columns=[],
+            partitioning=[],
+            sortOrders=[],
+            indexes=[],
+            properties={"format": "iceberg"},
+        )
 
 
 @pytest.mark.endpoint

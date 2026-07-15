@@ -37,40 +37,62 @@ import json
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
-from gravitino_client.models.click_house_options_input import ClickHouseOptionsInput
-from gravitino_client.models.distribution import Distribution
-from gravitino_client.models.hive_options_input import HiveOptionsInput
-from gravitino_client.models.iceberg_options_input import IcebergOptionsInput
-from gravitino_client.models.mysql_options_input import MysqlOptionsInput
-from gravitino_client.models.partition_transform import PartitionTransform
-from gravitino_client.models.table_column import TableColumn
-from gravitino_client.models.table_index import TableIndex
-from gravitino_client.models.table_sort_order import TableSortOrder
-from gravitino_client.models.table_storage_input import TableStorageInput
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class TableUpdateRequest(BaseModel):
+class HiveOptionsResponse(BaseModel):
     """
-    TableUpdateRequest
+    Resolved Hive storage-descriptor state; this response form is forward-compatible.
     """ # noqa: E501
-    comment: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=16384)]]
-    columns: Annotated[List[TableColumn], Field(min_length=0, max_length=10000)]
-    storage: Optional[TableStorageInput] = None
-    iceberg_options: Optional[IcebergOptionsInput] = Field(default=None, alias="icebergOptions")
-    hive_options: Optional[HiveOptionsInput] = Field(default=None, alias="hiveOptions")
-    clickhouse_options: Optional[ClickHouseOptionsInput] = Field(default=None, alias="clickhouseOptions")
-    mysql_options: Optional[MysqlOptionsInput] = Field(default=None, alias="mysqlOptions")
-    partitioning: Annotated[List[PartitionTransform], Field(max_length=1024)]
-    distribution: Optional[Distribution] = None
-    sort_orders: Annotated[List[TableSortOrder], Field(max_length=1024)] = Field(alias="sortOrders")
-    indexes: Annotated[List[TableIndex], Field(max_length=1024)]
+    input_format: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=1024)]] = Field(default=None, alias="inputFormat")
+    output_format: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=1024)]] = Field(default=None, alias="outputFormat")
+    serde_library: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=1024)]] = Field(default=None, alias="serdeLibrary")
+    serde_name: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=1024)]] = Field(default=None, alias="serdeName")
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["comment", "columns", "storage", "icebergOptions", "hiveOptions", "clickhouseOptions", "mysqlOptions", "partitioning", "distribution", "sortOrders", "indexes"]
+    __properties: ClassVar[List[str]] = ["inputFormat", "outputFormat", "serdeLibrary", "serdeName"]
 
-    @field_validator('comment')
-    def comment_validate_regular_expression(cls, value):
+    @field_validator('input_format')
+    def input_format_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not isinstance(value, str):
+            value = str(value)
+
+        if not re.match(r"^\S(?:[\s\S]*\S)?$", value):
+            raise ValueError(r"must validate the regular expression /^\S(?:[\s\S]*\S)?$/")
+        return value
+
+    @field_validator('output_format')
+    def output_format_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not isinstance(value, str):
+            value = str(value)
+
+        if not re.match(r"^\S(?:[\s\S]*\S)?$", value):
+            raise ValueError(r"must validate the regular expression /^\S(?:[\s\S]*\S)?$/")
+        return value
+
+    @field_validator('serde_library')
+    def serde_library_validate_regular_expression(cls, value):
+        """Validates the regular expression"""
+        if value is None:
+            return value
+
+        if not isinstance(value, str):
+            value = str(value)
+
+        if not re.match(r"^\S(?:[\s\S]*\S)?$", value):
+            raise ValueError(r"must validate the regular expression /^\S(?:[\s\S]*\S)?$/")
+        return value
+
+    @field_validator('serde_name')
+    def serde_name_validate_regular_expression(cls, value):
         """Validates the regular expression"""
         if value is None:
             return value
@@ -100,7 +122,7 @@ class TableUpdateRequest(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of TableUpdateRequest from a JSON string"""
+        """Create an instance of HiveOptionsResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -123,67 +145,16 @@ class TableUpdateRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in columns (list)
-        _items = []
-        if self.columns:
-            for _item_columns in self.columns:
-                if _item_columns:
-                    _items.append(_item_columns.to_dict())
-            _dict['columns'] = _items
-        # override the default output from pydantic by calling `to_dict()` of storage
-        if self.storage:
-            _dict['storage'] = self.storage.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of iceberg_options
-        if self.iceberg_options:
-            _dict['icebergOptions'] = self.iceberg_options.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of hive_options
-        if self.hive_options:
-            _dict['hiveOptions'] = self.hive_options.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of clickhouse_options
-        if self.clickhouse_options:
-            _dict['clickhouseOptions'] = self.clickhouse_options.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of mysql_options
-        if self.mysql_options:
-            _dict['mysqlOptions'] = self.mysql_options.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of each item in partitioning (list)
-        _items = []
-        if self.partitioning:
-            for _item_partitioning in self.partitioning:
-                if _item_partitioning:
-                    _items.append(_item_partitioning.to_dict())
-            _dict['partitioning'] = _items
-        # override the default output from pydantic by calling `to_dict()` of distribution
-        if self.distribution:
-            _dict['distribution'] = self.distribution.to_dict()
-        # override the default output from pydantic by calling `to_dict()` of each item in sort_orders (list)
-        _items = []
-        if self.sort_orders:
-            for _item_sort_orders in self.sort_orders:
-                if _item_sort_orders:
-                    _items.append(_item_sort_orders.to_dict())
-            _dict['sortOrders'] = _items
-        # override the default output from pydantic by calling `to_dict()` of each item in indexes (list)
-        _items = []
-        if self.indexes:
-            for _item_indexes in self.indexes:
-                if _item_indexes:
-                    _items.append(_item_indexes.to_dict())
-            _dict['indexes'] = _items
         # puts key-value pairs in additional_properties in the top level
         if self.additional_properties is not None:
             for _key, _value in self.additional_properties.items():
                 _dict[_key] = _value
 
-        # set to None if comment (nullable) is None
-        # and model_fields_set contains the field
-        if self.comment is None and "comment" in self.model_fields_set:
-            _dict['comment'] = None
-
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of TableUpdateRequest from a dict"""
+        """Create an instance of HiveOptionsResponse from a dict"""
         if obj is None:
             return None
 
@@ -191,17 +162,10 @@ class TableUpdateRequest(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "comment": obj.get("comment"),
-            "columns": [TableColumn.from_dict(_item) for _item in obj["columns"]] if obj.get("columns") is not None else None,
-            "storage": TableStorageInput.from_dict(obj["storage"]) if obj.get("storage") is not None else None,
-            "icebergOptions": IcebergOptionsInput.from_dict(obj["icebergOptions"]) if obj.get("icebergOptions") is not None else None,
-            "hiveOptions": HiveOptionsInput.from_dict(obj["hiveOptions"]) if obj.get("hiveOptions") is not None else None,
-            "clickhouseOptions": ClickHouseOptionsInput.from_dict(obj["clickhouseOptions"]) if obj.get("clickhouseOptions") is not None else None,
-            "mysqlOptions": MysqlOptionsInput.from_dict(obj["mysqlOptions"]) if obj.get("mysqlOptions") is not None else None,
-            "partitioning": [PartitionTransform.from_dict(_item) for _item in obj["partitioning"]] if obj.get("partitioning") is not None else None,
-            "distribution": Distribution.from_dict(obj["distribution"]) if obj.get("distribution") is not None else None,
-            "sortOrders": [TableSortOrder.from_dict(_item) for _item in obj["sortOrders"]] if obj.get("sortOrders") is not None else None,
-            "indexes": [TableIndex.from_dict(_item) for _item in obj["indexes"]] if obj.get("indexes") is not None else None
+            "inputFormat": obj.get("inputFormat"),
+            "outputFormat": obj.get("outputFormat"),
+            "serdeLibrary": obj.get("serdeLibrary"),
+            "serdeName": obj.get("serdeName")
         })
         # store additional fields in additional_properties
         for _key in obj.keys():

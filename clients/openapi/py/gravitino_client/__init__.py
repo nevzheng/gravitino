@@ -61,6 +61,9 @@ __all__ = [
     "CatalogResource",
     "CatalogType",
     "CatalogUpdateRequest",
+    "ClickHouseEngine",
+    "ClickHouseOptionsInput",
+    "ClickHouseOptionsResponse",
     "ComparisonPredicate",
     "ConflictErrorResponse",
     "DataType",
@@ -84,6 +87,10 @@ __all__ = [
     "FieldViolationDetail",
     "ForbiddenErrorResponse",
     "FunctionReference",
+    "HiveOptionsInput",
+    "HiveOptionsResponse",
+    "IcebergOptionsInput",
+    "IcebergOptionsResponse",
     "IntegralDataType",
     "InternalErrorResponse",
     "LengthDataType",
@@ -102,6 +109,9 @@ __all__ = [
     "MetalakeResource",
     "MetalakeUpdateRequest",
     "MethodNotAllowedErrorResponse",
+    "MysqlEngine",
+    "MysqlOptionsInput",
+    "MysqlOptionsResponse",
     "NamedReferenceExpression",
     "NonNullLiteralValue",
     "NotAcceptableErrorResponse",
@@ -127,12 +137,17 @@ __all__ = [
     "StructField",
     "TableColumn",
     "TableCreateRequest",
+    "TableFormat",
     "TableIndex",
     "TableListResponse",
     "TableReference",
     "TableResource",
     "TableSortOrder",
+    "TableStorageInput",
+    "TableStorageOwnership",
+    "TableStorageResponse",
     "TableUpdateRequest",
+    "TableWriteFileFormat",
     "TestPredicate",
     "TimeDataType",
     "TimestampDataType",
@@ -175,6 +190,9 @@ from gravitino_client.models.catalog_list_response import CatalogListResponse as
 from gravitino_client.models.catalog_resource import CatalogResource as CatalogResource
 from gravitino_client.models.catalog_type import CatalogType as CatalogType
 from gravitino_client.models.catalog_update_request import CatalogUpdateRequest as CatalogUpdateRequest
+from gravitino_client.models.click_house_engine import ClickHouseEngine as ClickHouseEngine
+from gravitino_client.models.click_house_options_input import ClickHouseOptionsInput as ClickHouseOptionsInput
+from gravitino_client.models.click_house_options_response import ClickHouseOptionsResponse as ClickHouseOptionsResponse
 from gravitino_client.models.comparison_predicate import ComparisonPredicate as ComparisonPredicate
 from gravitino_client.models.conflict_error_response import ConflictErrorResponse as ConflictErrorResponse
 from gravitino_client.models.data_type import DataType as DataType
@@ -198,6 +216,10 @@ from gravitino_client.models.external_data_type import ExternalDataType as Exter
 from gravitino_client.models.field_violation_detail import FieldViolationDetail as FieldViolationDetail
 from gravitino_client.models.forbidden_error_response import ForbiddenErrorResponse as ForbiddenErrorResponse
 from gravitino_client.models.function_reference import FunctionReference as FunctionReference
+from gravitino_client.models.hive_options_input import HiveOptionsInput as HiveOptionsInput
+from gravitino_client.models.hive_options_response import HiveOptionsResponse as HiveOptionsResponse
+from gravitino_client.models.iceberg_options_input import IcebergOptionsInput as IcebergOptionsInput
+from gravitino_client.models.iceberg_options_response import IcebergOptionsResponse as IcebergOptionsResponse
 from gravitino_client.models.integral_data_type import IntegralDataType as IntegralDataType
 from gravitino_client.models.internal_error_response import InternalErrorResponse as InternalErrorResponse
 from gravitino_client.models.length_data_type import LengthDataType as LengthDataType
@@ -216,6 +238,9 @@ from gravitino_client.models.metalake_list_response import MetalakeListResponse 
 from gravitino_client.models.metalake_resource import MetalakeResource as MetalakeResource
 from gravitino_client.models.metalake_update_request import MetalakeUpdateRequest as MetalakeUpdateRequest
 from gravitino_client.models.method_not_allowed_error_response import MethodNotAllowedErrorResponse as MethodNotAllowedErrorResponse
+from gravitino_client.models.mysql_engine import MysqlEngine as MysqlEngine
+from gravitino_client.models.mysql_options_input import MysqlOptionsInput as MysqlOptionsInput
+from gravitino_client.models.mysql_options_response import MysqlOptionsResponse as MysqlOptionsResponse
 from gravitino_client.models.named_reference_expression import NamedReferenceExpression as NamedReferenceExpression
 from gravitino_client.models.non_null_literal_value import NonNullLiteralValue as NonNullLiteralValue
 from gravitino_client.models.not_acceptable_error_response import NotAcceptableErrorResponse as NotAcceptableErrorResponse
@@ -241,12 +266,17 @@ from gravitino_client.models.struct_data_type import StructDataType as StructDat
 from gravitino_client.models.struct_field import StructField as StructField
 from gravitino_client.models.table_column import TableColumn as TableColumn
 from gravitino_client.models.table_create_request import TableCreateRequest as TableCreateRequest
+from gravitino_client.models.table_format import TableFormat as TableFormat
 from gravitino_client.models.table_index import TableIndex as TableIndex
 from gravitino_client.models.table_list_response import TableListResponse as TableListResponse
 from gravitino_client.models.table_reference import TableReference as TableReference
 from gravitino_client.models.table_resource import TableResource as TableResource
 from gravitino_client.models.table_sort_order import TableSortOrder as TableSortOrder
+from gravitino_client.models.table_storage_input import TableStorageInput as TableStorageInput
+from gravitino_client.models.table_storage_ownership import TableStorageOwnership as TableStorageOwnership
+from gravitino_client.models.table_storage_response import TableStorageResponse as TableStorageResponse
 from gravitino_client.models.table_update_request import TableUpdateRequest as TableUpdateRequest
+from gravitino_client.models.table_write_file_format import TableWriteFileFormat as TableWriteFileFormat
 from gravitino_client.models.test_predicate import TestPredicate as TestPredicate
 from gravitino_client.models.time_data_type import TimeDataType as TimeDataType
 from gravitino_client.models.timestamp_data_type import TimestampDataType as TimestampDataType

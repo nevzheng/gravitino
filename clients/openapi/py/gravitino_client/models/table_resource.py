@@ -38,31 +38,40 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Any, ClassVar, Dict, List, Optional
 from typing_extensions import Annotated
 from gravitino_client.models.audit_info import AuditInfo
+from gravitino_client.models.click_house_options_response import ClickHouseOptionsResponse
 from gravitino_client.models.distribution import Distribution
+from gravitino_client.models.hive_options_response import HiveOptionsResponse
+from gravitino_client.models.iceberg_options_response import IcebergOptionsResponse
+from gravitino_client.models.mysql_options_response import MysqlOptionsResponse
 from gravitino_client.models.partition_transform import PartitionTransform
 from gravitino_client.models.table_column import TableColumn
 from gravitino_client.models.table_index import TableIndex
 from gravitino_client.models.table_sort_order import TableSortOrder
+from gravitino_client.models.table_storage_response import TableStorageResponse
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
 class TableResource(BaseModel):
     """
-    The public V1 representation of a relational table. This is a wire resource and does not expose Gravitino implementation interfaces. Required collections and maps are always present, including when empty. Optional scalar properties are omitted rather than set to JSON null. Clients must ignore additional response members so later V1 contract minors can add optional table metadata.
+    TableResource
     """ # noqa: E501
     resource_name: Annotated[str, Field(min_length=1, strict=True, max_length=1280)] = Field(description="The canonical, stable identity of this table within Gravitino.", alias="resourceName")
     name: Annotated[str, Field(min_length=1, strict=True, max_length=255)] = Field(description="A case-sensitive SQL identifier as reported by the catalog.")
     comment: Optional[Annotated[str, Field(min_length=1, strict=True, max_length=16384)]] = Field(default=None, description="Omitted when the table has no comment; JSON null is not used.")
     columns: Annotated[List[TableColumn], Field(max_length=10000)] = Field(description="Ordered table columns. Present as an empty array if the catalog reports none.")
-    properties: Dict[str, Annotated[str, Field(strict=True, max_length=1048576)]] = Field(description="Public catalog properties after Gravitino's hidden-property filtering. Present as an empty object when none are exposed. ")
+    storage: Optional[TableStorageResponse] = None
+    iceberg_options: Optional[IcebergOptionsResponse] = Field(default=None, alias="icebergOptions")
+    hive_options: Optional[HiveOptionsResponse] = Field(default=None, alias="hiveOptions")
+    clickhouse_options: Optional[ClickHouseOptionsResponse] = Field(default=None, alias="clickhouseOptions")
+    mysql_options: Optional[MysqlOptionsResponse] = Field(default=None, alias="mysqlOptions")
     partitioning: Annotated[List[PartitionTransform], Field(max_length=1024)] = Field(description="Physical partition transforms, in catalog order; empty when unpartitioned.")
     distribution: Optional[Distribution] = None
     sort_orders: Annotated[List[TableSortOrder], Field(max_length=1024)] = Field(description="Sort terms, in precedence order; empty when the table is unsorted.", alias="sortOrders")
     indexes: Annotated[List[TableIndex], Field(max_length=1024)] = Field(description="Table indexes; empty when none are declared.")
     audit: Optional[AuditInfo] = None
     additional_properties: Dict[str, Any] = {}
-    __properties: ClassVar[List[str]] = ["resourceName", "name", "comment", "columns", "properties", "partitioning", "distribution", "sortOrders", "indexes", "audit"]
+    __properties: ClassVar[List[str]] = ["resourceName", "name", "comment", "columns", "storage", "icebergOptions", "hiveOptions", "clickhouseOptions", "mysqlOptions", "partitioning", "distribution", "sortOrders", "indexes", "audit"]
 
     @field_validator('resource_name')
     def resource_name_validate_regular_expression(cls, value):
@@ -145,6 +154,21 @@ class TableResource(BaseModel):
                 if _item_columns:
                     _items.append(_item_columns.to_dict())
             _dict['columns'] = _items
+        # override the default output from pydantic by calling `to_dict()` of storage
+        if self.storage:
+            _dict['storage'] = self.storage.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of iceberg_options
+        if self.iceberg_options:
+            _dict['icebergOptions'] = self.iceberg_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of hive_options
+        if self.hive_options:
+            _dict['hiveOptions'] = self.hive_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of clickhouse_options
+        if self.clickhouse_options:
+            _dict['clickhouseOptions'] = self.clickhouse_options.to_dict()
+        # override the default output from pydantic by calling `to_dict()` of mysql_options
+        if self.mysql_options:
+            _dict['mysqlOptions'] = self.mysql_options.to_dict()
         # override the default output from pydantic by calling `to_dict()` of each item in partitioning (list)
         _items = []
         if self.partitioning:
@@ -193,7 +217,11 @@ class TableResource(BaseModel):
             "name": obj.get("name"),
             "comment": obj.get("comment"),
             "columns": [TableColumn.from_dict(_item) for _item in obj["columns"]] if obj.get("columns") is not None else None,
-            "properties": obj.get("properties"),
+            "storage": TableStorageResponse.from_dict(obj["storage"]) if obj.get("storage") is not None else None,
+            "icebergOptions": IcebergOptionsResponse.from_dict(obj["icebergOptions"]) if obj.get("icebergOptions") is not None else None,
+            "hiveOptions": HiveOptionsResponse.from_dict(obj["hiveOptions"]) if obj.get("hiveOptions") is not None else None,
+            "clickhouseOptions": ClickHouseOptionsResponse.from_dict(obj["clickhouseOptions"]) if obj.get("clickhouseOptions") is not None else None,
+            "mysqlOptions": MysqlOptionsResponse.from_dict(obj["mysqlOptions"]) if obj.get("mysqlOptions") is not None else None,
             "partitioning": [PartitionTransform.from_dict(_item) for _item in obj["partitioning"]] if obj.get("partitioning") is not None else None,
             "distribution": Distribution.from_dict(obj["distribution"]) if obj.get("distribution") is not None else None,
             "sortOrders": [TableSortOrder.from_dict(_item) for _item in obj["sortOrders"]] if obj.get("sortOrders") is not None else None,

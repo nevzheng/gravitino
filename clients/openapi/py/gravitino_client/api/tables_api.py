@@ -81,7 +81,7 @@ class TablesApi:
     ) -> TableResource:
         """Create a table
 
-        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
+        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. It uses shared `storage` intent plus zero or one typed provider-options envelope; it never accepts the legacy connector property map. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
 
         :param metalake: The case-sensitive metalake name. (required)
         :type metalake: str
@@ -173,7 +173,7 @@ class TablesApi:
     ) -> ApiResponse[TableResource]:
         """Create a table
 
-        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
+        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. It uses shared `storage` intent plus zero or one typed provider-options envelope; it never accepts the legacy connector property map. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
 
         :param metalake: The case-sensitive metalake name. (required)
         :type metalake: str
@@ -265,7 +265,7 @@ class TablesApi:
     ) -> RESTResponseType:
         """Create a table
 
-        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
+        Creates one relational table under the schema. The request is a strict V1 wire object, not a legacy Gravitino DTO. It uses shared `storage` intent plus zero or one typed provider-options envelope; it never accepts the legacy connector property map. A successful create returns 201, a public representation, and the resource Location. Creating the same name returns non-retryable `409 TABLE_ALREADY_EXISTS`.
 
         :param metalake: The case-sensitive metalake name. (required)
         :type metalake: str
@@ -1877,7 +1877,7 @@ class TablesApi:
     ) -> TableResource:
         """Update a table
 
-        Requires the complete mutable desired state. The current V1 adapter applies comment and property changes only. `columns`, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. The result is the current V1 table representation.
+        Requires the complete mutable desired state. The current V1 adapter applies comment changes only. `columns`, `storage`, provider options, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. When the current table has storage or provider options, clients copy that persistent state unchanged into full PUT. The result is the current V1 table representation.
 
         :param if_match: The strong entity tag returned by the most recent GET of this resource. Every V1 PUT and DELETE requires it to prevent a stale client from overwriting or deleting a newer representation. A non-matching tag returns `412 PRECONDITION_FAILED`; `*` is not accepted by V1. (required)
         :type if_match: str
@@ -1978,7 +1978,7 @@ class TablesApi:
     ) -> ApiResponse[TableResource]:
         """Update a table
 
-        Requires the complete mutable desired state. The current V1 adapter applies comment and property changes only. `columns`, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. The result is the current V1 table representation.
+        Requires the complete mutable desired state. The current V1 adapter applies comment changes only. `columns`, `storage`, provider options, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. When the current table has storage or provider options, clients copy that persistent state unchanged into full PUT. The result is the current V1 table representation.
 
         :param if_match: The strong entity tag returned by the most recent GET of this resource. Every V1 PUT and DELETE requires it to prevent a stale client from overwriting or deleting a newer representation. A non-matching tag returns `412 PRECONDITION_FAILED`; `*` is not accepted by V1. (required)
         :type if_match: str
@@ -2079,7 +2079,7 @@ class TablesApi:
     ) -> RESTResponseType:
         """Update a table
 
-        Requires the complete mutable desired state. The current V1 adapter applies comment and property changes only. `columns`, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. The result is the current V1 table representation.
+        Requires the complete mutable desired state. The current V1 adapter applies comment changes only. `columns`, `storage`, provider options, `partitioning`, `distribution`, `sortOrders`, and `indexes` must equal the current table; a requested change to one of them returns `501 UNSUPPORTED_OPERATION` until the core exposes a correct replacement mutation. When the current table has storage or provider options, clients copy that persistent state unchanged into full PUT. The result is the current V1 table representation.
 
         :param if_match: The strong entity tag returned by the most recent GET of this resource. Every V1 PUT and DELETE requires it to prevent a stale client from overwriting or deleting a newer representation. A non-matching tag returns `412 PRECONDITION_FAILED`; `*` is not accepted by V1. (required)
         :type if_match: str
