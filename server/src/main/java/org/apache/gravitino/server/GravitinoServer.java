@@ -46,6 +46,7 @@ import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.policy.PolicyDispatcher;
+import org.apache.gravitino.server.authentication.GravitinoAuthenticationFilter;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.ConfigServlet;
@@ -62,6 +63,10 @@ import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.mapper.JsonMappingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonParseExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonProcessingExceptionMapper;
+import org.apache.gravitino.server.web.rest.v1.error.V1ErrorResponseFilter;
+import org.apache.gravitino.server.web.rest.v1.error.V1MediaTypeFilter;
+import org.apache.gravitino.server.web.rest.v1.error.V1PublicExceptionMapper;
+import org.apache.gravitino.server.web.rest.v1.error.V1RequestContractFilter;
 import org.apache.gravitino.server.web.ui.WebUIFilter;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.tag.TagDispatcher;
@@ -165,6 +170,9 @@ public class GravitinoServer extends ResourceConfig {
     register(JsonProcessingExceptionMapper.class);
     register(JsonParseExceptionMapper.class);
     register(JsonMappingExceptionMapper.class);
+    register(V1PublicExceptionMapper.class);
+    register(V1ErrorResponseFilter.class);
+    register(V1MediaTypeFilter.class);
     register(ObjectMapperProvider.class).register(JacksonFeature.class);
     property(CommonProperties.JSON_JACKSON_DISABLED_MODULES, "DefaultScalaModule");
 
@@ -193,7 +201,10 @@ public class GravitinoServer extends ResourceConfig {
         new HttpAuditFilter(gravitinoEnv.eventBus(), EventSource.GRAVITINO_SERVER), API_ANY_PATH);
     server.addCustomFilters(API_ANY_PATH);
     server.addFilter(new VersioningFilter(), API_ANY_PATH);
-    server.addSystemFilters(API_ANY_PATH);
+    // V1 route/header validation is intentionally before authentication, so malformed V1
+    // requests consistently receive their documented 400 or 406 contract response.
+    server.addFilter(new V1RequestContractFilter(), API_ANY_PATH);
+    server.addSystemFilters(API_ANY_PATH, new GravitinoAuthenticationFilter());
     if (server.isWebUiEnabled()) {
       server.addFilter(new WebUIFilter(), "/"); // Redirect to the /ui/index html page.
       server.addFilter(new WebUIFilter(), "/ui/*"); // Redirect to the static html file.

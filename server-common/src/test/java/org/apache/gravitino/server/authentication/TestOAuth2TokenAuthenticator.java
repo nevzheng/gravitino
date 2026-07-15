@@ -47,6 +47,11 @@ import org.junit.jupiter.api.Test;
 public class TestOAuth2TokenAuthenticator {
 
   @Test
+  public void testFallbackChallenge() {
+    assertEquals("Bearer", new OAuth2TokenAuthenticator().authenticationChallenges().get(0));
+  }
+
+  @Test
   public void testAuthentication() {
     OAuth2TokenAuthenticator auth2TokenAuthenticator = new OAuth2TokenAuthenticator();
     KeyPair keyPair = Keys.keyPairFor(SignatureAlgorithm.RS256);

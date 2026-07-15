@@ -28,6 +28,8 @@ package org.apache.gravitino.utils;
  * <ul>
  *   <li><b>remoteAddress</b> — the client IP resolved from {@code X-Forwarded-For} or {@link
  *       javax.servlet.http.HttpServletRequest#getRemoteAddr()}.
+ *   <li><b>requestId</b> — the bounded request correlation identifier returned in {@code
+ *       X-Request-Id} and public V1 error responses.
  *   <li><b>operationFailureFired</b> — set to {@code true} by {@link
  *       org.apache.gravitino.listener.EventBus} when an operation-layer {@link
  *       org.apache.gravitino.listener.api.event.FailureEvent} is dispatched, so that {@code
@@ -42,6 +44,7 @@ package org.apache.gravitino.utils;
 public class RequestContext {
 
   private static final ThreadLocal<String> REMOTE_ADDRESS = new ThreadLocal<>();
+  private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
   private static final ThreadLocal<Boolean> OPERATION_FAILURE_FIRED = new ThreadLocal<>();
 
   private RequestContext() {}
@@ -63,6 +66,24 @@ public class RequestContext {
    */
   public static String getRemoteAddress() {
     return REMOTE_ADDRESS.get();
+  }
+
+  /**
+   * Sets the request correlation identifier for the current request thread.
+   *
+   * @param requestId the accepted or server-generated request identifier.
+   */
+  public static void setRequestId(String requestId) {
+    REQUEST_ID.set(requestId);
+  }
+
+  /**
+   * Returns the request correlation identifier for the current request thread.
+   *
+   * @return the request identifier, or {@code null} when no request context is active.
+   */
+  public static String getRequestId() {
+    return REQUEST_ID.get();
   }
 
   /**
@@ -99,6 +120,7 @@ public class RequestContext {
    */
   public static void clear() {
     REMOTE_ADDRESS.remove();
+    REQUEST_ID.remove();
     OPERATION_FAILURE_FIRED.remove();
   }
 }

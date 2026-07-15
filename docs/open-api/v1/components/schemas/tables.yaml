@@ -1,0 +1,279 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    TableResource:
+      type: object
+      additionalProperties: true
+      description: |-
+        The public V1 representation of a relational table. This is a wire
+        resource and does not expose Gravitino implementation interfaces.
+        Required collections and maps are always present, including when empty.
+        Optional scalar properties are omitted rather than set to JSON null.
+        Clients must ignore additional response members so later V1 contract
+        minors can add optional table metadata.
+      required:
+        - resourceName
+        - name
+        - columns
+        - properties
+        - partitioning
+        - sortOrders
+        - indexes
+      properties:
+        resourceName:
+          type: string
+          minLength: 1
+          maxLength: 1280
+          pattern: "^metalakes/[^/]+/catalogs/[^/]+/schemas/[^/]+/tables/[^/]+$"
+          description: The canonical, stable identity of this table within Gravitino.
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when the table has no comment; JSON null is not used.
+        columns:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/TableColumn"
+          description: Ordered table columns. Present as an empty array if the catalog reports none.
+        properties:
+          type: object
+          maxProperties: 10000
+          additionalProperties:
+            type: string
+            maxLength: 1048576
+            pattern: "^[\\s\\S]*$"
+          description: |
+            Public catalog properties after Gravitino's hidden-property filtering.
+            Present as an empty object when none are exposed.
+        partitioning:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./partitioning.yaml#/components/schemas/PartitionTransform"
+          description: Physical partition transforms, in catalog order; empty when unpartitioned.
+        distribution:
+          $ref: "#/components/schemas/Distribution"
+        sortOrders:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/TableSortOrder"
+          description: Sort terms, in precedence order; empty when the table is unsorted.
+        indexes:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./indexes.yaml#/components/schemas/TableIndex"
+          description: Table indexes; empty when none are declared.
+        audit:
+          $ref: "#/components/schemas/AuditInfo"
+
+    TableColumn:
+      type: object
+      additionalProperties: true
+      description: One ordered table column with its complete public type and default metadata.
+      required: [name, type, nullable, autoIncrement]
+      properties:
+        name:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+        type:
+          $ref: "./types.yaml#/components/schemas/DataType"
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when the column has no comment.
+        nullable:
+          type: boolean
+        autoIncrement:
+          type: boolean
+        defaultValue:
+          $ref: "./expressions.yaml#/components/schemas/ValueExpression"
+          description: Omitted when no default was declared, preserving absent-vs-explicit-default semantics.
+
+    Distribution:
+      type: object
+      additionalProperties: true
+      description: The strategy and expressions used to distribute table data.
+      required: [strategy, expressions]
+      properties:
+        strategy:
+          type: string
+          enum: [NONE, HASH, RANGE, EVEN]
+        bucketCount:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+          description: |-
+            The explicit distribution bucket count. Omitted for `NONE` and
+            whenever the catalog chooses the count automatically.
+        expressions:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./expressions.yaml#/components/schemas/ValueExpression"
+          description: Present as an empty array when the strategy has no expressions.
+      examples:
+        - strategy: NONE
+          expressions: []
+        - strategy: HASH
+          bucketCount: 16
+          expressions:
+            - type: reference
+              name: id
+
+    TableSortOrder:
+      type: object
+      additionalProperties: true
+      description: One ordered sort expression with direction and null placement.
+      required: [expression, direction, nullOrdering]
+      properties:
+        expression:
+          $ref: "./expressions.yaml#/components/schemas/ValueExpression"
+        direction:
+          type: string
+          enum: [ASC, DESC]
+        nullOrdering:
+          type: string
+          enum: [NULLS_FIRST, NULLS_LAST]
+
+    AuditInfo:
+      type: object
+      additionalProperties: true
+      minProperties: 1
+      description: |-
+        Audit fields available from the backing catalog. The object is omitted
+        if no audit information is available. Within it, unavailable fields are
+        omitted and never represented as JSON null.
+      properties:
+        creator:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        createTime:
+          type: string
+          format: date-time
+          maxLength: 35
+          description: An RFC 3339 timestamp normalized to UTC by the server.
+        lastModifier:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        lastModifiedTime:
+          type: string
+          format: date-time
+          maxLength: 35
+          description: An RFC 3339 timestamp normalized to UTC by the server.
+
+  examples:
+    TableResource:
+      summary: An Iceberg orders table using the full V1 table graph
+      value:
+        resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+        name: orders
+        comment: Customer orders
+        columns:
+          - name: id
+            type:
+              kind: LONG
+              signed: true
+            nullable: false
+            autoIncrement: false
+          - name: customer
+            type:
+              kind: STRUCT
+              fields:
+                - name: id
+                  type:
+                    kind: STRING
+                  nullable: false
+                - name: segments
+                  type:
+                    kind: LIST
+                    elementType:
+                      kind: STRING
+                    elementNullable: false
+                  nullable: true
+            nullable: false
+            autoIncrement: false
+          - name: total
+            type:
+              kind: DECIMAL
+              precision: 18
+              scale: 2
+            nullable: false
+            autoIncrement: false
+            defaultValue:
+              type: literal
+              value: "0.00"
+              data-type:
+                kind: DECIMAL
+                precision: 18
+                scale: 2
+          - name: created_at
+            type:
+              kind: TIMESTAMP
+              withTimeZone: true
+              precision: 6
+            nullable: false
+            autoIncrement: false
+            defaultValue:
+              type: apply
+              function:
+                identifier: [current_timestamp]
+              arguments: []
+        properties:
+          format: iceberg
+          external: "false"
+        partitioning:
+          - kind: YEAR
+            fieldName: [created_at]
+        distribution:
+          strategy: HASH
+          bucketCount: 16
+          expressions:
+            - type: reference
+              name: id
+        sortOrders:
+          - expression:
+              type: reference
+              name: created_at
+            direction: DESC
+            nullOrdering: NULLS_LAST
+        indexes:
+          - type: PRIMARY_KEY
+            name: orders_pk
+            fieldNames:
+              - [id]
+            properties: {}
+        audit:
+          creator: data-platform
+          createTime: "2026-07-14T17:30:00Z"
+          lastModifier: data-platform
+          lastModifiedTime: "2026-07-14T18:45:00Z"

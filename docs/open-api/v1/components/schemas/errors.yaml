@@ -1,0 +1,782 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    PublicError:
+      description: |-
+        A stable public error. `code` always equals the HTTP response status.
+        `type` is a documented machine-readable reason and is never a Java
+        exception class. `message` is safe human-readable context and must not
+        be parsed by clients. Stack traces, exception causes, raw connector
+        messages, credentials, and internal identifiers are forbidden.
+        Clients must ignore additional response members; known required fields
+        retain their documented type and meaning across V1 contract minors.
+
+        `retryable` is the authoritative classification for this operation. A
+        client may automatically retry only when it is `true`, honoring
+        `Retry-After` and using exponential backoff with jitter. When
+        `retryAfterSeconds` is present, the HTTP `Retry-After` header is required
+        and must contain the identical decimal value.
+      oneOf:
+        - $ref: "#/components/schemas/Error400"
+        - $ref: "#/components/schemas/Error401"
+        - $ref: "#/components/schemas/Error403"
+        - $ref: "#/components/schemas/Error404"
+        - $ref: "#/components/schemas/Error405"
+        - $ref: "#/components/schemas/Error406"
+        - $ref: "#/components/schemas/Error409"
+        - $ref: "#/components/schemas/Error429"
+        - $ref: "#/components/schemas/Error500"
+        - $ref: "#/components/schemas/Error501"
+        - $ref: "#/components/schemas/Error502"
+        - $ref: "#/components/schemas/Error503"
+        - $ref: "#/components/schemas/Error504"
+
+    ErrorDetail:
+      description: Typed, safe machine-readable context attached to a public error.
+      oneOf:
+        - $ref: "#/components/schemas/ResourceInfoDetail"
+        - $ref: "#/components/schemas/FieldViolationDetail"
+      discriminator:
+        propertyName: kind
+        mapping:
+          RESOURCE_INFO: "#/components/schemas/ResourceInfoDetail"
+          FIELD_VIOLATION: "#/components/schemas/FieldViolationDetail"
+
+    ResourceInfoDetail:
+      type: object
+      additionalProperties: true
+      description: Identifies the public resource associated with an error.
+      required: [kind, resourceType, resourceName]
+      properties:
+        kind:
+          type: string
+          const: RESOURCE_INFO
+        resourceType:
+          type: string
+          enum: [METALAKE, CATALOG, SCHEMA, TABLE]
+        resourceName:
+          type: string
+          minLength: 1
+          maxLength: 1280
+          description: Canonical resource name at or above the requested table.
+
+    FieldViolationDetail:
+      type: object
+      additionalProperties: true
+      description: Identifies one request field that violates the public contract.
+      required: [kind, field, description]
+      properties:
+        kind:
+          type: string
+          const: FIELD_VIOLATION
+        field:
+          type: string
+          minLength: 1
+          maxLength: 512
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: A path parameter, query parameter, header, or JSON field path.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: A safe explanation of the violated contract rule.
+
+    BadRequestErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 400.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error400"
+    UnauthorizedErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 401.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error401"
+    ForbiddenErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 403.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error403"
+    NotFoundErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 404.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error404"
+    MethodNotAllowedErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 405.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error405"
+    NotAcceptableErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 406.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error406"
+    ConflictErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 409.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error409"
+    RateLimitedErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 429.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error429"
+    InternalErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 500.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error500"
+    NotImplementedErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 501.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error501"
+    BadGatewayErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 502.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error502"
+    ServiceUnavailableErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 503.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error503"
+    GatewayTimeoutErrorResponse:
+      type: object
+      additionalProperties: true
+      description: The forward-compatible public envelope for HTTP 504.
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error504"
+
+    Error400:
+      type: object
+      additionalProperties: true
+      description: A non-retryable invalid-request error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 400
+          const: 400
+          description: The HTTP status code.
+        type:
+          type: string
+          const: INVALID_ARGUMENT
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Invalid input must be corrected before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error401:
+      type: object
+      additionalProperties: true
+      description: A non-retryable authentication error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 401
+          maximum: 401
+          const: 401
+          description: The HTTP status code.
+        type:
+          type: string
+          const: UNAUTHENTICATED
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Refreshing credentials creates a new attempt rather than retrying this error.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error403:
+      type: object
+      additionalProperties: true
+      description: A non-retryable authorization error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 403
+          maximum: 403
+          const: 403
+          description: The HTTP status code.
+        type:
+          type: string
+          const: PERMISSION_DENIED
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Authorization policy must change before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error404:
+      type: object
+      additionalProperties: true
+      description: A non-retryable missing-route or missing-resource error with specific reason codes.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 404
+          maximum: 404
+          const: 404
+          description: The HTTP status code.
+        type:
+          type: string
+          enum:
+            - ROUTE_NOT_FOUND
+            - METALAKE_NOT_FOUND
+            - CATALOG_NOT_FOUND
+            - SCHEMA_NOT_FOUND
+            - TABLE_NOT_FOUND
+          description: The stable public reason code identifying the missing route or resource level.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Resource state must change before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error405:
+      type: object
+      additionalProperties: true
+      description: A non-retryable method-selection error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 405
+          maximum: 405
+          const: 405
+          description: The HTTP status code.
+        type:
+          type: string
+          const: METHOD_NOT_ALLOWED
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: The client must select a supported method.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error406:
+      type: object
+      additionalProperties: true
+      description: A non-retryable representation-negotiation error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 406
+          maximum: 406
+          const: 406
+          description: The HTTP status code.
+        type:
+          type: string
+          const: NOT_ACCEPTABLE
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: The client must permit application/json before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error409:
+      type: object
+      additionalProperties: true
+      description: A non-retryable inactive-resource conflict.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 409
+          maximum: 409
+          const: 409
+          description: The HTTP status code.
+        type:
+          type: string
+          const: RESOURCE_NOT_ACTIVE
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Resource state must change before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error429:
+      type: object
+      additionalProperties: true
+      description: A retryable rate-limit error with a mandatory delay.
+      required: [code, type, message, retryable, retryAfterSeconds, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 429
+          maximum: 429
+          const: 429
+          description: The HTTP status code.
+        type:
+          type: string
+          const: RATE_LIMITED
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: true
+          description: The safe GET may be retried after the mandatory delay.
+        retryAfterSeconds:
+          $ref: "#/components/schemas/RetryDelay"
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error500:
+      type: object
+      additionalProperties: true
+      description: |-
+        A sanitized, deliberately non-retryable fallback for an unclassified
+        server failure. `INTERNAL_ERROR` has no supported product diagnosis:
+        clients use `requestId` for support and must not infer behavior beyond
+        the HTTP status. Expected failures use their specific documented
+        status and public error type instead.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 500
+          maximum: 500
+          const: 500
+          description: The HTTP status code.
+        type:
+          type: string
+          const: INTERNAL_ERROR
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Unknown failures are not retried automatically to avoid retry storms.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error501:
+      type: object
+      additionalProperties: true
+      description: A non-retryable unsupported-operation error.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 501
+          maximum: 501
+          const: 501
+          description: The HTTP status code.
+        type:
+          type: string
+          const: UNSUPPORTED_OPERATION
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: false
+          description: Catalog capability must change before another attempt.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error502:
+      type: object
+      additionalProperties: true
+      description: A retryable transient upstream connection error for this safe GET.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 502
+          maximum: 502
+          const: 502
+          description: The HTTP status code.
+        type:
+          type: string
+          const: UPSTREAM_CONNECTION_FAILED
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: true
+          description: The safe GET may be retried with exponential backoff and jitter.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error503:
+      type: object
+      additionalProperties: true
+      description: A retryable temporary service or upstream unavailability error.
+      required: [code, type, message, retryable, retryAfterSeconds, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 503
+          maximum: 503
+          const: 503
+          description: The HTTP status code.
+        type:
+          type: string
+          enum: [SERVICE_UNAVAILABLE, UPSTREAM_UNAVAILABLE]
+          description: The stable public reason code distinguishing local and upstream availability.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: true
+          description: The safe GET may be retried after the mandatory delay.
+        retryAfterSeconds:
+          $ref: "#/components/schemas/RetryDelay"
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    Error504:
+      type: object
+      additionalProperties: true
+      description: A retryable upstream timeout error for this safe GET.
+      required: [code, type, message, retryable, requestId, details]
+      properties:
+        code:
+          type: integer
+          format: int32
+          minimum: 504
+          maximum: 504
+          const: 504
+          description: The HTTP status code.
+        type:
+          type: string
+          const: UPSTREAM_TIMEOUT
+          description: The stable public reason code.
+        message:
+          $ref: "#/components/schemas/SafeErrorMessage"
+        retryable:
+          type: boolean
+          const: true
+          description: The safe GET may be retried with exponential backoff and jitter.
+        requestId:
+          $ref: "../parameters.yaml#/components/schemas/RequestId"
+        details:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    SafeErrorMessage:
+      type: string
+      minLength: 1
+      maxLength: 2048
+      pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+      description: Safe human-readable context that clients must not parse.
+
+    RetryDelay:
+      type: integer
+      format: int32
+      minimum: 0
+      maximum: 86400
+      description: The delay that must exactly match the decimal Retry-After response header.
+
+    ErrorDetails:
+      type: array
+      maxItems: 100
+      items:
+        $ref: "#/components/schemas/ErrorDetail"
+      description: Typed machine-readable context, present as an empty array when not applicable.
+
+  examples:
+    InvalidArgument:
+      value:
+        error:
+          code: 400
+          type: INVALID_ARGUMENT
+          message: The request contains an invalid parameter.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: FIELD_VIOLATION
+              field: X-Request-Id
+              description: Must contain 1 to 128 safe ASCII characters.
+    Unauthenticated:
+      value:
+        error:
+          code: 401
+          type: UNAUTHENTICATED
+          message: Authentication credentials are missing or invalid.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    PermissionDenied:
+      value:
+        error:
+          code: 403
+          type: PERMISSION_DENIED
+          message: Permission denied.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    RouteNotFound:
+      value:
+        error:
+          code: 404
+          type: ROUTE_NOT_FOUND
+          message: The requested API route was not found.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    MetalakeNotFound:
+      value:
+        error:
+          code: 404
+          type: METALAKE_NOT_FOUND
+          message: Metalake 'demo' was not found.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: METALAKE
+              resourceName: metalakes/demo
+    CatalogNotFound:
+      value:
+        error:
+          code: 404
+          type: CATALOG_NOT_FOUND
+          message: Catalog 'lakehouse' was not found.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: CATALOG
+              resourceName: metalakes/demo/catalogs/lakehouse
+    SchemaNotFound:
+      value:
+        error:
+          code: 404
+          type: SCHEMA_NOT_FOUND
+          message: Schema 'sales' was not found.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: SCHEMA
+              resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales
+    TableNotFound:
+      value:
+        error:
+          code: 404
+          type: TABLE_NOT_FOUND
+          message: Table 'orders' was not found.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: TABLE
+              resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+    MethodNotAllowed:
+      value:
+        error:
+          code: 405
+          type: METHOD_NOT_ALLOWED
+          message: The requested method is not supported by this resource.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    NotAcceptable:
+      value:
+        error:
+          code: 406
+          type: NOT_ACCEPTABLE
+          message: This API produces application/json only.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: FIELD_VIOLATION
+              field: Accept
+              description: Must allow application/json.
+    ResourceNotActive:
+      value:
+        error:
+          code: 409
+          type: RESOURCE_NOT_ACTIVE
+          message: The requested catalog resource is not active.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    RateLimited:
+      value:
+        error:
+          code: 429
+          type: RATE_LIMITED
+          message: Request rate exceeded the configured limit.
+          retryable: true
+          retryAfterSeconds: 5
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    InternalError:
+      value:
+        error:
+          code: 500
+          type: INTERNAL_ERROR
+          message: An internal error occurred. Contact support with the request ID.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    UnsupportedOperation:
+      value:
+        error:
+          code: 501
+          type: UNSUPPORTED_OPERATION
+          message: The catalog does not support loading this table.
+          retryable: false
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details:
+            - kind: RESOURCE_INFO
+              resourceType: TABLE
+              resourceName: metalakes/demo/catalogs/lakehouse/schemas/sales/tables/orders
+    UpstreamConnectionFailed:
+      value:
+        error:
+          code: 502
+          type: UPSTREAM_CONNECTION_FAILED
+          message: The catalog could not be reached.
+          retryable: true
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    ServiceUnavailable:
+      value:
+        error:
+          code: 503
+          type: UPSTREAM_UNAVAILABLE
+          message: The catalog is temporarily unavailable.
+          retryable: true
+          retryAfterSeconds: 5
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []
+    UpstreamTimeout:
+      value:
+        error:
+          code: 504
+          type: UPSTREAM_TIMEOUT
+          message: The catalog did not respond before the deadline.
+          retryable: true
+          requestId: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+          details: []

@@ -255,11 +255,13 @@ public final class JettyServerConfig {
       new ConfigBuilder("allowedHeaders")
           .doc(
               "A comma separated list of HTTP headers that are allowed to be specified when accessing the resources."
-                  + " Default value is X-Requested-With,Content-Type,Accept,Origin. If the value is a single *,"
+                  + " Default value includes standard V1 authentication, request correlation, and conditional"
+                  + " caching headers. If the value is a single *,"
                   + " this means that any headers will be accepted.")
           .version(ConfigConstants.VERSION_0_4_0)
           .stringConf()
-          .createWithDefault("X-Requested-With,Content-Type,Accept,Origin");
+          .createWithDefault(
+              "X-Requested-With,Content-Type,Accept,Origin,Authorization,X-Request-Id,If-None-Match");
 
   public static final ConfigEntry<Integer> PREFLIGHT_MAX_AGE_IN_SECS =
       new ConfigBuilder("preflightMaxAgeInSecs")
@@ -283,10 +285,11 @@ public final class JettyServerConfig {
       new ConfigBuilder("exposedHeaders")
           .doc(
               "A comma separated list of HTTP headers that are allowed to be exposed on the client."
-                  + " Default value is the empty list")
+                  + " Default value exposes V1 request correlation, conditional caching, retry, and"
+                  + " authentication challenge headers")
           .version(ConfigConstants.VERSION_0_4_0)
           .stringConf()
-          .createWithDefault("");
+          .createWithDefault("ETag,Retry-After,WWW-Authenticate,X-Request-Id");
 
   public static final ConfigEntry<Boolean> CHAIN_PREFLIGHT =
       new ConfigBuilder("chainPreflight")

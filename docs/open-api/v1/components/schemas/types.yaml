@@ -1,0 +1,346 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    DataType:
+      description: |-
+        A lossless V1 representation of a Gravitino relational data type. Every
+        currently supported `Type.Name` has an explicit variant. A newly added
+        kind is a public contract change and must be reviewed before exposure.
+      oneOf:
+        - $ref: "#/components/schemas/SimpleDataType"
+        - $ref: "#/components/schemas/IntegralDataType"
+        - $ref: "#/components/schemas/DecimalDataType"
+        - $ref: "#/components/schemas/TimeDataType"
+        - $ref: "#/components/schemas/TimestampDataType"
+        - $ref: "#/components/schemas/LengthDataType"
+        - $ref: "#/components/schemas/StructDataType"
+        - $ref: "#/components/schemas/ListDataType"
+        - $ref: "#/components/schemas/MapDataType"
+        - $ref: "#/components/schemas/UnionDataType"
+        - $ref: "#/components/schemas/UnparsedDataType"
+        - $ref: "#/components/schemas/ExternalDataType"
+      discriminator:
+        propertyName: kind
+        mapping:
+          BOOLEAN: "#/components/schemas/SimpleDataType"
+          BYTE: "#/components/schemas/IntegralDataType"
+          SHORT: "#/components/schemas/IntegralDataType"
+          INTEGER: "#/components/schemas/IntegralDataType"
+          LONG: "#/components/schemas/IntegralDataType"
+          FLOAT: "#/components/schemas/SimpleDataType"
+          DOUBLE: "#/components/schemas/SimpleDataType"
+          DECIMAL: "#/components/schemas/DecimalDataType"
+          DATE: "#/components/schemas/SimpleDataType"
+          TIME: "#/components/schemas/TimeDataType"
+          TIMESTAMP: "#/components/schemas/TimestampDataType"
+          INTERVAL_YEAR: "#/components/schemas/SimpleDataType"
+          INTERVAL_DAY: "#/components/schemas/SimpleDataType"
+          STRING: "#/components/schemas/SimpleDataType"
+          VARCHAR: "#/components/schemas/LengthDataType"
+          FIXEDCHAR: "#/components/schemas/LengthDataType"
+          UUID: "#/components/schemas/SimpleDataType"
+          FIXED: "#/components/schemas/LengthDataType"
+          BINARY: "#/components/schemas/SimpleDataType"
+          VARIANT: "#/components/schemas/SimpleDataType"
+          STRUCT: "#/components/schemas/StructDataType"
+          LIST: "#/components/schemas/ListDataType"
+          MAP: "#/components/schemas/MapDataType"
+          UNION: "#/components/schemas/UnionDataType"
+          "NULL": "#/components/schemas/SimpleDataType"
+          UNPARSED: "#/components/schemas/UnparsedDataType"
+          EXTERNAL: "#/components/schemas/ExternalDataType"
+
+    SimpleDataType:
+      type: object
+      additionalProperties: true
+      description: A parameter-free primitive, interval, variant, binary, or null type.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum:
+            - BOOLEAN
+            - FLOAT
+            - DOUBLE
+            - DATE
+            - INTERVAL_YEAR
+            - INTERVAL_DAY
+            - STRING
+            - UUID
+            - BINARY
+            - VARIANT
+            - "NULL"
+      examples:
+        - kind: STRING
+        - kind: "NULL"
+
+    IntegralDataType:
+      type: object
+      additionalProperties: true
+      description: A signed or unsigned integral type.
+      required: [kind, signed]
+      properties:
+        kind:
+          type: string
+          enum: [BYTE, SHORT, INTEGER, LONG]
+        signed:
+          type: boolean
+          description: Whether the integral type is signed.
+      examples:
+        - kind: LONG
+          signed: true
+        - kind: INTEGER
+          signed: false
+
+    DecimalDataType:
+      type: object
+      additionalProperties: true
+      description: A fixed-precision decimal type.
+      required: [kind, precision, scale]
+      properties:
+        kind:
+          type: string
+          const: DECIMAL
+        precision:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 38
+        scale:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 38
+          description: Must be less than or equal to `precision`.
+      example:
+        kind: DECIMAL
+        precision: 18
+        scale: 2
+
+    TimeDataType:
+      type: object
+      additionalProperties: true
+      description: A time-of-day type with optional explicit fractional-second precision.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          const: TIME
+        precision:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 12
+          description: Omitted when catalog-default fractional-second precision applies.
+      example:
+        kind: TIME
+        precision: 6
+
+    TimestampDataType:
+      type: object
+      additionalProperties: true
+      description: A timestamp type with explicit time-zone behavior and optional precision.
+      required: [kind, withTimeZone]
+      properties:
+        kind:
+          type: string
+          const: TIMESTAMP
+        withTimeZone:
+          type: boolean
+        precision:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 12
+          description: Omitted when catalog-default fractional-second precision applies.
+      example:
+        kind: TIMESTAMP
+        withTimeZone: true
+        precision: 6
+
+    LengthDataType:
+      type: object
+      additionalProperties: true
+      description: A character or byte type with a fixed maximum length.
+      required: [kind, length]
+      properties:
+        kind:
+          type: string
+          enum: [VARCHAR, FIXEDCHAR, FIXED]
+        length:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+      examples:
+        - kind: VARCHAR
+          length: 255
+        - kind: FIXED
+          length: 16
+
+    StructDataType:
+      type: object
+      additionalProperties: true
+      description: An ordered collection of named, typed fields.
+      required: [kind, fields]
+      properties:
+        kind:
+          type: string
+          const: STRUCT
+        fields:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/StructField"
+      example:
+        kind: STRUCT
+        fields:
+          - name: city
+            type:
+              kind: STRING
+            nullable: false
+
+    StructField:
+      type: object
+      additionalProperties: true
+      description: One named field within a struct type.
+      required: [name, type, nullable]
+      properties:
+        name:
+          $ref: "#/components/schemas/Identifier"
+        type:
+          $ref: "#/components/schemas/DataType"
+        nullable:
+          type: boolean
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when no comment exists; JSON null is not used.
+
+    ListDataType:
+      type: object
+      additionalProperties: true
+      description: A homogeneous element collection with explicit element nullability.
+      required: [kind, elementType, elementNullable]
+      properties:
+        kind:
+          type: string
+          const: LIST
+        elementType:
+          $ref: "#/components/schemas/DataType"
+        elementNullable:
+          type: boolean
+
+    MapDataType:
+      type: object
+      additionalProperties: true
+      description: A key-value collection with explicit value nullability.
+      required: [kind, keyType, valueType, valueNullable]
+      properties:
+        kind:
+          type: string
+          const: MAP
+        keyType:
+          $ref: "#/components/schemas/DataType"
+        valueType:
+          $ref: "#/components/schemas/DataType"
+        valueNullable:
+          type: boolean
+
+    UnionDataType:
+      type: object
+      additionalProperties: true
+      description: A value that may conform to one of multiple declared data types.
+      required: [kind, types]
+      properties:
+        kind:
+          type: string
+          const: UNION
+        types:
+          type: array
+          minItems: 1
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/DataType"
+
+    UnparsedDataType:
+      type: object
+      additionalProperties: true
+      description: Native catalog type text that Gravitino has not parsed.
+      required: [kind, unparsedType]
+      properties:
+        kind:
+          type: string
+          const: UNPARSED
+        unparsedType:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: The catalog type text that Gravitino could not resolve.
+      example:
+        kind: UNPARSED
+        unparsedType: geography(point,4326)
+
+    ExternalDataType:
+      type: object
+      additionalProperties: true
+      description: A catalog-native type that is outside Gravitino's built-in type system.
+      required: [kind, catalogString]
+      properties:
+        kind:
+          type: string
+          const: EXTERNAL
+        catalogString:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: The type's native representation in the external catalog.
+      example:
+        kind: EXTERNAL
+        catalogString: geometry(point,4326)
+
+    Identifier:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+      description: A case-sensitive SQL identifier as reported by the catalog.
+
+    FieldName:
+      type: array
+      minItems: 1
+      maxItems: 64
+      items:
+        $ref: "#/components/schemas/Identifier"
+      description: A top-level or nested field path represented without lossy dot splitting.
+      example: [customer, address, city]
+
+    FieldNames:
+      type: array
+      minItems: 1
+      maxItems: 1024
+      description: One or more top-level or nested field paths.
+      items:
+        $ref: "#/components/schemas/FieldName"

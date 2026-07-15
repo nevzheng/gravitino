@@ -1,0 +1,93 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  parameters:
+    MetalakeName:
+      name: metalake
+      in: path
+      required: true
+      description: The case-sensitive metalake name.
+      schema:
+        $ref: "#/components/schemas/PathSegment"
+      example: demo
+    CatalogName:
+      name: catalog
+      in: path
+      required: true
+      description: The case-sensitive catalog name.
+      schema:
+        $ref: "#/components/schemas/PathSegment"
+      example: lakehouse
+    SchemaName:
+      name: schema
+      in: path
+      required: true
+      description: The case-sensitive schema name.
+      schema:
+        $ref: "#/components/schemas/PathSegment"
+      example: sales
+    TableName:
+      name: table
+      in: path
+      required: true
+      description: The case-sensitive table name.
+      schema:
+        $ref: "#/components/schemas/PathSegment"
+      example: orders
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: |-
+        An optional caller correlation identifier. The server accepts it only
+        when it conforms to the bounded safe-character schema; otherwise the
+        request is rejected with `INVALID_ARGUMENT`. When absent, the server
+        generates an identifier. The effective identifier is returned in every
+        response and included in every error body.
+      schema:
+        $ref: "#/components/schemas/RequestId"
+      example: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: |-
+        One header field containing one or more entity tags used for
+        conditional retrieval. Repeated `If-None-Match` header fields are
+        rejected. A matching current representation produces `304 Not Modified`
+        without a body.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 4096
+        pattern: '^(\*|(?:W/)?"[^"\\]+"(?:\s*,\s*(?:W/)?"[^"\\]+")*)$'
+      example: 'W/"table-7b6fb8f7"'
+  schemas:
+    PathSegment:
+      type: string
+      minLength: 1
+      maxLength: 255
+      pattern: "^[^/?#]+$"
+      description: A decoded resource-name segment. Slash, query, and fragment delimiters are forbidden.
+    RequestId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      description: A bounded opaque identifier safe for logs and HTTP headers.

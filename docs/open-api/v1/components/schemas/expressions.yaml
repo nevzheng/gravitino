@@ -1,0 +1,397 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    ValueExpression:
+      description: |-
+        A value expression implementing the JSON BNF defined by the linked
+        Apache Iceberg Expressions specification.
+      externalDocs:
+        description: Apache Iceberg Expressions specification.
+        url: https://github.com/apache/iceberg/blob/a2fb64b/format/expressions-spec.md
+      anyOf:
+        - $ref: "#/components/schemas/LiteralValue"
+        - $ref: "#/components/schemas/LiteralExpression"
+        - $ref: "#/components/schemas/ReferenceExpression"
+        - $ref: "#/components/schemas/ApplyExpression"
+
+    ExpressionArgument:
+      description: A value expression or two-valued predicate supplied to a function.
+      anyOf:
+        - $ref: "#/components/schemas/ValueExpression"
+        - $ref: "#/components/schemas/Predicate"
+
+    LiteralExpression:
+      type: object
+      additionalProperties: true
+      required: [type, value]
+      description: |-
+        The Iceberg literal object form. `data-type` is included when the JSON
+        value does not unambiguously convey the logical type. Gravitino should
+        emit it whenever the internal type is known.
+      properties:
+        type:
+          type: string
+          const: literal
+        value:
+          $ref: "#/components/schemas/LiteralValue"
+        data-type:
+          $ref: "./types.yaml#/components/schemas/DataType"
+          description: The explicit logical type of the value.
+      examples:
+        - type: literal
+          value: "1042.50"
+          data-type:
+            kind: DECIMAL
+            precision: 18
+            scale: 2
+        - type: literal
+          value: null
+          data-type:
+            kind: "NULL"
+        - type: literal
+          value:
+            "1": 42
+            "2": [gold, loyalty]
+        - type: literal
+          value:
+            keys: [us, ca]
+            values: [1, 2]
+
+    LiteralValue:
+      description: |-
+        An Iceberg JSON single-value representation. Primitive values use JSON
+        scalars; lists use arrays; structs use objects keyed by positive
+        32-bit field IDs; and maps use parallel `keys` and `values` arrays.
+        Decimal, temporal, UUID, fixed, binary, geometry, and geography strings
+        follow Iceberg Appendix D. In particular, fixed and binary values use
+        lowercase hexadecimal rather than Base64. JSON null is valid only for
+        a nullable value or the Gravitino `NULL` data type.
+      externalDocs:
+        description: Apache Iceberg JSON single-value serialization.
+        url: https://github.com/apache/iceberg/blob/a2fb64b/format/spec.md#appendix-d-single-value-serialization
+      anyOf:
+        - type: string
+          maxLength: 1048576
+          pattern: "^[\\s\\S]*$"
+        - type: number
+          format: double
+          minimum: -1.7976931348623157e+308
+          maximum: 1.7976931348623157e+308
+        - type: boolean
+        - type: "null"
+        - $ref: "#/components/schemas/LiteralListValue"
+        - $ref: "#/components/schemas/LiteralStructValue"
+        - $ref: "#/components/schemas/LiteralMapValue"
+
+    LiteralListValue:
+      type: array
+      maxItems: 10000
+      description: An Iceberg list value whose elements use single-value serialization.
+      items:
+        $ref: "#/components/schemas/LiteralValue"
+
+    NonNullLiteralValue:
+      description: An Iceberg single-value representation excluding a top-level JSON null.
+      anyOf:
+        - type: string
+          maxLength: 1048576
+          pattern: "^[\\s\\S]*$"
+        - type: number
+          format: double
+          minimum: -1.7976931348623157e+308
+          maximum: 1.7976931348623157e+308
+        - type: boolean
+        - $ref: "#/components/schemas/LiteralListValue"
+        - $ref: "#/components/schemas/LiteralStructValue"
+        - $ref: "#/components/schemas/LiteralMapValue"
+
+    LiteralStructValue:
+      type: object
+      maxProperties: 10000
+      description: |-
+        An Iceberg struct value. Each property name is the decimal form of a
+        positive 32-bit field ID; omitted fields are absent from the value.
+      propertyNames:
+        type: string
+        minLength: 1
+        maxLength: 10
+        pattern: "^(?:[1-9][0-9]{0,8}|1[0-9]{9}|20[0-9]{8}|21[0-3][0-9]{7}|214[0-6][0-9]{6}|2147[0-3][0-9]{5}|21474[0-7][0-9]{4}|214748[0-2][0-9]{3}|2147483[0-5][0-9]{2}|21474836[0-3][0-9]|214748364[0-7])$"
+      additionalProperties:
+        $ref: "#/components/schemas/LiteralValue"
+
+    LiteralMapValue:
+      type: object
+      additionalProperties: true
+      required: [keys, values]
+      description: |-
+        An Iceberg map value. `keys` and `values` have identical lengths, and
+        entries at the same array position form one key-value pair. Map keys
+        must conform to the declared key type and cannot be JSON null.
+      properties:
+        keys:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/NonNullLiteralValue"
+        values:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/LiteralValue"
+
+    LiteralsExpression:
+      type: object
+      additionalProperties: true
+      required: [type, values, data-type]
+      description: An explicitly typed literal set for `in` and `not-in`.
+      properties:
+        type:
+          type: string
+          const: literals
+        values:
+          type: array
+          minItems: 0
+          maxItems: 10000
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/LiteralValue"
+        data-type:
+          $ref: "./types.yaml#/components/schemas/DataType"
+
+    LiteralSet:
+      description: |-
+        The Iceberg `LITERALS` grammar: either a direct array of literal values
+        or an explicitly typed `literals` object. Gravitino V1 emits the typed
+        object form.
+      oneOf:
+        - type: array
+          minItems: 0
+          maxItems: 10000
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/LiteralMember"
+        - $ref: "#/components/schemas/LiteralsExpression"
+
+    LiteralMember:
+      description: A literal in an Iceberg `LITERALS` array.
+      anyOf:
+        - $ref: "#/components/schemas/LiteralValue"
+        - $ref: "#/components/schemas/LiteralExpression"
+
+    ReferenceExpression:
+      description: A bound field-ID reference or an unbound named reference.
+      oneOf:
+        - $ref: "#/components/schemas/BoundReferenceExpression"
+        - $ref: "#/components/schemas/NamedReferenceExpression"
+
+    BoundReferenceExpression:
+      type: object
+      additionalProperties: true
+      description: An Iceberg field reference bound to a stable schema field ID.
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          const: reference
+        id:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 2147483647
+          description: A stable field ID when the source schema supplies IDs.
+
+    NamedReferenceExpression:
+      type: object
+      additionalProperties: true
+      description: An Iceberg field reference resolved by name when the expression is bound.
+      required: [type, name]
+      properties:
+        type:
+          type: string
+          const: reference
+        name:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: An Iceberg unbound field name. Binding and nested-name resolution are mapper concerns.
+
+    ApplyExpression:
+      type: object
+      additionalProperties: true
+      description: A function applied to zero or more value expressions or predicates.
+      required: [type, function, arguments]
+      properties:
+        type:
+          type: string
+          const: apply
+        function:
+          $ref: "#/components/schemas/FunctionReference"
+        arguments:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "#/components/schemas/ExpressionArgument"
+          description: Present as an empty array for a zero-argument function.
+      example:
+        type: apply
+        function:
+          catalog: iceberg_functions
+          identifier: [year]
+        arguments:
+          - type: reference
+            name: created_at
+
+    FunctionReference:
+      description: |-
+        An unambiguous function reference following the Iceberg Expressions
+        serialization. A string is a one-part identifier. An array is a
+        multipart identifier. The object form may select a catalog explicitly;
+        omitted catalog means the catalog that stores the referencing object.
+      oneOf:
+        - type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+        - type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "./types.yaml#/components/schemas/Identifier"
+        - $ref: "#/components/schemas/QualifiedFunctionReference"
+
+    QualifiedFunctionReference:
+      type: object
+      additionalProperties: true
+      description: A multipart function identifier with an optional explicit catalog.
+      required: [identifier]
+      properties:
+        catalog:
+          $ref: "./types.yaml#/components/schemas/Identifier"
+          description: Omitted to resolve from the catalog that stores the referencing object.
+        identifier:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: "./types.yaml#/components/schemas/Identifier"
+
+    Predicate:
+      description: |-
+        A two-valued predicate adapted from the Iceberg Expressions
+        specification. Value expressions are not predicates, even when they
+        return booleans. Comparisons are null-safe as defined by Iceberg;
+        direct null and NaN comparison literals are rejected in favor of tests.
+      oneOf:
+        - type: boolean
+        - $ref: "#/components/schemas/NotPredicate"
+        - $ref: "#/components/schemas/BinaryPredicate"
+        - $ref: "#/components/schemas/TestPredicate"
+        - $ref: "#/components/schemas/ComparisonPredicate"
+        - $ref: "#/components/schemas/SetPredicate"
+
+    NotPredicate:
+      type: object
+      additionalProperties: true
+      description: The two-valued boolean negation of one predicate.
+      required: [type, child]
+      properties:
+        type:
+          type: string
+          const: not
+        child:
+          $ref: "#/components/schemas/Predicate"
+
+    BinaryPredicate:
+      type: object
+      additionalProperties: true
+      description: A two-valued conjunction or disjunction of two predicates.
+      required: [type, left, right]
+      properties:
+        type:
+          type: string
+          enum: [and, or]
+        left:
+          $ref: "#/components/schemas/Predicate"
+        right:
+          $ref: "#/components/schemas/Predicate"
+
+    TestPredicate:
+      type: object
+      additionalProperties: true
+      description: A null or NaN test applied to one value expression.
+      required: [type, child]
+      properties:
+        type:
+          type: string
+          enum: [is-null, not-null, is-nan, not-nan]
+        child:
+          $ref: "#/components/schemas/ValueExpression"
+
+    ComparisonPredicate:
+      type: object
+      additionalProperties: true
+      description: A null-safe comparison of two value expressions.
+      required: [type, left, right]
+      properties:
+        type:
+          type: string
+          enum: [lt, lt-eq, gt, gt-eq, eq, not-eq, starts-with, not-starts-with]
+        left:
+          $ref: "#/components/schemas/ValueExpression"
+        right:
+          $ref: "#/components/schemas/ValueExpression"
+
+    SetPredicate:
+      type: object
+      additionalProperties: true
+      description: A membership or non-membership test over a homogeneous literal set.
+      required: [type, child, values]
+      properties:
+        type:
+          type: string
+          enum: [in, not-in]
+        child:
+          $ref: "#/components/schemas/ValueExpression"
+        values:
+          $ref: "#/components/schemas/LiteralSet"
+
+  examples:
+    ComparisonPredicate:
+      summary: Iceberg comparison and null-test predicates
+      value:
+        type: and
+        left:
+          type: gt-eq
+          left:
+            type: reference
+            name: customer.lifetime_value
+          right:
+            type: literal
+            value: "1000.00"
+            data-type:
+              kind: DECIMAL
+              precision: 18
+              scale: 2
+        right:
+          type: not-null
+          child:
+            type: reference
+            name: customer

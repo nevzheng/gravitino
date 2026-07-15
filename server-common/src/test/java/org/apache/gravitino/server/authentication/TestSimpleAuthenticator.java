@@ -30,6 +30,11 @@ import org.junit.jupiter.api.Test;
 public class TestSimpleAuthenticator {
 
   @Test
+  public void testFallbackChallenge() {
+    Assertions.assertEquals("Basic", new SimpleAuthenticator().authenticationChallenges().get(0));
+  }
+
+  @Test
   public void testAuthentication() {
     SimpleAuthenticator simpleAuthenticator = new SimpleAuthenticator();
     Config config = new Config(false) {};

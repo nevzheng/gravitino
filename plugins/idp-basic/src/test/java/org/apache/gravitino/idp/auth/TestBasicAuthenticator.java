@@ -81,6 +81,11 @@ class TestBasicAuthenticator {
   }
 
   @Test
+  void testFallbackChallenge() {
+    assertEquals("Basic", new BasicAuthenticator().authenticationChallenges().get(0));
+  }
+
+  @Test
   void testEmptyHeader() throws Exception {
     BasicAuthenticator authenticator = authenticator();
     UnauthorizedException exception =

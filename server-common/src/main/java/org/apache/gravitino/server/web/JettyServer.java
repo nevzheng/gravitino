@@ -509,11 +509,24 @@ public class JettyServer {
   }
 
   public void addSystemFilters(String pathSpec) {
+    addSystemFilters(pathSpec, createAuthenticationFilter());
+  }
+
+  /**
+   * Adds the built-in HTTP filters using an explicitly supplied authentication filter.
+   *
+   * <p>This overload lets a server expose a route-scoped public error contract while preserving the
+   * default authentication behavior for other JettyServer users.
+   *
+   * @param pathSpec the servlet path specification.
+   * @param authenticationFilter the authentication filter to install after CORS.
+   */
+  public void addSystemFilters(String pathSpec, Filter authenticationFilter) {
     if (serverConfig.isEnableCorsFilter()) {
       servletContextHandler.addFilter(
           CorsFilterHolder.create(serverConfig), pathSpec, EnumSet.allOf(DispatcherType.class));
     }
-    addFilter(createAuthenticationFilter(), pathSpec);
+    addFilter(authenticationFilter, pathSpec);
   }
 
   /**

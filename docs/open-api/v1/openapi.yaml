@@ -1,0 +1,87 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+openapi: 3.1.2
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Apache Gravitino V1 REST API
+  version: 1.0.0
+  description: |-
+    The authoritative contract for the versioned Apache Gravitino V1 API.
+
+    V1 is selected only by the `/api/v1` route. Clients send and receive
+    `application/json`; vendor media types and version-selection headers are
+    not part of this contract. The unversioned `/api` API is a separate legacy
+    surface and is not described here.
+
+    Optional resource properties are omitted when no value exists. JSON `null`
+    is serialized only where a schema explicitly permits it, such as an
+    Iceberg `NULL` literal. Required collections and maps are serialized as
+    empty arrays or objects when they contain no entries. Response object
+    schemas explicitly allow additional properties: clients must ignore
+    members they do not understand. Adding an optional response property is a
+    compatible minor V1 contract release; removing a property, changing its
+    type or meaning, or making an optional property required needs a new routed
+    major version. Request object schemas use separate closed schemas and may
+    reject unknown properties.
+
+    Every operation also documents a generic `500 INTERNAL_ERROR` fallback.
+    It means only that an unclassified server failure was sanitized at the
+    public boundary; it is not an expected product outcome or a supported
+    diagnosis. Expected failures use their specific HTTP status and public
+    error type. Clients use the returned request ID for support and do not
+    retry `INTERNAL_ERROR` automatically.
+
+    Authentication is deployment-configured. When enabled, credentials use the
+    standard [`Authorization` header](https://www.rfc-editor.org/rfc/rfc9110#section-11.6.2).
+    This base contract deliberately does not declare it as a
+    [Parameter Object](https://spec.openapis.org/oas/v3.1.2.html#parameter-object):
+    OpenAPI ignores parameters with that name. A deployment-specific profile
+    must instead declare its exact
+    [Security Scheme](https://spec.openapis.org/oas/v3.1.2.html#security-scheme-object)
+    and [Security Requirement](https://spec.openapis.org/oas/v3.1.2.html#security-requirement-object),
+    including its authentication challenge behavior. This permits Basic,
+    Bearer, Negotiate, custom, or anonymous Gravitino deployments without
+    falsely claiming one universal scheme.
+  license:
+    name: Apache License 2.0
+    identifier: Apache-2.0
+  contact:
+    name: Apache Gravitino
+    url: https://gravitino.apache.org/
+externalDocs:
+  description: Apache Gravitino documentation
+  url: https://gravitino.apache.org/docs/
+servers:
+  - url: "{scheme}://{host}:{port}"
+    description: A local, staging, or production Gravitino server. The versioned path is part of each operation.
+    x-internal: false
+    variables:
+      scheme:
+        default: http
+        enum: [http, https]
+      host:
+        default: localhost
+      port:
+        default: "8090"
+tags:
+  - name: Tables
+    description: Relational table resources.
+paths:
+  /api/v1/metalakes/{metalake}/catalogs/{catalog}/schemas/{schema}/tables/{table}:
+    $ref: "./paths/tables.yaml"

@@ -73,6 +73,10 @@ import org.apache.gravitino.server.web.rest.TableOperations;
 import org.apache.gravitino.server.web.rest.TagOperations;
 import org.apache.gravitino.server.web.rest.TopicOperations;
 import org.apache.gravitino.server.web.rest.UserOperations;
+import org.apache.gravitino.server.web.rest.v1.TableOperationsV1;
+import org.apache.gravitino.server.web.rest.v1.error.V1ApiException;
+import org.apache.gravitino.server.web.rest.v1.error.V1ErrorContext;
+import org.apache.gravitino.server.web.rest.v1.error.V1PublicErrorTranslator;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.glassfish.hk2.api.Descriptor;
 import org.glassfish.hk2.api.Filter;
@@ -87,6 +91,8 @@ import org.slf4j.LoggerFactory;
  */
 public class GravitinoInterceptionService implements InterceptionService {
 
+  private static final String V1_RESOURCE_PACKAGE = TableOperationsV1.class.getPackageName();
+
   @Override
   public Filter getDescriptorFilter() {
     return new ClassListFilter(
@@ -95,6 +101,7 @@ public class GravitinoInterceptionService implements InterceptionService {
             CatalogOperations.class.getName(),
             SchemaOperations.class.getName(),
             TableOperations.class.getName(),
+            TableOperationsV1.class.getName(),
             ModelOperations.class.getName(),
             FunctionOperations.class.getName(),
             TopicOperations.class.getName(),
@@ -124,6 +131,12 @@ public class GravitinoInterceptionService implements InterceptionService {
     return Collections.emptyList();
   }
 
+  static boolean isV1Api(Method method) {
+    String declaringPackage = method.getDeclaringClass().getPackageName();
+    return declaringPackage.equals(V1_RESOURCE_PACKAGE)
+        || declaringPackage.startsWith(V1_RESOURCE_PACKAGE + ".");
+  }
+
   /**
    * Through dynamic proxy, obtain the annotations on the method and parameter list to perform
    * metadata authorization.
@@ -143,6 +156,7 @@ public class GravitinoInterceptionService implements InterceptionService {
     @Override
     public Object invoke(MethodInvocation methodInvocation) throws Throwable {
       Method method = methodInvocation.getMethod();
+      boolean v1Api = isV1Api(method);
       Parameter[] parameters = method.getParameters();
       AuthorizationExpression expressionAnnotation =
           method.getAnnotation(AuthorizationExpression.class);
@@ -172,7 +186,8 @@ public class GravitinoInterceptionService implements InterceptionService {
                   "Metalake {} does not exist when validating user {}", metalakeIdent, currentUser);
               // Not a real authz denial — metalake is absent, not forbidden. Skip event dispatch;
               // HttpAuditFilter will emit a generic HttpRequestFailureEvent for this 403.
-              return buildNoAuthResponse(expressionAnnotation, metadataContext, method, expression);
+              return buildNoAuthResponse(
+                  expressionAnnotation, metadataContext, method, expression, v1Api);
             } catch (ForbiddenException ex) {
               LOG.warn(
                   "User validation failed - User: {}, Metalake: {}, Reason: {}",
@@ -180,14 +195,14 @@ public class GravitinoInterceptionService implements InterceptionService {
                   metalakeIdent.name(),
                   ex.getMessage());
               dispatchAuthzDenialEvent(currentUser, metalakeIdent, method.getName(), expression);
-              return Utils.forbidden(ex.getMessage(), ex);
+              return forbiddenResponse(ex, v1Api);
             } catch (Exception ex) {
               LOG.error(
                   "Unexpected error during user validation - User: {}, Metalake: {}",
                   currentUser,
                   metalakeIdent.name(),
                   ex);
-              return Utils.internalError("Failed to validate user", ex);
+              return internalErrorResponse("Failed to validate user", ex, v1Api);
             }
           }
 
@@ -219,12 +234,19 @@ public class GravitinoInterceptionService implements InterceptionService {
                   accessMetadataName,
                   method.getName(),
                   expression);
-              return buildNoAuthResponse(expressionAnnotation, metadataContext, method, expression);
+              return buildNoAuthResponse(
+                  expressionAnnotation, metadataContext, method, expression, v1Api);
             }
           }
         }
         return methodInvocation.proceed();
       } catch (Exception ex) {
+        // A V1 resource deliberately wraps route failures so Jersey can apply the public V1 error
+        // contract. Authorization is complete by this point; converting the exception here would
+        // flatten a route-specific 4xx/5xx error to the generic authorization failure response.
+        if (v1Api && ex instanceof V1ApiException) {
+          throw ex;
+        }
         String currentUser = PrincipalUtils.getCurrentUserName();
         String methodName = methodInvocation.getMethod().getName();
 
@@ -233,8 +255,10 @@ public class GravitinoInterceptionService implements InterceptionService {
             currentUser,
             methodName,
             ex);
-        return Utils.internalError(
-            "Authorization failed due to system internal error. Please contact administrator.", ex);
+        return internalErrorResponse(
+            "Authorization failed due to system internal error. Please contact administrator.",
+            ex,
+            v1Api);
       }
     }
 
@@ -242,7 +266,8 @@ public class GravitinoInterceptionService implements InterceptionService {
         AuthorizationExpression expressionAnnotation,
         Map<Entity.EntityType, NameIdentifier> metadataContext,
         Method method,
-        String expression) {
+        String expression,
+        boolean v1Api) {
       MetadataObject.Type type = expressionAnnotation.accessMetadataType();
       NameIdentifier accessMetadataName =
           metadataContext.get(Entity.EntityType.valueOf(type.name()));
@@ -257,7 +282,7 @@ public class GravitinoInterceptionService implements InterceptionService {
           accessMetadataName,
           expression);
 
-      return buildNoAuthResponse(errorMessage, accessMetadataName, currentUser, methodName);
+      return buildNoAuthResponse(errorMessage, accessMetadataName, currentUser, methodName, v1Api);
     }
 
     private void dispatchAuthzDenialEvent(
@@ -279,7 +304,8 @@ public class GravitinoInterceptionService implements InterceptionService {
         String errorMessage,
         NameIdentifier accessMetadataName,
         String currentUser,
-        String methodName) {
+        String methodName,
+        boolean v1Api) {
       String contextualMessage;
       String accessMetadataMessage =
           accessMetadataName != null
@@ -296,7 +322,22 @@ public class GravitinoInterceptionService implements InterceptionService {
                 "User '%s' is not authorized to perform operation '%s' %s",
                 currentUser, methodName, accessMetadataMessage);
       }
-      return Utils.forbidden(contextualMessage, null);
+      return forbiddenResponse(new ForbiddenException("%s", contextualMessage), v1Api);
+    }
+
+    private static Response forbiddenResponse(ForbiddenException exception, boolean v1Api) {
+      if (v1Api) {
+        return V1PublicErrorTranslator.toResponse(exception, V1ErrorContext.empty());
+      }
+      return Utils.forbidden(exception.getMessage(), exception);
+    }
+
+    private static Response internalErrorResponse(
+        String legacyMessage, Exception exception, boolean v1Api) {
+      if (v1Api) {
+        return V1PublicErrorTranslator.toResponse(exception, V1ErrorContext.empty());
+      }
+      return Utils.internalError(legacyMessage, exception);
     }
   }
 

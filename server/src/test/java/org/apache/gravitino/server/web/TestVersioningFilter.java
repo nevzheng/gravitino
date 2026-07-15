@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +46,39 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 public class TestVersioningFilter {
+
+  @Test
+  public void testV1RouteBypassesLegacyAcceptInjection() throws Exception {
+    VersioningFilter filter = new VersioningFilter();
+    FilterChain mockChain = mock(FilterChain.class);
+    HttpServletRequest mockRequest = mock(HttpServletRequest.class);
+    HttpServletResponse mockResponse = mock(HttpServletResponse.class);
+    when(mockRequest.getRequestURI()).thenReturn("/api/v1/metalakes/demo");
+
+    filter.doFilter(mockRequest, mockResponse, mockChain);
+
+    verify(mockChain).doFilter(same(mockRequest), same(mockResponse));
+    verify(mockRequest, never()).getHeaders("Accept");
+  }
+
+  @Test
+  public void testV10RouteDoesNotBypassLegacyAcceptInjection() throws Exception {
+    VersioningFilter filter = new VersioningFilter();
+    FilterChain mockChain = mock(FilterChain.class);
+    HttpServletRequest mockRequest = mock(HttpServletRequest.class);
+    HttpServletResponse mockResponse = mock(HttpServletResponse.class);
+    when(mockRequest.getRequestURI()).thenReturn("/api/v10/metalakes/demo");
+    when(mockRequest.getHeaders("Accept")).thenReturn(Collections.emptyEnumeration());
+
+    filter.doFilter(mockRequest, mockResponse, mockChain);
+
+    ArgumentCaptor<MutableHttpServletRequest> captor =
+        ArgumentCaptor.forClass(MutableHttpServletRequest.class);
+    verify(mockChain).doFilter(captor.capture(), same(mockResponse));
+    assertEquals(
+        String.format("application/vnd.gravitino.v%d+json", ApiVersion.latestVersion().version()),
+        captor.getValue().getHeader("Accept"));
+  }
 
   @Test
   public void testDoFilterWithSupportedVersion() throws ServletException, IOException {

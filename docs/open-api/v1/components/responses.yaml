@@ -1,0 +1,335 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  responses:
+    GetTableOk:
+      description: The current table representation.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/SuccessCacheControl"
+        Vary:
+          $ref: "./headers.yaml#/components/headers/Vary"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/tables.yaml#/components/schemas/TableResource"
+          examples:
+            Table:
+              $ref: "./schemas/tables.yaml#/components/examples/TableResource"
+
+    HeadTableOk:
+      description: |-
+        The table exists and the caller is authorized. The headers are identical
+        to GET, but a HEAD response never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/SuccessCacheControl"
+        Vary:
+          $ref: "./headers.yaml#/components/headers/Vary"
+
+    HeadError:
+      description: |-
+        The request failed. The status has the same meaning as for GET, but a
+        HEAD response never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+
+    HeadUnauthorized:
+      description: |-
+        Authentication credentials are missing, invalid, or expired. The
+        required [`WWW-Authenticate` header](https://www.rfc-editor.org/rfc/rfc9110#section-11.6.1)
+        identifies one or more authentication challenges. A HEAD response
+        never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        WWW-Authenticate:
+          $ref: "./headers.yaml#/components/headers/WWW-Authenticate"
+
+    HeadMethodNotAllowed:
+      description: |-
+        The route exists but does not support the requested HTTP method. A HEAD
+        response never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        Allow:
+          $ref: "./headers.yaml#/components/headers/Allow"
+
+    HeadRetryableWithDelay:
+      description: |-
+        The request failed with a retryable status. The client must honor
+        Retry-After; a HEAD response never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        Retry-After:
+          $ref: "./headers.yaml#/components/headers/RetryAfter"
+
+    NotModified:
+      description: |-
+        The selected table representation matches `If-None-Match`. A 304
+        response never contains a message body.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        ETag:
+          $ref: "./headers.yaml#/components/headers/ETag"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/SuccessCacheControl"
+        Vary:
+          $ref: "./headers.yaml#/components/headers/Vary"
+
+    BadRequest:
+      description: The request violates the V1 route, parameter, or header contract.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/BadRequestErrorResponse"
+          examples:
+            InvalidArgument:
+              $ref: "./schemas/errors.yaml#/components/examples/InvalidArgument"
+
+    Unauthorized:
+      description: |-
+        Authentication credentials are missing, invalid, or expired. The
+        required [`WWW-Authenticate` header](https://www.rfc-editor.org/rfc/rfc9110#section-11.6.1)
+        identifies one or more authentication challenges.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        WWW-Authenticate:
+          $ref: "./headers.yaml#/components/headers/WWW-Authenticate"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/UnauthorizedErrorResponse"
+          examples:
+            Unauthenticated:
+              $ref: "./schemas/errors.yaml#/components/examples/Unauthenticated"
+
+    Forbidden:
+      description: |-
+        The caller is authenticated but is not authorized to load this table.
+        Authorization is evaluated before existence is disclosed.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/ForbiddenErrorResponse"
+          examples:
+            PermissionDenied:
+              $ref: "./schemas/errors.yaml#/components/examples/PermissionDenied"
+
+    NotFound:
+      description: The requested API route or a named resource in the table hierarchy does not exist.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/NotFoundErrorResponse"
+          examples:
+            RouteNotFound:
+              $ref: "./schemas/errors.yaml#/components/examples/RouteNotFound"
+            MetalakeNotFound:
+              $ref: "./schemas/errors.yaml#/components/examples/MetalakeNotFound"
+            CatalogNotFound:
+              $ref: "./schemas/errors.yaml#/components/examples/CatalogNotFound"
+            SchemaNotFound:
+              $ref: "./schemas/errors.yaml#/components/examples/SchemaNotFound"
+            TableNotFound:
+              $ref: "./schemas/errors.yaml#/components/examples/TableNotFound"
+
+    MethodNotAllowed:
+      description: The route exists but does not support the requested HTTP method.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        Allow:
+          $ref: "./headers.yaml#/components/headers/Allow"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/MethodNotAllowedErrorResponse"
+          examples:
+            MethodNotAllowed:
+              $ref: "./schemas/errors.yaml#/components/examples/MethodNotAllowed"
+
+    NotAcceptable:
+      description: The request does not permit `application/json`.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/NotAcceptableErrorResponse"
+          examples:
+            NotAcceptable:
+              $ref: "./schemas/errors.yaml#/components/examples/NotAcceptable"
+
+    Conflict:
+      description: The requested catalog resource exists but is not in an active state.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/ConflictErrorResponse"
+          examples:
+            ResourceNotActive:
+              $ref: "./schemas/errors.yaml#/components/examples/ResourceNotActive"
+
+    RateLimited:
+      description: The caller exceeded a configured request limit and may retry after the delay.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        Retry-After:
+          $ref: "./headers.yaml#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/RateLimitedErrorResponse"
+          examples:
+            RateLimited:
+              $ref: "./schemas/errors.yaml#/components/examples/RateLimited"
+
+    InternalError:
+      description: |-
+        The V1 fallback for an unclassified server failure. It provides a
+        sanitized envelope and request correlation, not a product-level
+        diagnosis or an expected outcome. Expected failures must use their
+        specific documented status and error type; unknown failures are
+        deliberately non-retryable to prevent retry storms.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/InternalErrorResponse"
+          examples:
+            InternalError:
+              $ref: "./schemas/errors.yaml#/components/examples/InternalError"
+
+    NotImplemented:
+      description: The selected catalog does not implement table loading.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/NotImplementedErrorResponse"
+          examples:
+            UnsupportedOperation:
+              $ref: "./schemas/errors.yaml#/components/examples/UnsupportedOperation"
+
+    BadGateway:
+      description: A transient connection failure occurred while loading from the catalog.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/BadGatewayErrorResponse"
+          examples:
+            UpstreamConnectionFailed:
+              $ref: "./schemas/errors.yaml#/components/examples/UpstreamConnectionFailed"
+
+    ServiceUnavailable:
+      description: Gravitino or the backing catalog is temporarily unavailable.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+        Retry-After:
+          $ref: "./headers.yaml#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/ServiceUnavailableErrorResponse"
+          examples:
+            ServiceUnavailable:
+              $ref: "./schemas/errors.yaml#/components/examples/ServiceUnavailable"
+
+    GatewayTimeout:
+      description: A transient upstream deadline expired while loading the table.
+      headers:
+        X-Request-Id:
+          $ref: "./headers.yaml#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "./headers.yaml#/components/headers/ErrorCacheControl"
+      content:
+        application/json:
+          schema:
+            $ref: "./schemas/errors.yaml#/components/schemas/GatewayTimeoutErrorResponse"
+          examples:
+            UpstreamTimeout:
+              $ref: "./schemas/errors.yaml#/components/examples/UpstreamTimeout"

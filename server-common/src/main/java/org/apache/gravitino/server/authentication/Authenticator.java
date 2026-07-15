@@ -20,6 +20,8 @@
 package org.apache.gravitino.server.authentication;
 
 import java.security.Principal;
+import java.util.Collections;
+import java.util.List;
 import org.apache.gravitino.Config;
 
 /** The interface provides authentication mechanism. */
@@ -69,5 +71,20 @@ public interface Authenticator {
    */
   default boolean supportsToken(byte[] tokenData) {
     return false;
+  }
+
+  /**
+   * Returns static HTTP authentication challenges that this authenticator can advertise when an
+   * authentication failure does not supply a more specific challenge.
+   *
+   * <p>Implementations should return complete, valid {@code WWW-Authenticate} challenge values,
+   * such as {@code Bearer}, {@code Basic realm="Gravitino"}, or {@code Negotiate}. The default is
+   * empty so existing custom authenticators remain source- and binary-compatible; a V1 request
+   * without any valid challenge fails closed rather than emitting an invalid 401 response.
+   *
+   * @return static {@code WWW-Authenticate} challenge values, if any.
+   */
+  default List<String> authenticationChallenges() {
+    return Collections.emptyList();
   }
 }

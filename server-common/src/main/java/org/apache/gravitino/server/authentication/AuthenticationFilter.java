@@ -22,6 +22,8 @@ import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import javax.servlet.Filter;
@@ -72,8 +74,8 @@ public class AuthenticationFilter implements Filter {
       chain.doFilter(request, response);
       return;
     }
+    List<Authenticator> authenticators = Collections.emptyList();
     try {
-      List<Authenticator> authenticators;
       if (filterAuthenticators == null || filterAuthenticators.isEmpty()) {
         authenticators = ServerAuthenticator.getInstance().authenticators();
       } else {
@@ -108,19 +110,56 @@ public class AuthenticationFilter implements Filter {
           });
     } catch (UnauthorizedException ue) {
       HttpServletResponse resp = (HttpServletResponse) response;
-      if (!ue.getChallenges().isEmpty()) {
-        // For some authentication, HTTP response can provide some challenge information
-        // to let client to create correct authenticated request.
-        // Refer to https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/WWW-Authenticate
-        for (String challenge : ue.getChallenges()) {
-          resp.setHeader(AuthConstants.HTTP_CHALLENGE_HEADER, challenge);
-        }
-      }
-      sendAuthErrorResponse(resp, ue);
+      sendAuthErrorResponse(
+          (HttpServletRequest) request, resp, ue, authenticationChallenges(ue, authenticators));
     } catch (Exception e) {
       HttpServletResponse resp = (HttpServletResponse) response;
-      sendAuthErrorResponse(resp, e);
+      sendAuthErrorResponse((HttpServletRequest) request, resp, e);
     }
+  }
+
+  /**
+   * Sends a JSON authentication error response with request context available to server-specific
+   * subclasses. The default implementation preserves the existing two-argument extension point so
+   * Iceberg and Lance authentication filters retain their current behavior.
+   *
+   * @param request the incoming HTTP request.
+   * @param response the HTTP response.
+   * @param exception the authentication failure.
+   * @throws IOException if the error response cannot be written.
+   */
+  protected void sendAuthErrorResponse(
+      HttpServletRequest request, HttpServletResponse response, Exception exception)
+      throws IOException {
+    sendAuthErrorResponse(response, exception);
+  }
+
+  /**
+   * Sends an authentication error response with the selected HTTP authentication challenges.
+   *
+   * <p>This overload preserves the existing two- and three-argument extension points while allowing
+   * a protocol-specific subclass to enforce its own challenge contract. The default implementation
+   * writes every challenge as a separate header field before delegating to the existing
+   * three-argument method.
+   *
+   * @param request the incoming HTTP request.
+   * @param response the HTTP response.
+   * @param exception the authentication failure.
+   * @param challenges selected {@code WWW-Authenticate} challenge values.
+   * @throws IOException if the error response cannot be written.
+   */
+  protected void sendAuthErrorResponse(
+      HttpServletRequest request,
+      HttpServletResponse response,
+      Exception exception,
+      List<String> challenges)
+      throws IOException {
+    if (challenges != null) {
+      for (String challenge : challenges) {
+        response.addHeader(AuthConstants.HTTP_CHALLENGE_HEADER, challenge);
+      }
+    }
+    sendAuthErrorResponse(request, response, exception);
   }
 
   /**
@@ -153,6 +192,26 @@ public class AuthenticationFilter implements Filter {
     response.setContentType("application/json");
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
     ObjectMapperProvider.objectMapper().writeValue(response.getWriter(), errorResponse);
+  }
+
+  private static List<String> authenticationChallenges(
+      UnauthorizedException exception, List<Authenticator> authenticators) {
+    if (!exception.getChallenges().isEmpty()) {
+      return new ArrayList<>(exception.getChallenges());
+    }
+
+    if (authenticators == null) {
+      return new ArrayList<>();
+    }
+
+    List<String> challenges = new ArrayList<>();
+    for (Authenticator authenticator : authenticators) {
+      List<String> authenticatorChallenges = authenticator.authenticationChallenges();
+      if (authenticatorChallenges != null) {
+        challenges.addAll(authenticatorChallenges);
+      }
+    }
+    return challenges;
   }
 
   /**

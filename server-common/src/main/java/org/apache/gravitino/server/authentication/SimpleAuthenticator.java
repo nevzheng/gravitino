@@ -24,6 +24,7 @@ import static org.apache.gravitino.utils.PrincipalUtils.ANONYMOUS_PRINCIPAL;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.Base64;
+import java.util.List;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.UserPrincipal;
@@ -34,6 +35,8 @@ import org.apache.gravitino.auth.AuthConstants;
  * the identifier provided by the user without any validation.
  */
 class SimpleAuthenticator implements Authenticator {
+
+  private static final String BASIC_CHALLENGE = AuthConstants.AUTHORIZATION_BASIC_HEADER.trim();
 
   @Override
   public boolean isDataFromToken() {
@@ -79,5 +82,10 @@ class SimpleAuthenticator implements Authenticator {
     return tokenData == null
         || new String(tokenData, StandardCharsets.UTF_8)
             .startsWith(AuthConstants.AUTHORIZATION_BASIC_HEADER);
+  }
+
+  @Override
+  public List<String> authenticationChallenges() {
+    return List.of(BASIC_CHALLENGE);
   }
 }

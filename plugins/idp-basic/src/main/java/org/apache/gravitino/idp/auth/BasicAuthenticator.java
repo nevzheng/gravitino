@@ -96,6 +96,11 @@ public class BasicAuthenticator implements Authenticator {
             .startsWith(AuthConstants.AUTHORIZATION_BASIC_HEADER);
   }
 
+  @Override
+  public List<String> authenticationChallenges() {
+    return List.of(BASIC_CHALLENGE);
+  }
+
   private String requireBasicAuthHeader(byte[] tokenData) {
     String authData = tokenData == null ? "" : new String(tokenData, StandardCharsets.UTF_8);
     if (StringUtils.isBlank(authData)) {

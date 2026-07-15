@@ -156,6 +156,34 @@ public class TestAuthenticationFilter {
   }
 
   @Test
+  public void testAuthenticationFailurePreservesEveryFallbackChallenge()
+      throws ServletException, IOException {
+    Authenticator authenticator = mock(Authenticator.class);
+    AuthenticationFilter filter = new AuthenticationFilter(Lists.newArrayList(authenticator));
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    HttpServletResponse response = mock(HttpServletResponse.class);
+    StringWriter output = new StringWriter();
+    when(request.getHeaders(AuthConstants.HTTP_HEADER_AUTHORIZATION))
+        .thenReturn(new Vector<String>().elements());
+    when(response.getWriter()).thenReturn(new PrintWriter(output));
+    when(authenticator.authenticationChallenges())
+        .thenReturn(Lists.newArrayList("Bearer", "Basic realm=\"Gravitino\""));
+
+    filter.doFilter(request, response, mock(FilterChain.class));
+
+    verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+    verify(response).addHeader(AuthConstants.HTTP_CHALLENGE_HEADER, "Bearer");
+    verify(response).addHeader(AuthConstants.HTTP_CHALLENGE_HEADER, "Basic realm=\"Gravitino\"");
+  }
+
+  @Test
+  public void testCustomAuthenticatorDefaultsToNoFallbackChallenge() {
+    Authenticator authenticator = config -> {};
+
+    Assertions.assertTrue(authenticator.authenticationChallenges().isEmpty());
+  }
+
+  @Test
   public void testDoFilterBypassesAuthenticationForHealthEndpoints()
       throws ServletException, IOException {
     // /health, /health/live, /health/ready are root-level aliases; during a Jetty forward

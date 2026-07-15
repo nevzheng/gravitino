@@ -1,0 +1,244 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  schemas:
+    PartitionTransform:
+      description: A physical table partition transform.
+      oneOf:
+        - $ref: "#/components/schemas/SingleFieldTransform"
+        - $ref: "#/components/schemas/BucketTransform"
+        - $ref: "#/components/schemas/TruncateTransform"
+        - $ref: "#/components/schemas/ListTransform"
+        - $ref: "#/components/schemas/RangeTransform"
+        - $ref: "#/components/schemas/ApplyTransform"
+      discriminator:
+        propertyName: kind
+        mapping:
+          IDENTITY: "#/components/schemas/SingleFieldTransform"
+          YEAR: "#/components/schemas/SingleFieldTransform"
+          MONTH: "#/components/schemas/SingleFieldTransform"
+          DAY: "#/components/schemas/SingleFieldTransform"
+          HOUR: "#/components/schemas/SingleFieldTransform"
+          BUCKET: "#/components/schemas/BucketTransform"
+          TRUNCATE: "#/components/schemas/TruncateTransform"
+          LIST: "#/components/schemas/ListTransform"
+          RANGE: "#/components/schemas/RangeTransform"
+          APPLY: "#/components/schemas/ApplyTransform"
+
+    SingleFieldTransform:
+      type: object
+      additionalProperties: true
+      description: A built-in partition transform over one field path.
+      required: [kind, fieldName]
+      properties:
+        kind:
+          type: string
+          enum: [IDENTITY, YEAR, MONTH, DAY, HOUR]
+        fieldName:
+          $ref: "./types.yaml#/components/schemas/FieldName"
+
+    BucketTransform:
+      type: object
+      additionalProperties: true
+      description: A bucket transform over one or more field paths.
+      required: [kind, numBuckets, fieldNames]
+      properties:
+        kind:
+          type: string
+          const: BUCKET
+        numBuckets:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+        fieldNames:
+          $ref: "./types.yaml#/components/schemas/FieldNames"
+
+    TruncateTransform:
+      type: object
+      additionalProperties: true
+      description: A width-based truncate transform over one field path.
+      required: [kind, width, fieldName]
+      properties:
+        kind:
+          type: string
+          const: TRUNCATE
+        width:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 2147483647
+        fieldName:
+          $ref: "./types.yaml#/components/schemas/FieldName"
+
+    ListTransform:
+      type: object
+      additionalProperties: true
+      description: A list partition definition with optional preassigned partitions.
+      required: [kind, fieldNames, assignments]
+      properties:
+        kind:
+          type: string
+          const: LIST
+        fieldNames:
+          $ref: "./types.yaml#/components/schemas/FieldNames"
+        assignments:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/ListPartitionAssignment"
+          description: Present as an empty array when no partitions are preassigned.
+
+    RangeTransform:
+      type: object
+      additionalProperties: true
+      description: A range partition definition with optional preassigned ranges.
+      required: [kind, fieldName, assignments]
+      properties:
+        kind:
+          type: string
+          const: RANGE
+        fieldName:
+          $ref: "./types.yaml#/components/schemas/FieldName"
+        assignments:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/RangePartitionAssignment"
+          description: Present as an empty array when no partitions are preassigned.
+
+    ApplyTransform:
+      type: object
+      additionalProperties: true
+      description: A catalog-defined partition transform applied to value expressions.
+      required: [kind, name, arguments]
+      properties:
+        kind:
+          type: string
+          const: APPLY
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: The catalog transform name.
+        arguments:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: "./expressions.yaml#/components/schemas/ValueExpression"
+          description: Present as an empty array for a zero-argument transform.
+
+    PartitionAssignment:
+      oneOf:
+        - $ref: "#/components/schemas/IdentityPartitionAssignment"
+        - $ref: "#/components/schemas/ListPartitionAssignment"
+        - $ref: "#/components/schemas/RangePartitionAssignment"
+      discriminator:
+        propertyName: kind
+        mapping:
+          IDENTITY: "#/components/schemas/IdentityPartitionAssignment"
+          LIST: "#/components/schemas/ListPartitionAssignment"
+          RANGE: "#/components/schemas/RangePartitionAssignment"
+
+    IdentityPartitionAssignment:
+      type: object
+      additionalProperties: true
+      required: [kind, properties, fieldNames, values]
+      properties:
+        kind:
+          type: string
+          const: IDENTITY
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when the catalog does not assign a name.
+        properties:
+          $ref: "#/components/schemas/PartitionProperties"
+        fieldNames:
+          $ref: "./types.yaml#/components/schemas/FieldNames"
+        values:
+          type: array
+          minItems: 1
+          maxItems: 1024
+          items:
+            $ref: "./expressions.yaml#/components/schemas/LiteralExpression"
+
+    ListPartitionAssignment:
+      type: object
+      additionalProperties: true
+      description: A named or anonymous preassigned list partition.
+      required: [kind, properties, values]
+      properties:
+        kind:
+          type: string
+          const: LIST
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when the catalog does not assign a name.
+        properties:
+          $ref: "#/components/schemas/PartitionProperties"
+        values:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            type: array
+            minItems: 1
+            maxItems: 1024
+            items:
+              $ref: "./expressions.yaml#/components/schemas/LiteralExpression"
+
+    RangePartitionAssignment:
+      type: object
+      additionalProperties: true
+      required: [kind, properties]
+      description: |-
+        A range with an inclusive lower bound and exclusive upper bound. An
+        omitted bound is unbounded; omitting both covers the entire domain.
+      properties:
+        kind:
+          type: string
+          const: RANGE
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: "^\\S(?:[\\s\\S]*\\S)?$"
+          description: Omitted when the catalog does not assign a name.
+        properties:
+          $ref: "#/components/schemas/PartitionProperties"
+        lower:
+          $ref: "./expressions.yaml#/components/schemas/LiteralExpression"
+        upper:
+          $ref: "./expressions.yaml#/components/schemas/LiteralExpression"
+
+    PartitionProperties:
+      type: object
+      maxProperties: 10000
+      additionalProperties:
+        type: string
+        maxLength: 1048576
+        pattern: "^[\\s\\S]*$"
+      description: Present as an empty object when no assignment properties exist.

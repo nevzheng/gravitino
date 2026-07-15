@@ -1,0 +1,116 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+parameters:
+  - $ref: "../components/parameters.yaml#/components/parameters/MetalakeName"
+  - $ref: "../components/parameters.yaml#/components/parameters/CatalogName"
+  - $ref: "../components/parameters.yaml#/components/parameters/SchemaName"
+  - $ref: "../components/parameters.yaml#/components/parameters/TableName"
+  - $ref: "../components/parameters.yaml#/components/parameters/RequestId"
+
+get:
+  tags: [Tables]
+  security: []
+  summary: Get a table
+  description: |-
+    Returns the complete public V1 representation of one table.
+
+    This operation is safe and idempotent. A catalog implementation may
+    synchronize internal metadata while loading, but that bookkeeping is not a
+    client-visible mutation. The server authorizes the table read before
+    revealing whether the resource exists. Clients cannot declare their own
+    privileges; the legacy `privileges` query parameter is not supported, and
+    unrecognized query parameters are rejected with `INVALID_ARGUMENT`.
+
+    V1 is selected by this route only. The request must permit
+    `application/json` through an absent `Accept` header, `*/*`, or
+    `application/json`. Legacy Gravitino vendor media types and header-based
+    version selection are not valid on V1 and are rejected even if
+    `application/json` also appears in `Accept`. These request-contract checks
+    run before authentication, so invalid V1 request headers receive their
+    documented `400` or `406` response rather than an authentication response.
+
+    Successful authenticated responses permit private storage but require
+    revalidation. Use the returned weak `ETag` with `If-None-Match`; a match
+    returns 304 without a body. Errors are never stored.
+  operationId: getTableV1
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/IfNoneMatch"
+  responses:
+    "200":
+      $ref: "../components/responses.yaml#/components/responses/GetTableOk"
+    "304":
+      $ref: "../components/responses.yaml#/components/responses/NotModified"
+    "400":
+      $ref: "../components/responses.yaml#/components/responses/BadRequest"
+    "401":
+      $ref: "../components/responses.yaml#/components/responses/Unauthorized"
+    "403":
+      $ref: "../components/responses.yaml#/components/responses/Forbidden"
+    "404":
+      $ref: "../components/responses.yaml#/components/responses/NotFound"
+    "405":
+      $ref: "../components/responses.yaml#/components/responses/MethodNotAllowed"
+    "406":
+      $ref: "../components/responses.yaml#/components/responses/NotAcceptable"
+    "409":
+      $ref: "../components/responses.yaml#/components/responses/Conflict"
+    "500":
+      $ref: "../components/responses.yaml#/components/responses/InternalError"
+    "501":
+      $ref: "../components/responses.yaml#/components/responses/NotImplemented"
+    "502":
+      $ref: "../components/responses.yaml#/components/responses/BadGateway"
+
+head:
+  tags: [Tables]
+  security: []
+  summary: Check a table and retrieve its representation headers
+  description: |-
+    Applies the same validation, authentication, authorization, resource lookup,
+    content negotiation, caching, and public error mapping as `GET`, but never
+    returns a message body. A successful response includes the same validator
+    and cache headers that a corresponding GET would return.
+  operationId: headTableV1
+  parameters:
+    - $ref: "../components/parameters.yaml#/components/parameters/IfNoneMatch"
+  responses:
+    "200":
+      $ref: "../components/responses.yaml#/components/responses/HeadTableOk"
+    "304":
+      $ref: "../components/responses.yaml#/components/responses/NotModified"
+    "400":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "401":
+      $ref: "../components/responses.yaml#/components/responses/HeadUnauthorized"
+    "403":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "404":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "405":
+      $ref: "../components/responses.yaml#/components/responses/HeadMethodNotAllowed"
+    "406":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "409":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "500":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "501":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"
+    "502":
+      $ref: "../components/responses.yaml#/components/responses/HeadError"

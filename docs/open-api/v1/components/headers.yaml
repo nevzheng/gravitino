@@ -1,0 +1,94 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+components:
+  headers:
+    RequestId:
+      required: true
+      description: The effective request correlation identifier.
+      schema:
+        $ref: "./parameters.yaml#/components/schemas/RequestId"
+      example: 01JAZ6Y9QZ7E9G2Q4S6M8N1P3R
+    ETag:
+      required: true
+      description: A weak validator for the canonical V1 table representation.
+      schema:
+        type: string
+        maxLength: 4096
+        pattern: '^W/"[^"\\]+"$'
+      example: 'W/"table-7b6fb8f7"'
+    SuccessCacheControl:
+      required: true
+      description: |
+        Permits private storage but requires validation before reuse. Shared
+        caches must not reuse authenticated table metadata.
+      schema:
+        type: string
+        const: private, no-cache
+      example: private, no-cache
+    ErrorCacheControl:
+      required: true
+      description: Prevents storage of public error responses.
+      schema:
+        type: string
+        const: no-store
+      example: no-store
+    Vary:
+      required: true
+      description: Representation-selection request headers used by caches.
+      schema:
+        type: string
+        const: Authorization, Accept, Accept-Encoding
+      example: Authorization, Accept, Accept-Encoding
+    RetryAfter:
+      required: true
+      description: |
+        Delay in seconds before another attempt. When the error body contains
+        `retryAfterSeconds`, this header is required and its decimal value must
+        be identical. Clients honor the header and apply exponential backoff
+        with jitter. This contract does not use the HTTP-date form.
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        maximum: 86400
+      example: 5
+    Allow:
+      required: true
+      description: |-
+        Comma-separated HTTP methods supported by this resource. For this
+        table route, the set includes GET, HEAD, and OPTIONS. Method-token
+        order and optional whitespace are not semantically significant.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: "^[A-Z]+(?:\\s*,\\s*[A-Z]+)*$"
+      example: GET, HEAD, OPTIONS
+    WWW-Authenticate:
+      required: true
+      description: |-
+        One HTTP authentication challenge, as required on every V1 401 response
+        by [RFC 9110 section 11.6.1](https://www.rfc-editor.org/rfc/rfc9110#section-11.6.1).
+        A response can include multiple header fields when it offers multiple
+        authentication schemes.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 4096
+      example: Bearer

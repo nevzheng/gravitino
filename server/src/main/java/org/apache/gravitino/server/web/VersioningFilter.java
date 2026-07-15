@@ -81,6 +81,7 @@ public class VersioningFilter implements Filter {
   private static final Pattern ACCEPT_VERSION_REGEX =
       Pattern.compile("application/vnd\\.gravitino\\.v(\\d+)\\+json");
   private static final String ACCEPT_VERSION_HEADER = "Accept";
+  private static final String V1_API_PREFIX = "/api/v1";
 
   private static String getAcceptVersion(int version) {
     return String.format("application/vnd.gravitino.v%d+json", version);
@@ -93,6 +94,12 @@ public class VersioningFilter implements Filter {
   public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
       throws IOException, ServletException {
     HttpServletRequest req = (HttpServletRequest) request;
+    if (isV1Request(req)) {
+      // V1 is selected by its route. Do not inject legacy vendor media negotiation into its
+      // request because it deliberately consumes and produces ordinary application/json.
+      chain.doFilter(request, response);
+      return;
+    }
     Enumeration<String> acceptHeader = req.getHeaders(ACCEPT_VERSION_HEADER);
     while (acceptHeader.hasMoreElements()) {
       String value = acceptHeader.nextElement();
@@ -125,4 +132,23 @@ public class VersioningFilter implements Filter {
 
   @Override
   public void destroy() {}
+
+  /**
+   * Returns whether a request is addressed to the route-versioned V1 API.
+   *
+   * @param request the HTTP request.
+   * @return whether the request targets {@code /api/v1} or a descendant path.
+   */
+  public static boolean isV1Request(HttpServletRequest request) {
+    String requestUri = request.getRequestURI();
+    if (requestUri == null) {
+      return false;
+    }
+    String contextPath = request.getContextPath();
+    String path =
+        contextPath != null && requestUri.startsWith(contextPath)
+            ? requestUri.substring(contextPath.length())
+            : requestUri;
+    return V1_API_PREFIX.equals(path) || path.startsWith(V1_API_PREFIX + "/");
+  }
 }

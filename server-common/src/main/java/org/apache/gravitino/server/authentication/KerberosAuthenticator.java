@@ -17,6 +17,8 @@ import java.security.Principal;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.List;
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.kerberos.KeyTab;
@@ -154,6 +156,11 @@ public class KerberosAuthenticator implements Authenticator {
     return tokenData != null
         && new String(tokenData, StandardCharsets.UTF_8)
             .startsWith(AuthConstants.AUTHORIZATION_NEGOTIATE_HEADER);
+  }
+
+  @Override
+  public List<String> authenticationChallenges() {
+    return Collections.singletonList(AuthConstants.NEGOTIATE);
   }
 
   private Principal retrievePrincipalFromToken(String serverPrincipal, byte[] clientToken)

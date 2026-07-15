@@ -21,6 +21,8 @@ package org.apache.gravitino.server.authentication;
 import com.google.common.base.Preconditions;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.util.Collections;
+import java.util.List;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.UserPrincipal;
@@ -34,6 +36,7 @@ import org.apache.gravitino.exceptions.UnauthorizedException;
 class OAuth2TokenAuthenticator implements Authenticator {
   private static final org.slf4j.Logger LOG =
       org.slf4j.LoggerFactory.getLogger(OAuth2TokenAuthenticator.class);
+  private static final String BEARER_CHALLENGE = AuthConstants.AUTHORIZATION_BEARER_HEADER.trim();
 
   private String serviceAudience;
   private OAuthTokenValidator tokenValidator;
@@ -93,5 +96,10 @@ class OAuth2TokenAuthenticator implements Authenticator {
     return tokenData != null
         && new String(tokenData, StandardCharsets.UTF_8)
             .startsWith(AuthConstants.AUTHORIZATION_BEARER_HEADER);
+  }
+
+  @Override
+  public List<String> authenticationChallenges() {
+    return Collections.singletonList(BEARER_CHALLENGE);
   }
 }

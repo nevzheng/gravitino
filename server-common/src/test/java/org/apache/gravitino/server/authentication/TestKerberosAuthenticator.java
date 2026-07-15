@@ -55,6 +55,12 @@ public class TestKerberosAuthenticator extends KerberosSecurityTestcase {
   }
 
   @Test
+  public void testFallbackChallenge() {
+    Assertions.assertEquals(
+        AuthConstants.NEGOTIATE, new KerberosAuthenticator().authenticationChallenges().get(0));
+  }
+
+  @Test
   public void testAuthenticatorInitialization() throws Exception {
     KerberosAuthenticator kerberosAuthenticator = new KerberosAuthenticator();
 

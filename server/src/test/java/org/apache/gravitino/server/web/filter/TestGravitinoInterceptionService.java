@@ -18,6 +18,9 @@
 package org.apache.gravitino.server.web.filter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -30,7 +33,10 @@ import java.lang.reflect.Method;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.Request;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.apache.gravitino.Entity;
@@ -53,8 +59,15 @@ import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.server.web.filter.authorization.AuthorizationExecutor;
+import org.apache.gravitino.server.web.filter.authorization.AuthorizeExecutorFactory;
+import org.apache.gravitino.server.web.rest.v1.TableOperationsV1;
+import org.apache.gravitino.server.web.rest.v1.error.V1ApiException;
+import org.apache.gravitino.server.web.rest.v1.error.V1ClientInputException;
+import org.apache.gravitino.server.web.rest.v1.error.V1ErrorContext;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.apache.gravitino.utils.RequestContext;
+import org.glassfish.hk2.api.Descriptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -69,6 +82,71 @@ public class TestGravitinoInterceptionService {
   public void clearRequestContext() {
     RequestContext.resetOperationFailureFired();
     RequestContext.clear();
+  }
+
+  @Test
+  public void testV1TableRouteIsEligibleForAuthorizationInterception() {
+    Descriptor descriptor = mock(Descriptor.class);
+    when(descriptor.getImplementation()).thenReturn(TableOperationsV1.class.getName());
+
+    Assertions.assertTrue(
+        new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));
+  }
+
+  @Test
+  public void testV1PackageMethodsUseTheV1ErrorContract() throws Exception {
+    Method method = V1ApiException.class.getMethod("errorContext");
+
+    assertTrue(GravitinoInterceptionService.isV1Api(method));
+  }
+
+  @Test
+  public void testV1RouteExceptionReachesPublicExceptionMapper() throws Throwable {
+    AuthorizationExecutor authorizationExecutor = mock(AuthorizationExecutor.class);
+    when(authorizationExecutor.execute(ArgumentMatchers.any())).thenReturn(true);
+
+    try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
+        MockedStatic<AuthorizationUtils> authorizationUtilsMocked =
+            mockStatic(AuthorizationUtils.class);
+        MockedStatic<AuthorizeExecutorFactory> executorFactoryMocked =
+            mockStatic(AuthorizeExecutorFactory.class, invocation -> authorizationExecutor)) {
+      principalUtilsMocked.when(PrincipalUtils::getCurrentUserName).thenReturn("tester");
+
+      Method method =
+          TableOperationsV1.class.getMethod(
+              "getTable",
+              String.class,
+              String.class,
+              String.class,
+              String.class,
+              Request.class,
+              HttpHeaders.class,
+              UriInfo.class);
+      MethodInvocation invocation = mock(MethodInvocation.class);
+      V1ApiException expected =
+          new V1ApiException(
+              new V1ClientInputException("table", "Table name is invalid."),
+              V1ErrorContext.tableRead("metalake", "catalog", "schema", "table"));
+      when(invocation.getMethod()).thenReturn(method);
+      when(invocation.getArguments())
+          .thenReturn(
+              new Object[] {
+                "metalake",
+                "catalog",
+                "schema",
+                "table",
+                mock(Request.class),
+                mock(HttpHeaders.class),
+                mock(UriInfo.class)
+              });
+      when(invocation.proceed()).thenThrow(expected);
+
+      MethodInterceptor interceptor =
+          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+
+      assertSame(
+          expected, assertThrows(V1ApiException.class, () -> interceptor.invoke(invocation)));
+    }
   }
 
   @Test
