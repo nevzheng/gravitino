@@ -108,6 +108,7 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
         + ModelVersionAliasRelMapper.TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

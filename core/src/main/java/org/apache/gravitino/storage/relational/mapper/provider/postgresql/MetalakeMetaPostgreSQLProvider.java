@@ -94,6 +94,7 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
         + TABLE_NAME
         + " WHERE metalake_id IN (SELECT metalake_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

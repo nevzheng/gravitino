@@ -74,7 +74,8 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " WHERE role_id IN (SELECT role_id FROM "
         + ROLE_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

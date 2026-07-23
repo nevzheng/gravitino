@@ -217,6 +217,7 @@ public class PolicyMetadataObjectRelPostgreSQLProvider
         + POLICY_METADATA_OBJECT_RELATION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + POLICY_METADATA_OBJECT_RELATION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

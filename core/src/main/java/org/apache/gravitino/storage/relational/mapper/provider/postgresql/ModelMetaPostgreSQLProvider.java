@@ -94,7 +94,8 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
         + ModelMetaMapper.TABLE_NAME
         + " WHERE model_id IN (SELECT model_id FROM "
         + ModelMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

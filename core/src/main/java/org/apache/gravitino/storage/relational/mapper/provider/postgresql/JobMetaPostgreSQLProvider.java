@@ -106,6 +106,7 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " WHERE job_run_id IN (SELECT job_run_id FROM "
         + JobMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})";
+        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

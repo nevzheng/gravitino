@@ -48,7 +48,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE catalog_id IN (SELECT catalog_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

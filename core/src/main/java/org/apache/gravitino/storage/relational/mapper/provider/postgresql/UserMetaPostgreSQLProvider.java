@@ -107,7 +107,8 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
         + USER_TABLE_NAME
         + " WHERE user_id IN (SELECT user_id FROM "
         + USER_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

@@ -145,7 +145,8 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
         + FunctionMetaMapper.TABLE_NAME
         + " WHERE function_id IN (SELECT function_id FROM "
         + FunctionMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

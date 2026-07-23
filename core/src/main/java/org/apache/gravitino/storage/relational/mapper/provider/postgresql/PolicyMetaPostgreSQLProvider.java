@@ -49,7 +49,8 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
         + POLICY_META_TABLE_NAME
         + " WHERE policy_id IN (SELECT policy_id FROM "
         + POLICY_META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

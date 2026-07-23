@@ -71,7 +71,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
         + VERSION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + VERSION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

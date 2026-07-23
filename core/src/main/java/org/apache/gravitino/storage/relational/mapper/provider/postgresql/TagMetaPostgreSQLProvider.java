@@ -106,6 +106,7 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + TAG_TABLE_NAME
         + " WHERE tag_id IN (SELECT tag_id FROM "
         + TAG_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

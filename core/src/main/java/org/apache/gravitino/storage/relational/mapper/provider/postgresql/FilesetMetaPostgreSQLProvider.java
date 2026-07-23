@@ -71,7 +71,8 @@ public class FilesetMetaPostgreSQLProvider extends FilesetMetaBaseSQLProvider {
         + META_TABLE_NAME
         + " WHERE fileset_id IN (SELECT fileset_id FROM "
         + META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

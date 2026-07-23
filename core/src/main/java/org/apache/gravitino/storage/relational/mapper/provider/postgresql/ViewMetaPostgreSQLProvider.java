@@ -138,6 +138,7 @@ public class ViewMetaPostgreSQLProvider extends ViewMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE view_id IN (SELECT view_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

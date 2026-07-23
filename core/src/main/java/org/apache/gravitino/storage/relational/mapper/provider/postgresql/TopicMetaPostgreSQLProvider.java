@@ -135,6 +135,7 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE topic_id IN (SELECT topic_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at != 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at != 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

@@ -224,6 +224,7 @@ public class OwnerMetaPostgreSQLProvider extends OwnerMetaBaseSQLProvider {
         + OWNER_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + OWNER_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

@@ -77,6 +77,7 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
         + JobTemplateMetaMapper.TABLE_NAME
         + " WHERE job_template_id IN (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})";
+        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }
