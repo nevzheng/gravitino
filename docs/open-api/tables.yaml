@@ -437,14 +437,14 @@ components:
   schemas:
     EntityRestoreRequest:
       type: object
-      description: Merge patch that restores a soft-deleted table
+      description: Merge patch that restores a soft-deleted metadata entity
       required:
         - deleted
       additionalProperties: false
       properties:
         deleted:
           type: boolean
-          description: Must be false to restore the selected table generation
+          description: Must be false to restore the selected deletion generation
           enum:
             - false
 
@@ -477,12 +477,13 @@ components:
           example: "77192"
         name:
           type: string
-          description: Original table name
+          description: Original metadata entity name
         type:
           type: string
           description: Metadata object type
           enum:
             - table
+            - function
         deletedAt:
           type: integer
           format: int64
@@ -495,7 +496,7 @@ components:
             deletedAt and the server's current global soft-delete retention setting
         deletedBy:
           type: string
-          description: Principal that deleted the table, when available
+          description: Principal that deleted the metadata entity, when available
           nullable: true
         version:
           type: integer
@@ -551,7 +552,7 @@ components:
             - 0
         deletedEntities:
           type: array
-          description: Soft-deleted table records selected by the query filters
+          description: Soft-deleted metadata records selected by the query filters
           items:
             $ref: "#/components/schemas/DeletedEntity"
 

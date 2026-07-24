@@ -24,8 +24,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -356,6 +358,13 @@ abstract class BaseSchemaCatalog extends CatalogDTO
     return functionOperations.listFunctions(namespace);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedFunctions(
+      Namespace namespace, @Nullable String name, @Nullable String id) {
+    return functionOperations.listDeletedFunctions(namespace, name, id);
+  }
+
   @Override
   public Function[] listFunctionInfos(Namespace namespace) throws NoSuchSchemaException {
     return functionOperations.listFunctionInfos(namespace);
@@ -364,6 +373,18 @@ abstract class BaseSchemaCatalog extends CatalogDTO
   @Override
   public Function getFunction(NameIdentifier ident) {
     return functionOperations.getFunction(ident);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedFunction(NameIdentifier ident, String id) {
+    return functionOperations.loadDeletedFunction(ident, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Function restoreFunction(NameIdentifier ident, DeletedEntity generation) {
+    return functionOperations.restoreFunction(ident, generation);
   }
 
   @Override

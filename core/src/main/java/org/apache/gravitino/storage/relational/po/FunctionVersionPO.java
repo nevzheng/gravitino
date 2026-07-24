@@ -51,6 +51,8 @@ public class FunctionVersionPO {
 
   private Long deletedAt;
 
+  private String deletionId;
+
   public FunctionVersionPO() {}
 
   @lombok.Builder(setterPrefix = "with")
@@ -64,7 +66,8 @@ public class FunctionVersionPO {
       String functionComment,
       String definitions,
       String auditInfo,
-      Long deletedAt) {
+      Long deletedAt,
+      String deletionId) {
     Preconditions.checkArgument(functionId != null, "Function id is required");
     Preconditions.checkArgument(functionVersion != null, "Function version is required");
     Preconditions.checkArgument(StringUtils.isNotBlank(definitions), "Definitions cannot be empty");
@@ -81,5 +84,6 @@ public class FunctionVersionPO {
     this.definitions = definitions;
     this.auditInfo = auditInfo;
     this.deletedAt = deletedAt;
+    this.deletionId = deletionId;
   }
 }

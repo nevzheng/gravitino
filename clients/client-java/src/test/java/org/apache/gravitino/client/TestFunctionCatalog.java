@@ -26,18 +26,25 @@ import static org.apache.hc.core5.http.HttpStatus.SC_SERVER_ERROR;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
+import java.util.Map;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.function.FunctionDTO;
 import org.apache.gravitino.dto.function.FunctionDefinitionDTO;
 import org.apache.gravitino.dto.function.FunctionImplDTO;
 import org.apache.gravitino.dto.function.FunctionParamDTO;
 import org.apache.gravitino.dto.function.SQLImplDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -233,6 +240,108 @@ public class TestFunctionCatalog extends TestBase {
   }
 
   @Test
+  public void testRecoverableFunctionMetadata() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    NameIdentifier functionId = NameIdentifier.of(namespace, "normalize_email");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(formatFunctionRequestPath(fullNamespace));
+    String itemPath = collectionPath + "/" + functionId.name();
+    DeletedEntityDTO generation =
+        createDeletedFunctionGeneration(functionId.name(), "384273", RecoveryEntityType.FUNCTION);
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", functionId.name(), "id", generation.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    FunctionCatalog functionCatalog = catalog.asFunctionCatalog();
+    DeletedEntity[] listed =
+        functionCatalog.listDeletedFunctions(namespace, functionId.name(), generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.FUNCTION, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = functionCatalog.loadDeletedFunction(functionId, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    FunctionDTO restoredFunction =
+        mockFunctionDTO(functionId.name(), FunctionType.SCALAR, "restored metadata", true);
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        new FunctionResponse(restoredFunction),
+        SC_OK);
+    Function restored = functionCatalog.restoreFunction(functionId, loaded);
+    Assertions.assertEquals(functionId.name(), restored.name());
+    Assertions.assertEquals("restored metadata", restored.comment());
+  }
+
+  @Test
+  public void testDeletedFunctionResponseBinding() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(formatFunctionRequestPath(fullNamespace));
+    DeletedEntityDTO wrongType =
+        createDeletedFunctionGeneration("normalize_email", "384273", RecoveryEntityType.TABLE);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    FunctionCatalog functionCatalog = catalog.asFunctionCatalog();
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> functionCatalog.listDeletedFunctions(namespace, null, null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> functionCatalog.listDeletedFunctions(Namespace.of("a", "b"), null, null));
+
+    NameIdentifier functionId = NameIdentifier.of(namespace, "normalize_email");
+    String itemPath = collectionPath + "/" + functionId.name();
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "384273");
+    DeletedEntityDTO wrongName =
+        createDeletedFunctionGeneration("normalize_phone", "384273", RecoveryEntityType.FUNCTION);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> functionCatalog.loadDeletedFunction(functionId, "384273"));
+
+    DeletedEntityDTO wrongId =
+        createDeletedFunctionGeneration(functionId.name(), "384274", RecoveryEntityType.FUNCTION);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> functionCatalog.loadDeletedFunction(functionId, "384273"));
+
+    DeletedEntityDTO valid =
+        createDeletedFunctionGeneration(functionId.name(), "384273", RecoveryEntityType.FUNCTION);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new FunctionResponse(
+            mockFunctionDTO("normalize_phone", FunctionType.SCALAR, "wrong name", true)),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> functionCatalog.restoreFunction(functionId, valid));
+  }
+
+  @Test
   public void testRegisterFunction() throws JsonProcessingException {
     NameIdentifier func = NameIdentifier.of("schema1", "func1");
     String functionPath =
@@ -389,6 +498,24 @@ public class TestFunctionCatalog extends TestBase {
     Assertions.assertEquals(expected.definitions().length, actual.definitions().length);
     Assertions.assertEquals(
         expected.definitions()[0].returnType(), actual.definitions()[0].returnType());
+  }
+
+  private static DeletedEntityDTO createDeletedFunctionGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 
   private static String formatFunctionRequestPath(Namespace ns) {

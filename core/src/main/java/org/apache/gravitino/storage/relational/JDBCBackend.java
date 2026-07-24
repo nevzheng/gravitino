@@ -453,7 +453,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case MODEL_VERSION:
         return ModelVersionMetaService.getInstance().deleteModelVersion(ident);
       case FUNCTION:
-        return FunctionMetaService.getInstance().deleteFunction(ident);
+        return FunctionMetaService.getInstance().deleteFunction(ident, deletionRetentionMs);
       case POLICY:
         return PolicyMetaService.getInstance().deletePolicy(ident);
       case JOB_TEMPLATE:
@@ -542,9 +542,25 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
             .deleteModelVersionMetasByLegacyTimeline(
                 legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case FUNCTION:
-        return FunctionMetaService.getInstance()
-            .deleteFunctionMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableFunctionDeletionCount =
+            FunctionMetaService.getInstance()
+                .purgeExpiredFunctionDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableFunctionDeletionCount > 0) {
+          return recoverableFunctionDeletionCount;
+        }
+        int legacyFunctionCount =
+            FunctionMetaService.getInstance()
+                .deleteFunctionMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyFunctionCount > 0) {
+          return legacyFunctionCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.FUNCTION,
+                legacyTimeline,
+                GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TABLE_STATISTIC:
         return StatisticMetaService.getInstance()
             .deleteStatisticsByLegacyTimeline(

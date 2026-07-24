@@ -21,11 +21,15 @@ package org.apache.gravitino.server.web.rest;
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import java.util.Arrays;
+import java.util.List;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -33,26 +37,35 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.FunctionDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.function.FunctionDTO;
 import org.apache.gravitino.dto.function.FunctionDefinitionDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FunctionRegisterRequest;
 import org.apache.gravitino.dto.requests.FunctionUpdateRequest;
 import org.apache.gravitino.dto.requests.FunctionUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.FunctionListResponse;
 import org.apache.gravitino.dto.responses.FunctionResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.function.Function;
 import org.apache.gravitino.function.FunctionChange;
 import org.apache.gravitino.function.FunctionDefinition;
+import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -70,12 +83,15 @@ public class FunctionOperations {
   private static final Logger LOG = LoggerFactory.getLogger(FunctionOperations.class);
 
   private final FunctionDispatcher dispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public FunctionOperations(FunctionDispatcher dispatcher) {
+  public FunctionOperations(
+      FunctionDispatcher dispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.dispatcher = dispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -83,23 +99,54 @@ public class FunctionOperations {
   @Timed(name = "list-function." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "list-function", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.SCHEMA)
   public Response listFunctions(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
       @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
-      @QueryParam("details") @DefaultValue("false") boolean details) {
+      @QueryParam("details") @DefaultValue("false") boolean details,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     try {
       LOG.info("Received list functions request for schema: {}.{}.{}", metalake, catalog, schema);
       return Utils.doAs(
           httpRequest,
           () -> {
             Namespace namespace = NamespaceUtil.ofFunction(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              if (details) {
+                throw new IllegalArgumentException(
+                    "details=true is not supported with include=deleted");
+              }
+              checkDeletedFunctionAccess(namespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedFunctions =
+                  recoverableDeletionManager.listDeletedFunctions(namespace, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedFunctions.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             if (!details) {
               NameIdentifier[] identifiers = dispatcher.listFunctions(namespace);
               identifiers = identifiers == null ? new NameIdentifier[0] : identifiers;
+              if (name != null) {
+                identifiers =
+                    Arrays.stream(identifiers)
+                        .filter(identifier -> name.equals(identifier.name()))
+                        .toArray(NameIdentifier[]::new);
+              }
               identifiers =
                   MetadataAuthzHelper.filterByExpression(
                       metalake,
@@ -117,6 +164,12 @@ public class FunctionOperations {
 
             Function[] functions = dispatcher.listFunctionInfos(namespace);
             functions = functions == null ? new Function[0] : functions;
+            if (name != null) {
+              functions =
+                  Arrays.stream(functions)
+                      .filter(function -> name.equals(function.name()))
+                      .toArray(Function[]::new);
+            }
             functions =
                 MetadataAuthzHelper.filterByExpression(
                     metalake,
@@ -204,7 +257,10 @@ public class FunctionOperations {
   @Timed(name = "get-function." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-function", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_FUNCTION_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_FUNCTION_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.FUNCTION)
   public Response getFunction(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
@@ -212,12 +268,35 @@ public class FunctionOperations {
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
       @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
       @PathParam("function") @AuthorizationMetadata(type = Entity.EntityType.FUNCTION)
-          String function) {
+          String function,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received get function request: {}.{}.{}.{}", metalake, catalog, schema, function);
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            Namespace namespace = NamespaceUtil.ofFunction(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedFunctionAccess(namespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException(
+                    "id is required when loading a deleted function");
+              }
+              DeletedEntityDTO deletedFunction =
+                  recoverableDeletionManager.getDeletedFunction(namespace, function, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedFunction)))
+                  .tag(new EntityTag(deletedFunction.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier ident =
                 NameIdentifierUtil.ofFunction(metalake, catalog, schema, function);
             Function f = dispatcher.getFunction(ident);
@@ -273,6 +352,56 @@ public class FunctionOperations {
     }
   }
 
+  @PATCH
+  @Path("{function}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-function." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-function", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response restoreFunction(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("function") String function,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore function request: {}.{}.{}.{}", metalake, catalog, schema, function);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted function");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException(
+                  "id is required when restoring a deleted function");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "function");
+            Namespace namespace = NamespaceUtil.ofFunction(metalake, catalog, schema);
+            checkDeletedFunctionAccess(namespace);
+            FunctionEntity restored =
+                recoverableDeletionManager.restoreDeletedFunction(
+                    namespace, function, entityId, etag);
+            return Utils.ok(new FunctionResponse(DTOConverters.toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleFunctionException(OperationType.RESTORE, function, schema, e);
+    }
+  }
+
   @DELETE
   @Path("{function}")
   @Produces("application/vnd.gravitino.v1+json")
@@ -311,6 +440,16 @@ public class FunctionOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleFunctionException(OperationType.DROP, function, schema, e);
+    }
+  }
+
+  private static void checkDeletedFunctionAccess(Namespace functionNamespace) {
+    NameIdentifier schemaIdentifier = NameIdentifier.of(functionNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        schemaIdentifier, Entity.EntityType.SCHEMA, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted functions under %s",
+          functionNamespace);
     }
   }
 }

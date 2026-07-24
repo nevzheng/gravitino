@@ -18,32 +18,50 @@
  */
 package org.apache.gravitino.server.web.rest;
 
+import static org.apache.gravitino.Configs.CACHE_ENABLED;
+import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
+import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
+import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
+import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.catalog.FunctionDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.function.FunctionDefinitionDTO;
 import org.apache.gravitino.dto.function.FunctionImplDTO;
 import org.apache.gravitino.dto.function.FunctionParamDTO;
 import org.apache.gravitino.dto.function.SQLImplDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FunctionRegisterRequest;
 import org.apache.gravitino.dto.requests.FunctionUpdateRequest;
 import org.apache.gravitino.dto.requests.FunctionUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -53,6 +71,9 @@ import org.apache.gravitino.dto.responses.FunctionResponse;
 import org.apache.gravitino.exceptions.FunctionAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchFunctionException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.function.Function;
 import org.apache.gravitino.function.FunctionChange;
 import org.apache.gravitino.function.FunctionColumn;
@@ -63,16 +84,22 @@ import org.apache.gravitino.function.FunctionImpls;
 import org.apache.gravitino.function.FunctionParam;
 import org.apache.gravitino.function.FunctionParams;
 import org.apache.gravitino.function.FunctionType;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.FunctionEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class TestFunctionOperations extends BaseOperationsTest {
 
@@ -87,6 +114,8 @@ public class TestFunctionOperations extends BaseOperationsTest {
   }
 
   private final FunctionDispatcher functionDispatcher = mock(FunctionDispatcher.class);
+  private final RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final AuditInfo testAuditInfo =
       AuditInfo.builder().withCreator("user1").withCreateTime(Instant.now()).build();
@@ -98,6 +127,18 @@ public class TestFunctionOperations extends BaseOperationsTest {
   private final String schema = "schema_for_function_test";
 
   private final Namespace functionNs = NamespaceUtil.ofFunction(metalake, catalog, schema);
+
+  @BeforeAll
+  public static void setup() throws IllegalAccessException {
+    Config config = mock(Config.class);
+    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
+    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
+    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
+    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
+    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+  }
 
   @Override
   protected Application configure() {
@@ -115,6 +156,7 @@ public class TestFunctionOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(functionDispatcher).to(FunctionDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(TestFunctionOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }
@@ -210,6 +252,235 @@ public class TestFunctionOperations extends BaseOperationsTest {
     ErrorResponse errorResp1 = resp6.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp1.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp1.getType());
+  }
+
+  @Test
+  public void testDeletedFunctionReadAndRestore() {
+    String etag =
+        "deletion-function-1-representation-"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    DeletedEntityDTO deletedFunction =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("function-1")
+            .withName("func1")
+            .withType(RecoveryEntityType.FUNCTION)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(2L)
+            .withEtag(etag)
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedFunctions(any(), eq("func1"), eq(984273L)))
+        .thenReturn(List.of(deletedFunction));
+    when(recoverableDeletionManager.getDeletedFunction(any(), eq("func1"), eq(984273L)))
+        .thenReturn(deletedFunction);
+
+    Response listResponse =
+        target(functionPath())
+            .queryParam("include", "deleted")
+            .queryParam("name", "func1")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    DeletedEntityListResponse listBody = listResponse.readEntity(DeletedEntityListResponse.class);
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedFunction}, listBody.getDeletedEntities());
+
+    Response itemResponse =
+        target(functionPath())
+            .path("func1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    Assertions.assertEquals(deletedFunction, itemBody.getDeletedEntity());
+
+    FunctionEntity restored =
+        FunctionEntity.builder()
+            .withId(984273L)
+            .withName("func1")
+            .withNamespace(functionNs)
+            .withFunctionType(FunctionType.SCALAR)
+            .withDeterministic(true)
+            .withDefinitions(createMockScalarDefinitions())
+            .withAuditInfo(testAuditInfo)
+            .build();
+    when(recoverableDeletionManager.restoreDeletedFunction(
+            any(), eq("func1"), eq(984273L), eq(etag)))
+        .thenReturn(restored);
+    Response restoreResponse =
+        target(functionPath())
+            .path("func1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", '"' + etag + '"')
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), restoreResponse.getStatus());
+    Assertions.assertEquals(
+        "func1", restoreResponse.readEntity(FunctionResponse.class).getFunction().name());
+    verify(recoverableDeletionManager)
+        .restoreDeletedFunction(any(), eq("func1"), eq(984273L), eq(etag));
+    verifyNoInteractions(functionDispatcher);
+  }
+
+  @Test
+  public void testDeletedFunctionQueryValidation() {
+    Response invalidId =
+        target(functionPath())
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(functionPath())
+            .path("func1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response deletedDetails =
+        target(functionPath())
+            .queryParam("include", "deleted")
+            .queryParam("details", true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), deletedDetails.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, functionDispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedFunctionValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(functionPath())
+            .path("func1")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"function-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId =
+        patchRestoreFunction(
+            null, "\"function-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch =
+        patchRestoreFunction("984273", null, MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch =
+        patchRestoreFunction(
+            "984273", "W/\"function-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch =
+        patchRestoreFunction(
+            "984273",
+            "\"function-etag\", \"other-etag\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestoreFunction("984273", "\"function-etag\"", MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(functionPath())
+            .path("func1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"function-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, functionDispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedFunctionMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFunction(any(), eq("func1"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFunction(any(), eq("func1"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFunction(any(), eq("func1"), eq(984273L), eq("conflict"));
+
+    Response stale =
+        patchRestoreFunction(
+            "984273", "\"stale\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired =
+        patchRestoreFunction(
+            "984273", "\"expired\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    Response conflict =
+        patchRestoreFunction(
+            "984273", "\"conflict\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+    ErrorResponse conflictBody = conflict.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictBody.getCode());
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictBody.getReason());
+    verifyNoInteractions(functionDispatcher);
+  }
+
+  private Response patchRestoreFunction(String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(functionPath())
+            .path("func1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
   }
 
   @Test

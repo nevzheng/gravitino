@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
@@ -59,6 +60,7 @@ public class RecoverableDeletionManager {
   private final long retentionMs;
   private final Clock clock;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
+  private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
 
   /**
    * Creates a recoverable-deletion manager using the system clock.
@@ -88,6 +90,7 @@ public class RecoverableDeletionManager {
     this.retentionMs = retentionMs;
     this.clock = clock;
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
+    this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
   }
 
   /**
@@ -131,6 +134,46 @@ public class RecoverableDeletionManager {
    */
   public TableEntity restoreDeletedTable(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(tableAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists deleted function generations under a live schema.
+   *
+   * @param namespace function namespace
+   * @param name optional exact function name
+   * @param id optional exact immutable function identifier
+   * @return matching deleted function generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedFunctions(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(functionAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted function representation.
+   *
+   * @param namespace function namespace
+   * @param name original function name
+   * @param id immutable function identifier
+   * @return selected function deletion generation
+   * @throws TombstoneNotFoundException if the exact tombstone does not exist under this path
+   */
+  public DeletedEntityDTO getDeletedFunction(Namespace namespace, String name, long id) {
+    return getDeleted(functionAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact function deletion generation using an optimistic entity tag.
+   *
+   * @param namespace function namespace
+   * @param name original function name
+   * @param id immutable function identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-function read
+   * @return restored function, or the already-restored function for an idempotent replay
+   */
+  public FunctionEntity restoreDeletedFunction(
+      Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(functionAdapter, namespace, name, id, etag);
   }
 
   private <E> List<DeletedEntityDTO> listDeleted(

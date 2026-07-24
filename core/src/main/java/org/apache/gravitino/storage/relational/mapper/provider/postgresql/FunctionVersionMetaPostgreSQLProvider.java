@@ -51,7 +51,8 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
     return "<script>"
         + "UPDATE "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -64,7 +65,8 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
   public String softDeleteFunctionVersionMetasByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -72,7 +74,8 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
   public String softDeleteFunctionVersionMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -83,7 +86,9 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
         + FunctionVersionMetaMapper.TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL";
   }
 
   @Override
@@ -93,7 +98,8 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
       @Param("limit") int limit) {
     return "UPDATE "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE id IN (SELECT id FROM "
         + FunctionVersionMetaMapper.TABLE_NAME
         + " WHERE function_id = #{functionId} AND version <= #{versionRetentionLine}"
@@ -104,7 +110,8 @@ public class FunctionVersionMetaPostgreSQLProvider extends FunctionVersionMetaBa
   public String softDeleteFunctionVersionsByFunctionId(@Param("functionId") Long functionId) {
     return "UPDATE "
         + FunctionVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE function_id = #{functionId} AND deleted_at = 0";
   }
 }
