@@ -614,17 +614,19 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         LockType.WRITE,
         () -> {
           checkMetalake(metalakeIdent, store);
-          boolean needClean = true;
+          CatalogWrapper wrapper = null;
           try {
+            // Validate and initialize the catalog before publishing its metadata. A failed create
+            // is not a user deletion and must not leave a recoverable tombstone behind.
+            wrapper = createCatalogWrapper(e, mergedConfig);
             store.put(e, false /* overwrite */);
-            CatalogWrapper wrapper =
-                catalogCache.get(ident, id -> createCatalogWrapper(e, mergedConfig));
+            catalogCache.put(ident, wrapper);
 
-            needClean = false;
-            return wrapper.catalog;
+            Catalog created = wrapper.catalog;
+            wrapper = null; // The cache owns and closes the wrapper after publication.
+            return created;
 
           } catch (EntityAlreadyExistsException e1) {
-            needClean = false;
             LOG.warn("Catalog {} already exists", ident, e1);
             throw new CatalogAlreadyExistsException("Catalog %s already exists", ident);
 
@@ -640,23 +642,8 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
             throw new RuntimeException(e3);
 
           } finally {
-            if (needClean) {
-              // since we put the catalog entity into the store but failed to create the catalog
-              // instance,
-              // we need to clean up the entity stored.
-              try {
-                if (store.delete(ident, EntityType.CATALOG, true)) {
-                  // This cleanup deletion writes a DROP record to the entity change log. Mark it as
-                  // a local mutation so the change-log poller consumes that record's token instead
-                  // of one meant for a later mutation of the same identifier. Without this, the
-                  // poller could treat a subsequent local change as remote and spuriously
-                  // invalidate (and asynchronously close) a cached catalog wrapper that is still in
-                  // use, causing a NullPointerException.
-                  markLocalMutation(ident);
-                }
-              } catch (IOException e4) {
-                LOG.error("Failed to clean up catalog {}", ident, e4);
-              }
+            if (wrapper != null) {
+              wrapper.close();
             }
           }
         });

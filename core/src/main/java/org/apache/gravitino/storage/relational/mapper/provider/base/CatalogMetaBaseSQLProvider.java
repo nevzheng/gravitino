@@ -32,7 +32,7 @@ public class CatalogMetaBaseSQLProvider {
         + " cm.metalake_id as metalakeId, cm.type, cm.provider,"
         + " cm.catalog_comment as catalogComment, cm.properties, cm.audit_info as auditInfo,"
         + " cm.current_version as currentVersion, cm.last_version as lastVersion,"
-        + " cm.deleted_at as deletedAt"
+        + " cm.deleted_at as deletedAt, cm.deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " cm JOIN "
@@ -47,7 +47,7 @@ public class CatalogMetaBaseSQLProvider {
         + " metalake_id as metalakeId, type, provider,"
         + " catalog_comment as catalogComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
@@ -59,7 +59,7 @@ public class CatalogMetaBaseSQLProvider {
         + " metalake_id as metalakeId, type, provider,"
         + " catalog_comment as catalogComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE catalog_id in ("
@@ -95,7 +95,7 @@ public class CatalogMetaBaseSQLProvider {
         + " metalake_id as metalakeId, type, provider,"
         + " catalog_comment as catalogComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND catalog_name = #{catalogName} AND deleted_at = 0";
@@ -107,7 +107,7 @@ public class CatalogMetaBaseSQLProvider {
         + " cm.metalake_id as metalakeId, cm.type, cm.provider,"
         + " cm.catalog_comment as catalogComment, cm.properties, cm.audit_info as auditInfo,"
         + " cm.current_version as currentVersion, cm.last_version as lastVersion,"
-        + " cm.deleted_at as deletedAt"
+        + " cm.deleted_at as deletedAt, cm.deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " cm JOIN "
@@ -131,7 +131,7 @@ public class CatalogMetaBaseSQLProvider {
         + " metalake_id as metalakeId, type, provider,"
         + " catalog_comment as catalogComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
@@ -142,7 +142,7 @@ public class CatalogMetaBaseSQLProvider {
         + TABLE_NAME
         + " (catalog_id, catalog_name, metalake_id,"
         + " type, provider, catalog_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{catalogMeta.catalogId},"
         + " #{catalogMeta.catalogName},"
@@ -154,7 +154,8 @@ public class CatalogMetaBaseSQLProvider {
         + " #{catalogMeta.auditInfo},"
         + " #{catalogMeta.currentVersion},"
         + " #{catalogMeta.lastVersion},"
-        + " #{catalogMeta.deletedAt}"
+        + " #{catalogMeta.deletedAt},"
+        + " #{catalogMeta.deletionId}"
         + " )";
   }
 
@@ -163,7 +164,7 @@ public class CatalogMetaBaseSQLProvider {
         + TABLE_NAME
         + " (catalog_id, catalog_name, metalake_id,"
         + " type, provider, catalog_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{catalogMeta.catalogId},"
         + " #{catalogMeta.catalogName},"
@@ -175,7 +176,8 @@ public class CatalogMetaBaseSQLProvider {
         + " #{catalogMeta.auditInfo},"
         + " #{catalogMeta.currentVersion},"
         + " #{catalogMeta.lastVersion},"
-        + " #{catalogMeta.deletedAt}"
+        + " #{catalogMeta.deletedAt},"
+        + " #{catalogMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " catalog_name = #{catalogMeta.catalogName},"
@@ -187,7 +189,8 @@ public class CatalogMetaBaseSQLProvider {
         + " audit_info = #{catalogMeta.auditInfo},"
         + " current_version = #{catalogMeta.currentVersion},"
         + " last_version = #{catalogMeta.lastVersion},"
-        + " deleted_at = #{catalogMeta.deletedAt}";
+        + " deleted_at = #{catalogMeta.deletedAt},"
+        + " deletion_id = #{catalogMeta.deletionId}";
   }
 
   public String updateCatalogMeta(
@@ -204,7 +207,8 @@ public class CatalogMetaBaseSQLProvider {
         + " audit_info = #{newCatalogMeta.auditInfo},"
         + " current_version = #{newCatalogMeta.currentVersion},"
         + " last_version = #{newCatalogMeta.lastVersion},"
-        + " deleted_at = #{newCatalogMeta.deletedAt}"
+        + " deleted_at = #{newCatalogMeta.deletedAt},"
+        + " deletion_id = #{newCatalogMeta.deletionId}"
         + " WHERE catalog_id = #{oldCatalogMeta.catalogId}"
         + " AND catalog_name = #{oldCatalogMeta.catalogName}"
         + " AND metalake_id = #{oldCatalogMeta.metalakeId}"
@@ -223,7 +227,7 @@ public class CatalogMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -231,7 +235,7 @@ public class CatalogMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -239,7 +243,8 @@ public class CatalogMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String batchSelectCatalogByIdentifier(
@@ -250,7 +255,7 @@ public class CatalogMetaBaseSQLProvider {
         + " cm.metalake_id as metalakeId, cm.type, cm.provider,"
         + " cm.catalog_comment as catalogComment, cm.properties, cm.audit_info as auditInfo,"
         + " cm.current_version as currentVersion, cm.last_version as lastVersion,"
-        + " cm.deleted_at as deletedAt"
+        + " cm.deleted_at as deletedAt, cm.deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " cm JOIN "

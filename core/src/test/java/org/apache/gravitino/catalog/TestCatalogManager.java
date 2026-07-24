@@ -791,6 +791,41 @@ public class TestCatalogManager {
   }
 
   @Test
+  void testAmbiguousCatalogChangeClearsAllCatalogWrappers() throws Exception {
+    NameIdentifier first = NameIdentifier.of("metalake", "change_log_first");
+    NameIdentifier second = NameIdentifier.of("metalake", "change_log_second");
+    Map<String, String> props =
+        ImmutableMap.of(
+            "provider",
+            "test",
+            PROPERTY_KEY1,
+            "value1",
+            PROPERTY_KEY2,
+            "value2",
+            PROPERTY_KEY5_PREFIX + "1",
+            "value3");
+
+    catalogManager.createCatalog(first, Catalog.Type.RELATIONAL, provider, "comment", props);
+    catalogManager.createCatalog(second, Catalog.Type.RELATIONAL, provider, "comment", props);
+    Assertions.assertNotNull(catalogManager.getCatalogCache().getIfPresent(first));
+    Assertions.assertNotNull(catalogManager.getCatalogCache().getIfPresent(second));
+
+    new CatalogChangeLogListener(catalogManager)
+        .onEntityChange(
+            List.of(
+                new EntityChangeRecord(
+                    1L,
+                    "metalake",
+                    "CATALOG",
+                    "metalake.catalog.with.dot",
+                    OperateType.RESTORE,
+                    0L)));
+
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(first));
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(second));
+  }
+
+  @Test
   void testCloseUnregistersCatalogChangeLogListener() {
     ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
     CatalogManager manager = new CatalogManager(config, store, new RandomIdGenerator());
@@ -847,7 +882,7 @@ public class TestCatalogManager {
   }
 
   @Test
-  void testFailedCreateCatalogCleanupMarksLocalMutation() throws Exception {
+  void testFailedCreateCatalogDoesNotPublishOrDeleteMetadata() throws Exception {
     ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
     store.initialize(config);
     store.put(metalakeEntity, true);
@@ -855,8 +890,9 @@ public class TestCatalogManager {
     CatalogManager manager = new CatalogManager(config, store, new RandomIdGenerator());
     NameIdentifier ident = NameIdentifier.of("metalake", "failed_create_cleanup");
 
-    // A creation that fails validation (key1 is required but missing) stores the entity and then
-    // rolls it back via store.delete(), which writes a DROP record to the entity change log.
+    // A creation that fails validation (key1 is required but missing) must fail before publishing
+    // metadata. In particular, it must not call the normal catalog delete path because that path
+    // creates a user-visible recoverable deletion.
     Map<String, String> invalidProps =
         ImmutableMap.of(
             "provider", "test", PROPERTY_KEY2, "value2", PROPERTY_KEY5_PREFIX + "1", "v");
@@ -865,6 +901,8 @@ public class TestCatalogManager {
         () ->
             manager.createCatalog(
                 ident, Catalog.Type.RELATIONAL, provider, "comment", invalidProps));
+    Assertions.assertFalse(store.exists(ident, EntityType.CATALOG));
+    Assertions.assertEquals(0, store.catalogDeleteCount);
 
     // Recreate the same catalog successfully and load it into the cache.
     Map<String, String> validProps =
@@ -884,10 +922,8 @@ public class TestCatalogManager {
     // Simulate a subsequent local mutation (e.g. disableCatalog) that writes an ALTER record.
     manager.markLocalMutation(ident);
 
-    // The poller delivers both records in one batch: the DROP from the failed-create cleanup and
-    // the ALTER from the local mutation. The cleanup DROP must carry its own local-mutation token
-    // (the fix); otherwise it consumes the ALTER's token, the ALTER is treated as remote, and the
-    // in-use cached wrapper is spuriously invalidated and asynchronously closed.
+    // The failed creation did not emit a cleanup DROP, so the one local-mutation token belongs to
+    // this ALTER and the cached live wrapper remains usable.
     store
         .listener
         .get()
@@ -898,20 +934,12 @@ public class TestCatalogManager {
                     "metalake",
                     "CATALOG",
                     "metalake.failed_create_cleanup",
-                    OperateType.DROP,
-                    0L),
-                new EntityChangeRecord(
-                    2L,
-                    "metalake",
-                    "CATALOG",
-                    "metalake.failed_create_cleanup",
                     OperateType.ALTER,
                     0L)));
 
     Assertions.assertNotNull(
         manager.getCatalogCache().getIfPresent(ident),
-        "Cache should NOT be invalidated: the failed-create cleanup DROP must be tracked as a "
-            + "local mutation so it does not steal the token meant for the later ALTER");
+        "The local ALTER record should consume its own mutation token");
     manager.close();
   }
 
@@ -978,10 +1006,14 @@ public class TestCatalogManager {
     private final AtomicReference<EntityChangeLogListener> unregisteredListener =
         new AtomicReference<>();
     private boolean returnFalseForCatalogDelete;
+    private int catalogDeleteCount;
 
     @Override
     public boolean delete(NameIdentifier ident, EntityType entityType, boolean cascade)
         throws IOException {
+      if (entityType == EntityType.CATALOG) {
+        catalogDeleteCount++;
+      }
       if (returnFalseForCatalogDelete && entityType == EntityType.CATALOG) {
         return false;
       }

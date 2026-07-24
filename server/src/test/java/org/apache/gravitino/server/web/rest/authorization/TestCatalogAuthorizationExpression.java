@@ -25,6 +25,7 @@ import java.lang.reflect.Method;
 import ognl.OgnlException;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdatesRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.rest.CatalogOperations;
@@ -51,7 +52,9 @@ public class TestCatalogAuthorizationExpression {
 
   @Test
   public void testLoadCatalog() throws NoSuchMethodException, OgnlException {
-    Method method = CatalogOperations.class.getMethod("loadCatalog", String.class, String.class);
+    Method method =
+        CatalogOperations.class.getMethod(
+            "loadCatalog", String.class, String.class, String.class, String.class);
     AuthorizationExpression authorizationExpressionAnnotation =
         method.getAnnotation(AuthorizationExpression.class);
     String expression = authorizationExpressionAnnotation.expression();
@@ -70,6 +73,28 @@ public class TestCatalogAuthorizationExpression {
     assertFalse(
         mockEvaluator.getResult(
             ImmutableSet.of("METALAKE::DENY_USE_CATALOG", "CATALOG::USE_CATALOG")));
+    assertTrue(mockEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+  }
+
+  @Test
+  public void testRestoreCatalog() throws NoSuchMethodException, OgnlException {
+    Method method =
+        CatalogOperations.class.getMethod(
+            "restoreCatalog",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            EntityRestoreRequest.class);
+    AuthorizationExpression authorizationExpressionAnnotation =
+        method.getAnnotation(AuthorizationExpression.class);
+    MockAuthorizationExpressionEvaluator mockEvaluator =
+        new MockAuthorizationExpressionEvaluator(authorizationExpressionAnnotation.expression());
+    assertFalse(mockEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(mockEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertFalse(mockEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+    assertFalse(mockEvaluator.getResult(ImmutableSet.of("CATALOG::OWNER")));
   }
 
   @Test

@@ -20,12 +20,16 @@ package org.apache.gravitino.server.web.rest;
 
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
@@ -34,6 +38,8 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Catalog;
@@ -43,17 +49,25 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
 import org.apache.gravitino.dto.requests.CatalogSetRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdatesRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
 import org.apache.gravitino.dto.responses.CatalogListResponse;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -72,12 +86,15 @@ public class CatalogOperations {
   private static final Logger LOG = LoggerFactory.getLogger(CatalogOperations.class);
 
   private final CatalogDispatcher catalogDispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public CatalogOperations(CatalogDispatcher catalogDispatcher) {
+  public CatalogOperations(
+      CatalogDispatcher catalogDispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.catalogDispatcher = catalogDispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -88,7 +105,10 @@ public class CatalogOperations {
   public Response listCatalogs(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @QueryParam("details") @DefaultValue("false") boolean verbose) {
+      @QueryParam("details") @DefaultValue("false") boolean verbose,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info(
         "Received list catalog {} request for metalake: {}, ",
         verbose ? "infos" : "names",
@@ -98,9 +118,34 @@ public class CatalogOperations {
           httpRequest,
           () -> {
             Namespace catalogNS = NamespaceUtil.ofCatalog(metalake);
+            if ("deleted".equals(include)) {
+              if (verbose) {
+                throw new IllegalArgumentException(
+                    "details=true cannot be combined with include=deleted");
+              }
+              checkDeletedCatalogAccess(catalogNS);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedCatalogs =
+                  recoverableDeletionManager.listDeletedCatalogs(catalogNS, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedCatalogs.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             // Lock the root and the metalake with WRITE lock to ensure the consistency of the list.
             if (verbose) {
               Catalog[] catalogs = catalogDispatcher.listCatalogsInfo(catalogNS);
+              if (name != null) {
+                catalogs =
+                    Arrays.stream(catalogs)
+                        .filter(catalog -> name.equals(catalog.name()))
+                        .toArray(Catalog[]::new);
+              }
               catalogs =
                   MetadataAuthzHelper.filterByExpression(
                       metalake,
@@ -114,6 +159,12 @@ public class CatalogOperations {
               return response;
             } else {
               NameIdentifier[] idents = catalogDispatcher.listCatalogs(catalogNS);
+              if (name != null) {
+                idents =
+                    Arrays.stream(idents)
+                        .filter(ident -> name.equals(ident.name()))
+                        .toArray(NameIdentifier[]::new);
+              }
               idents =
                   MetadataAuthzHelper.filterByExpression(
                       metalake,
@@ -205,6 +256,7 @@ public class CatalogOperations {
 
   @PATCH
   @Path("{catalog}")
+  @Consumes(MediaType.APPLICATION_JSON)
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "set-catalog." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "set-catalog", absolute = true)
@@ -257,15 +309,41 @@ public class CatalogOperations {
   @Timed(name = "load-catalog." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "load-catalog", absolute = true)
   @AuthorizationExpression(
-      expression = "ANY_USE_CATALOG || ANY(OWNER, METALAKE, CATALOG)",
+      expression = "SERVICE_ADMIN || ANY_USE_CATALOG || ANY(OWNER, METALAKE, CATALOG)",
       accessMetadataType = MetadataObject.Type.CATALOG)
   public Response loadCatalog(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalakeName,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG)
-          String catalogName) {
+          String catalogName,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received load catalog request for catalog: {}.{}", metalakeName, catalogName);
     try {
+      Namespace catalogNamespace = NamespaceUtil.ofCatalog(metalakeName);
+      if ("deleted".equals(include)) {
+        return Utils.doAs(
+            httpRequest,
+            () -> {
+              checkDeletedCatalogAccess(catalogNamespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted catalog");
+              }
+              DeletedEntityDTO deletedCatalog =
+                  recoverableDeletionManager.getDeletedCatalog(
+                      catalogNamespace, catalogName, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedCatalog)))
+                  .tag(new EntityTag(deletedCatalog.getEtag()))
+                  .build();
+            });
+      }
+      if (!"non-deleted".equals(include)) {
+        throw new IllegalArgumentException("include must be non-deleted or deleted");
+      }
+      if (id != null) {
+        throw new IllegalArgumentException("The id filter currently requires include=deleted");
+      }
       NameIdentifier ident = NameIdentifierUtil.ofCatalog(metalakeName, catalogName);
       Catalog catalog = catalogDispatcher.loadCatalog(ident);
       Response response = Utils.ok(new CatalogResponse(DTOConverters.toDTO(catalog)));
@@ -275,6 +353,69 @@ public class CatalogOperations {
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(
           OperationType.LOAD, catalogName, metalakeName, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted catalog metadata generation.
+   *
+   * <p>When the original catalog deletion cascaded, the recovery transaction restores the exact
+   * Gravitino metadata tree recorded by that deletion generation. No catalog connector or
+   * downstream system is contacted.
+   *
+   * @param metalake metalake name
+   * @param catalogName original catalog name
+   * @param include deleted-resource selector
+   * @param id immutable catalog identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-catalog read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored catalog response
+   */
+  @PATCH
+  @Path("{catalog}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-catalog." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-catalog", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.METALAKE)
+  public Response restoreCatalog(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") String catalogName,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore catalog request: {}.{}", metalake, catalogName);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted catalog");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted catalog");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "catalog");
+            Namespace catalogNamespace = NamespaceUtil.ofCatalog(metalake);
+            checkDeletedCatalogAccess(catalogNamespace);
+            CatalogEntity restored =
+                recoverableDeletionManager.restoreDeletedCatalog(
+                    catalogNamespace, catalogName, entityId, etag);
+            return Utils.ok(new CatalogResponse(toRestoredCatalogDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleCatalogException(
+          OperationType.RESTORE, catalogName, metalake, e);
     }
   }
 
@@ -347,6 +488,27 @@ public class CatalogOperations {
     } catch (Exception e) {
       return ExceptionHandlers.handleCatalogException(
           OperationType.DROP, catalogName, metalakeName, e);
+    }
+  }
+
+  private static CatalogDTO toRestoredCatalogDTO(CatalogEntity catalog) {
+    return CatalogDTO.builder()
+        .withName(catalog.name())
+        .withType(catalog.getType())
+        .withProvider(catalog.getProvider())
+        .withComment(catalog.getComment())
+        .withProperties(Collections.emptyMap())
+        .withAudit(DTOConverters.toDTO(catalog.auditInfo()))
+        .build();
+  }
+
+  private static void checkDeletedCatalogAccess(Namespace catalogNamespace) {
+    NameIdentifier metalakeIdentifier = NameIdentifier.of(catalogNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        metalakeIdentifier, Entity.EntityType.METALAKE, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted catalogs under %s",
+          catalogNamespace);
     }
   }
 }

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.gravitino.storage.relational.mapper.provider.base.CatalogMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetVersionBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.FunctionMetaBaseSQLProvider;
@@ -46,8 +47,9 @@ import org.junit.jupiter.api.Test;
 
 class TestPostgreSQLLegacyDeleteProviders {
 
-  private static final List<Class<?>> SCHEMA_AGGREGATE_BASE_PROVIDER_CLASSES =
+  private static final List<Class<?>> RECOVERABLE_AGGREGATE_BASE_PROVIDER_CLASSES =
       List.of(
+          CatalogMetaBaseSQLProvider.class,
           OwnerMetaBaseSQLProvider.class,
           PolicyMetadataObjectRelBaseSQLProvider.class,
           SchemaMetaBaseSQLProvider.class,
@@ -68,8 +70,9 @@ class TestPostgreSQLLegacyDeleteProviders {
           ViewMetaBaseSQLProvider.class,
           ViewVersionInfoBaseSQLProvider.class);
 
-  private static final List<Class<?>> SCHEMA_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES =
+  private static final List<Class<?>> RECOVERABLE_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES =
       List.of(
+          CatalogMetaPostgreSQLProvider.class,
           OwnerMetaPostgreSQLProvider.class,
           PolicyMetadataObjectRelPostgreSQLProvider.class,
           SchemaMetaPostgreSQLProvider.class,
@@ -140,22 +143,23 @@ class TestPostgreSQLLegacyDeleteProviders {
   }
 
   @Test
-  void testSchemaAggregateLegacyDeletesExcludeRecordedDeletionGenerations()
+  void testRecoverableAggregateLegacyDeletesExcludeRecordedDeletionGenerations()
       throws ReflectiveOperationException {
-    for (Class<?> providerClass : SCHEMA_AGGREGATE_BASE_PROVIDER_CLASSES) {
+    for (Class<?> providerClass : RECOVERABLE_AGGREGATE_BASE_PROVIDER_CLASSES) {
       String sql = legacyDeleteSql(providerClass);
       assertTrue(
           sql.contains("deletion_id IS NULL"),
-          () -> providerClass.getSimpleName() + " can select a schema deletion generation: " + sql);
+          () ->
+              providerClass.getSimpleName() + " can select a recorded deletion generation: " + sql);
     }
 
-    for (Class<?> providerClass : SCHEMA_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES) {
+    for (Class<?> providerClass : RECOVERABLE_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES) {
       String sql = legacyDeleteSql(providerClass);
       assertTrue(
           sql.indexOf("deletion_id IS NULL") != sql.lastIndexOf("deletion_id IS NULL"),
           () ->
               providerClass.getSimpleName()
-                  + " does not recheck the schema generation token: "
+                  + " does not recheck the recorded generation token: "
                   + sql);
     }
   }

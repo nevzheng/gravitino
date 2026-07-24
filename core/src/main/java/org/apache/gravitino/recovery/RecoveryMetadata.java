@@ -27,10 +27,10 @@ final class RecoveryMetadata {
 
   static final class ParentIdentity {
     private final long metalakeId;
-    private final long catalogId;
+    @Nullable private final Long catalogId;
     private final long parentId;
 
-    ParentIdentity(long metalakeId, long catalogId, long parentId) {
+    ParentIdentity(long metalakeId, @Nullable Long catalogId, long parentId) {
       this.metalakeId = metalakeId;
       this.catalogId = catalogId;
       this.parentId = parentId;
@@ -40,7 +40,8 @@ final class RecoveryMetadata {
       return metalakeId;
     }
 
-    long catalogId() {
+    @Nullable
+    Long catalogId() {
       return catalogId;
     }
 

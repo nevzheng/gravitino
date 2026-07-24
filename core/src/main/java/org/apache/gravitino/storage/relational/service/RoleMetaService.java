@@ -158,6 +158,7 @@ public class RoleMetaService {
       RolePO.Builder builder = RolePO.builder().withMetalakeId(metalakeId);
       RolePO rolePO = POConverters.initializeRolePOWithVersion(roleEntity, builder);
       List<SecurableObjectPO> securableObjectPOs = Lists.newArrayList();
+      List<Long> catalogIds = Lists.newArrayList();
       List<Long> schemaIds = Lists.newArrayList();
       for (SecurableObject object : roleEntity.securableObjects()) {
         SecurableObjectPO.Builder objectBuilder =
@@ -166,12 +167,13 @@ public class RoleMetaService {
         NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, object);
         Entity.EntityType entityType = MetadataObjectUtil.toEntityType(object.type());
         objectBuilder.withMetadataObjectId(EntityIdService.getEntityId(identifier, entityType));
-        schemaIds.add(SchemaMutationLock.schemaId(identifier, entityType));
+        catalogIds.add(MetadataMutationLock.catalogId(identifier, entityType));
+        schemaIds.add(MetadataMutationLock.schemaId(identifier, entityType));
         securableObjectPOs.add(objectBuilder.build());
       }
 
       SessionUtils.doMultipleWithCommit(
-          () -> SchemaMutationLock.lockSchemaIds(schemaIds),
+          () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   SecurableObjectMapper.class,
@@ -237,6 +239,7 @@ public class RoleMetaService {
 
       List<SecurableObjectPO> insertSecurableObjectPOs =
           toSecurableObjectPOs(insertObjects, oldRoleEntity, metalake);
+      List<Long> catalogIds = Lists.newArrayList();
       List<Long> schemaIds = Lists.newArrayList();
       Sets.union(insertObjects, deleteObjects)
           .forEach(
@@ -244,11 +247,12 @@ public class RoleMetaService {
                 NameIdentifier objectIdentifier =
                     MetadataObjectUtil.toEntityIdent(metalake, object);
                 Entity.EntityType objectType = MetadataObjectUtil.toEntityType(object.type());
-                schemaIds.add(SchemaMutationLock.schemaId(objectIdentifier, objectType));
+                catalogIds.add(MetadataMutationLock.catalogId(objectIdentifier, objectType));
+                schemaIds.add(MetadataMutationLock.schemaId(objectIdentifier, objectType));
               });
 
       SessionUtils.doMultipleWithCommit(
-          () -> SchemaMutationLock.lockSchemaIds(schemaIds),
+          () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   RoleMetaMapper.class,

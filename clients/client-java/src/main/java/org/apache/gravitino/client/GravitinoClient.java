@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.SupportsCatalogs;
 import org.apache.gravitino.authorization.Group;
@@ -126,9 +128,27 @@ public class GravitinoClient extends GravitinoClientBase
     return getMetalake().listCatalogsInfo();
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedCatalogs(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedCatalogs(name, id);
+  }
+
   @Override
   public Catalog loadCatalog(String catalogName) throws NoSuchCatalogException {
     return getMetalake().loadCatalog(catalogName);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedCatalog(String catalogName, String id) {
+    return getMetalake().loadDeletedCatalog(catalogName, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Catalog restoreCatalog(String catalogName, DeletedEntity generation) {
+    return getMetalake().restoreCatalog(catalogName, generation);
   }
 
   @Override

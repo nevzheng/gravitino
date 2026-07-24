@@ -29,7 +29,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
   public String softDeleteCatalogMetasByCatalogId(Long catalogId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -37,7 +38,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
   public String softDeleteCatalogMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -48,8 +50,10 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE catalog_id IN (SELECT catalog_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 
   @Override
@@ -58,7 +62,7 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + TABLE_NAME
         + " (catalog_id, catalog_name, metalake_id,"
         + " type, provider, catalog_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{catalogMeta.catalogId},"
         + " #{catalogMeta.catalogName},"
@@ -70,7 +74,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + " #{catalogMeta.auditInfo},"
         + " #{catalogMeta.currentVersion},"
         + " #{catalogMeta.lastVersion},"
-        + " #{catalogMeta.deletedAt}"
+        + " #{catalogMeta.deletedAt},"
+        + " #{catalogMeta.deletionId}"
         + " )"
         + " ON CONFLICT(catalog_id) DO UPDATE SET"
         + " catalog_name = #{catalogMeta.catalogName},"
@@ -82,7 +87,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + " audit_info = #{catalogMeta.auditInfo},"
         + " current_version = #{catalogMeta.currentVersion},"
         + " last_version = #{catalogMeta.lastVersion},"
-        + " deleted_at = #{catalogMeta.deletedAt}";
+        + " deleted_at = #{catalogMeta.deletedAt},"
+        + " deletion_id = #{catalogMeta.deletionId}";
   }
 
   @Override
@@ -100,7 +106,8 @@ public class CatalogMetaPostgreSQLProvider extends CatalogMetaBaseSQLProvider {
         + " audit_info = #{newCatalogMeta.auditInfo},"
         + " current_version = #{newCatalogMeta.currentVersion},"
         + " last_version = #{newCatalogMeta.lastVersion},"
-        + " deleted_at = #{newCatalogMeta.deletedAt}"
+        + " deleted_at = #{newCatalogMeta.deletedAt},"
+        + " deletion_id = #{newCatalogMeta.deletionId}"
         + " WHERE catalog_id = #{oldCatalogMeta.catalogId}"
         + " AND catalog_name = #{oldCatalogMeta.catalogName}"
         + " AND metalake_id = #{oldCatalogMeta.metalakeId}"

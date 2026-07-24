@@ -196,6 +196,11 @@ public interface SchemaRecoveryMapper {
   int countMissingRequiredDetails(
       @Param("deletedAt") long deletedAt, @Param("deletionId") String deletionId);
 
+  /** Counts generation relations whose owner, role, tag, or policy source is no longer live. */
+  @SelectProvider(type = SchemaRecoverySQLProvider.class, method = "countBrokenExternalReferences")
+  int countBrokenExternalReferences(
+      @Param("deletedAt") long deletedAt, @Param("deletionId") String deletionId);
+
   /** Returns the greatest prior tombstone timestamp belonging to the target schema tree. */
   @SelectProvider(type = SchemaRecoverySQLProvider.class, method = "selectNewestAggregateDeletedAt")
   Long selectNewestAggregateDeletedAt(

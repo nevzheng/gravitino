@@ -85,12 +85,82 @@ public class SchemaRecoverySQLProvider {
     return "<script>SELECT MAX(deleted_at) FROM (" + unions + ") schema_deletions</script>";
   }
 
+  /** Builds a query that counts generation relations whose external source no longer exists. */
+  public String countBrokenExternalReferences() {
+    String unions =
+        String.join(
+            " UNION ALL ",
+            brokenOwnerPrincipal(),
+            brokenLiveReference(
+                "role_meta_securable_object",
+                "relation",
+                "role_id",
+                "role_meta",
+                "role",
+                "role_id"),
+            brokenLiveReference(
+                "tag_relation_meta", "relation", "tag_id", "tag_meta", "tag", "tag_id"),
+            brokenLiveReference(
+                "policy_relation_meta",
+                "relation",
+                "policy_id",
+                "policy_meta",
+                "policy",
+                "policy_id"));
+    return "SELECT SUM(broken) FROM (" + unions + ") broken_external_references";
+  }
+
   private static SchemaAggregateTable aggregateTable(Map<String, Object> parameters) {
     Object value = parameters.get("aggregateTable");
     if (!(value instanceof SchemaAggregateTable)) {
       throw new IllegalArgumentException("aggregateTable must be a SchemaAggregateTable");
     }
     return (SchemaAggregateTable) value;
+  }
+
+  private static String brokenOwnerPrincipal() {
+    return "SELECT COUNT(*) AS broken FROM owner_meta relation WHERE "
+        + generation("relation")
+        + " AND NOT ((relation.owner_type = 'USER' AND EXISTS (SELECT 1 FROM user_meta owner"
+        + " WHERE owner.user_id = relation.owner_id"
+        + " AND owner.metalake_id = relation.metalake_id AND owner.deleted_at = 0))"
+        + " OR (relation.owner_type = 'GROUP' AND EXISTS (SELECT 1 FROM group_meta owner"
+        + " WHERE owner.group_id = relation.owner_id"
+        + " AND owner.metalake_id = relation.metalake_id AND owner.deleted_at = 0)))";
+  }
+
+  private static String brokenLiveReference(
+      String childTable,
+      String childAlias,
+      String childIdColumn,
+      String parentTable,
+      String parentAlias,
+      String parentIdColumn) {
+    return "SELECT COUNT(*) AS broken FROM "
+        + childTable
+        + " "
+        + childAlias
+        + " WHERE "
+        + generation(childAlias)
+        + " AND NOT EXISTS (SELECT 1 FROM "
+        + parentTable
+        + " "
+        + parentAlias
+        + " WHERE "
+        + parentAlias
+        + "."
+        + parentIdColumn
+        + " = "
+        + childAlias
+        + "."
+        + childIdColumn
+        + " AND "
+        + parentAlias
+        + ".deleted_at = 0)";
+  }
+
+  private static String generation(String alias) {
+    return alias + ".deleted_at = #{deletedAt} AND " + alias + ".deletion_id = #{deletionId}";
   }
 
   private static String tableName(SchemaAggregateTable aggregateTable) {

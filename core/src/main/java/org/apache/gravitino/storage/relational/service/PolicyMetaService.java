@@ -318,7 +318,8 @@ public class PolicyMetaService {
 
     try {
       Long metadataObjectId = EntityIdService.getEntityId(objectIdent, objectType);
-      Long schemaId = SchemaMutationLock.schemaId(objectIdent, objectType);
+      Long catalogId = MetadataMutationLock.catalogId(objectIdent, objectType);
+      Long schemaId = MetadataMutationLock.schemaId(objectIdent, objectType);
 
       // Fetch all the policies need to associate with the metadata object.
       List<String> policyNamesToAdd =
@@ -337,7 +338,9 @@ public class PolicyMetaService {
               : getPolicyPOsByMetalakeAndNames(metalake, policyNamesToRemove);
 
       SessionUtils.doMultipleWithCommit(
-          () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
+          () ->
+              MetadataMutationLock.lockCatalogAndSchemaIds(
+                  Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
           () -> {
             // Insert the policy metadata object relations.
             if (policyPOsToAdd.isEmpty()) {

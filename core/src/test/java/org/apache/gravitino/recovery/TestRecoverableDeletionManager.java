@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
@@ -61,6 +62,7 @@ import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
+import org.apache.gravitino.storage.relational.service.CatalogMetaService;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.EntityIdService;
 import org.apache.gravitino.storage.relational.service.FilesetMetaService;
@@ -625,6 +627,294 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testCatalogCascadeListsOnlyRootAndRestoresExactMetadataTree() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, CATALOG);
+    String schemaName = "catalog_tree_a:catalog_tree_b";
+    SchemaEntity schema = createAndInsertSchema(METALAKE, CATALOG, schemaName);
+
+    TableEntity table =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schemaName), "catalog_tree_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    FilesetEntity fileset =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofFileset(METALAKE, CATALOG, schemaName),
+            "catalog_tree_fileset",
+            AUDIT_INFO);
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+    FunctionEntity function =
+        createFunctionEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofFunction(METALAKE, CATALOG, schemaName),
+            "catalog_tree_function",
+            AUDIT_INFO);
+    FunctionMetaService.getInstance().insertFunction(function, false);
+    TopicEntity topic =
+        createTopicEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofTopic(METALAKE, CATALOG, schemaName),
+            "catalog_tree_topic",
+            AUDIT_INFO);
+    TopicMetaService.getInstance().insertTopic(topic, false);
+    ViewEntity view =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(METALAKE, CATALOG, schemaName),
+            "catalog_tree_view");
+    ViewMetaService.getInstance().insertView(view, false);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofModel(METALAKE, CATALOG, schemaName),
+            "catalog_tree_model",
+            "catalog tree model",
+            0,
+            Map.of("kind", "test"),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    ModelVersionEntity modelVersion =
+        ModelVersionEntity.builder()
+            .withModelIdentifier(model.nameIdentifier())
+            .withVersion(0)
+            .withUris(Map.of(ModelVersion.URI_NAME_UNKNOWN, "/models/catalog_tree_model"))
+            .withAliases(List.of("production"))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    ModelVersionMetaService.getInstance().insertModelVersion(modelVersion);
+
+    TagEntity catalogTag =
+        TagEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("catalog_tree_tag")
+            .withNamespace(NamespaceUtil.ofTag(METALAKE))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    TagMetaService.getInstance().insertTag(catalogTag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            catalog.nameIdentifier(),
+            Entity.EntityType.CATALOG,
+            new NameIdentifier[] {catalogTag.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    TableEntity priorTombstone =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schemaName), "prior_catalog_table");
+    TableMetaService.getInstance().insertTable(priorTombstone, false);
+    EntityDeletionPO priorDeletion =
+        deleteAndGetDeletionRecord(priorTombstone, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Assertions.assertTrue(
+        CatalogMetaService.getInstance()
+            .deleteCatalog(
+                catalog.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS));
+
+    Namespace namespace = Namespace.of(METALAKE);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    List<DeletedEntityDTO> deletedCatalogs =
+        manager.listDeletedCatalogs(namespace, catalog.name(), catalog.id());
+    Assertions.assertEquals(1, deletedCatalogs.size());
+    DeletedEntityDTO deleted = deletedCatalogs.get(0);
+    Assertions.assertEquals(String.valueOf(catalog.id()), deleted.getId());
+    Assertions.assertEquals("catalog", deleted.getType().value());
+    Assertions.assertTrue(deleted.getLatestForName());
+    Assertions.assertTrue(deleted.getRestorable());
+
+    long metalakeId =
+        EntityIdService.getEntityId(NameIdentifier.of(METALAKE), Entity.EntityType.METALAKE);
+    Assertions.assertEquals(
+        1,
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.CATALOG, metalakeId, catalog.name(), catalog.id(), null)
+            .size());
+    Assertions.assertTrue(
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.SCHEMA, catalog.id(), schema.name(), schema.id(), null)
+            .isEmpty());
+
+    CatalogEntity restored =
+        manager.restoreDeletedCatalog(namespace, catalog.name(), catalog.id(), deleted.getEtag());
+    Assertions.assertEquals(catalog.id(), restored.id());
+    Assertions.assertTrue(backend.exists(catalog.nameIdentifier(), Entity.EntityType.CATALOG));
+    Assertions.assertTrue(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertTrue(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertTrue(backend.exists(fileset.nameIdentifier(), Entity.EntityType.FILESET));
+    Assertions.assertTrue(backend.exists(function.nameIdentifier(), Entity.EntityType.FUNCTION));
+    Assertions.assertTrue(backend.exists(topic.nameIdentifier(), Entity.EntityType.TOPIC));
+    Assertions.assertTrue(backend.exists(view.nameIdentifier(), Entity.EntityType.VIEW));
+    Assertions.assertTrue(backend.exists(model.nameIdentifier(), Entity.EntityType.MODEL));
+    Assertions.assertEquals(
+        modelVersion,
+        ModelVersionMetaService.getInstance()
+            .getModelVersionByIdentifier(
+                NameIdentifier.of(METALAKE, CATALOG, schemaName, model.name(), "production")));
+    Assertions.assertEquals(
+        List.of(catalogTag),
+        TagMetaService.getInstance()
+            .listTagsForMetadataObject(catalog.nameIdentifier(), Entity.EntityType.CATALOG));
+    Assertions.assertFalse(
+        backend.exists(priorTombstone.nameIdentifier(), Entity.EntityType.TABLE));
+    EntityDeletionPO unchangedPrior =
+        EntityDeletionService.getInstance().get(priorDeletion.getDeletionId());
+    Assertions.assertNotNull(unchangedPrior);
+    Assertions.assertEquals(DeletionState.DELETED, unchangedPrior.getState());
+    Assertions.assertEquals(
+        catalog.id(),
+        manager
+            .restoreDeletedCatalog(namespace, catalog.name(), catalog.id(), deleted.getEtag())
+            .id());
+    Assertions.assertTrue(
+        manager.listDeletedCatalogs(namespace, catalog.name(), catalog.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testEmptyCatalogDeleteAndRestoreUsesSameRootProtocol() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, "empty_catalog");
+    Assertions.assertTrue(
+        CatalogMetaService.getInstance()
+            .deleteCatalog(catalog.nameIdentifier(), false, RETENTION_MS));
+
+    Namespace namespace = Namespace.of(METALAKE);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedCatalog(namespace, catalog.name(), catalog.id());
+    Assertions.assertTrue(deleted.getRestorable());
+    Assertions.assertEquals(
+        catalog.id(),
+        manager
+            .restoreDeletedCatalog(namespace, catalog.name(), catalog.id(), deleted.getEtag())
+            .id());
+  }
+
+  @TestTemplate
+  public void testCatalogRestoreRejectsOlderGenerationAndNameOccupancy() throws Exception {
+    long requestedDeletedAt = Instant.now().toEpochMilli();
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity first = createAndInsertCatalog(METALAKE, "repeated_catalog");
+    CatalogMetaService.getInstance()
+        .deleteCatalog(first.nameIdentifier(), false, requestedDeletedAt, RETENTION_MS);
+    CatalogEntity second = createAndInsertCatalog(METALAKE, first.name());
+    CatalogMetaService.getInstance()
+        .deleteCatalog(second.nameIdentifier(), false, requestedDeletedAt, RETENTION_MS);
+
+    Namespace namespace = Namespace.of(METALAKE);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO firstDeletion = manager.getDeletedCatalog(namespace, first.name(), first.id());
+    DeletedEntityDTO secondDeletion =
+        manager.getDeletedCatalog(namespace, second.name(), second.id());
+    Assertions.assertFalse(firstDeletion.getLatestForName());
+    Assertions.assertEquals("NOT_LATEST_TOMBSTONE", firstDeletion.getReason());
+    Assertions.assertTrue(secondDeletion.getLatestForName());
+    Assertions.assertTrue(secondDeletion.getDeletedAt() > firstDeletion.getDeletedAt());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+        () ->
+            manager.restoreDeletedCatalog(
+                namespace, first.name(), first.id(), firstDeletion.getEtag()));
+
+    CatalogEntity replacement = createAndInsertCatalog(METALAKE, second.name());
+    DeletedEntityDTO occupied = manager.getDeletedCatalog(namespace, second.name(), second.id());
+    Assertions.assertEquals("NAME_OCCUPIED", occupied.getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        () ->
+            manager.restoreDeletedCatalog(
+                namespace, second.name(), second.id(), secondDeletion.getEtag()));
+    Assertions.assertTrue(backend.exists(replacement.nameIdentifier(), Entity.EntityType.CATALOG));
+  }
+
+  @TestTemplate
+  public void testCatalogRestoreRefusesIncompleteAggregateWithoutPartialRevival() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, "broken_catalog");
+    SchemaEntity schema = createAndInsertSchema(METALAKE, catalog.name(), "broken_schema");
+    TableEntity table =
+        newTable(
+            NamespaceUtil.ofTable(METALAKE, catalog.name(), schema.name()), "broken_catalog_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    CatalogMetaService.getInstance()
+        .deleteCatalog(catalog.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Namespace namespace = Namespace.of(METALAKE);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedCatalog(namespace, catalog.name(), catalog.id());
+    updateDeletionRecord(
+        "DELETE FROM table_version_info WHERE table_id = ? AND deletion_id = ?",
+        table.id(),
+        deleted.getDeletionId());
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () ->
+            manager.restoreDeletedCatalog(
+                namespace, catalog.name(), catalog.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(catalog.nameIdentifier(), Entity.EntityType.CATALOG));
+    Assertions.assertFalse(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testCatalogRestoreRefusesRelationWhoseExternalSourceWasDeleted() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, "orphan_relation_catalog");
+    TagEntity tag =
+        TagEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("orphan_relation_tag")
+            .withNamespace(NamespaceUtil.ofTag(METALAKE))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    TagMetaService.getInstance().insertTag(tag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            catalog.nameIdentifier(),
+            Entity.EntityType.CATALOG,
+            new NameIdentifier[] {tag.nameIdentifier()},
+            new NameIdentifier[0]);
+    CatalogMetaService.getInstance()
+        .deleteCatalog(catalog.nameIdentifier(), false, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    Namespace namespace = Namespace.of(METALAKE);
+    DeletedEntityDTO deleted = manager.getDeletedCatalog(namespace, catalog.name(), catalog.id());
+    Assertions.assertTrue(TagMetaService.getInstance().deleteTag(tag.nameIdentifier()));
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () ->
+            manager.restoreDeletedCatalog(
+                namespace, catalog.name(), catalog.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(catalog.nameIdentifier(), Entity.EntityType.CATALOG));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testExpiredCatalogGenerationIsPurgedAsOneAggregate() throws Exception {
+    long deletedAt = Instant.now().toEpochMilli();
+    createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, "purged_catalog");
+    SchemaEntity schema = createAndInsertSchema(METALAKE, catalog.name(), "purged_schema");
+    TableEntity table =
+        newTable(
+            NamespaceUtil.ofTable(METALAKE, catalog.name(), schema.name()), "purged_catalog_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    CatalogMetaService.getInstance().deleteCatalog(catalog.nameIdentifier(), true, deletedAt, 0L);
+    DeletedEntityDTO deletion =
+        new RecoverableDeletionManager(RETENTION_MS)
+            .getDeletedCatalog(Namespace.of(METALAKE), catalog.name(), catalog.id());
+
+    Assertions.assertEquals(
+        1, CatalogMetaService.getInstance().purgeExpiredCatalogDeletions(deletedAt + 1L, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(catalog.id(), Entity.EntityType.CATALOG));
+    Assertions.assertFalse(legacyRecordExistsInDB(schema.id(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(legacyRecordExistsInDB(table.id(), Entity.EntityType.TABLE));
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deletion.getDeletionId());
+    Assertions.assertNotNull(receipt);
+    Assertions.assertEquals(DeletionState.PURGED, receipt.getState());
+  }
+
+  @TestTemplate
   public void testSchemaCascadeListsOnlyRootAndRestoresExactMetadataTree() throws Exception {
     createAndInsertMakeLake(METALAKE);
     createAndInsertCatalog(METALAKE, CATALOG);
@@ -866,6 +1156,45 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
     // GC's lock order. The failed validation must still roll the claim back atomically.
     Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
     Assertions.assertEquals(0L, receipt.getRevision());
+  }
+
+  @TestTemplate
+  public void testSchemaRestoreRefusesRelationWhoseExternalSourceWasDeleted() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    SchemaEntity schema = createAndInsertSchema(METALAKE, CATALOG, "orphan_schema");
+    TableEntity table =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schema.name()), "orphan_schema_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    TagEntity tag =
+        TagEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("orphan_schema_tag")
+            .withNamespace(NamespaceUtil.ofTag(METALAKE))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    TagMetaService.getInstance().insertTag(tag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            table.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            new NameIdentifier[] {tag.nameIdentifier()},
+            new NameIdentifier[0]);
+    SchemaMetaService.getInstance()
+        .deleteSchema(schema.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Namespace namespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedSchema(namespace, schema.name(), schema.id());
+    Assertions.assertTrue(TagMetaService.getInstance().deleteTag(tag.nameIdentifier()));
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () ->
+            manager.restoreDeletedSchema(namespace, schema.name(), schema.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
   }
 
   @TestTemplate

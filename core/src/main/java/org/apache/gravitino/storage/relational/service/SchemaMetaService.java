@@ -466,8 +466,11 @@ public class SchemaMetaService {
                     }
                   }
                   if (recoveryMapper.countMissingRequiredDetails(
-                          deletedAt, deletion.getDeletionId())
-                      != 0) {
+                              deletedAt, deletion.getDeletionId())
+                          != 0
+                      || recoveryMapper.countBrokenExternalReferences(
+                              deletedAt, deletion.getDeletionId())
+                          != 0) {
                     throw tombstoneChanged(deletion.getDeletionId());
                   }
 
@@ -597,6 +600,9 @@ public class SchemaMetaService {
                     if (expectedCounts.get(SchemaAggregateTable.SCHEMA) != schemaTree.size()
                         || mapper.countMissingRequiredDetails(
                                 actual.getDeletedAt(), actual.getDeletionId())
+                            != 0
+                        || mapper.countBrokenExternalReferences(
+                                actual.getDeletedAt(), actual.getDeletionId())
                             != 0) {
                       throw tombstoneChanged(actual.getDeletionId());
                     }
@@ -703,6 +709,14 @@ public class SchemaMetaService {
                   }
                   Map<SchemaAggregateTable, Integer> expectedCounts =
                       generationCounts(mapper, actual);
+                  if (mapper.countMissingRequiredDetails(
+                              actual.getDeletedAt(), actual.getDeletionId())
+                          != 0
+                      || mapper.countBrokenExternalReferences(
+                              actual.getDeletedAt(), actual.getDeletionId())
+                          != 0) {
+                    throw tombstoneChanged(actual.getDeletionId());
+                  }
                   for (SchemaAggregateTable aggregateTable : SchemaAggregateTable.values()) {
                     int changed =
                         mapper.hardDeleteGenerationRows(
