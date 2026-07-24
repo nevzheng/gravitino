@@ -20,30 +20,51 @@ package org.apache.gravitino.server.web.rest;
 
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
+import java.util.Arrays;
+import java.util.List;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.Entity;
+import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.ViewDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ViewCreateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ViewResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rel.View;
 import org.apache.gravitino.rel.ViewChange;
+import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
+import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -56,12 +77,15 @@ public class ViewOperations {
   private static final Logger LOG = LoggerFactory.getLogger(ViewOperations.class);
 
   private final ViewDispatcher dispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public ViewOperations(ViewDispatcher dispatcher) {
+  public ViewOperations(
+      ViewDispatcher dispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.dispatcher = dispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -71,14 +95,38 @@ public class ViewOperations {
   public Response listViews(
       @PathParam("metalake") String metalake,
       @PathParam("catalog") String catalog,
-      @PathParam("schema") String schema) {
+      @PathParam("schema") String schema,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info("Received list views request for schema: {}.{}.{}", metalake, catalog, schema);
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
             Namespace viewNS = NamespaceUtil.ofView(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedViewAccess(viewNS);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedViews =
+                  recoverableDeletionManager.listDeletedViews(viewNS, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedViews.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier[] idents = dispatcher.listViews(viewNS);
+            if (name != null) {
+              idents =
+                  Arrays.stream(idents)
+                      .filter(ident -> name.equals(ident.name()))
+                      .toArray(NameIdentifier[]::new);
+            }
             Response response = Utils.ok(new EntityListResponse(idents));
             LOG.info(
                 "List {} views under schema: {}.{}.{}", idents.length, metalake, catalog, schema);
@@ -138,12 +186,34 @@ public class ViewOperations {
       @PathParam("metalake") String metalake,
       @PathParam("catalog") String catalog,
       @PathParam("schema") String schema,
-      @PathParam("view") String view) {
+      @PathParam("view") String view,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received load view request for view: {}.{}.{}.{}", metalake, catalog, schema, view);
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            Namespace namespace = NamespaceUtil.ofView(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedViewAccess(namespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted view");
+              }
+              DeletedEntityDTO deletedView =
+                  recoverableDeletionManager.getDeletedView(namespace, view, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedView)))
+                  .tag(new EntityTag(deletedView.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier ident = NameIdentifierUtil.ofView(metalake, catalog, schema, view);
             View v = dispatcher.loadView(ident);
             Response response = Utils.ok(new ViewResponse(DTOConverters.toDTO(v)));
@@ -152,6 +222,67 @@ public class ViewOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleViewException(OperationType.LOAD, view, schema, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted view metadata generation.
+   *
+   * @param metalake metalake name
+   * @param catalog catalog name
+   * @param schema schema name
+   * @param view original view name
+   * @param include deleted-resource selector
+   * @param id immutable view identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-view read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored view response
+   */
+  @PATCH
+  @Path("{view}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-view." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-view", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response restoreView(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("view") String view,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore view request: {}.{}.{}.{}", metalake, catalog, schema, view);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted view");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted view");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "view");
+            Namespace namespace = NamespaceUtil.ofView(metalake, catalog, schema);
+            checkDeletedViewAccess(namespace);
+            ViewEntity restored =
+                recoverableDeletionManager.restoreDeletedView(namespace, view, entityId, etag);
+            return Utils.ok(new ViewResponse(DTOConverters.toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleViewException(OperationType.RESTORE, view, schema, e);
     }
   }
 
@@ -215,6 +346,15 @@ public class ViewOperations {
 
     } catch (Exception e) {
       return ExceptionHandlers.handleViewException(OperationType.DROP, view, schema, e);
+    }
+  }
+
+  private static void checkDeletedViewAccess(Namespace viewNamespace) {
+    NameIdentifier schemaIdentifier = NameIdentifier.of(viewNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        schemaIdentifier, Entity.EntityType.SCHEMA, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted views under %s", viewNamespace);
     }
   }
 }

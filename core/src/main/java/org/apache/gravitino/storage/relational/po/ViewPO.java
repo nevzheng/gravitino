@@ -61,6 +61,7 @@ public class ViewPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
   private ViewVersionInfoPO viewVersionInfoPO;
 
   public ViewPO() {}
@@ -80,6 +81,7 @@ public class ViewPO {
       Long currentVersion,
       Long lastVersion,
       Long deletedAt,
+      String deletionId,
       ViewVersionInfoPO viewVersionInfoPO) {
     Preconditions.checkArgument(viewId != null, "View id is required");
     Preconditions.checkArgument(viewName != null, "View name is required");
@@ -100,6 +102,7 @@ public class ViewPO {
     this.currentVersion = currentVersion;
     this.lastVersion = lastVersion;
     this.deletedAt = deletedAt;
+    this.deletionId = deletionId;
     this.viewVersionInfoPO = viewVersionInfoPO;
   }
 

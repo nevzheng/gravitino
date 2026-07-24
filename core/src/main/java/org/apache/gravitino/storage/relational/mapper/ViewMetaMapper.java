@@ -54,7 +54,8 @@ public interface ViewMetaMapper {
         @Result(property = "defaultSchema", column = "default_schema"),
         @Result(property = "representations", column = "representations"),
         @Result(property = "auditInfo", column = "version_audit_info"),
-        @Result(property = "deletedAt", column = "version_deleted_at")
+        @Result(property = "deletedAt", column = "version_deleted_at"),
+        @Result(property = "deletionId", column = "version_deletion_id")
       })
   @Select("SELECT 1") // Dummy SQL to avoid MyBatis error, never be executed
   ViewVersionInfoPO mapToViewVersionInfoPO();
@@ -71,13 +72,14 @@ public interface ViewMetaMapper {
         @Result(property = "lastVersion", column = "last_version"),
         @Result(property = "auditInfo", column = "audit_info"),
         @Result(property = "deletedAt", column = "deleted_at"),
+        @Result(property = "deletionId", column = "deletion_id"),
         @Result(
             property = "viewVersionInfoPO",
             javaType = ViewVersionInfoPO.class,
             column =
                 "{id,version_metalake_id,version_catalog_id,version_schema_id,version_view_id,"
                     + "version,view_comment,columns,properties,default_catalog,default_schema,"
-                    + "representations,version_audit_info,version_deleted_at}",
+                    + "representations,version_audit_info,version_deleted_at,version_deletion_id}",
             one = @One(resultMap = "mapToViewVersionInfoPO"))
       })
   @SelectProvider(type = ViewMetaSQLProviderFactory.class, method = "listViewPOsBySchemaId")

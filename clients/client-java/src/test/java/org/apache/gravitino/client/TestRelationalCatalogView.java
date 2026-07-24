@@ -29,16 +29,22 @@ import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.rel.ColumnDTO;
 import org.apache.gravitino.dto.rel.RepresentationDTO;
 import org.apache.gravitino.dto.rel.SQLRepresentationDTO;
 import org.apache.gravitino.dto.rel.ViewDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ViewCreateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -126,6 +132,101 @@ public class TestRelationalCatalogView extends TestRelationalCatalog {
     Throwable ex =
         Assertions.assertThrows(NoSuchViewException.class, () -> viewCatalog.loadView(ident));
     Assertions.assertTrue(ex.getMessage().contains("view not found"));
+  }
+
+  @Test
+  public void testRecoverableViewMetadata() throws JsonProcessingException {
+    Namespace namespace = Namespace.of(SCHEMA_NAME);
+    NameIdentifier viewId = NameIdentifier.of(namespace, "orders_view");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(RelationalCatalog.formatViewRequestPath(fullNamespace));
+    String itemPath = collectionPath + "/" + viewId.name();
+    DeletedEntityDTO generation =
+        createDeletedViewGeneration(viewId.name(), "284273", RecoveryEntityType.VIEW);
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", viewId.name(), "id", generation.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed =
+        catalog.asViewCatalog().listDeletedViews(namespace, viewId.name(), generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.VIEW, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = catalog.asViewCatalog().loadDeletedView(viewId, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    ViewDTO restoredView =
+        newViewDTO(viewId.name(), "restored metadata", defaultColumns(), defaultRepresentations());
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH, itemPath, exactParameters, request, new ViewResponse(restoredView), SC_OK);
+    View restored = catalog.asViewCatalog().restoreView(viewId, loaded);
+    Assertions.assertEquals(viewId.name(), restored.name());
+    Assertions.assertEquals("restored metadata", restored.comment());
+  }
+
+  @Test
+  public void testDeletedViewResponseBinding() throws JsonProcessingException {
+    Namespace namespace = Namespace.of(SCHEMA_NAME);
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(RelationalCatalog.formatViewRequestPath(fullNamespace));
+    DeletedEntityDTO wrongType =
+        createDeletedViewGeneration("orders_view", "284273", RecoveryEntityType.TABLE);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asViewCatalog().listDeletedViews(namespace, null, null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asViewCatalog().listDeletedViews(Namespace.of("a", "b"), null, null));
+
+    NameIdentifier viewId = NameIdentifier.of(namespace, "orders_view");
+    String itemPath = collectionPath + "/" + viewId.name();
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "284273");
+    DeletedEntityDTO wrongName =
+        createDeletedViewGeneration("payments_view", "284273", RecoveryEntityType.VIEW);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asViewCatalog().loadDeletedView(viewId, "284273"));
+
+    DeletedEntityDTO wrongId =
+        createDeletedViewGeneration(viewId.name(), "284274", RecoveryEntityType.VIEW);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asViewCatalog().loadDeletedView(viewId, "284273"));
+
+    DeletedEntityDTO valid =
+        createDeletedViewGeneration(viewId.name(), "284273", RecoveryEntityType.VIEW);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new ViewResponse(
+            newViewDTO("payments_view", "wrong name", defaultColumns(), defaultRepresentations())),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> catalog.asViewCatalog().restoreView(viewId, valid));
   }
 
   @Test
@@ -337,5 +438,23 @@ public class TestRelationalCatalogView extends TestRelationalCatalog {
 
   private static AuditDTO mockAudit() {
     return AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build();
+  }
+
+  private static DeletedEntityDTO createDeletedViewGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 }

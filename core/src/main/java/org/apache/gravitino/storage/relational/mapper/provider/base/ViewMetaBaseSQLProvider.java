@@ -32,12 +32,13 @@ public class ViewMetaBaseSQLProvider {
 
   public String listViewPOsBySchemaId(@Param("schemaId") Long schemaId) {
     return "SELECT vm.view_id, vm.view_name, vm.metalake_id, vm.catalog_id, vm.schema_id,"
-        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at,"
+        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at, vm.deletion_id,"
         + " vi.id, vi.metalake_id as version_metalake_id, vi.catalog_id as version_catalog_id,"
         + " vi.schema_id as version_schema_id, vi.view_id as version_view_id,"
         + " vi.version, vi.view_comment, vi.columns, vi.properties,"
         + " vi.default_catalog, vi.default_schema, vi.representations,"
-        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at"
+        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at,"
+        + " vi.deletion_id as version_deletion_id"
         + " FROM "
         + TABLE_NAME
         + " vm INNER JOIN "
@@ -61,6 +62,7 @@ public class ViewMetaBaseSQLProvider {
             vm.last_version,
             vm.audit_info,
             vm.deleted_at,
+            vm.deletion_id,
             vi.id,
             vi.metalake_id as version_metalake_id,
             vi.catalog_id as version_catalog_id,
@@ -74,7 +76,8 @@ public class ViewMetaBaseSQLProvider {
             vi.default_schema,
             vi.representations,
             vi.audit_info as version_audit_info,
-            vi.deleted_at as version_deleted_at
+            vi.deleted_at as version_deleted_at,
+            vi.deletion_id as version_deletion_id
         FROM
             %s mm
         INNER JOIN
@@ -115,12 +118,13 @@ public class ViewMetaBaseSQLProvider {
   public String selectViewMetaBySchemaIdAndName(
       @Param("schemaId") Long schemaId, @Param("viewName") String name) {
     return "SELECT vm.view_id, vm.view_name, vm.metalake_id, vm.catalog_id, vm.schema_id,"
-        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at,"
+        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at, vm.deletion_id,"
         + " vi.id, vi.metalake_id as version_metalake_id, vi.catalog_id as version_catalog_id,"
         + " vi.schema_id as version_schema_id, vi.view_id as version_view_id,"
         + " vi.version, vi.view_comment, vi.columns, vi.properties,"
         + " vi.default_catalog, vi.default_schema, vi.representations,"
-        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at"
+        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at,"
+        + " vi.deletion_id as version_deletion_id"
         + " FROM "
         + TABLE_NAME
         + " vm INNER JOIN "
@@ -135,7 +139,7 @@ public class ViewMetaBaseSQLProvider {
         + TABLE_NAME
         + " (view_id, view_name, metalake_id,"
         + " catalog_id, schema_id,"
-        + " current_version, last_version, audit_info, deleted_at)"
+        + " current_version, last_version, audit_info, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{viewMeta.viewId},"
         + " #{viewMeta.viewName},"
@@ -145,7 +149,8 @@ public class ViewMetaBaseSQLProvider {
         + " #{viewMeta.currentVersion},"
         + " #{viewMeta.lastVersion},"
         + " #{viewMeta.auditInfo},"
-        + " #{viewMeta.deletedAt}"
+        + " #{viewMeta.deletedAt},"
+        + " #{viewMeta.deletionId}"
         + " )";
   }
 
@@ -154,7 +159,7 @@ public class ViewMetaBaseSQLProvider {
         + TABLE_NAME
         + " (view_id, view_name, metalake_id,"
         + " catalog_id, schema_id,"
-        + " current_version, last_version, audit_info, deleted_at)"
+        + " current_version, last_version, audit_info, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{viewMeta.viewId},"
         + " #{viewMeta.viewName},"
@@ -164,7 +169,8 @@ public class ViewMetaBaseSQLProvider {
         + " #{viewMeta.currentVersion},"
         + " #{viewMeta.lastVersion},"
         + " #{viewMeta.auditInfo},"
-        + " #{viewMeta.deletedAt}"
+        + " #{viewMeta.deletedAt},"
+        + " #{viewMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " view_name = #{viewMeta.viewName},"
@@ -174,7 +180,8 @@ public class ViewMetaBaseSQLProvider {
         + " current_version = #{viewMeta.currentVersion},"
         + " last_version = #{viewMeta.lastVersion},"
         + " audit_info = #{viewMeta.auditInfo},"
-        + " deleted_at = #{viewMeta.deletedAt}";
+        + " deleted_at = #{viewMeta.deletedAt},"
+        + " deletion_id = #{viewMeta.deletionId}";
   }
 
   public String updateViewMeta(
@@ -186,7 +193,8 @@ public class ViewMetaBaseSQLProvider {
         + " current_version = #{newViewMeta.currentVersion}, "
         + " last_version = #{newViewMeta.lastVersion}, "
         + " audit_info = #{newViewMeta.auditInfo}, "
-        + " deleted_at = #{newViewMeta.deletedAt} "
+        + " deleted_at = #{newViewMeta.deletedAt}, "
+        + " deletion_id = #{newViewMeta.deletionId} "
         + " WHERE view_id = #{oldViewMeta.viewId} "
         + " AND current_version = #{oldViewMeta.currentVersion} "
         + " AND deleted_at = 0";
@@ -195,12 +203,13 @@ public class ViewMetaBaseSQLProvider {
   public String listViewPOsByViewIds(@Param("viewIds") List<Long> viewIds) {
     return "<script>"
         + "SELECT vm.view_id, vm.view_name, vm.metalake_id, vm.catalog_id, vm.schema_id,"
-        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at,"
+        + " vm.current_version, vm.last_version, vm.audit_info, vm.deleted_at, vm.deletion_id,"
         + " vi.id, vi.metalake_id as version_metalake_id, vi.catalog_id as version_catalog_id,"
         + " vi.schema_id as version_schema_id, vi.view_id as version_view_id,"
         + " vi.version, vi.view_comment, vi.columns, vi.properties,"
         + " vi.default_catalog, vi.default_schema, vi.representations,"
-        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at"
+        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at,"
+        + " vi.deletion_id as version_deletion_id"
         + " FROM "
         + TABLE_NAME
         + " vm INNER JOIN "
@@ -218,7 +227,7 @@ public class ViewMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE view_id = #{viewId} AND deleted_at = 0";
   }
 
@@ -226,7 +235,7 @@ public class ViewMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -234,7 +243,7 @@ public class ViewMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -243,7 +252,7 @@ public class ViewMetaBaseSQLProvider {
         + "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -256,7 +265,8 @@ public class ViewMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectViewByFullQualifiedName(
@@ -275,6 +285,7 @@ public class ViewMetaBaseSQLProvider {
             vm.last_version,
             vm.audit_info,
             vm.deleted_at,
+            vm.deletion_id,
             vi.id,
             vi.metalake_id as version_metalake_id,
             vi.catalog_id as version_catalog_id,
@@ -288,7 +299,8 @@ public class ViewMetaBaseSQLProvider {
             vi.default_schema,
             vi.representations,
             vi.audit_info as version_audit_info,
-            vi.deleted_at as version_deleted_at
+            vi.deleted_at as version_deleted_at,
+            vi.deletion_id as version_deletion_id
         FROM
             %s mm
         INNER JOIN

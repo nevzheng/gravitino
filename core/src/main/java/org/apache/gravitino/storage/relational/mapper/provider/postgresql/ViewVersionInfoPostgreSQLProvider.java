@@ -33,14 +33,15 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
         + ViewVersionInfoMapper.TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, view_id, version,"
         + " view_comment, columns, properties, default_catalog, default_schema, representations,"
-        + " audit_info, deleted_at)"
+        + " audit_info, deleted_at, deletion_id)"
         + " VALUES (#{viewVersionInfo.metalakeId}, #{viewVersionInfo.catalogId},"
         + " #{viewVersionInfo.schemaId}, #{viewVersionInfo.viewId},"
         + " #{viewVersionInfo.version}, #{viewVersionInfo.viewComment},"
         + " #{viewVersionInfo.columns}, #{viewVersionInfo.properties},"
         + " #{viewVersionInfo.defaultCatalog}, #{viewVersionInfo.defaultSchema},"
         + " #{viewVersionInfo.representations},"
-        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt})"
+        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt},"
+        + " #{viewVersionInfo.deletionId})"
         + " ON CONFLICT (view_id, version, deleted_at) DO UPDATE SET"
         + " view_comment = #{viewVersionInfo.viewComment},"
         + " columns = #{viewVersionInfo.columns},"
@@ -49,14 +50,16 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
         + " default_schema = #{viewVersionInfo.defaultSchema},"
         + " representations = #{viewVersionInfo.representations},"
         + " audit_info = #{viewVersionInfo.auditInfo},"
-        + " deleted_at = #{viewVersionInfo.deletedAt}";
+        + " deleted_at = #{viewVersionInfo.deletedAt},"
+        + " deletion_id = #{viewVersionInfo.deletionId}";
   }
 
   @Override
   public String softDeleteViewVersionsByViewId(@Param("viewId") Long viewId) {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE view_id = #{viewId} AND deleted_at = 0";
   }
 
@@ -64,7 +67,8 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
   public String softDeleteViewVersionsBySchemaId(@Param("schemaId") Long schemaId) {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id = #{schemaId} AND deleted_at = 0";
   }
 
@@ -74,7 +78,8 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
     return "<script>"
         + "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -87,7 +92,8 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
   public String softDeleteViewVersionsByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -95,7 +101,8 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
   public String softDeleteViewVersionsByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -106,7 +113,9 @@ public class ViewVersionInfoPostgreSQLProvider extends ViewVersionInfoBaseSQLPro
         + ViewVersionInfoMapper.TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 }

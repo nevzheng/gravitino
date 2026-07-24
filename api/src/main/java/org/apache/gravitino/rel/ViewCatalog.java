@@ -20,11 +20,17 @@ package org.apache.gravitino.rel;
 
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.annotation.Unstable;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchViewException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.exceptions.ViewAlreadyExistsException;
 
 /**
@@ -49,6 +55,31 @@ public interface ViewCatalog {
   }
 
   /**
+   * Lists retained deletion generations for views in a namespace.
+   *
+   * <p>The optional filters select an exact view name, immutable view ID, or both. A returned
+   * generation describes Gravitino metadata only; it does not assert that downstream objects
+   * referenced by the view still exist.
+   *
+   * <p>Implementations that support recoverable view deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param namespace A view namespace.
+   * @param name An exact view-name filter, or {@code null} to include every name.
+   * @param id An exact immutable view-ID filter, or {@code null} to include every ID.
+   * @return The retained view deletion generations matching the filters.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   * @throws IllegalArgumentException If the namespace or a supplied filter is invalid.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable view
+   *     deletion.
+   */
+  default DeletedEntity[] listDeletedViews(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedViews not supported.");
+  }
+
+  /**
    * Load view metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A view identifier.
@@ -56,6 +87,67 @@ public interface ViewCatalog {
    * @throws NoSuchViewException If the view does not exist.
    */
   View loadView(NameIdentifier ident) throws NoSuchViewException;
+
+  /**
+   * Loads one exact retained deletion generation for a view.
+   *
+   * <p>The view name in {@code ident} and immutable {@code id} must identify the same deleted view.
+   * The returned generation supplies the strong optimistic precondition required by {@link
+   * #restoreView(NameIdentifier, DeletedEntity)}.
+   *
+   * <p>Implementations that support recoverable view deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A view identifier.
+   * @param id The immutable view ID.
+   * @return The exact retained view deletion generation.
+   * @throws NoSuchSchemaException If the parent schema does not exist.
+   * @throws IllegalArgumentException If the identifier or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested view path.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable view
+   *     deletion.
+   */
+  default DeletedEntity loadDeletedView(NameIdentifier ident, String id)
+      throws NoSuchSchemaException, TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedView not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino view metadata.
+   *
+   * <p>This operation is metadata-only. It neither validates nor recreates downstream objects
+   * referenced by the view. The generation must come from an exact deleted-view read and must match
+   * the identifier's name and resource type. Replaying a previously accepted generation is
+   * idempotent while the server can still prove that exact restore.
+   *
+   * <p>If a request fails with {@link TombstoneChangedException}, callers must read the same view
+   * path and immutable ID again before deciding whether to retry; clients must never silently
+   * substitute a different ID or generation. An unknown transport outcome may be replayed with the
+   * same generation. A recovery conflict or expired generation is not retryable as-is.
+   *
+   * <p>Implementations that support recoverable view deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A view identifier.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored view metadata.
+   * @throws IllegalArgumentException If the identifier, generation type, name, ID, or ETag is
+   *     invalid or inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested view path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable view
+   *     deletion.
+   */
+  default View restoreView(NameIdentifier ident, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreView not supported.");
+  }
 
   /**
    * Check if a view exists using its identifier.

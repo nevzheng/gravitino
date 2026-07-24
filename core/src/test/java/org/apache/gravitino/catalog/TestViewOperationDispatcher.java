@@ -48,10 +48,13 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.TestCatalog;
 import org.apache.gravitino.connector.TestCatalogOperations;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchViewException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.SchemaEntity;
@@ -64,6 +67,7 @@ import org.apache.gravitino.rel.ViewChange;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class TestViewOperationDispatcher extends TestOperationDispatcher {
   static ViewOperationDispatcher viewOperationDispatcher;
@@ -385,7 +389,7 @@ public class TestViewOperationDispatcher extends TestOperationDispatcher {
   }
 
   @Test
-  public void testLoadViewAfterManualDelete() throws IOException {
+  public void testLoadViewAfterRecordedDeleteRequiresExplicitRecovery() throws IOException {
     Namespace viewNs = Namespace.of(metalake, catalog, "schema67");
     Map<String, String> props = ImmutableMap.of("k1", "v1", "k2", "v2");
     schemaOperationDispatcher.createSchema(NameIdentifier.of(viewNs.levels()), "comment", props);
@@ -402,20 +406,31 @@ public class TestViewOperationDispatcher extends TestOperationDispatcher {
     TestCatalogOperations testCatalogOperations = (TestCatalogOperations) testCatalog.ops();
     testCatalogOperations.views.put(viewIdent, mockView);
 
-    // Load view - should auto-import
+    // Load view - should auto-import.
     View loadedView1 = viewOperationDispatcher.loadView(viewIdent);
     Assertions.assertEquals("deleted_view", loadedView1.name());
+    ViewEntity imported = entityStore.get(viewIdent, VIEW, ViewEntity.class);
+    Map<String, String> propertiesWithId =
+        StringIdentifier.newPropertiesWithId(StringIdentifier.fromId(imported.id()), props);
+    testCatalogOperations.views.put(
+        viewIdent, createMockView("deleted_view", propertiesWithId, auditInfo));
 
-    // Manually delete from entity store
-    entityStore.delete(viewIdent, VIEW);
-
-    // Load view again - should re-import
-    View loadedView2 = viewOperationDispatcher.loadView(viewIdent);
-    Assertions.assertEquals("deleted_view", loadedView2.name());
-
-    // Verify view was re-imported
-    ViewEntity viewEntity = entityStore.get(viewIdent, VIEW, ViewEntity.class);
-    Assertions.assertNotNull(viewEntity);
+    // A recorded store deletion must not be silently resurrected by connector-first auto-import.
+    Assertions.assertTrue(entityStore.delete(viewIdent, VIEW));
+    RecoveryConflictException recordedTombstone =
+        new RecoveryConflictException(
+            RecoveryConflictReason.ENTITY_ID_REUSED,
+            "View ID %s belongs to a recoverable deletion; use metadata restore",
+            imported.id());
+    Mockito.doThrow(recordedTombstone)
+        .when(entityStore)
+        .put(Mockito.any(ViewEntity.class), Mockito.eq(true));
+    RuntimeException failure =
+        Assertions.assertThrows(
+            RuntimeException.class, () -> viewOperationDispatcher.loadView(viewIdent));
+    Assertions.assertSame(recordedTombstone, failure.getCause());
+    Assertions.assertThrows(
+        NoSuchEntityException.class, () -> entityStore.get(viewIdent, VIEW, ViewEntity.class));
   }
 
   @Test

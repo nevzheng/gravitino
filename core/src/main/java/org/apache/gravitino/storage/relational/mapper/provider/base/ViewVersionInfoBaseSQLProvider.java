@@ -31,14 +31,15 @@ public class ViewVersionInfoBaseSQLProvider {
         + ViewVersionInfoMapper.TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, view_id, version,"
         + " view_comment, columns, properties, default_catalog, default_schema, representations,"
-        + " audit_info, deleted_at)"
+        + " audit_info, deleted_at, deletion_id)"
         + " VALUES (#{viewVersionInfo.metalakeId}, #{viewVersionInfo.catalogId},"
         + " #{viewVersionInfo.schemaId}, #{viewVersionInfo.viewId},"
         + " #{viewVersionInfo.version}, #{viewVersionInfo.viewComment},"
         + " #{viewVersionInfo.columns}, #{viewVersionInfo.properties},"
         + " #{viewVersionInfo.defaultCatalog}, #{viewVersionInfo.defaultSchema},"
         + " #{viewVersionInfo.representations},"
-        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt})";
+        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt},"
+        + " #{viewVersionInfo.deletionId})";
   }
 
   public String insertViewVersionInfoOnDuplicateKeyUpdate(
@@ -47,14 +48,15 @@ public class ViewVersionInfoBaseSQLProvider {
         + ViewVersionInfoMapper.TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, view_id, version,"
         + " view_comment, columns, properties, default_catalog, default_schema, representations,"
-        + " audit_info, deleted_at)"
+        + " audit_info, deleted_at, deletion_id)"
         + " VALUES (#{viewVersionInfo.metalakeId}, #{viewVersionInfo.catalogId},"
         + " #{viewVersionInfo.schemaId}, #{viewVersionInfo.viewId},"
         + " #{viewVersionInfo.version}, #{viewVersionInfo.viewComment},"
         + " #{viewVersionInfo.columns}, #{viewVersionInfo.properties},"
         + " #{viewVersionInfo.defaultCatalog}, #{viewVersionInfo.defaultSchema},"
         + " #{viewVersionInfo.representations},"
-        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt})"
+        + " #{viewVersionInfo.auditInfo}, #{viewVersionInfo.deletedAt},"
+        + " #{viewVersionInfo.deletionId})"
         + " ON DUPLICATE KEY UPDATE"
         + " view_comment = #{viewVersionInfo.viewComment},"
         + " columns = #{viewVersionInfo.columns},"
@@ -63,7 +65,8 @@ public class ViewVersionInfoBaseSQLProvider {
         + " default_schema = #{viewVersionInfo.defaultSchema},"
         + " representations = #{viewVersionInfo.representations},"
         + " audit_info = #{viewVersionInfo.auditInfo},"
-        + " deleted_at = #{viewVersionInfo.deletedAt}";
+        + " deleted_at = #{viewVersionInfo.deletedAt},"
+        + " deletion_id = #{viewVersionInfo.deletionId}";
   }
 
   public String selectViewVersionInfoByViewIdAndVersion(
@@ -73,7 +76,7 @@ public class ViewVersionInfoBaseSQLProvider {
         + " view_comment as viewComment, columns as columns, properties as properties,"
         + " default_catalog as defaultCatalog, default_schema as defaultSchema,"
         + " representations as representations,"
-        + " audit_info as auditInfo, deleted_at as deletedAt FROM "
+        + " audit_info as auditInfo, deleted_at as deletedAt, deletion_id as deletionId FROM "
         + ViewVersionInfoMapper.TABLE_NAME
         + " WHERE view_id = #{viewId} AND version = #{version} AND deleted_at = 0";
   }
@@ -82,7 +85,7 @@ public class ViewVersionInfoBaseSQLProvider {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE view_id = #{viewId} AND deleted_at = 0";
   }
 
@@ -90,7 +93,7 @@ public class ViewVersionInfoBaseSQLProvider {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id = #{schemaId} AND deleted_at = 0";
   }
 
@@ -100,7 +103,7 @@ public class ViewVersionInfoBaseSQLProvider {
         + "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -113,7 +116,7 @@ public class ViewVersionInfoBaseSQLProvider {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -121,7 +124,7 @@ public class ViewVersionInfoBaseSQLProvider {
     return "UPDATE "
         + ViewVersionInfoMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -129,6 +132,7 @@ public class ViewVersionInfoBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + ViewVersionInfoMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 }

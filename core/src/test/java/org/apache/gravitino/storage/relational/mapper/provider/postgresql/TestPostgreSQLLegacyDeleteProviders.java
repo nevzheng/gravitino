@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.ViewMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.ViewVersionInfoBaseSQLProvider;
 import org.junit.jupiter.api.Test;
 
 class TestPostgreSQLLegacyDeleteProviders {
@@ -91,6 +93,28 @@ class TestPostgreSQLLegacyDeleteProviders {
       assertTrue(
           sql.contains("deletion_id IS NULL"),
           () -> "Legacy table deletion can select a recorded deletion generation: " + sql);
+    }
+  }
+
+  @Test
+  void testLegacyViewDeletesExcludeRecordedDeletionGenerations() {
+    List<String> sqlStatements =
+        List.of(
+            new ViewMetaBaseSQLProvider().deleteViewMetasByLegacyTimeline(1L, 1),
+            new ViewVersionInfoBaseSQLProvider().deleteViewVersionsByLegacyTimeline(1L, 1),
+            new ViewMetaPostgreSQLProvider().deleteViewMetasByLegacyTimeline(1L, 1),
+            new ViewVersionInfoPostgreSQLProvider().deleteViewVersionsByLegacyTimeline(1L, 1));
+
+    for (String sql : sqlStatements) {
+      assertTrue(
+          sql.contains("deletion_id IS NULL"),
+          () -> "Legacy view deletion can select a recorded deletion generation: " + sql);
+    }
+
+    for (String sql : sqlStatements.subList(2, 4)) {
+      assertTrue(
+          sql.indexOf("deletion_id IS NULL") != sql.lastIndexOf("deletion_id IS NULL"),
+          () -> "PostgreSQL outer delete does not recheck the view generation token: " + sql);
     }
   }
 
