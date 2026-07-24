@@ -27,9 +27,11 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.audit.FilesetAuditConstants;
 import org.apache.gravitino.audit.FilesetDataOperation;
 import org.apache.gravitino.audit.InternalClientType;
+import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -172,6 +174,35 @@ public class TestUtils {
     assertEquals(MediaType.APPLICATION_JSON, response.getMediaType().toString());
     ErrorResponse errorResponse = (ErrorResponse) response.getEntity();
     assertEquals("Unsupported operation", errorResponse.getMessage());
+  }
+
+  @Test
+  public void testRecoveryFailures() {
+    Response expired = Utils.tombstoneExpired("Expired", new RuntimeException("expired"));
+    Response changed = Utils.tombstoneChanged("Changed", new RuntimeException("changed"));
+    Response required =
+        Utils.preconditionRequired("If-Match required", new RuntimeException("required"));
+    Response conflict =
+        Utils.recoveryConflict(
+            RecoveryConflictReason.NAME_OCCUPIED,
+            "Name occupied",
+            new RuntimeException("conflict"));
+
+    assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), changed.getStatus());
+    assertEquals(428, required.getStatus());
+    assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+
+    assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, ((ErrorResponse) expired.getEntity()).getCode());
+    assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, ((ErrorResponse) changed.getEntity()).getCode());
+    assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        ((ErrorResponse) required.getEntity()).getCode());
+    ErrorResponse conflictError = (ErrorResponse) conflict.getEntity();
+    assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictError.getCode());
+    assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictError.getReason());
   }
 
   @Test

@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.dto.responses;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
 import java.io.PrintWriter;
@@ -27,9 +28,14 @@ import java.util.List;
 import javax.annotation.Nullable;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
 import org.apache.gravitino.exceptions.RESTException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 
 /** Represents an error response. */
 @Getter
@@ -46,11 +52,26 @@ public class ErrorResponse extends BaseResponse {
   @JsonProperty("stack")
   private List<String> stack;
 
+  @Nullable
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  @JsonProperty("reason")
+  private RecoveryConflictReason reason;
+
   private ErrorResponse(int code, String type, String message, List<String> stack) {
+    this(code, type, message, stack, null);
+  }
+
+  private ErrorResponse(
+      int code,
+      String type,
+      String message,
+      List<String> stack,
+      @Nullable RecoveryConflictReason reason) {
     super(code);
     this.type = type;
     this.message = message;
     this.stack = stack;
+    this.reason = reason;
   }
 
   private ErrorResponse() {
@@ -58,6 +79,7 @@ public class ErrorResponse extends BaseResponse {
     this.type = null;
     this.message = null;
     this.stack = null;
+    this.reason = null;
   }
 
   /** Validates the error response. */
@@ -68,6 +90,9 @@ public class ErrorResponse extends BaseResponse {
     Preconditions.checkArgument(type != null && !type.isEmpty(), "type cannot be null or empty");
     Preconditions.checkArgument(
         message != null && !message.isEmpty(), "message cannot be null or empty");
+    Preconditions.checkArgument(
+        getCode() != ErrorConstants.RECOVERY_CONFLICT_CODE || reason != null,
+        "reason cannot be null for a recovery conflict");
   }
 
   @Override
@@ -79,8 +104,12 @@ public class ErrorResponse extends BaseResponse {
         .append(", type=")
         .append(type)
         .append(", message=")
-        .append(message)
-        .append(")");
+        .append(message);
+
+    if (reason != null) {
+      sb.append(", reason=").append(reason);
+    }
+    sb.append(")");
 
     if (stack != null && !stack.isEmpty()) {
       for (String s : stack) {
@@ -359,6 +388,78 @@ public class ErrorResponse extends BaseResponse {
   public static ErrorResponse unauthorized(String type, String message, Throwable throwable) {
     return new ErrorResponse(
         ErrorConstants.UNAUTHORIZED_CODE, type, message, getStackTrace(throwable));
+  }
+
+  /**
+   * Creates an expired-tombstone error response.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The new response.
+   */
+  public static ErrorResponse tombstoneExpired(String message, Throwable throwable) {
+    return new ErrorResponse(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE,
+        throwable == null
+            ? TombstoneExpiredException.class.getSimpleName()
+            : throwable.getClass().getSimpleName(),
+        message,
+        getStackTrace(throwable));
+  }
+
+  /**
+   * Creates a changed-tombstone error response.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The new response.
+   */
+  public static ErrorResponse tombstoneChanged(String message, Throwable throwable) {
+    return new ErrorResponse(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE,
+        throwable == null
+            ? TombstoneChangedException.class.getSimpleName()
+            : throwable.getClass().getSimpleName(),
+        message,
+        getStackTrace(throwable));
+  }
+
+  /**
+   * Creates a precondition-required error response.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The new response.
+   */
+  public static ErrorResponse preconditionRequired(String message, Throwable throwable) {
+    return new ErrorResponse(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        throwable == null
+            ? PreconditionRequiredException.class.getSimpleName()
+            : throwable.getClass().getSimpleName(),
+        message,
+        getStackTrace(throwable));
+  }
+
+  /**
+   * Creates a recovery-conflict error response with a stable reason.
+   *
+   * @param reason The stable recovery-conflict reason.
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The new response.
+   */
+  public static ErrorResponse recoveryConflict(
+      RecoveryConflictReason reason, String message, Throwable throwable) {
+    Preconditions.checkArgument(reason != null, "reason cannot be null");
+    return new ErrorResponse(
+        ErrorConstants.RECOVERY_CONFLICT_CODE,
+        throwable == null
+            ? RecoveryConflictException.class.getSimpleName()
+            : throwable.getClass().getSimpleName(),
+        message,
+        getStackTrace(throwable),
+        reason);
   }
 
   private static List<String> getStackTrace(Throwable throwable) {

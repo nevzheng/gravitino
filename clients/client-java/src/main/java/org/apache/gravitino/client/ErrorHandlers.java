@@ -21,6 +21,7 @@ package org.apache.gravitino.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -76,12 +77,17 @@ import org.apache.gravitino.exceptions.NotInUseException;
 import org.apache.gravitino.exceptions.PartitionAlreadyExistsException;
 import org.apache.gravitino.exceptions.PolicyAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
 import org.apache.gravitino.exceptions.RESTException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
 import org.apache.gravitino.exceptions.TagAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.TagAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.exceptions.TopicAlreadyExistsException;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.exceptions.UnmodifiableStatisticException;
@@ -290,6 +296,10 @@ public class ErrorHandlers {
    */
   public static Consumer<ErrorResponse> functionErrorHandler() {
     return FunctionErrorHandler.INSTANCE;
+  }
+
+  static ErrorHandler recoveryErrorHandler(Consumer<ErrorResponse> delegate) {
+    return new RecoveryErrorHandler(delegate);
   }
 
   private ErrorHandlers() {}
@@ -1381,6 +1391,52 @@ public class ErrorHandlers {
         throw new ForbiddenException("Forbidden error :%s", errorResponse.getMessage());
       }
       throw new RESTException("Unable to process: %s", formatErrorMessage(errorResponse));
+    }
+  }
+
+  /** Recovery-specific error mapping layered over an entity's existing error handler. */
+  @SuppressWarnings("FormatStringAnnotation")
+  private static class RecoveryErrorHandler extends ErrorHandler {
+    private final Consumer<ErrorResponse> delegate;
+
+    private RecoveryErrorHandler(Consumer<ErrorResponse> delegate) {
+      this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
+    }
+
+    @Override
+    public ErrorResponse parseResponse(int code, String json, ObjectMapper mapper) {
+      if (delegate instanceof ErrorHandler) {
+        return ((ErrorHandler) delegate).parseResponse(code, json, mapper);
+      }
+      return RestErrorHandler.INSTANCE.parseResponse(code, json, mapper);
+    }
+
+    @Override
+    public void accept(ErrorResponse errorResponse) {
+      String errorMessage = formatErrorMessage(errorResponse);
+
+      if (errorResponse.getCode() == ErrorConstants.NOT_FOUND_CODE
+          && TombstoneNotFoundException.class.getSimpleName().equals(errorResponse.getType())) {
+        throw new TombstoneNotFoundException(errorMessage);
+      }
+
+      switch (errorResponse.getCode()) {
+        case ErrorConstants.TOMBSTONE_EXPIRED_CODE:
+          throw new TombstoneExpiredException(errorMessage);
+        case ErrorConstants.TOMBSTONE_CHANGED_CODE:
+          throw new TombstoneChangedException(errorMessage);
+        case ErrorConstants.PRECONDITION_REQUIRED_CODE:
+          throw new PreconditionRequiredException(errorMessage);
+        case ErrorConstants.RECOVERY_CONFLICT_CODE:
+          if (errorResponse.getReason() == null) {
+            throw new RESTException(
+                "Recovery conflict response is missing a stable reason: %s", errorMessage);
+          }
+          throw new RecoveryConflictException(errorResponse.getReason(), errorMessage);
+        default:
+          delegate.accept(errorResponse);
+          throw new RESTException("Unhandled recovery error: %s", errorMessage);
+      }
     }
   }
 

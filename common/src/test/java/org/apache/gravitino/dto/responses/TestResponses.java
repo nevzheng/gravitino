@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.authorization.Privileges;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.authorization.SecurableObjects;
@@ -254,6 +255,33 @@ public class TestResponses {
   void testUnknownErrorResponse() throws IllegalArgumentException {
     ErrorResponse error = ErrorResponse.unknownError("unknown error");
     error.validate(); // No exception thrown
+  }
+
+  @Test
+  void testRecoveryErrorResponses() throws JsonProcessingException {
+    ErrorResponse expired = ErrorResponse.tombstoneExpired("expired", null);
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("changed", null);
+    ErrorResponse precondition = ErrorResponse.preconditionRequired("If-Match required", null);
+    ErrorResponse conflict =
+        ErrorResponse.recoveryConflict(RecoveryConflictReason.NAME_OCCUPIED, "name occupied", null);
+
+    assertEquals(ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.getCode());
+    assertEquals(ErrorConstants.TOMBSTONE_CHANGED_CODE, changed.getCode());
+    assertEquals(ErrorConstants.PRECONDITION_REQUIRED_CODE, precondition.getCode());
+    assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflict.getCode());
+    assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflict.getReason());
+    assertDoesNotThrow(expired::validate);
+    assertDoesNotThrow(changed::validate);
+    assertDoesNotThrow(precondition::validate);
+    assertDoesNotThrow(conflict::validate);
+
+    String json = JsonUtils.objectMapper().writeValueAsString(conflict);
+    assertTrue(json.contains("\"reason\":\"NAME_OCCUPIED\""));
+    ErrorResponse deserialized = JsonUtils.objectMapper().readValue(json, ErrorResponse.class);
+    assertEquals(conflict, deserialized);
+
+    String ordinaryJson = JsonUtils.objectMapper().writeValueAsString(expired);
+    assertTrue(!ordinaryJson.contains("\"reason\""));
   }
 
   @Test

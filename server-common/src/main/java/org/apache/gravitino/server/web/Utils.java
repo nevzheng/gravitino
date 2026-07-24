@@ -30,6 +30,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.Version;
 import org.apache.gravitino.audit.FilesetAuditConstants;
@@ -43,6 +44,7 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class Utils {
 
   private static final String REMOTE_USER = "gravitino";
+  private static final int HTTP_PRECONDITION_REQUIRED = 428;
 
   private Utils() {}
 
@@ -187,6 +189,64 @@ public class Utils {
   public static Response forbidden(String message, Throwable throwable) {
     return Response.status(Response.Status.FORBIDDEN)
         .entity(ErrorResponse.forbidden(message, throwable))
+        .type(MediaType.APPLICATION_JSON)
+        .build();
+  }
+
+  /**
+   * Creates an HTTP 410 response for an expired recoverable-deletion tombstone.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The HTTP response.
+   */
+  public static Response tombstoneExpired(String message, Throwable throwable) {
+    return Response.status(Response.Status.GONE)
+        .entity(ErrorResponse.tombstoneExpired(message, throwable))
+        .type(MediaType.APPLICATION_JSON)
+        .build();
+  }
+
+  /**
+   * Creates an HTTP 412 response for a changed recoverable-deletion tombstone.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The HTTP response.
+   */
+  public static Response tombstoneChanged(String message, Throwable throwable) {
+    return Response.status(Response.Status.PRECONDITION_FAILED)
+        .entity(ErrorResponse.tombstoneChanged(message, throwable))
+        .type(MediaType.APPLICATION_JSON)
+        .build();
+  }
+
+  /**
+   * Creates an HTTP 428 response for an omitted required request precondition.
+   *
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The HTTP response.
+   */
+  public static Response preconditionRequired(String message, Throwable throwable) {
+    return Response.status(HTTP_PRECONDITION_REQUIRED)
+        .entity(ErrorResponse.preconditionRequired(message, throwable))
+        .type(MediaType.APPLICATION_JSON)
+        .build();
+  }
+
+  /**
+   * Creates an HTTP 409 response for a recoverable-deletion state conflict.
+   *
+   * @param reason The stable recovery-conflict reason.
+   * @param message The error message.
+   * @param throwable The throwable that caused the error.
+   * @return The HTTP response.
+   */
+  public static Response recoveryConflict(
+      RecoveryConflictReason reason, String message, Throwable throwable) {
+    return Response.status(Response.Status.CONFLICT)
+        .entity(ErrorResponse.recoveryConflict(reason, message, throwable))
         .type(MediaType.APPLICATION_JSON)
         .build();
   }
