@@ -19,8 +19,8 @@
 
 package org.apache.gravitino.client;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockserver.integration.ClientAndServer.startClientAndServer;
+import static org.mockserver.model.HttpRequest.request;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
@@ -83,7 +83,7 @@ public class TestOAuth2TokenProvider {
         new OAuth2ErrorResponse(OAuth2ClientUtil.INVALID_CLIENT_ERROR, "invalid");
     String respJson = ObjectMapperProvider.objectMapper().writeValueAsString(respBody);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     OAuth2TokenProvider.Builder builder =
         DefaultOAuth2TokenProvider.builder()
             .withUri(String.format("http://127.0.0.1:%d", PORT))
@@ -95,7 +95,7 @@ public class TestOAuth2TokenProvider {
     respBody = new OAuth2ErrorResponse(OAuth2ClientUtil.INVALID_GRANT_ERROR, "invalid");
     respJson = ObjectMapperProvider.objectMapper().writeValueAsString(respBody);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     Assertions.assertThrows(BadRequestException.class, builder::build);
   }
 
@@ -113,12 +113,12 @@ public class TestOAuth2TokenProvider {
     OAuth2TokenResponse response = new OAuth2TokenResponse("1", "2", "3", 1, "test", null);
     String respJson = objectMapper.writeValueAsString(response);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     Assertions.assertThrows(IllegalArgumentException.class, builder::build);
     response = new OAuth2TokenResponse("1", "2", "bearer", 1, "test", null);
     respJson = objectMapper.writeValueAsString(response);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(2)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(2)).respond(mockResponse);
     OAuth2TokenProvider provider = builder.build();
     Assertions.assertTrue(provider.hasTokenData());
     Assertions.assertNotNull(provider.getTokenData());
@@ -134,7 +134,7 @@ public class TestOAuth2TokenProvider {
     response = new OAuth2TokenResponse(oldAccessToken, "2", "bearer", 1, "test", null);
     respJson = objectMapper.writeValueAsString(response);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     provider = builder.build();
     String accessToken =
         Jwts.builder()
@@ -147,7 +147,7 @@ public class TestOAuth2TokenProvider {
     response = new OAuth2TokenResponse(accessToken, "2", "bearer", 1, "test", null);
     respJson = ObjectMapperProvider.objectMapper().writeValueAsString(response);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     Assertions.assertNotEquals(accessToken, oldAccessToken);
     Assertions.assertEquals(
         AuthConstants.AUTHORIZATION_BEARER_HEADER + accessToken,
@@ -177,7 +177,7 @@ public class TestOAuth2TokenProvider {
         new OAuth2TokenResponse(accessToken, "2", "bearer", 1, "test", null);
     String respJson = objectMapper.writeValueAsString(response);
     mockResponse = mockResponse.withBody(respJson);
-    mockServer.when(any(), Times.exactly(1)).respond(mockResponse);
+    mockServer.when(request(), Times.exactly(1)).respond(mockResponse);
     OAuth2TokenProvider provider = builder.build();
     String token = provider.getAccessToken();
     Assertions.assertEquals(accessToken, token);
