@@ -226,6 +226,147 @@ public class TestSchemaMetaService extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testDeleteSchemaNonCascadingFailsWhenFunctionExists() throws IOException {
+    createAndInsertMakeLake(metalakeName);
+    createAndInsertCatalog(metalakeName, catalogName);
+
+    String schemaName = "schema_with_function";
+    SchemaEntity schema = createAndInsertSchema(metalakeName, catalogName, schemaName);
+    FunctionEntity function =
+        createFunctionEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofFunction(metalakeName, catalogName, schemaName),
+            "only_function",
+            AUDIT_INFO);
+    FunctionMetaService.getInstance().insertFunction(function, false);
+
+    Assertions.assertThrows(
+        NonEmptyEntityException.class,
+        () -> SchemaMetaService.getInstance().deleteSchema(schema.nameIdentifier(), false),
+        "Non-cascading delete must fail when a function is the schema's only child.");
+    assertTrue(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    assertTrue(backend.exists(function.nameIdentifier(), Entity.EntityType.FUNCTION));
+  }
+
+  @TestTemplate
+  public void testDeleteSchemaNonCascadingFailsWhenViewExists() throws IOException {
+    createAndInsertMakeLake(metalakeName);
+    createAndInsertCatalog(metalakeName, catalogName);
+
+    String schemaName = "schema_with_view";
+    SchemaEntity schema = createAndInsertSchema(metalakeName, catalogName, schemaName);
+    ViewEntity view =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(metalakeName, catalogName, schemaName),
+            "only_view");
+    ViewMetaService.getInstance().insertView(view, false);
+
+    Assertions.assertThrows(
+        NonEmptyEntityException.class,
+        () -> SchemaMetaService.getInstance().deleteSchema(schema.nameIdentifier(), false),
+        "Non-cascading delete must fail when a view is the schema's only child.");
+    assertTrue(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    assertTrue(backend.exists(view.nameIdentifier(), Entity.EntityType.VIEW));
+  }
+
+  @TestTemplate
+  public void testDeleteSchemaNonCascadingFailsWhenDescendantSchemaExists() throws IOException {
+    createAndInsertMakeLake(metalakeName);
+    createAndInsertCatalog(metalakeName, catalogName);
+
+    String ancestorName = "parent_schema";
+    String leafName = ancestorName + ":child_schema";
+    createAndInsertSchema(metalakeName, catalogName, leafName);
+
+    NameIdentifier ancestor = NameIdentifier.of(metalakeName, catalogName, ancestorName);
+    Assertions.assertThrows(
+        NonEmptyEntityException.class,
+        () -> SchemaMetaService.getInstance().deleteSchema(ancestor, false),
+        "Non-cascading delete must fail when a hierarchical descendant schema exists.");
+    assertTrue(backend.exists(ancestor, Entity.EntityType.SCHEMA));
+    assertTrue(
+        backend.exists(
+            NameIdentifier.of(metalakeName, catalogName, leafName), Entity.EntityType.SCHEMA));
+  }
+
+  @TestTemplate
+  public void testDeleteHierarchicalSchemaCascadeRemovesTableAndViewVersions() throws IOException {
+    createAndInsertMakeLake(metalakeName);
+    createAndInsertCatalog(metalakeName, catalogName);
+
+    String ancestorName = "view_ancestor";
+    String leafName = ancestorName + ":view_leaf";
+    SchemaEntity leaf =
+        createSchemaEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofSchema(metalakeName, catalogName),
+            leafName,
+            AUDIT_INFO);
+    SchemaMetaService.getInstance().insertSchema(leaf, false);
+
+    ViewEntity ancestorView =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(metalakeName, catalogName, ancestorName),
+            "ancestor_view");
+    ViewEntity leafView =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(metalakeName, catalogName, leafName),
+            "leaf_view");
+    ViewMetaService.getInstance().insertView(ancestorView, false);
+    ViewMetaService.getInstance().insertView(leafView, false);
+    TableEntity ancestorTable =
+        createAndInsertTableEntity(
+            NamespaceUtil.ofTable(metalakeName, catalogName, ancestorName), "ancestor_table");
+    TableEntity leafTable =
+        createAndInsertTableEntity(
+            NamespaceUtil.ofTable(metalakeName, catalogName, leafName), "leaf_table");
+    backend.update(
+        ancestorView.nameIdentifier(),
+        Entity.EntityType.VIEW,
+        ignored ->
+            createViewEntity(ancestorView.id(), ancestorView.namespace(), ancestorView.name()));
+    backend.update(
+        ancestorTable.nameIdentifier(),
+        Entity.EntityType.TABLE,
+        ignored ->
+            createTableEntity(
+                ancestorTable.id(), ancestorTable.namespace(), ancestorTable.name(), AUDIT_INFO));
+    long historicalDeletedAt = 1L;
+    Assertions.assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "view_version_info", "view_id", ancestorView.id(), historicalDeletedAt));
+    Assertions.assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "table_version_info", "table_id", ancestorTable.id(), historicalDeletedAt));
+    Assertions.assertEquals(1, countActiveViewVersions(ancestorView.id()));
+    Assertions.assertEquals(1, countActiveViewVersions(leafView.id()));
+    Assertions.assertEquals(1, countActiveTableVersions(ancestorTable.id()));
+    Assertions.assertEquals(1, countActiveTableVersions(leafTable.id()));
+
+    assertTrue(
+        SchemaMetaService.getInstance()
+            .deleteSchema(NameIdentifier.of(metalakeName, catalogName, ancestorName), true));
+
+    Assertions.assertEquals(0, countActiveViewVersions(ancestorView.id()));
+    Assertions.assertEquals(0, countActiveViewVersions(leafView.id()));
+    Assertions.assertEquals(0, countActiveTableVersions(ancestorTable.id()));
+    Assertions.assertEquals(0, countActiveTableVersions(leafTable.id()));
+    Assertions.assertEquals(
+        1,
+        countVersionsWithDeletedAt(
+            "view_version_info", "view_id", ancestorView.id(), historicalDeletedAt));
+    Assertions.assertEquals(
+        1,
+        countVersionsWithDeletedAt(
+            "table_version_info", "table_id", ancestorTable.id(), historicalDeletedAt));
+  }
+
+  @TestTemplate
   public void testInsertHierarchicalSchemaCreatesAncestorsAndLeaf() throws IOException {
     createAndInsertMakeLake(metalakeName);
     createAndInsertCatalog(metalakeName, catalogName);

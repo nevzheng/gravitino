@@ -21,6 +21,8 @@ package org.apache.gravitino.storage.relational.mapper.provider.postgresql;
 
 import static org.apache.gravitino.storage.relational.mapper.TableVersionMapper.TABLE_NAME;
 
+import java.util.List;
+import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
 import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.ibatis.annotations.Param;
@@ -65,6 +67,48 @@ public class TableVersionPostgreSQLProvider extends TableVersionBaseSQLProvider 
         + " timestamp '1970-01-01 00:00:00')) * 1000)"
         + ", deletion_id = NULL"
         + " WHERE table_id = #{tableId} AND version = #{version} AND deleted_at = 0";
+  }
+
+  /** Returns PostgreSQL SQL that soft-deletes live table versions under the schema IDs. */
+  @Override
+  public String softDeleteTableVersionsBySchemaIds(List<Long> schemaIds) {
+    return "<script>"
+        + "UPDATE "
+        + TABLE_NAME
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + ", deletion_id = NULL"
+        + " WHERE table_id IN (SELECT table_id FROM "
+        + TableMetaMapper.TABLE_NAME
+        + " WHERE schema_id IN ("
+        + "<foreach collection='schemaIds' item='schemaId' separator=','>"
+        + "#{schemaId}"
+        + "</foreach>"
+        + ")) AND deleted_at = 0"
+        + "</script>";
+  }
+
+  /** Returns PostgreSQL SQL that soft-deletes live table versions under the catalog. */
+  @Override
+  public String softDeleteTableVersionsByCatalogId(Long catalogId) {
+    return "UPDATE "
+        + TABLE_NAME
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + ", deletion_id = NULL"
+        + " WHERE table_id IN (SELECT table_id FROM "
+        + TableMetaMapper.TABLE_NAME
+        + " WHERE catalog_id = #{catalogId}) AND deleted_at = 0";
+  }
+
+  /** Returns PostgreSQL SQL that soft-deletes live table versions under the metalake. */
+  @Override
+  public String softDeleteTableVersionsByMetalakeId(Long metalakeId) {
+    return "UPDATE "
+        + TABLE_NAME
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + ", deletion_id = NULL"
+        + " WHERE table_id IN (SELECT table_id FROM "
+        + TableMetaMapper.TABLE_NAME
+        + " WHERE metalake_id = #{metalakeId}) AND deleted_at = 0";
   }
 
   @Override

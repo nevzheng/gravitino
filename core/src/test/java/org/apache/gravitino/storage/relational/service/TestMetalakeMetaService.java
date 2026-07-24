@@ -29,8 +29,11 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.SchemaVersion;
+import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.TestTemplate;
 
@@ -118,5 +121,54 @@ public class TestMetalakeMetaService extends TestJDBCBackend {
       backend.hardDeleteLegacyData(entityType, Instant.now().toEpochMilli() + 1000);
     }
     assertFalse(legacyRecordExistsInDB(metalake.id(), Entity.EntityType.METALAKE));
+  }
+
+  @TestTemplate
+  public void testDeleteMetalakeCascadeRemovesTableAndViewVersions() throws IOException {
+    BaseMetalake metalake = createAndInsertMakeLake(METALAKE_NAME);
+    String catalogName = "catalog_with_view";
+    String schemaName = "schema_with_view";
+    createAndInsertCatalog(metalake.name(), catalogName);
+    createAndInsertSchema(metalake.name(), catalogName, schemaName);
+    ViewEntity view =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(metalake.name(), catalogName, schemaName),
+            "view_to_cascade");
+    ViewMetaService.getInstance().insertView(view, false);
+    TableEntity table =
+        createAndInsertTableEntity(
+            NamespaceUtil.ofTable(metalake.name(), catalogName, schemaName), "table_to_cascade");
+    backend.update(
+        view.nameIdentifier(),
+        Entity.EntityType.VIEW,
+        ignored -> createViewEntity(view.id(), view.namespace(), view.name()));
+    backend.update(
+        table.nameIdentifier(),
+        Entity.EntityType.TABLE,
+        ignored -> createTableEntity(table.id(), table.namespace(), table.name(), AUDIT_INFO));
+    long historicalDeletedAt = 1L;
+    Assertions.assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "view_version_info", "view_id", view.id(), historicalDeletedAt));
+    Assertions.assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "table_version_info", "table_id", table.id(), historicalDeletedAt));
+    Assertions.assertEquals(1, countActiveViewVersions(view.id()));
+    Assertions.assertEquals(1, countActiveTableVersions(table.id()));
+
+    assertTrue(MetalakeMetaService.getInstance().deleteMetalake(metalake.nameIdentifier(), true));
+
+    Assertions.assertEquals(0, countActiveViewVersions(view.id()));
+    Assertions.assertEquals(0, countActiveTableVersions(table.id()));
+    Assertions.assertEquals(
+        1,
+        countVersionsWithDeletedAt("view_version_info", "view_id", view.id(), historicalDeletedAt));
+    Assertions.assertEquals(
+        1,
+        countVersionsWithDeletedAt(
+            "table_version_info", "table_id", table.id(), historicalDeletedAt));
   }
 }

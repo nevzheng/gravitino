@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.storage.relational.mapper;
 
+import java.util.List;
 import org.apache.gravitino.storage.relational.po.ViewVersionInfoPO;
 import org.apache.ibatis.annotations.DeleteProvider;
 import org.apache.ibatis.annotations.InsertProvider;
@@ -54,6 +55,12 @@ public interface ViewVersionInfoMapper {
       type = ViewVersionInfoSQLProviderFactory.class,
       method = "softDeleteViewVersionsBySchemaId")
   Integer softDeleteViewVersionsBySchemaId(@Param("schemaId") Long schemaId);
+
+  /** Soft-deletes live view versions belonging to any of the specified schemas. */
+  @UpdateProvider(
+      type = ViewVersionInfoSQLProviderFactory.class,
+      method = "softDeleteViewVersionsBySchemaIds")
+  Integer softDeleteViewVersionsBySchemaIds(@Param("schemaIds") List<Long> schemaIds);
 
   @UpdateProvider(
       type = ViewVersionInfoSQLProviderFactory.class,
