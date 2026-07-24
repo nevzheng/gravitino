@@ -53,6 +53,7 @@ import org.apache.gravitino.storage.relational.mapper.TableVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetadataObjectRelMapper;
 import org.apache.gravitino.storage.relational.mapper.TopicMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.TopicRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.UserMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.UserRoleRelMapper;
 import org.apache.gravitino.storage.relational.mapper.ViewMetaMapper;
@@ -97,6 +98,7 @@ public class DefaultMapperPackageProvider implements MapperPackageProvider {
         TagMetadataObjectRelMapper.class,
         TagMetaMapper.class,
         TopicMetaMapper.class,
+        TopicRecoveryMapper.class,
         UserMetaMapper.class,
         UserRoleRelMapper.class,
         TableVersionMapper.class,

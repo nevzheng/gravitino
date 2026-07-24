@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import ognl.OgnlException;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.TopicCreateRequest;
 import org.apache.gravitino.dto.requests.TopicUpdatesRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
@@ -32,6 +33,60 @@ import org.apache.gravitino.server.web.rest.TopicOperations;
 import org.junit.jupiter.api.Test;
 
 public class TestTopicAuthorizationExpression {
+
+  @Test
+  public void testDeletedTopicReadAndRestoreAuthorization()
+      throws NoSuchMethodException, OgnlException {
+    Method listMethod =
+        TopicOperations.class.getMethod(
+            "listTopics",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
+    MockAuthorizationExpressionEvaluator listEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            listMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(listEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method loadMethod =
+        TopicOperations.class.getMethod(
+            "loadTopic",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
+    MockAuthorizationExpressionEvaluator loadEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            loadMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(loadEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method restoreMethod =
+        TopicOperations.class.getMethod(
+            "restoreTopic",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            EntityRestoreRequest.class);
+    MockAuthorizationExpressionEvaluator restoreEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            restoreMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(restoreEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+  }
 
   @Test
   public void testCreateTopic() throws NoSuchMethodException, OgnlException {

@@ -52,6 +52,7 @@ public final class RelationalGarbageCollector implements Closeable {
                               || type == Entity.EntityType.FUNCTION
                               || type == Entity.EntityType.MODEL
                               || type == Entity.EntityType.VIEW
+                              || type == Entity.EntityType.TOPIC
                           ? 0
                           : 1))
           .collect(
@@ -112,7 +113,8 @@ public final class RelationalGarbageCollector implements Closeable {
               || entityType == Entity.EntityType.FILESET
               || entityType == Entity.EntityType.FUNCTION
               || entityType == Entity.EntityType.MODEL
-              || entityType == Entity.EntityType.VIEW) {
+              || entityType == Entity.EntityType.VIEW
+              || entityType == Entity.EntityType.TOPIC) {
             // Aggregate GC owns the recorded deletion purge. Continuing into shared relation
             // cleanup after it fails could remove only part of an otherwise recoverable cohort.
             LOG.warn("Stop this hard-delete cycle after aggregate deletion cleanup failed");

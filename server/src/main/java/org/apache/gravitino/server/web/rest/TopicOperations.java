@@ -20,32 +20,49 @@ package org.apache.gravitino.server.web.rest;
 
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
+import java.util.Arrays;
+import java.util.List;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.TopicDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.dto.messaging.TopicDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.TopicCreateRequest;
 import org.apache.gravitino.dto.requests.TopicUpdateRequest;
 import org.apache.gravitino.dto.requests.TopicUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.TopicResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.messaging.Topic;
 import org.apache.gravitino.messaging.TopicChange;
+import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -61,12 +78,15 @@ public class TopicOperations {
   private static final Logger LOG = LoggerFactory.getLogger(TopicOperations.class);
 
   private final TopicDispatcher dispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public TopicOperations(TopicDispatcher dispatcher) {
+  public TopicOperations(
+      TopicDispatcher dispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.dispatcher = dispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -74,13 +94,19 @@ public class TopicOperations {
   @Timed(name = "list-topic." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "list-topic", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.SCHEMA)
   public Response listTopics(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
-      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema) {
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     try {
       LOG.info("Received list topics request for schema: {}.{}.{}", metalake, catalog, schema);
       return Utils.doAs(
@@ -88,8 +114,29 @@ public class TopicOperations {
           () -> {
             LOG.info("Listing topics under schema: {}.{}.{}", metalake, catalog, schema);
             Namespace topicNS = NamespaceUtil.ofTopic(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedTopicAccess(topicNS);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedTopics =
+                  recoverableDeletionManager.listDeletedTopics(topicNS, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedTopics.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier[] topics = dispatcher.listTopics(topicNS);
             topics = topics == null ? new NameIdentifier[0] : topics;
+            if (name != null) {
+              topics =
+                  Arrays.stream(topics)
+                      .filter(topic -> name.equals(topic.name()))
+                      .toArray(NameIdentifier[]::new);
+            }
             topics =
                 MetadataAuthzHelper.filterByExpression(
                     metalake,
@@ -161,14 +208,19 @@ public class TopicOperations {
   @Timed(name = "load-topic." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "load-topic", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_TOPICS_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_TOPICS_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.TOPIC)
   public Response loadTopic(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
       @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
-      @PathParam("topic") @AuthorizationMetadata(type = Entity.EntityType.TOPIC) String topic) {
+      @PathParam("topic") @AuthorizationMetadata(type = Entity.EntityType.TOPIC) String topic,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info(
         "Received load topic request for topic: {}.{}.{}.{}", metalake, catalog, schema, topic);
     try {
@@ -176,6 +228,26 @@ public class TopicOperations {
           httpRequest,
           () -> {
             LOG.info("Loading topic: {}.{}.{}.{}", metalake, catalog, schema, topic);
+            Namespace namespace = NamespaceUtil.ofTopic(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedTopicAccess(namespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted topic");
+              }
+              DeletedEntityDTO deletedTopic =
+                  recoverableDeletionManager.getDeletedTopic(namespace, topic, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedTopic)))
+                  .tag(new EntityTag(deletedTopic.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier ident = NameIdentifierUtil.ofTopic(metalake, catalog, schema, topic);
             Topic t = dispatcher.loadTopic(ident);
             Response response = Utils.ok(new TopicResponse(DTOConverters.toDTO(t)));
@@ -184,6 +256,67 @@ public class TopicOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleTopicException(OperationType.LOAD, topic, schema, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted topic metadata generation.
+   *
+   * @param metalake metalake name
+   * @param catalog catalog name
+   * @param schema schema name
+   * @param topic original topic name
+   * @param include deleted-resource selector
+   * @param id immutable topic identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-topic read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored topic response
+   */
+  @PATCH
+  @Path("/{topic}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-topic." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-topic", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response restoreTopic(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("topic") String topic,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore topic request: {}.{}.{}.{}", metalake, catalog, schema, topic);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted topic");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted topic");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "topic");
+            Namespace namespace = NamespaceUtil.ofTopic(metalake, catalog, schema);
+            checkDeletedTopicAccess(namespace);
+            TopicEntity restored =
+                recoverableDeletionManager.restoreDeletedTopic(namespace, topic, entityId, etag);
+            return Utils.ok(new TopicResponse(toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleTopicException(OperationType.RESTORE, topic, schema, e);
     }
   }
 
@@ -267,6 +400,25 @@ public class TopicOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleTopicException(OperationType.DROP, topic, schema, e);
+    }
+  }
+
+  private static TopicDTO toDTO(TopicEntity topic) {
+    return TopicDTO.builder()
+        .withName(topic.name())
+        .withComment(topic.comment())
+        .withProperties(topic.properties())
+        .withAudit(DTOConverters.toDTO(topic.auditInfo()))
+        .build();
+  }
+
+  private static void checkDeletedTopicAccess(Namespace topicNamespace) {
+    NameIdentifier schemaIdentifier = NameIdentifier.of(topicNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        schemaIdentifier, Entity.EntityType.SCHEMA, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted topics under %s",
+          topicNamespace);
     }
   }
 }

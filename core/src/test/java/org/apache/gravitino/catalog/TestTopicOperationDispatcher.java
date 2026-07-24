@@ -45,10 +45,12 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.TestCatalog;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.connector.TestCatalogOperations;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.messaging.Topic;
 import org.apache.gravitino.messaging.TopicChange;
@@ -172,6 +174,33 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
     Assertions.assertEquals("test", topicEntity.auditInfo().creator());
     // Audit info is gotten from the catalog, not from the entity store
     Assertions.assertEquals("test", loadedTopic4.auditInfo().creator());
+  }
+
+  @Test
+  public void testLoadTopicAfterRecordedDeleteRequiresExplicitRecovery() throws IOException {
+    Namespace topicNs = Namespace.of(metalake, catalog, "schema_recorded_topic_delete");
+    Map<String, String> props = ImmutableMap.of("k1", "v1", "k2", "v2");
+    schemaOperationDispatcher.createSchema(NameIdentifier.of(topicNs.levels()), "comment", props);
+
+    NameIdentifier topicIdent = NameIdentifier.of(topicNs, "deleted_topic");
+    topicOperationDispatcher.createTopic(topicIdent, "comment", null, props);
+    TopicEntity imported = entityStore.get(topicIdent, Entity.EntityType.TOPIC, TopicEntity.class);
+
+    Assertions.assertTrue(entityStore.delete(topicIdent, Entity.EntityType.TOPIC));
+    RecoveryConflictException recordedTombstone =
+        new RecoveryConflictException(
+            RecoveryConflictReason.ENTITY_ID_REUSED,
+            "Topic ID %s belongs to a recoverable deletion; use metadata restore",
+            imported.id());
+    doThrow(recordedTombstone).when(entityStore).put(any(TopicEntity.class), eq(true));
+
+    RuntimeException failure =
+        Assertions.assertThrows(
+            RuntimeException.class, () -> topicOperationDispatcher.loadTopic(topicIdent));
+    Assertions.assertSame(recordedTombstone, failure.getCause());
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () -> entityStore.get(topicIdent, Entity.EntityType.TOPIC, TopicEntity.class));
   }
 
   @Test

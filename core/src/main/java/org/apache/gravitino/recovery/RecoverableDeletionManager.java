@@ -50,6 +50,7 @@ import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
@@ -65,6 +66,7 @@ public class RecoverableDeletionManager {
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
   private final RecoverableEntityAdapter<ViewEntity> viewAdapter;
   private final RecoverableEntityAdapter<FilesetEntity> filesetAdapter;
+  private final RecoverableEntityAdapter<TopicEntity> topicAdapter;
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
   private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
 
@@ -98,6 +100,7 @@ public class RecoverableDeletionManager {
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
     this.viewAdapter = new ViewRecoveryAdapter(entityCache);
     this.filesetAdapter = new FilesetRecoveryAdapter(entityCache);
+    this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
   }
@@ -226,6 +229,47 @@ public class RecoverableDeletionManager {
   public FilesetEntity restoreDeletedFileset(
       Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(filesetAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists deleted topic generations under a live schema.
+   *
+   * @param namespace topic namespace
+   * @param name optional exact topic name
+   * @param id optional exact immutable topic identifier
+   * @return matching deleted topic generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedTopics(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(topicAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted topic representation.
+   *
+   * @param namespace topic namespace
+   * @param name original topic name
+   * @param id immutable topic identifier
+   * @return selected topic deletion generation
+   */
+  public DeletedEntityDTO getDeletedTopic(Namespace namespace, String name, long id) {
+    return getDeleted(topicAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact topic metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>This operation restores Gravitino metadata only. It never invokes or validates a catalog
+   * connector or downstream Kafka topic.
+   *
+   * @param namespace topic namespace
+   * @param name original topic name
+   * @param id immutable topic identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-topic read
+   * @return restored topic, or the already-restored topic for an idempotent replay
+   */
+  public TopicEntity restoreDeletedTopic(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(topicAdapter, namespace, name, id, etag);
   }
 
   /**

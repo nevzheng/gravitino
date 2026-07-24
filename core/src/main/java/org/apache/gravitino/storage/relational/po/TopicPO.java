@@ -35,6 +35,7 @@ public class TopicPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public static Builder builder() {
     return new Builder();
@@ -59,7 +60,8 @@ public class TopicPO {
         && Objects.equal(auditInfo, topicPO.auditInfo)
         && Objects.equal(currentVersion, topicPO.currentVersion)
         && Objects.equal(lastVersion, topicPO.lastVersion)
-        && Objects.equal(deletedAt, topicPO.deletedAt);
+        && Objects.equal(deletedAt, topicPO.deletedAt)
+        && Objects.equal(deletionId, topicPO.deletionId);
   }
 
   @Override
@@ -75,7 +77,8 @@ public class TopicPO {
         auditInfo,
         currentVersion,
         lastVersion,
-        deletedAt);
+        deletedAt,
+        deletionId);
   }
 
   public static class Builder {
@@ -127,6 +130,12 @@ public class TopicPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       topicPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      topicPO.deletionId = deletionId;
       return this;
     }
 

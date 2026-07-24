@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TopicMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewVersionInfoBaseSQLProvider;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,24 @@ class TestPostgreSQLLegacyDeleteProviders {
   }
 
   @Test
+  void testLegacyTopicDeletesExcludeRecordedDeletionGenerations() {
+    List<String> sqlStatements =
+        List.of(
+            new TopicMetaBaseSQLProvider().deleteTopicMetasByLegacyTimeline(1L, 1),
+            new TopicMetaPostgreSQLProvider().deleteTopicMetasByLegacyTimeline(1L, 1));
+
+    for (String sql : sqlStatements) {
+      assertTrue(
+          sql.contains("deletion_id IS NULL"),
+          () -> "Legacy topic deletion can select a recorded deletion generation: " + sql);
+    }
+    String postgreSql = sqlStatements.get(1);
+    assertTrue(
+        postgreSql.indexOf("deletion_id IS NULL") != postgreSql.lastIndexOf("deletion_id IS NULL"),
+        () -> "PostgreSQL outer delete does not recheck the topic generation token: " + postgreSql);
+  }
+
+  @Test
   void testTableVersionSoftDeleteCannotClearARecordedGenerationToken() {
     String sql =
         new TableVersionPostgreSQLProvider().softDeleteTableVersionByTableIdAndVersion(1L, 1L);
@@ -142,6 +161,23 @@ class TestPostgreSQLLegacyDeleteProviders {
       assertTrue(
           sql.contains("/ 1000, deletion_id = NULL"),
           () -> "Deletion token was inserted into the timestamp expression: " + sql);
+    }
+  }
+
+  @Test
+  void testBaseTopicSoftDeletesKeepMillisecondPrecisionBeforeClearingGenerationToken() {
+    TopicMetaBaseSQLProvider topicProvider = new TopicMetaBaseSQLProvider();
+    List<String> sqlStatements =
+        List.of(
+            topicProvider.softDeleteTopicMetasByTopicId(1L),
+            topicProvider.softDeleteTopicMetasByMetalakeId(1L),
+            topicProvider.softDeleteTopicMetasByCatalogId(1L),
+            topicProvider.softDeleteTopicMetasBySchemaIds(List.of(1L)));
+
+    for (String sql : sqlStatements) {
+      assertTrue(
+          sql.contains("/ 1000, deletion_id = NULL"),
+          () -> "Deletion token was inserted into the topic timestamp expression: " + sql);
     }
   }
 
