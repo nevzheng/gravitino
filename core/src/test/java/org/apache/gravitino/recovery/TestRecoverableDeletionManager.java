@@ -42,6 +42,7 @@ import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.cache.EntityCache;
 import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.exceptions.TombstoneExpiredException;
@@ -117,6 +118,158 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
     Mockito.when(config.get(TREE_LOCK_MIN_NODE_IN_MEMORY)).thenReturn(1_000L);
     Mockito.when(config.get(TREE_LOCK_CLEAN_INTERVAL)).thenReturn(36_000L);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+  }
+
+  @TestTemplate
+  public void testJobTemplateRestoreRevivesOnlyJobsCapturedByExactGeneration() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    JobTemplateEntity template =
+        createAndInsertShellJobTemplateEntity(
+            "recoverable_job_template", "recoverable template", METALAKE);
+    JobEntity prior =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId("prior-execution")
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(template.name())
+            .withStatus(JobHandle.Status.SUCCEEDED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobEntity captured =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId("captured-execution")
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(template.name())
+            .withStatus(JobHandle.Status.FAILED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobMetaService.getInstance().insertJob(prior, false);
+    JobMetaService.getInstance().insertJob(captured, false);
+    Assertions.assertTrue(JobMetaService.getInstance().deleteJob(prior.nameIdentifier()));
+    Assertions.assertTrue(
+        JobTemplateMetaService.getInstance()
+            .deleteJobTemplate(template.nameIdentifier(), RETENTION_MS));
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.ENTITY_ID_REUSED,
+        () -> JobTemplateMetaService.getInstance().insertJobTemplate(template, true));
+    assertRecoveryConflict(
+        RecoveryConflictReason.ENTITY_ID_REUSED,
+        () -> JobMetaService.getInstance().insertJob(captured, true));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    Namespace namespace = NamespaceUtil.ofJobTemplate(METALAKE);
+    DeletedEntityDTO deleted =
+        manager.getDeletedJobTemplate(namespace, template.name(), template.id());
+    Assertions.assertTrue(deleted.getRestorable());
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deleted.getDeletionId());
+    Assertions.assertEquals(2L, receipt.getAffectedRowCount());
+
+    Assertions.assertEquals(
+        template.id(),
+        manager
+            .restoreDeletedJobTemplate(namespace, template.name(), template.id(), deleted.getEtag())
+            .id());
+    Assertions.assertEquals(
+        captured.id(),
+        JobMetaService.getInstance().getJobByIdentifier(captured.nameIdentifier()).id());
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () -> JobMetaService.getInstance().getJobByIdentifier(prior.nameIdentifier()));
+    Assertions.assertEquals(
+        template.id(),
+        manager
+            .restoreDeletedJobTemplate(namespace, template.name(), template.id(), deleted.getEtag())
+            .id());
+  }
+
+  @TestTemplate
+  public void testJobTemplateRestoreRejectsLiveExecutionIdConflict() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    JobTemplateEntity deletedTemplate =
+        createAndInsertShellJobTemplateEntity("deleted_template", "deleted", METALAKE);
+    JobEntity deletedJob =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId("shared-execution-id")
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(deletedTemplate.name())
+            .withStatus(JobHandle.Status.SUCCEEDED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobMetaService.getInstance().insertJob(deletedJob, false);
+    Assertions.assertTrue(
+        JobTemplateMetaService.getInstance()
+            .deleteJobTemplate(deletedTemplate.nameIdentifier(), RETENTION_MS));
+
+    JobTemplateEntity replacementTemplate =
+        createAndInsertShellJobTemplateEntity("replacement_template", "replacement", METALAKE);
+    JobEntity conflictingJob =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId(deletedJob.jobExecutionId())
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(replacementTemplate.name())
+            .withStatus(JobHandle.Status.FAILED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobMetaService.getInstance().insertJob(conflictingJob, false);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    Namespace namespace = NamespaceUtil.ofJobTemplate(METALAKE);
+    DeletedEntityDTO deleted =
+        manager.getDeletedJobTemplate(namespace, deletedTemplate.name(), deletedTemplate.id());
+    assertRecoveryConflict(
+        RecoveryConflictReason.EXTERNAL_ID_OCCUPIED,
+        () ->
+            manager.restoreDeletedJobTemplate(
+                namespace, deletedTemplate.name(), deletedTemplate.id(), deleted.getEtag()));
+    Assertions.assertFalse(
+        backend.exists(deletedTemplate.nameIdentifier(), Entity.EntityType.JOB_TEMPLATE));
+    Assertions.assertEquals(
+        conflictingJob.id(),
+        JobMetaService.getInstance().getJobByIdentifier(conflictingJob.nameIdentifier()).id());
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testJobTemplateRestoreRejectsMissingCapturedRunWithoutPartialRevival()
+      throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    JobTemplateEntity template =
+        createAndInsertShellJobTemplateEntity("broken_job_template", "broken", METALAKE);
+    JobEntity captured =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId("missing-execution")
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(template.name())
+            .withStatus(JobHandle.Status.CANCELLED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobMetaService.getInstance().insertJob(captured, false);
+    Assertions.assertTrue(
+        JobTemplateMetaService.getInstance()
+            .deleteJobTemplate(template.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    Namespace namespace = NamespaceUtil.ofJobTemplate(METALAKE);
+    DeletedEntityDTO deleted =
+        manager.getDeletedJobTemplate(namespace, template.name(), template.id());
+    updateDeletionRecord(
+        "DELETE FROM job_run_meta WHERE job_run_id = ? AND deletion_id = ?",
+        captured.id(),
+        deleted.getDeletionId());
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.INCOMPLETE_GENERATION,
+        () ->
+            manager.restoreDeletedJobTemplate(
+                namespace, template.name(), template.id(), deleted.getEtag()));
+    Assertions.assertFalse(
+        backend.exists(template.nameIdentifier(), Entity.EntityType.JOB_TEMPLATE));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
   }
 
   @TestTemplate

@@ -33,7 +33,7 @@ public enum RecoveryConflictReason {
   /** A different live entity occupies the deleted entity's original name. */
   NAME_OCCUPIED,
 
-  /** A different live identity occupies the deleted user or group's external identifier. */
+  /** A different live entity occupies a retained external identity or execution identifier. */
   EXTERNAL_ID_OCCUPIED,
 
   /** An immutable parent is missing, deleted, or replaced. */

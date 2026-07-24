@@ -81,7 +81,10 @@ public class TestRestoreChangeLogListener {
               Entity.EntityType.GROUP,
               NameIdentifier.of(NamespaceUtil.ofGroup("metalake"), "group")),
           Map.entry(
-              Entity.EntityType.ROLE, NameIdentifier.of(NamespaceUtil.ofRole("metalake"), "role")));
+              Entity.EntityType.ROLE, NameIdentifier.of(NamespaceUtil.ofRole("metalake"), "role")),
+          Map.entry(
+              Entity.EntityType.JOB_TEMPLATE,
+              NameIdentifier.of(NamespaceUtil.ofJobTemplate("metalake"), "template")));
 
   @Test
   void testFiltersAndParsesRestoreRecords() {
@@ -118,7 +121,7 @@ public class TestRestoreChangeLogListener {
 
     listener.onEntityChange(changes);
 
-    verify(cache, times(7)).clear();
+    verify(cache, times(8)).clear();
     RECOVERABLE_IDENTIFIERS.forEach(
         (entityType, identifier) -> {
           if (entityType == Entity.EntityType.METALAKE
@@ -127,7 +130,8 @@ public class TestRestoreChangeLogListener {
               || entityType == Entity.EntityType.POLICY
               || entityType == Entity.EntityType.USER
               || entityType == Entity.EntityType.GROUP
-              || entityType == Entity.EntityType.ROLE) {
+              || entityType == Entity.EntityType.ROLE
+              || entityType == Entity.EntityType.JOB_TEMPLATE) {
             return;
           }
           verify(cache).invalidate(identifier, entityType);

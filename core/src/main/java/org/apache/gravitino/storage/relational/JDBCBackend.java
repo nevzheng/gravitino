@@ -456,7 +456,7 @@ public class JDBCBackend implements RelationalBackend {
       case POLICY:
         return PolicyMetaService.getInstance().deletePolicy(ident, deletionRetentionMs);
       case JOB_TEMPLATE:
-        return JobTemplateMetaService.getInstance().deleteJobTemplate(ident);
+        return JobTemplateMetaService.getInstance().deleteJobTemplate(ident, deletionRetentionMs);
       case JOB:
         return JobMetaService.getInstance().deleteJob(ident);
       case VIEW:
@@ -705,9 +705,25 @@ public class JDBCBackend implements RelationalBackend {
             .deleteStatisticsByLegacyTimeline(
                 legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case JOB_TEMPLATE:
-        return JobTemplateMetaService.getInstance()
-            .deleteJobTemplatesByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableJobTemplateDeletionCount =
+            JobTemplateMetaService.getInstance()
+                .purgeExpiredJobTemplateDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableJobTemplateDeletionCount > 0) {
+          return recoverableJobTemplateDeletionCount;
+        }
+        int legacyJobTemplateCount =
+            JobTemplateMetaService.getInstance()
+                .deleteJobTemplatesByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyJobTemplateCount > 0) {
+          return legacyJobTemplateCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.JOB_TEMPLATE,
+                legacyTimeline,
+                GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case JOB:
         return JobMetaService.getInstance()
             .deleteJobsByLegacyTimeline(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);

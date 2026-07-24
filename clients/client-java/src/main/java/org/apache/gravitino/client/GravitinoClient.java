@@ -737,6 +737,12 @@ public class GravitinoClient extends GravitinoClientBase
     return getMetalake().listJobTemplates();
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedJobTemplates(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedJobTemplates(name, id);
+  }
+
   @Override
   public void registerJobTemplate(JobTemplate jobTemplate)
       throws JobTemplateAlreadyExistsException {
@@ -746,6 +752,18 @@ public class GravitinoClient extends GravitinoClientBase
   @Override
   public JobTemplate getJobTemplate(String jobTemplateName) throws NoSuchJobTemplateException {
     return getMetalake().getJobTemplate(jobTemplateName);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedJobTemplate(String jobTemplateName, String id) {
+    return getMetalake().loadDeletedJobTemplate(jobTemplateName, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public JobTemplate restoreJobTemplate(String jobTemplateName, DeletedEntity generation) {
+    return getMetalake().restoreJobTemplate(jobTemplateName, generation);
   }
 
   @Override

@@ -21,18 +21,22 @@ package org.apache.gravitino.storage.relational.service;
 import static org.apache.gravitino.metrics.source.MetricsSource.GRAVITINO_RELATIONAL_STORE_METRIC_NAME;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.exceptions.IllegalNamespaceException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.job.JobHandle;
 import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.metrics.Monitored;
 import org.apache.gravitino.storage.relational.mapper.JobMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.JobTemplateRecoveryMapper;
 import org.apache.gravitino.storage.relational.po.JobPO;
 import org.apache.gravitino.storage.relational.utils.ExceptionUtils;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
@@ -115,6 +119,21 @@ public class JobMetaService {
           () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
+                  JobTemplateRecoveryMapper.class,
+                  mapper -> {
+                    if (overwrite
+                        && !mapper
+                            .selectRecordedDeletedJobRunsForUpdate(
+                                Collections.singletonList(jobPO.jobRunId()))
+                            .isEmpty()) {
+                      throw new RecoveryConflictException(
+                          RecoveryConflictReason.ENTITY_ID_REUSED,
+                          "Job-run ID %s belongs to a recoverable job-template deletion",
+                          jobPO.jobRunId());
+                    }
+                  }),
+          () ->
+              SessionUtils.doWithoutCommit(
                   JobMetaMapper.class,
                   mapper -> {
                     if (overwrite) {
@@ -125,6 +144,7 @@ public class JobMetaService {
                   }));
     } catch (RuntimeException e) {
       ExceptionUtils.checkSQLException(e, Entity.EntityType.JOB, jobEntity.id().toString());
+      throw e;
     }
   }
 

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import org.apache.gravitino.EntityAlreadyExistsException;
+import org.apache.gravitino.exceptions.InUseException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.job.JobHandle;
 import org.apache.gravitino.meta.AuditInfo;
@@ -189,7 +190,7 @@ public class TestJobTemplateMetaService extends TestJDBCBackend {
 
     // Create a job using the template
     JobEntity jobEntity1 =
-        newJobEntity("job_template_with_jobs", JobHandle.Status.STARTED, METALAKE_NAME);
+        newJobEntity("job_template_with_jobs", JobHandle.Status.FAILED, METALAKE_NAME);
     backend.insert(jobEntity1, false);
 
     JobEntity jobEntity2 =
@@ -205,6 +206,27 @@ public class TestJobTemplateMetaService extends TestJDBCBackend {
     List<JobEntity> jobs =
         JobMetaService.getInstance().listJobsByNamespace(NamespaceUtil.ofJob(METALAKE_NAME));
     Assertions.assertEquals(0, jobs.size());
+  }
+
+  @TestTemplate
+  public void testDeleteJobTemplateRejectsActiveJobsInsideStorageTransaction() throws IOException {
+    BaseMetalake metalake =
+        createBaseMakeLake(RandomIdGenerator.INSTANCE.nextId(), METALAKE_NAME, AUDIT_INFO);
+    backend.insert(metalake, false);
+    JobTemplateEntity template =
+        newShellJobTemplateEntity("active_job_template", "active", METALAKE_NAME);
+    JobTemplateMetaService.getInstance().insertJobTemplate(template, false);
+    JobEntity active = newJobEntity(template.name(), JobHandle.Status.STARTED, METALAKE_NAME);
+    backend.insert(active, false);
+
+    Assertions.assertThrows(
+        InUseException.class,
+        () -> JobTemplateMetaService.getInstance().deleteJobTemplate(template.nameIdentifier()));
+    Assertions.assertEquals(
+        template,
+        JobTemplateMetaService.getInstance().getJobTemplateByIdentifier(template.nameIdentifier()));
+    Assertions.assertEquals(
+        active, JobMetaService.getInstance().getJobByIdentifier(active.nameIdentifier()));
   }
 
   @TestTemplate

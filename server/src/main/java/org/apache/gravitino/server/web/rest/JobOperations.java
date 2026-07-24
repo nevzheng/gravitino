@@ -30,9 +30,12 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -40,18 +43,26 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
 import org.apache.gravitino.dto.job.SparkJobTemplateDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.JobRunRequest;
 import org.apache.gravitino.dto.requests.JobTemplateRegisterRequest;
 import org.apache.gravitino.dto.requests.JobTemplateUpdateRequest;
 import org.apache.gravitino.dto.requests.JobTemplateUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.JobListResponse;
 import org.apache.gravitino.dto.responses.JobResponse;
@@ -59,12 +70,14 @@ import org.apache.gravitino.dto.responses.JobTemplateListResponse;
 import org.apache.gravitino.dto.responses.JobTemplateResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.job.JobTemplateChange;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -83,12 +96,22 @@ public class JobOperations {
   private static final Logger LOG = LoggerFactory.getLogger(JobOperations.class);
 
   private final JobOperationDispatcher jobOperationDispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context HttpServletRequest httpRequest;
 
+  /**
+   * Creates job REST operations.
+   *
+   * @param jobOperationDispatcher live job-operation dispatcher
+   * @param recoverableDeletionManager recoverable-deletion coordinator
+   */
   @Inject
-  public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
+  public JobOperations(
+      JobOperationDispatcher jobOperationDispatcher,
+      RecoverableDeletionManager recoverableDeletionManager) {
     this.jobOperationDispatcher = jobOperationDispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -100,7 +123,10 @@ public class JobOperations {
   public Response listJobTemplates(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @QueryParam("details") @DefaultValue("false") boolean details) {
+      @QueryParam("details") @DefaultValue("false") boolean details,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info(
         "Received request to list job templates in metalake: {}, details: {}", metalake, details);
 
@@ -108,6 +134,27 @@ public class JobOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              if (details) {
+                throw new IllegalArgumentException(
+                    "details=true is not supported with include=deleted");
+              }
+              checkDeletedJobTemplateAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              Namespace namespace = NamespaceUtil.ofJobTemplate(metalake);
+              List<DeletedEntityDTO> deletedJobTemplates =
+                  recoverableDeletionManager.listDeletedJobTemplates(namespace, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(
+                      deletedJobTemplates.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             List<JobTemplateEntity> jobTemplateEntities =
                 Lists.newArrayList(
                     MetadataAuthzHelper.filterByExpression(
@@ -119,6 +166,12 @@ public class JobOperations {
                             .toArray(new JobTemplateEntity[0]),
                         jobTemplateEntity ->
                             NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateEntity.name())));
+            if (name != null) {
+              jobTemplateEntities =
+                  jobTemplateEntities.stream()
+                      .filter(jobTemplate -> name.equals(jobTemplate.name()))
+                      .collect(Collectors.toList());
+            }
             List<JobTemplateDTO> jobTemplates = toJobTemplateDTOs(jobTemplateEntities);
 
             if (details) {
@@ -136,7 +189,7 @@ public class JobOperations {
           });
 
     } catch (Exception e) {
-      return ExceptionHandlers.handleJobTemplateException(OperationType.LIST, "", metalake, e);
+      return handleRecoveryException(OperationType.LIST, "", metalake, e);
     }
   }
 
@@ -183,18 +236,43 @@ public class JobOperations {
   @Timed(name = "get-job-template." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-job-template", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_JOB_TEMPLATE_AUTHORIZATION_EXPRESSION)
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_JOB_TEMPLATE_AUTHORIZATION_EXPRESSION
+              + ")")
   public Response getJobTemplate(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @PathParam("name") @AuthorizationMetadata(type = Entity.EntityType.JOB_TEMPLATE)
-          String name) {
+      @PathParam("name") @AuthorizationMetadata(type = Entity.EntityType.JOB_TEMPLATE) String name,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received request to get job template: {} in metalake: {}", name, metalake);
 
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedJobTemplateAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException(
+                    "id is required when loading a deleted job template");
+              }
+              DeletedEntityDTO deletedJobTemplate =
+                  recoverableDeletionManager.getDeletedJobTemplate(
+                      NamespaceUtil.ofJobTemplate(metalake), name, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedJobTemplate)))
+                  .tag(new EntityTag(deletedJobTemplate.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             JobTemplateEntity jobTemplateEntity =
                 jobOperationDispatcher.getJobTemplate(metalake, name);
 
@@ -203,7 +281,66 @@ public class JobOperations {
           });
 
     } catch (Exception e) {
-      return ExceptionHandlers.handleJobTemplateException(OperationType.GET, name, metalake, e);
+      return handleRecoveryException(OperationType.GET, name, metalake, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted job-template metadata generation.
+   *
+   * @param metalake metalake name
+   * @param name original job-template name
+   * @param include deleted-resource selector
+   * @param id immutable job-template identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-job-template read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored job-template response
+   */
+  @PATCH
+  @Path("templates/{name}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-job-template." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-job-template", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.METALAKE)
+  public Response restoreJobTemplate(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("name") String name,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore job template: {} in metalake: {}", name, metalake);
+
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted job template");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException(
+                  "id is required when restoring a deleted job template");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "job template");
+            checkDeletedJobTemplateAccess(metalake);
+            JobTemplateEntity restored =
+                recoverableDeletionManager.restoreDeletedJobTemplate(
+                    NamespaceUtil.ofJobTemplate(metalake), name, entityId, etag);
+            return Utils.ok(new JobTemplateResponse(toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return handleRecoveryException(OperationType.RESTORE, name, metalake, e);
     }
   }
 
@@ -481,5 +618,22 @@ public class JobOperations {
 
   private static List<JobDTO> toJobDTOs(List<JobEntity> jobEntities) {
     return jobEntities.stream().map(JobOperations::toDTO).collect(Collectors.toList());
+  }
+
+  private static void checkDeletedJobTemplateAccess(String metalake) {
+    if (!MetadataAuthzHelper.checkAccess(
+        NameIdentifierUtil.ofMetalake(metalake), Entity.EntityType.METALAKE, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted job templates under %s",
+          metalake);
+    }
+  }
+
+  private static Response handleRecoveryException(
+      OperationType operation, String name, String metalake, Exception exception) {
+    if (exception instanceof ForbiddenException) {
+      return Utils.forbidden(exception.getMessage(), exception);
+    }
+    return ExceptionHandlers.handleJobTemplateException(operation, name, metalake, exception);
   }
 }

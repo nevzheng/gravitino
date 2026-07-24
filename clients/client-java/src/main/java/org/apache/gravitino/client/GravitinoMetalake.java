@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.client;
 
+import static org.apache.gravitino.dto.util.DTOConverters.fromDTO;
 import static org.apache.gravitino.dto.util.DTOConverters.toDTO;
 
 import com.google.common.base.Preconditions;
@@ -1825,8 +1826,25 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return resp.getJobTemplates().stream()
-        .map(org.apache.gravitino.dto.util.DTOConverters::fromDTO)
+        .map(jobTemplate -> fromDTO(jobTemplate))
         .collect(Collectors.toList());
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedJobTemplates(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(API_METALAKES_JOB_TEMPLATES_PATH, RESTUtils.encodeString(this.name())),
+            name,
+            id,
+            ErrorHandlers.jobErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.JOB_TEMPLATE, name, id));
+    return generations;
   }
 
   @Override
@@ -1860,7 +1878,48 @@ public class GravitinoMetalake extends MetalakeDTO
             ErrorHandlers.jobErrorHandler());
     resp.validate();
 
-    return org.apache.gravitino.dto.util.DTOConverters.fromDTO(resp.getJobTemplate());
+    return fromDTO(resp.getJobTemplate());
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedJobTemplate(String jobTemplateName, String id) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(jobTemplateName), "job template name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(API_METALAKES_JOB_TEMPLATES_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(jobTemplateName),
+            id,
+            ErrorHandlers.jobErrorHandler());
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.JOB_TEMPLATE, jobTemplateName, id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public JobTemplate restoreJobTemplate(String jobTemplateName, DeletedEntity generation) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(jobTemplateName), "job template name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.JOB_TEMPLATE, jobTemplateName, null);
+
+    JobTemplateResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(API_METALAKES_JOB_TEMPLATES_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(jobTemplateName),
+            generation,
+            JobTemplateResponse.class,
+            ErrorHandlers.jobErrorHandler());
+    JobTemplate restored = fromDTO(response.getJobTemplate());
+    Preconditions.checkArgument(
+        jobTemplateName.equals(restored.name()),
+        "Restored job template name must match the requested job template name");
+    return restored;
   }
 
   @Override
@@ -1904,7 +1963,7 @@ public class GravitinoMetalake extends MetalakeDTO
             ErrorHandlers.jobErrorHandler());
     resp.validate();
 
-    return org.apache.gravitino.dto.util.DTOConverters.fromDTO(resp.getJobTemplate());
+    return fromDTO(resp.getJobTemplate());
   }
 
   @Override

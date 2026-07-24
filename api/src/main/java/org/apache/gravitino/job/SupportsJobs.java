@@ -20,10 +20,17 @@ package org.apache.gravitino.job;
 
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.exceptions.InUseException;
 import org.apache.gravitino.exceptions.JobTemplateAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchJobException;
 import org.apache.gravitino.exceptions.NoSuchJobTemplateException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * Interface for job management operations. This interface will be mixed with GravitinoClient to
@@ -37,6 +44,22 @@ public interface SupportsJobs {
    * @return a list of job templates
    */
   List<JobTemplate> listJobTemplates();
+
+  /**
+   * Lists retained job-template deletion generations in this metalake.
+   *
+   * <p>The optional filters select an exact job-template name, immutable job-template ID, or both.
+   * Returned generations describe Gravitino metadata only.
+   *
+   * @param name An exact job-template-name filter, or {@code null} for every name.
+   * @param id An exact immutable job-template-ID filter, or {@code null} for every ID.
+   * @return The retained job-template deletion generations matching the filters.
+   * @throws IllegalArgumentException If a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable job-template deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedJobTemplates(@Nullable String name, @Nullable String id) {
+    throw new UnsupportedOperationException("listDeletedJobTemplates not supported.");
+  }
 
   /**
    * Register a job template with the specified job template to Gravitino. The registered job
@@ -55,6 +78,57 @@ public interface SupportsJobs {
    * @throws NoSuchJobTemplateException if no job template with the specified name exists
    */
   JobTemplate getJobTemplate(String jobTemplateName) throws NoSuchJobTemplateException;
+
+  /**
+   * Loads one exact retained deletion generation for a job template.
+   *
+   * <p>The job-template name and immutable ID must identify the same deleted template. The returned
+   * generation supplies the strong optimistic precondition required by {@link
+   * #restoreJobTemplate(String, DeletedEntity)}.
+   *
+   * @param jobTemplateName The job-template name.
+   * @param id The immutable job-template ID.
+   * @return The exact retained job-template deletion generation.
+   * @throws IllegalArgumentException If the name or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws UnsupportedOperationException If recoverable job-template deletion is not supported.
+   */
+  default DeletedEntity loadDeletedJobTemplate(String jobTemplateName, String id)
+      throws TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedJobTemplate not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino job-template metadata.
+   *
+   * <p>This operation restores only the template's relational metadata and captured terminal-run
+   * history. It does not contact an executor; submit, poll, or cancel a job; recreate staging
+   * files; or restore job metrics. The generation must come from an exact deleted-job-template read
+   * and must match the requested name and resource type. Replaying a previously accepted generation
+   * is idempotent while the server can still prove that exact restore.
+   *
+   * <p>After {@link TombstoneChangedException}, callers must reread the same job-template path and
+   * immutable ID before deciding whether to retry; clients must never substitute a different ID or
+   * generation. An unknown transport outcome may replay the same generation. A recovery conflict or
+   * expired generation is not retryable as-is.
+   *
+   * @param jobTemplateName The job-template name.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored job template, preserving its concrete template subtype.
+   * @throws IllegalArgumentException If the name, generation type, generation name, ID, or ETag is
+   *     invalid or inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable job-template deletion is not supported.
+   */
+  default JobTemplate restoreJobTemplate(String jobTemplateName, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreJobTemplate not supported.");
+  }
 
   /**
    * Deletes a job template by its name. This will remove the job template from Gravitino, and it

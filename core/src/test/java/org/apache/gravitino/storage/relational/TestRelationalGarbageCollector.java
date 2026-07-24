@@ -257,4 +257,25 @@ class TestRelationalGarbageCollector {
     verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
   }
+
+  @Test
+  void testJobTemplateFailureStopsIndependentJobCleanupForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.JOB_TEMPLATE), anyLong()))
+        .thenThrow(new IllegalStateException("job-template deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.JOB_TEMPLATE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.JOB), anyLong());
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+  }
 }

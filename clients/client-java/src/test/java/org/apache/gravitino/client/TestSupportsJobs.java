@@ -24,17 +24,24 @@ import com.google.common.collect.Lists;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.gravitino.DeletedEntity;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
 import org.apache.gravitino.dto.job.SparkJobTemplateDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.JobRunRequest;
 import org.apache.gravitino.dto.requests.JobTemplateRegisterRequest;
 import org.apache.gravitino.dto.requests.JobTemplateUpdateRequest;
 import org.apache.gravitino.dto.requests.JobTemplateUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.JobListResponse;
@@ -49,6 +56,7 @@ import org.apache.gravitino.exceptions.NoSuchJobTemplateException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.job.JobHandle;
 import org.apache.gravitino.job.JobTemplate;
+import org.apache.gravitino.job.SparkJobTemplate;
 import org.apache.hc.core5.http.HttpStatus;
 import org.apache.hc.core5.http.Method;
 import org.junit.jupiter.api.Assertions;
@@ -106,6 +114,114 @@ public class TestSupportsJobs extends TestBase {
     buildMockResource(
         Method.GET, jobTemplatesPath(), null, errorResp3, HttpStatus.SC_INTERNAL_SERVER_ERROR);
     Assertions.assertThrows(RuntimeException.class, () -> metalake.listJobTemplates());
+  }
+
+  @Test
+  public void testRecoverableJobTemplateMetadata() throws JsonProcessingException {
+    String jobTemplateName = "spark-job-template";
+    String immutableId = "584273";
+    String itemPath = jobTemplatesPath() + "/" + jobTemplateName;
+    DeletedEntityDTO generation =
+        createDeletedJobTemplateGeneration(
+            jobTemplateName, immutableId, RecoveryEntityType.JOB_TEMPLATE);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", immutableId);
+
+    buildMockResource(
+        Method.GET,
+        jobTemplatesPath(),
+        ImmutableMap.of("include", "deleted", "name", jobTemplateName, "id", immutableId),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed = metalake.listDeletedJobTemplates(jobTemplateName, immutableId);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(immutableId, listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.JOB_TEMPLATE, listed[0].type());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = metalake.loadDeletedJobTemplate(jobTemplateName, immutableId);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    JobTemplateDTO restoredTemplate = newSparkJobTemplateDTO(jobTemplateName);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new JobTemplateResponse(restoredTemplate),
+        HttpStatus.SC_OK);
+    JobTemplate restored = metalake.restoreJobTemplate(jobTemplateName, loaded);
+    Assertions.assertInstanceOf(SparkJobTemplate.class, restored);
+    Assertions.assertEquals(
+        org.apache.gravitino.dto.util.DTOConverters.fromDTO(restoredTemplate), restored);
+  }
+
+  @Test
+  public void testDeletedJobTemplateResponseBinding() throws JsonProcessingException {
+    String jobTemplateName = "spark-job-template";
+    String immutableId = "584273";
+    DeletedEntityDTO wrongType =
+        createDeletedJobTemplateGeneration(
+            jobTemplateName, immutableId, RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        jobTemplatesPath(),
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> metalake.listDeletedJobTemplates(null, null));
+
+    String itemPath = jobTemplatesPath() + "/" + jobTemplateName;
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", immutableId);
+    DeletedEntityDTO wrongName =
+        createDeletedJobTemplateGeneration(
+            "another-template", immutableId, RecoveryEntityType.JOB_TEMPLATE);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(wrongName),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> metalake.loadDeletedJobTemplate(jobTemplateName, immutableId));
+
+    DeletedEntityDTO wrongId =
+        createDeletedJobTemplateGeneration(
+            jobTemplateName, "584274", RecoveryEntityType.JOB_TEMPLATE);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(wrongId),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> metalake.loadDeletedJobTemplate(jobTemplateName, immutableId));
+
+    DeletedEntityDTO valid =
+        createDeletedJobTemplateGeneration(
+            jobTemplateName, immutableId, RecoveryEntityType.JOB_TEMPLATE);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new JobTemplateResponse(newSparkJobTemplateDTO("another-template")),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> metalake.restoreJobTemplate(jobTemplateName, valid));
   }
 
   @Test
@@ -386,5 +502,23 @@ public class TestSupportsJobs extends TestBase {
         templateName,
         JobHandle.Status.QUEUED,
         AuditDTO.builder().withCreator("test").withCreateTime(Instant.now()).build());
+  }
+
+  private static DeletedEntityDTO createDeletedJobTemplateGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 }

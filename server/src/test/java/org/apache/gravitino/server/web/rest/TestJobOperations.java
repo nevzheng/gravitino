@@ -71,6 +71,7 @@ import org.apache.gravitino.job.SparkJobTemplate;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.meta.JobTemplateEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.web.ObjectMapperProvider;
 import org.apache.gravitino.storage.IdGenerator;
@@ -97,6 +98,8 @@ public class TestJobOperations extends JerseyTest {
   }
 
   private final JobOperationDispatcher jobOperationDispatcher = mock(JobOperationDispatcher.class);
+  private final RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final String metalake = "test_metalake";
 
@@ -120,6 +123,7 @@ public class TestJobOperations extends JerseyTest {
           @Override
           protected void configure() {
             bind(jobOperationDispatcher).to(JobOperationDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(TestJobOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }

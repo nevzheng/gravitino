@@ -51,6 +51,7 @@ import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.GroupEntity;
+import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.meta.RoleEntity;
@@ -84,6 +85,7 @@ public class RecoverableDeletionManager {
   private final RecoverableEntityAdapter<UserEntity> userAdapter;
   private final RecoverableEntityAdapter<GroupEntity> groupAdapter;
   private final RecoverableEntityAdapter<RoleEntity> roleAdapter;
+  private final RecoverableEntityAdapter<JobTemplateEntity> jobTemplateAdapter;
 
   /**
    * Creates a recoverable-deletion manager using the system clock.
@@ -125,6 +127,7 @@ public class RecoverableDeletionManager {
     this.userAdapter = new UserRecoveryAdapter(entityCache);
     this.groupAdapter = new GroupRecoveryAdapter(entityCache);
     this.roleAdapter = new RoleRecoveryAdapter(entityCache);
+    this.jobTemplateAdapter = new JobTemplateRecoveryAdapter(entityCache);
   }
 
   /**
@@ -665,6 +668,48 @@ public class RecoverableDeletionManager {
    */
   public RoleEntity restoreDeletedRole(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(roleAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted job-template generations under one live metalake.
+   *
+   * @param namespace job-template namespace
+   * @param name optional exact job-template name
+   * @param id optional exact immutable job-template identifier
+   * @return matching deleted job-template generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedJobTemplates(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(jobTemplateAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted job-template representation.
+   *
+   * @param namespace job-template namespace
+   * @param name original job-template name
+   * @param id immutable job-template identifier
+   * @return selected job-template deletion generation
+   */
+  public DeletedEntityDTO getDeletedJobTemplate(Namespace namespace, String name, long id) {
+    return getDeleted(jobTemplateAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact job-template metadata generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores only the template and terminal job-run rows captured by that
+   * template deletion. Executors, staging data, metrics, and external systems are not invoked.
+   *
+   * @param namespace job-template namespace
+   * @param name original job-template name
+   * @param id immutable job-template identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-template read
+   * @return restored job template, or the already-restored template for an idempotent replay
+   */
+  public JobTemplateEntity restoreDeletedJobTemplate(
+      Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(jobTemplateAdapter, namespace, name, id, etag);
   }
 
   private <E> List<DeletedEntityDTO> listDeleted(
