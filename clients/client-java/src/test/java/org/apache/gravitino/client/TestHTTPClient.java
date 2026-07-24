@@ -104,6 +104,38 @@ public class TestHTTPClient {
   }
 
   @Test
+  public void testPatchWithQueryParameters() throws Exception {
+    String path = "patch_query_parameters";
+    Item body = new Item(7L, "restore");
+    String asJson = MAPPER.writeValueAsString(body);
+    mockServer
+        .when(
+            request("/" + path)
+                .withMethod(Method.PATCH.name())
+                .withQueryStringParameter("include", "deleted")
+                .withQueryStringParameter("id", "7")
+                .withHeader("Content-Type", RecoverableDeletionClient.MERGE_PATCH_CONTENT_TYPE)
+                .withHeader("If-Match", "\"generation-etag\"")
+                .withBody(asJson))
+        .respond(response().withStatusCode(200).withBody(asJson));
+
+    Item actual =
+        restClient.patch(
+            path,
+            ImmutableMap.of("include", "deleted", "id", "7"),
+            body,
+            Item.class,
+            ImmutableMap.of(
+                "Content-Type",
+                RecoverableDeletionClient.MERGE_PATCH_CONTENT_TYPE,
+                "If-Match",
+                "\"generation-etag\""),
+            ErrorHandlers.restErrorHandler());
+
+    Assertions.assertEquals(body, actual);
+  }
+
+  @Test
   public void testGetSuccess() throws Exception {
     testHttpMethodOnSuccess(Method.GET, false, true);
   }

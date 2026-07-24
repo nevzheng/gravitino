@@ -398,6 +398,37 @@ public interface RESTClient extends Closeable {
       Consumer<ErrorResponse> errorHandler);
 
   /**
+   * Perform a PATCH request on the specified path with query parameters.
+   *
+   * <p>This is a default method so existing {@code RESTClient} implementations remain source and
+   * binary compatible. Implementations that support PATCH query parameters should override it.
+   *
+   * @param path The path to be requested.
+   * @param queryParams The query parameters to be included in the request.
+   * @param body The request body to be included in the PATCH request.
+   * @param responseType The class representing the type of the response.
+   * @param headers The headers to be included in the request.
+   * @param errorHandler The consumer for handling error responses.
+   * @param <T> The type of the response.
+   * @return The response of the PATCH request.
+   * @throws UnsupportedOperationException If this implementation does not support PATCH query
+   *     parameters.
+   */
+  default <T extends RESTResponse> T patch(
+      String path,
+      Map<String, String> queryParams,
+      RESTRequest body,
+      Class<T> responseType,
+      Map<String, String> headers,
+      Consumer<ErrorResponse> errorHandler) {
+    if (queryParams == null || queryParams.isEmpty()) {
+      return patch(path, body, responseType, headers, errorHandler);
+    }
+    throw new UnsupportedOperationException(
+        "This RESTClient implementation does not support PATCH query parameters");
+  }
+
+  /**
    * Perform a POST request with form data on the specified path with the given information.
    *
    * @param path The path to be requested.
