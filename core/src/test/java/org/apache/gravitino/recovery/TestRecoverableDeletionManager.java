@@ -30,6 +30,11 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.DeletionState;
@@ -1207,6 +1212,56 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testConcurrentTableRestoreTransactionsConvergeToSingleGeneration() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA);
+    TableEntity table = newTable(namespace, "concurrent_orders");
+    TableMetaService.getInstance().insertTable(table, false);
+    EntityDeletionPO deletion =
+        deleteAndGetDeletionRecord(table, Instant.now().toEpochMilli(), RETENTION_MS);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    String etag = manager.getDeletedTable(namespace, table.name(), table.id()).getEtag();
+
+    // Exercise the relational transaction directly to model servers with independent JVM locks.
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<TableEntity> first =
+          executor.submit(
+              () ->
+                  restoreTableAfterSignal(
+                      table, deletion, etag, deletion.getExpiresAt(), ready, start));
+      Future<TableEntity> second =
+          executor.submit(
+              () ->
+                  restoreTableAfterSignal(
+                      table, deletion, etag, deletion.getExpiresAt(), ready, start));
+
+      Assertions.assertTrue(ready.await(10, TimeUnit.SECONDS));
+      start.countDown();
+
+      Assertions.assertEquals(table.id(), first.get(30, TimeUnit.SECONDS).id());
+      Assertions.assertEquals(table.id(), second.get(30, TimeUnit.SECONDS).id());
+    } finally {
+      start.countDown();
+      executor.shutdownNow();
+      Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+
+    EntityDeletionPO restored = EntityDeletionService.getInstance().get(deletion.getDeletionId());
+    Assertions.assertEquals(DeletionState.RESTORED, restored.getState());
+    Assertions.assertEquals(2L, restored.getRevision());
+    Assertions.assertEquals(etag, restored.getRestoreEtag());
+    Assertions.assertEquals(
+        table.id(),
+        TableMetaService.getInstance().getTableByIdentifier(table.nameIdentifier()).id());
+    Assertions.assertTrue(manager.listDeletedTables(namespace, table.name(), table.id()).isEmpty());
+  }
+
+  @TestTemplate
   public void testImmutableTableIdReuseIsDetectedAcrossNamespaces() throws Exception {
     long deletedAt = 1_800_000_000_000L;
     createAndInsertMakeLake(METALAKE);
@@ -2270,6 +2325,27 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
     Assertions.assertNotNull(receipt);
     Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
     Assertions.assertEquals(0L, receipt.getRevision());
+  }
+
+  private static TableEntity restoreTableAfterSignal(
+      TableEntity table,
+      EntityDeletionPO deletion,
+      String etag,
+      long effectiveExpiresAt,
+      CountDownLatch ready,
+      CountDownLatch start)
+      throws Exception {
+    ready.countDown();
+    if (!start.await(10, TimeUnit.SECONDS)) {
+      throw new IllegalStateException("Concurrent table restores did not start together");
+    }
+    return TableMetaService.getInstance()
+        .restoreTable(
+            table.nameIdentifier(),
+            deletion,
+            Instant.now().toEpochMilli(),
+            etag,
+            effectiveExpiresAt);
   }
 
   private void assertSharedTagTableRestoreOrder(

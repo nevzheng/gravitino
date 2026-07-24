@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -42,6 +43,8 @@ import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.Privileges;
+import org.apache.gravitino.authorization.SecurableObjects;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
@@ -49,9 +52,11 @@ import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.GenericEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.TopicEntity;
+import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
@@ -546,6 +551,93 @@ public class TestPolicyMetaService extends TestJDBCBackend {
     Assertions.assertEquals(
         DeletionState.PURGED,
         EntityDeletionService.getInstance().get(receipt.getDeletionId()).getState());
+  }
+
+  @TestTemplate
+  public void testStandalonePolicyDeletePreservesAssociationsOwnershipAndGrants() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("policy_shared_relations");
+    CatalogEntity catalog = createAndInsertCatalog(metalake.name(), "catalog");
+    SchemaEntity schema = createAndInsertSchema(metalake.name(), catalog.name(), "schema");
+    TableEntity table =
+        createTableEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            Namespace.of(metalake.name(), catalog.name(), schema.name()),
+            "table",
+            AUDIT_INFO);
+    backend.insert(table, false);
+
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy(metalake.name()),
+            "policy",
+            AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyMetaService.getInstance()
+        .associatePoliciesWithMetadataObject(
+            table.nameIdentifier(),
+            table.type(),
+            new NameIdentifier[] {policy.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    UserEntity owner =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofUser(metalake.name()),
+            "owner",
+            AUDIT_INFO);
+    UserMetaService.getInstance().insertUser(owner, false);
+    OwnerMetaService.getInstance()
+        .setOwner(policy.nameIdentifier(), policy.type(), owner.nameIdentifier(), owner.type());
+
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofRole(metalake.name()),
+            "policy_applier",
+            AUDIT_INFO,
+            List.of(
+                SecurableObjects.ofPolicy(policy.name(), List.of(Privileges.ApplyPolicy.allow()))),
+            Map.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+
+    assertPolicySharedRelations(policy.id(), 1);
+    assertTrue(PolicyMetaService.getInstance().deletePolicy(policy.nameIdentifier()));
+    EntityDeletionPO deletion =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.POLICY, metalake.id(), policy.name(), policy.id(), null)
+            .get(0);
+    assertEquals(2L, deletion.getAffectedRowCount());
+    assertPolicySharedRelations(policy.id(), 1);
+
+    PolicyMetaService.getInstance()
+        .restorePolicy(
+            policy.nameIdentifier(),
+            deletion,
+            Instant.now().toEpochMilli(),
+            "policy-shared-relations-etag",
+            deletion.getExpiresAt());
+
+    assertEquals(
+        List.of(policy),
+        PolicyMetaService.getInstance()
+            .listPoliciesForMetadataObject(table.nameIdentifier(), table.type()));
+    Entity restoredOwner =
+        OwnerMetaService.getInstance()
+            .getOwner(policy.nameIdentifier(), policy.type())
+            .orElseThrow();
+    assertTrue(restoredOwner instanceof UserEntity);
+    assertEquals(owner.id(), ((UserEntity) restoredOwner).id());
+    RoleEntity restoredRole =
+        RoleMetaService.getInstance().getRoleByIdentifier(role.nameIdentifier());
+    assertTrue(
+        restoredRole.securableObjects().stream()
+            .anyMatch(
+                object ->
+                    object.type() == MetadataObject.Type.POLICY
+                        && object.fullName().equals(policy.name())
+                        && object.privileges().contains(Privileges.ApplyPolicy.allow())));
+    assertPolicySharedRelations(policy.id(), 1);
   }
 
   @TestTemplate
@@ -1174,6 +1266,44 @@ public class TestPolicyMetaService extends TestJDBCBackend {
       }
     } catch (SQLException se) {
       throw new RuntimeException("SQL execution failed", se);
+    }
+  }
+
+  private static void assertPolicySharedRelations(long policyId, int expected) throws SQLException {
+    assertEquals(
+        expected,
+        countRows(
+            "SELECT COUNT(*) FROM policy_relation_meta"
+                + " WHERE policy_id = ? AND deleted_at = 0 AND deletion_id IS NULL",
+            policyId));
+    assertEquals(
+        expected,
+        countRows(
+            "SELECT COUNT(*) FROM owner_meta"
+                + " WHERE metadata_object_id = ? AND metadata_object_type = 'POLICY'"
+                + " AND deleted_at = 0 AND deletion_id IS NULL",
+            policyId));
+    assertEquals(
+        expected,
+        countRows(
+            "SELECT COUNT(*) FROM role_meta_securable_object"
+                + " WHERE metadata_object_id = ? AND type = 'POLICY'"
+                + " AND deleted_at = 0 AND deletion_id IS NULL",
+            policyId));
+  }
+
+  private static int countRows(String sql, Object... parameters) throws SQLException {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      for (int index = 0; index < parameters.length; index++) {
+        statement.setObject(index + 1, parameters[index]);
+      }
+      try (ResultSet result = statement.executeQuery()) {
+        assertTrue(result.next());
+        return result.getInt(1);
+      }
     }
   }
 }
