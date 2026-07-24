@@ -172,6 +172,10 @@ public class TableMetaService {
       SessionUtils.doMultipleWithCommit(
           () ->
               SessionUtils.doWithoutCommit(
+                  TableRecoveryMapper.class,
+                  recoveryMapper -> lockLiveSchema(recoveryMapper, po.getSchemaId())),
+          () ->
+              SessionUtils.doWithoutCommit(
                   TableMetaMapper.class,
                   mapper -> {
                     tablePORef.set(po);
@@ -247,6 +251,18 @@ public class TableMetaService {
     final AtomicInteger updateResult = new AtomicInteger(0);
     try {
       SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  TableRecoveryMapper.class,
+                  recoveryMapper -> {
+                    List<Long> schemaIds = new ArrayList<>();
+                    schemaIds.add(oldTablePO.getSchemaId());
+                    schemaIds.add(newTablePO.getSchemaId());
+                    schemaIds.stream()
+                        .distinct()
+                        .sorted()
+                        .forEach(schemaId -> lockLiveSchema(recoveryMapper, schemaId));
+                  }),
           () ->
               updateResult.set(
                   SessionUtils.getWithoutCommit(
@@ -481,6 +497,21 @@ public class TableMetaService {
                 observed.getDeletionId(), effectiveExpiresAt);
           }
 
+          int claimed =
+              SessionUtils.getWithoutCommit(
+                  EntityDeletionMapper.class,
+                  deletionMapper ->
+                      deletionMapper.compareAndSetState(
+                          actual.getDeletionId(),
+                          DeletionState.DELETED,
+                          actual.getRevision(),
+                          DeletionState.RESTORING,
+                          null,
+                          null));
+          if (claimed != 1) {
+            throw tombstoneChanged(actual.getDeletionId());
+          }
+
           SessionUtils.doWithoutCommit(
               TableRecoveryMapper.class,
               mapper -> {
@@ -488,21 +519,6 @@ public class TableMetaService {
                     mapper.selectTableGeneration(
                         actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
                 validateTableGeneration(actual, tableGeneration);
-
-                int claimed =
-                    SessionUtils.getWithoutCommit(
-                        EntityDeletionMapper.class,
-                        deletionMapper ->
-                            deletionMapper.compareAndSetState(
-                                actual.getDeletionId(),
-                                DeletionState.DELETED,
-                                actual.getRevision(),
-                                DeletionState.RESTORING,
-                                null,
-                                null));
-                if (claimed != 1) {
-                  throw tombstoneChanged(actual.getDeletionId());
-                }
 
                 mapper.restoreOwnerRelations(
                     actual.getEntityId(),

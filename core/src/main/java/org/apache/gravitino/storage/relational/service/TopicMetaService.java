@@ -558,11 +558,6 @@ public class TopicMetaService {
                       observed.getDeletionId(), effectiveExpiresAt);
                 }
 
-                TopicPO generation =
-                    mapper.selectTopicGeneration(
-                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
-                validateTopicGeneration(actual, generation);
-
                 int claimed =
                     SessionUtils.getWithoutCommit(
                         EntityDeletionMapper.class,
@@ -577,6 +572,11 @@ public class TopicMetaService {
                 if (claimed != 1) {
                   throw tombstoneChanged(actual.getDeletionId());
                 }
+
+                TopicPO generation =
+                    mapper.selectTopicGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateTopicGeneration(actual, generation);
 
                 mapper.restoreOwnerRelations(
                     actual.getEntityId(),

@@ -155,6 +155,10 @@ public class ModelMetaService {
           () ->
               SessionUtils.doWithoutCommit(
                   ModelRecoveryMapper.class,
+                  recoveryMapper -> lockLiveSchema(recoveryMapper, po.getSchemaId())),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  ModelRecoveryMapper.class,
                   recoveryMapper -> {
                     if (overwrite
                         && recoveryMapper.selectRecordedDeletedModelForUpdate(po.getModelId())
@@ -360,11 +364,6 @@ public class ModelMetaService {
                       observed.getDeletionId(), effectiveExpiresAt);
                 }
 
-                ModelPO generation =
-                    mapper.selectModelGeneration(
-                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
-                validateModelGeneration(actual, generation);
-
                 int claimed =
                     SessionUtils.getWithoutCommit(
                         EntityDeletionMapper.class,
@@ -379,6 +378,11 @@ public class ModelMetaService {
                 if (claimed != 1) {
                   throw tombstoneChanged(actual.getDeletionId());
                 }
+
+                ModelPO generation =
+                    mapper.selectModelGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateModelGeneration(actual, generation);
 
                 mapper.restoreModelVersions(
                     actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
@@ -861,6 +865,10 @@ public class ModelMetaService {
     AtomicInteger updateResult = new AtomicInteger(0);
     try {
       SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  ModelRecoveryMapper.class,
+                  recoveryMapper -> lockLiveSchema(recoveryMapper, oldModelPO.getSchemaId())),
           () ->
               updateResult.set(
                   SessionUtils.getWithoutCommit(

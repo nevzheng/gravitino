@@ -49,14 +49,16 @@ public final class RelationalGarbageCollector implements Closeable {
           .sorted(
               Comparator.comparingInt(
                   type ->
-                      type == Entity.EntityType.TABLE
-                              || type == Entity.EntityType.FILESET
-                              || type == Entity.EntityType.FUNCTION
-                              || type == Entity.EntityType.MODEL
-                              || type == Entity.EntityType.VIEW
-                              || type == Entity.EntityType.TOPIC
+                      type == Entity.EntityType.SCHEMA
                           ? 0
-                          : 1))
+                          : type == Entity.EntityType.TABLE
+                                  || type == Entity.EntityType.FILESET
+                                  || type == Entity.EntityType.FUNCTION
+                                  || type == Entity.EntityType.MODEL
+                                  || type == Entity.EntityType.VIEW
+                                  || type == Entity.EntityType.TOPIC
+                              ? 1
+                              : 2))
           .collect(
               Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
 
@@ -129,14 +131,15 @@ public final class RelationalGarbageCollector implements Closeable {
           }
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
-          if (entityType == Entity.EntityType.TABLE
+          if (entityType == Entity.EntityType.SCHEMA
+              || entityType == Entity.EntityType.TABLE
               || entityType == Entity.EntityType.FILESET
               || entityType == Entity.EntityType.FUNCTION
               || entityType == Entity.EntityType.MODEL
               || entityType == Entity.EntityType.VIEW
               || entityType == Entity.EntityType.TOPIC) {
             // Aggregate GC owns the recorded deletion purge. Continuing into shared relation
-            // cleanup after it fails could remove only part of an otherwise recoverable cohort.
+            // cleanup after it fails could remove only part of a recoverable deletion generation.
             LOG.warn("Stop this hard-delete cycle after aggregate deletion cleanup failed");
             break;
           }

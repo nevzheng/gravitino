@@ -32,7 +32,7 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id,"
         + " catalog_id, schema_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{schemaMeta.schemaId},"
         + " #{schemaMeta.schemaName},"
@@ -43,7 +43,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + " #{schemaMeta.auditInfo},"
         + " #{schemaMeta.currentVersion},"
         + " #{schemaMeta.lastVersion},"
-        + " #{schemaMeta.deletedAt}"
+        + " #{schemaMeta.deletedAt},"
+        + " #{schemaMeta.deletionId}"
         + " )"
         + " ON CONFLICT(schema_id) DO UPDATE SET"
         + " schema_name = #{schemaMeta.schemaName},"
@@ -54,7 +55,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + " audit_info = #{schemaMeta.auditInfo},"
         + " current_version = #{schemaMeta.currentVersion},"
         + " last_version = #{schemaMeta.lastVersion},"
-        + " deleted_at = #{schemaMeta.deletedAt}";
+        + " deleted_at = #{schemaMeta.deletedAt},"
+        + " deletion_id = #{schemaMeta.deletionId}";
   }
 
   @Override
@@ -64,11 +66,11 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + "INSERT INTO "
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id, catalog_id, schema_comment,"
-        + " properties, audit_info, current_version, last_version, deleted_at) VALUES "
+        + " properties, audit_info, current_version, last_version, deleted_at, deletion_id) VALUES "
         + "<foreach collection='schemaMetas' item='po' separator=','>"
         + "(#{po.schemaId}, #{po.schemaName}, #{po.metalakeId}, #{po.catalogId},"
         + " #{po.schemaComment}, #{po.properties}, #{po.auditInfo},"
-        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt})"
+        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt}, #{po.deletionId})"
         + "</foreach>"
         + " ON CONFLICT(schema_id) DO UPDATE SET"
         + " schema_name = EXCLUDED.schema_name,"
@@ -79,7 +81,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + " audit_info = EXCLUDED.audit_info,"
         + " current_version = EXCLUDED.current_version,"
         + " last_version = EXCLUDED.last_version,"
-        + " deleted_at = EXCLUDED.deleted_at"
+        + " deleted_at = EXCLUDED.deleted_at,"
+        + " deletion_id = EXCLUDED.deletion_id"
         + "</script>";
   }
 
@@ -96,7 +99,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + " audit_info = #{newSchemaMeta.auditInfo},"
         + " current_version = #{newSchemaMeta.currentVersion},"
         + " last_version = #{newSchemaMeta.lastVersion},"
-        + " deleted_at = #{newSchemaMeta.deletedAt}"
+        + " deleted_at = #{newSchemaMeta.deletedAt},"
+        + " deletion_id = #{newSchemaMeta.deletionId}"
         + " WHERE schema_id = #{oldSchemaMeta.schemaId}"
         + " AND schema_name = #{oldSchemaMeta.schemaName}"
         + " AND metalake_id = #{oldSchemaMeta.metalakeId}"
@@ -116,7 +120,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
     return "<script>"
         + "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -129,7 +134,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
   public String softDeleteSchemaMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -137,7 +143,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
   public String softDeleteSchemaMetasByCatalogId(Long catalogId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -148,6 +155,8 @@ public class SchemaMetaPostgreSQLProvider extends SchemaMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE schema_id IN (SELECT schema_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL";
   }
 }

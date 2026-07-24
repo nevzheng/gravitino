@@ -65,6 +65,8 @@ public class StatisticPostgresSQLProvider extends StatisticBaseSQLProvider {
         + STATISTIC_META_TABLE_NAME
         + " WHERE statistic_id IN (SELECT statistic_id FROM "
         + STATISTIC_META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL";
   }
 }

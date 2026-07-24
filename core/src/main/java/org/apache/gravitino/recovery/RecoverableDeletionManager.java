@@ -49,11 +49,13 @@ import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
+import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 
 /** Coordinates the shared recovery protocol and entity-specific deletion adapters. */
 public class RecoverableDeletionManager {
@@ -63,6 +65,7 @@ public class RecoverableDeletionManager {
 
   private final long retentionMs;
   private final Clock clock;
+  private final RecoverableEntityAdapter<SchemaEntity> schemaAdapter;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
   private final RecoverableEntityAdapter<ViewEntity> viewAdapter;
   private final RecoverableEntityAdapter<FilesetEntity> filesetAdapter;
@@ -97,12 +100,59 @@ public class RecoverableDeletionManager {
       long retentionMs, Clock clock, @Nullable EntityCache entityCache) {
     this.retentionMs = retentionMs;
     this.clock = clock;
+    this.schemaAdapter = new SchemaRecoveryAdapter(entityCache);
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
     this.viewAdapter = new ViewRecoveryAdapter(entityCache);
     this.filesetAdapter = new FilesetRecoveryAdapter(entityCache);
     this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
+  }
+
+  /**
+   * Lists independently deleted schema roots under one live catalog or parent schema.
+   *
+   * @param namespace catalog namespace
+   * @param parentSchema optional full logical parent schema name; {@code null} selects top-level
+   *     schemas
+   * @param name optional exact full logical schema name
+   * @param id optional exact immutable schema identifier
+   * @return matching deleted schema generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedSchemas(
+      Namespace namespace,
+      @Nullable String parentSchema,
+      @Nullable String name,
+      @Nullable Long id) {
+    return listDeleted(schemaAdapter, namespace, parentSchema, name, id);
+  }
+
+  /**
+   * Loads one exact deleted schema root representation.
+   *
+   * @param namespace catalog namespace
+   * @param name original full logical schema name
+   * @param id immutable schema identifier
+   * @return selected schema deletion generation
+   */
+  public DeletedEntityDTO getDeletedSchema(Namespace namespace, String name, long id) {
+    return getDeleted(schemaAdapter, namespace, immediateSchemaParent(name), name, id);
+  }
+
+  /**
+   * Restores one exact schema metadata-tree deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores Gravitino metadata only. When the original deletion cascaded, all
+   * descendants carrying that exact deletion generation are restored atomically.
+   *
+   * @param namespace catalog namespace
+   * @param name original full logical schema name
+   * @param id immutable schema identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-schema read
+   * @return restored root schema, or the already-restored root for an idempotent replay
+   */
+  public SchemaEntity restoreDeletedSchema(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(schemaAdapter, namespace, immediateSchemaParent(name), name, id, etag);
   }
 
   /**
@@ -964,6 +1014,13 @@ public class RecoverableDeletionManager {
     }
     String text = String.valueOf(value);
     return text.length() + ":" + text;
+  }
+
+  @Nullable
+  private static String immediateSchemaParent(String schemaName) {
+    String separator = HierarchicalSchemaUtil.schemaSeparator();
+    int separatorIndex = schemaName.lastIndexOf(separator);
+    return separatorIndex < 0 ? null : schemaName.substring(0, separatorIndex);
   }
 
   private long effectiveExpiresAt(EntityDeletionPO deletion) {

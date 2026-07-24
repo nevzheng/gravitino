@@ -178,6 +178,10 @@ public class FunctionMetaService {
           () ->
               SessionUtils.doWithoutCommit(
                   FunctionRecoveryMapper.class,
+                  recoveryMapper -> lockLiveSchema(recoveryMapper, po.schemaId())),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  FunctionRecoveryMapper.class,
                   recoveryMapper -> {
                     if (overwrite
                         && recoveryMapper.selectRecordedDeletedFunctionForUpdate(po.functionId())
@@ -394,19 +398,6 @@ public class FunctionMetaService {
                       observed.getDeletionId(), effectiveExpiresAt);
                 }
 
-                FunctionPO generation =
-                    mapper.selectFunctionGeneration(
-                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
-                validateFunctionGeneration(actual, generation);
-                if (mapper.countCurrentVersionGeneration(
-                        actual.getEntityId(),
-                        actual.getEntityVersion(),
-                        actual.getDeletedAt(),
-                        actual.getDeletionId())
-                    != 1) {
-                  throw tombstoneChanged(actual.getDeletionId());
-                }
-
                 int claimed =
                     SessionUtils.getWithoutCommit(
                         EntityDeletionMapper.class,
@@ -419,6 +410,19 @@ public class FunctionMetaService {
                                 null,
                                 null));
                 if (claimed != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                FunctionPO generation =
+                    mapper.selectFunctionGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateFunctionGeneration(actual, generation);
+                if (mapper.countCurrentVersionGeneration(
+                        actual.getEntityId(),
+                        actual.getEntityVersion(),
+                        actual.getDeletedAt(),
+                        actual.getDeletionId())
+                    != 1) {
                   throw tombstoneChanged(actual.getDeletionId());
                 }
 
@@ -625,6 +629,10 @@ public class FunctionMetaService {
       FunctionPO newFunctionPO = updateFunctionPO(oldFunctionPO, newEntity);
       // Insert a new version and update function meta
       SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  FunctionRecoveryMapper.class,
+                  recoveryMapper -> lockLiveSchema(recoveryMapper, oldFunctionPO.schemaId())),
           () ->
               SessionUtils.doWithoutCommit(
                   FunctionVersionMetaMapper.class,

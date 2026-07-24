@@ -433,7 +433,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case CATALOG:
         return CatalogMetaService.getInstance().deleteCatalog(ident, cascade);
       case SCHEMA:
-        return SchemaMetaService.getInstance().deleteSchema(ident, cascade);
+        return SchemaMetaService.getInstance().deleteSchema(ident, cascade, deletionRetentionMs);
       case TABLE:
         return TableMetaService.getInstance().deleteTable(ident, deletionRetentionMs);
       case FILESET:
@@ -481,9 +481,23 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
             .deleteCatalogMetasByLegacyTimeline(
                 legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case SCHEMA:
-        return SchemaMetaService.getInstance()
-            .deleteSchemaMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableSchemaDeletionCount =
+            SchemaMetaService.getInstance()
+                .purgeExpiredSchemaDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableSchemaDeletionCount > 0) {
+          return recoverableSchemaDeletionCount;
+        }
+        int legacySchemaCount =
+            SchemaMetaService.getInstance()
+                .deleteSchemaMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacySchemaCount > 0) {
+          return legacySchemaCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.SCHEMA, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TABLE:
         int recoverableDeletionCount =
             TableMetaService.getInstance()

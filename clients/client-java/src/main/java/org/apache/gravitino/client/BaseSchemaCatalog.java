@@ -32,6 +32,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.SupportsSchemas;
@@ -173,6 +174,39 @@ abstract class BaseSchemaCatalog extends CatalogDTO
   }
 
   /**
+   * Lists retained schema deletion generations in one hierarchy scope.
+   *
+   * @param parentSchema The full logical parent schema name, or {@code null} for top-level roots.
+   * @param name An exact full logical schema-name filter, or {@code null}.
+   * @param id An exact immutable schema-ID filter, or {@code null}.
+   * @return The matching retained schema deletion generations.
+   */
+  @Override
+  public DeletedEntity[] listDeletedSchemas(
+      @Nullable String parentSchema, @Nullable String name, @Nullable String id) {
+    Preconditions.checkArgument(
+        parentSchema == null || StringUtils.isNotBlank(parentSchema),
+        "parentSchema must not be blank");
+    Map<String, String> scopeQueryParams =
+        parentSchema == null
+            ? Collections.emptyMap()
+            : Collections.singletonMap("parentSchema", parentSchema);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatSchemaRequestPath(schemaNamespace()),
+            scopeQueryParams,
+            name,
+            id,
+            ErrorHandlers.schemaErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.SCHEMA, name, id));
+    return generations;
+  }
+
+  /**
    * Create a new schema with specified identifier, comment and metadata.
    *
    * @param schemaName The name identifier of the schema.
@@ -220,6 +254,51 @@ abstract class BaseSchemaCatalog extends CatalogDTO
     resp.validate();
 
     return new GenericSchema(resp.getSchema(), restClient, catalogNamespace.level(0), this.name());
+  }
+
+  /**
+   * Loads one exact retained schema deletion generation.
+   *
+   * @param schemaName The full logical schema name.
+   * @param id The immutable schema ID.
+   * @return The exact retained schema deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedSchema(String schemaName, String id) {
+    Preconditions.checkArgument(StringUtils.isNotBlank(schemaName), "schemaName must not be blank");
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatSchemaRequestPath(schemaNamespace()) + "/" + RESTUtils.encodeString(schemaName),
+            id,
+            ErrorHandlers.schemaErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.SCHEMA, schemaName, id);
+    return generation;
+  }
+
+  /**
+   * Restores one retained generation as active Gravitino schema metadata without contacting a
+   * downstream system.
+   *
+   * @param schemaName The full logical schema name.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored schema metadata.
+   */
+  @Override
+  public Schema restoreSchema(String schemaName, DeletedEntity generation) {
+    Preconditions.checkArgument(StringUtils.isNotBlank(schemaName), "schemaName must not be blank");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.SCHEMA, schemaName, null);
+
+    SchemaResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatSchemaRequestPath(schemaNamespace()) + "/" + RESTUtils.encodeString(schemaName),
+            generation,
+            SchemaResponse.class,
+            ErrorHandlers.schemaErrorHandler());
+    Preconditions.checkArgument(
+        schemaName.equals(response.getSchema().name()),
+        "Restored schema name must match the requested schema name");
+    return new GenericSchema(
+        response.getSchema(), restClient, catalogNamespace.level(0), this.name());
   }
 
   /**

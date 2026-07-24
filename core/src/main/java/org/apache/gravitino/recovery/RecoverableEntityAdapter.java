@@ -43,7 +43,12 @@ interface RecoverableEntityAdapter<E> {
    */
   List<RecoveryMetadata.DeletedSnapshot> listDeleted(Namespace namespace);
 
-  /** Lists storage tombstones under an optional entity-specific parent scope. */
+  /**
+   * Lists storage tombstones under an optional entity-specific parent scope.
+   *
+   * <p>Leaf resources have exactly one parent encoded by {@code namespace}; hierarchical resources
+   * may override this method to distinguish children of different immediate parents.
+   */
   default List<RecoveryMetadata.DeletedSnapshot> listDeleted(
       Namespace namespace, @Nullable String parentScope) {
     return listDeleted(namespace);

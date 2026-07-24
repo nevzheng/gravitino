@@ -29,15 +29,20 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -47,13 +52,19 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.SchemaDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.SchemaCreateRequest;
 import org.apache.gravitino.dto.requests.SchemaUpdateRequest;
 import org.apache.gravitino.dto.requests.SchemaUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -62,9 +73,18 @@ import org.apache.gravitino.dto.responses.SchemaResponse;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NonEmptySchemaException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.SchemaEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.utils.NamespaceUtil;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -85,6 +105,8 @@ public class TestSchemaOperations extends BaseOperationsTest {
   }
 
   private SchemaOperationDispatcher dispatcher = mock(SchemaOperationDispatcher.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final String metalake = "metalake1";
 
@@ -119,6 +141,7 @@ public class TestSchemaOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(dispatcher).to(SchemaDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -204,6 +227,28 @@ public class TestSchemaOperations extends BaseOperationsTest {
   }
 
   @Test
+  public void testListLiveSchemasFiltersByFullLogicalNameInsideParentScope() {
+    NameIdentifier matching = NameIdentifier.of(metalake, catalog, "A:sales");
+    NameIdentifier other = NameIdentifier.of(metalake, catalog, "A:engineering");
+    when(dispatcher.listSchemas(Namespace.of(metalake, catalog, "A")))
+        .thenReturn(new NameIdentifier[] {matching, other});
+
+    Response response =
+        target(schemaPath())
+            .queryParam("parentSchema", "A")
+            .queryParam("name", "A:sales")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    Assertions.assertArrayEquals(
+        new NameIdentifier[] {matching},
+        response.readEntity(EntityListResponse.class).identifiers());
+    verify(dispatcher).listSchemas(Namespace.of(metalake, catalog, "A"));
+  }
+
+  @Test
   public void testListSchemasWithMalformedParentSchemaReturnsBadRequest() {
     Response resp =
         target("/metalakes/" + metalake + "/catalogs/" + catalog + "/schemas")
@@ -215,6 +260,238 @@ public class TestSchemaOperations extends BaseOperationsTest {
     Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), resp.getStatus());
     // The malformed parentSchema must be rejected before reaching the dispatcher.
     verify(dispatcher, never()).listSchemas(any());
+  }
+
+  @Test
+  public void testDeletedSchemaDiscoveryPreservesHierarchyAndExactRead() {
+    Namespace schemaNamespace = NamespaceUtil.ofSchema(metalake, catalog);
+    String topLevelEtag = deletionEtag("schema-top", 'a');
+    String childEtag = deletionEtag("schema-child", 'b');
+    DeletedEntityDTO topLevel = deletedSchema("A", "101", "schema-top", topLevelEtag);
+    DeletedEntityDTO child = deletedSchema("A:B", "102", "schema-child", childEtag);
+    when(recoverableDeletionManager.listDeletedSchemas(schemaNamespace, null, null, null))
+        .thenReturn(List.of(topLevel));
+    when(recoverableDeletionManager.listDeletedSchemas(schemaNamespace, "A", null, null))
+        .thenReturn(List.of(child));
+    when(recoverableDeletionManager.listDeletedSchemas(schemaNamespace, "A", "A:B", 102L))
+        .thenReturn(List.of(child));
+    when(recoverableDeletionManager.getDeletedSchema(schemaNamespace, "A:B", 102L))
+        .thenReturn(child);
+
+    Response rootResponse =
+        target(schemaPath())
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), rootResponse.getStatus());
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {topLevel},
+        rootResponse.readEntity(DeletedEntityListResponse.class).getDeletedEntities());
+
+    Response childResponse =
+        target(schemaPath())
+            .queryParam("include", "deleted")
+            .queryParam("parentSchema", "A")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), childResponse.getStatus());
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {child},
+        childResponse.readEntity(DeletedEntityListResponse.class).getDeletedEntities());
+
+    Response filteredResponse =
+        target(schemaPath())
+            .queryParam("include", "deleted")
+            .queryParam("parentSchema", "A")
+            .queryParam("name", "A:B")
+            .queryParam("id", "102")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), filteredResponse.getStatus());
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {child},
+        filteredResponse.readEntity(DeletedEntityListResponse.class).getDeletedEntities());
+
+    Response itemResponse =
+        target(schemaPath())
+            .path("A:B")
+            .queryParam("include", "deleted")
+            .queryParam("id", "102")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + childEtag + '"', itemResponse.getHeaderString("ETag"));
+    Assertions.assertEquals(
+        child, itemResponse.readEntity(DeletedEntityResponse.class).getDeletedEntity());
+    verify(recoverableDeletionManager).listDeletedSchemas(schemaNamespace, null, null, null);
+    verify(recoverableDeletionManager).listDeletedSchemas(schemaNamespace, "A", null, null);
+    verify(recoverableDeletionManager).listDeletedSchemas(schemaNamespace, "A", "A:B", 102L);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedHierarchicalSchemaAndReplay() {
+    Namespace schemaNamespace = NamespaceUtil.ofSchema(metalake, catalog);
+    String etag = deletionEtag("schema-child", 'e');
+    SchemaEntity restored =
+        SchemaEntity.builder()
+            .withId(102L)
+            .withName("A:B")
+            .withNamespace(schemaNamespace)
+            .withComment("restored metadata tree")
+            .withProperties(ImmutableMap.of("owner", "control-plane"))
+            .withAuditInfo(
+                AuditInfo.builder()
+                    .withCreator("alice")
+                    .withCreateTime(Instant.ofEpochMilli(1_784_000_000_000L))
+                    .build())
+            .build();
+    when(recoverableDeletionManager.restoreDeletedSchema(schemaNamespace, "A:B", 102L, etag))
+        .thenReturn(restored);
+
+    Response response = patchRestoreSchema("A:B", "102", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    SchemaDTO schema = response.readEntity(SchemaResponse.class).getSchema();
+    Assertions.assertEquals("A:B", schema.name());
+    Assertions.assertEquals("restored metadata tree", schema.comment());
+    Assertions.assertEquals(ImmutableMap.of("owner", "control-plane"), schema.properties());
+
+    Response replay = patchRestoreSchema("A:B", "102", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replay.getStatus());
+    Assertions.assertEquals("A:B", replay.readEntity(SchemaResponse.class).getSchema().name());
+    verify(recoverableDeletionManager, times(2))
+        .restoreDeletedSchema(schemaNamespace, "A:B", 102L, etag);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testDeletedSchemaQueryAndRestoreValidation() {
+    Response invalidInclude =
+        target(schemaPath())
+            .queryParam("include", "all")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidInclude.getStatus());
+
+    Response liveId =
+        target(schemaPath())
+            .queryParam("id", "102")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveId.getStatus());
+
+    Response invalidDeletedId =
+        target(schemaPath())
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidDeletedId.getStatus());
+
+    Response missingItemId =
+        target(schemaPath())
+            .path("A:B")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response missingIfMatch = patchRestoreSchema("A:B", "102", null);
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch = patchRestoreSchema("A:B", "102", "W/\"schema-etag\"");
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch = patchRestoreSchema("A:B", "102", "\"schema-etag\", \"other-etag\"");
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestoreSchema("A:B", "102", "\"schema-etag\"", MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(schemaPath())
+            .path("A:B")
+            .queryParam("include", "deleted")
+            .queryParam("id", "102")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"schema-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedSchemaMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedSchema(any(), eq("A:B"), eq(102L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedSchema(any(), eq("A:B"), eq(102L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedSchema(any(), eq("A:B"), eq(102L), eq("name-occupied"));
+    doThrow(
+            new RecoveryConflictException(
+                RecoveryConflictReason.NOT_LATEST_TOMBSTONE, "not latest"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedSchema(any(), eq("A:B"), eq(102L), eq("not-latest"));
+
+    Response stale = patchRestoreSchema("A:B", "102", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestoreSchema("A:B", "102", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    assertRecoveryConflict("name-occupied", RecoveryConflictReason.NAME_OCCUPIED);
+    assertRecoveryConflict("not-latest", RecoveryConflictReason.NOT_LATEST_TOMBSTONE);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testExactDeletedSchemaReadRequiresMatchingPathAndId() {
+    Namespace schemaNamespace = NamespaceUtil.ofSchema(metalake, catalog);
+    doThrow(new TombstoneNotFoundException("schema tombstone not found"))
+        .when(recoverableDeletionManager)
+        .getDeletedSchema(schemaNamespace, "A:B", 102L);
+
+    Response response =
+        target(schemaPath())
+            .path("A:B")
+            .queryParam("include", "deleted")
+            .queryParam("id", "102")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+
+    Assertions.assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.NOT_FOUND_CODE, response.readEntity(ErrorResponse.class).getCode());
+    verifyNoInteractions(dispatcher);
   }
 
   @Test
@@ -514,6 +791,62 @@ public class TestSchemaOperations extends BaseOperationsTest {
     ErrorResponse errorResp4 = resp4.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp4.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp4.getType());
+  }
+
+  private void assertRecoveryConflict(String etag, RecoveryConflictReason reason) {
+    Response response = patchRestoreSchema("A:B", "102", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    ErrorResponse body = response.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, body.getCode());
+    Assertions.assertEquals(reason, body.getReason());
+  }
+
+  private Response patchRestoreSchema(String schema, String id, String ifMatch) {
+    return patchRestoreSchema(
+        schema, id, ifMatch, MediaType.valueOf("application/merge-patch+json"));
+  }
+
+  private Response patchRestoreSchema(
+      String schema, String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(schemaPath())
+            .path(schema)
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
+  }
+
+  private DeletedEntityDTO deletedSchema(String name, String id, String deletionId, String etag) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId(deletionId)
+        .withName(name)
+        .withType(RecoveryEntityType.SCHEMA)
+        .withDeletedAt(1_784_800_000_000L)
+        .withExpiresAt(1_785_404_800_000L)
+        .withDeletedBy("alice")
+        .withEtag(etag)
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
+  }
+
+  private static String deletionEtag(String deletionId, char digestCharacter) {
+    return "deletion-"
+        + deletionId
+        + "-representation-"
+        + String.valueOf(digestCharacter).repeat(64);
+  }
+
+  private String schemaPath() {
+    return "/metalakes/" + metalake + "/catalogs/" + catalog + "/schemas";
   }
 
   private static Schema mockSchema(String name, String comment, Map<String, String> properties) {

@@ -315,6 +315,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -344,6 +345,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);

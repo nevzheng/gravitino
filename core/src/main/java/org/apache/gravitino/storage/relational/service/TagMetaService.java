@@ -302,6 +302,7 @@ public class TagMetaService {
 
     try {
       Long metadataObjectId = EntityIdService.getEntityId(objectIdent, objectType);
+      Long schemaId = SchemaMutationLock.schemaId(objectIdent, objectType);
 
       // Fetch all the tags need to associate with the metadata object.
       List<String> tagNamesToAdd =
@@ -320,6 +321,7 @@ public class TagMetaService {
               : getTagPOsByMetalakeAndNames(metalake, tagNamesToRemove);
 
       SessionUtils.doMultipleWithCommit(
+          () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
           () -> {
             // Insert the tag metadata object relations.
             if (tagPOsToAdd.isEmpty()) {

@@ -35,7 +35,15 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(RestoreChangeLogListener.class);
 
-  private static final Set<Entity.EntityType> RECOVERABLE_TYPES = Set.of(Entity.EntityType.TABLE);
+  private static final Set<Entity.EntityType> RECOVERABLE_TYPES =
+      Set.of(
+          Entity.EntityType.SCHEMA,
+          Entity.EntityType.TABLE,
+          Entity.EntityType.VIEW,
+          Entity.EntityType.FILESET,
+          Entity.EntityType.TOPIC,
+          Entity.EntityType.FUNCTION,
+          Entity.EntityType.MODEL);
 
   private final EntityCache cache;
 
@@ -59,10 +67,17 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
         continue;
       }
 
-      // EntityCache implementations are not required to cascade a plain entity invalidation to
-      // relation entries. Invalidate the entity first so implementations such as Caffeine can use
-      // any cached relationships to evict counterpart keys, then explicitly remove every
-      // entity-side relation entry, including OWNER_REL.
+      // A schema restore represents its entire metadata tree, but EntityCache only contracts an
+      // exact-entry invalidation. Clear the cache so custom implementations cannot retain stale
+      // descendants or their relations.
+      if (entityType == Entity.EntityType.SCHEMA) {
+        clearCache(change);
+        continue;
+      }
+
+      // Invalidate the entity first so cascading implementations can evict descendants and use
+      // cached relationships to evict counterpart keys. Then explicitly remove every relation
+      // entry for the restored root, including OWNER_REL.
       try {
         cache.invalidate(identifier, entityType);
       } catch (RuntimeException e) {
@@ -101,7 +116,8 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
     }
 
     NameIdentifier identifier = NameIdentifier.parse(change.getFullName());
-    if (identifier.namespace().length() != 3) {
+    int expectedNamespaceLength = entityType == Entity.EntityType.SCHEMA ? 2 : 3;
+    if (identifier.namespace().length() != expectedNamespaceLength) {
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,
@@ -128,6 +144,10 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
         change.getFullName(),
         change.getEntityType(),
         validationFailure);
+    clearCache(change);
+  }
+
+  private void clearCache(EntityChangeRecord change) {
     try {
       cache.clear();
     } catch (RuntimeException clearFailure) {

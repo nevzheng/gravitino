@@ -470,19 +470,6 @@ public class ViewMetaService {
                       observed.getDeletionId(), effectiveExpiresAt);
                 }
 
-                ViewPO generation =
-                    mapper.selectViewGeneration(
-                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
-                validateViewGeneration(actual, generation);
-                if (mapper.countCurrentVersionGeneration(
-                        actual.getEntityId(),
-                        actual.getEntityVersion(),
-                        actual.getDeletedAt(),
-                        actual.getDeletionId())
-                    < 1) {
-                  throw tombstoneChanged(actual.getDeletionId());
-                }
-
                 int claimed =
                     SessionUtils.getWithoutCommit(
                         EntityDeletionMapper.class,
@@ -495,6 +482,19 @@ public class ViewMetaService {
                                 null,
                                 null));
                 if (claimed != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                ViewPO generation =
+                    mapper.selectViewGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateViewGeneration(actual, generation);
+                if (mapper.countCurrentVersionGeneration(
+                        actual.getEntityId(),
+                        actual.getEntityVersion(),
+                        actual.getDeletedAt(),
+                        actual.getDeletionId())
+                    < 1) {
                   throw tombstoneChanged(actual.getDeletionId());
                 }
 

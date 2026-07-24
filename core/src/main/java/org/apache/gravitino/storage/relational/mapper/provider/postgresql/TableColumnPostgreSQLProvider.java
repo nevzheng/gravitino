@@ -70,6 +70,8 @@ public class TableColumnPostgreSQLProvider extends TableColumnBaseSQLProvider {
         + TableColumnMapper.COLUMN_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + TableColumnMapper.COLUMN_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL";
   }
 }

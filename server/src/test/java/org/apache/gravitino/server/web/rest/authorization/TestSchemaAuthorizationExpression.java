@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableSet;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import ognl.OgnlException;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.SchemaCreateRequest;
 import org.apache.gravitino.dto.requests.SchemaUpdatesRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
@@ -66,7 +67,8 @@ public class TestSchemaAuthorizationExpression {
   @Test
   public void testLoadSchema() throws NoSuchMethodException, OgnlException {
     Method method =
-        SchemaOperations.class.getMethod("loadSchema", String.class, String.class, String.class);
+        SchemaOperations.class.getMethod(
+            "loadSchema", String.class, String.class, String.class, String.class, String.class);
     AuthorizationExpression authorizationExpressionAnnotation =
         method.getAnnotation(AuthorizationExpression.class);
     String expression = authorizationExpressionAnnotation.expression();
@@ -89,6 +91,54 @@ public class TestSchemaAuthorizationExpression {
         mockEvaluator.getResult(
             ImmutableSet.of(
                 "CATALOG::USE_CATALOG", "METALAKE::DENY_USE_SCHEMA", "SCHEMA::USE_SCHEMA")));
+    assertTrue(mockEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+  }
+
+  @Test
+  public void testDeletedSchemaReadAndRestoreAuthorization()
+      throws NoSuchMethodException, OgnlException {
+    Method listMethod =
+        SchemaOperations.class.getMethod(
+            "listSchemas",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
+    MockAuthorizationExpressionEvaluator listEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            listMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(listEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method loadMethod =
+        SchemaOperations.class.getMethod(
+            "loadSchema", String.class, String.class, String.class, String.class, String.class);
+    MockAuthorizationExpressionEvaluator loadEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            loadMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(loadEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method restoreMethod =
+        SchemaOperations.class.getMethod(
+            "restoreSchema",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            EntityRestoreRequest.class);
+    MockAuthorizationExpressionEvaluator restoreEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            restoreMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(restoreEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
   }
 
   @Test
