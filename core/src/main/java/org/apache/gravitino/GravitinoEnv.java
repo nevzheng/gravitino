@@ -97,10 +97,12 @@ import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.storage.relational.RelationalEntityStore;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.utils.FileFetcher;
@@ -119,6 +121,7 @@ public class GravitinoEnv {
   private boolean manageFullComponents = true;
 
   private EntityStore entityStore;
+  private RecoverableDeletionManager recoverableDeletionManager;
 
   private CatalogDispatcher catalogDispatcher;
   private CatalogDispatcher internalCatalogDispatcher;
@@ -243,6 +246,17 @@ public class GravitinoEnv {
   public EntityStore entityStore() {
     Preconditions.checkArgument(entityStore != null, "GravitinoEnv is not initialized.");
     return entityStore;
+  }
+
+  /**
+   * Get the recoverable-deletion manager associated with the Gravitino environment.
+   *
+   * @return The recoverable-deletion manager.
+   */
+  public RecoverableDeletionManager recoverableDeletionManager() {
+    Preconditions.checkArgument(
+        recoverableDeletionManager != null, "GravitinoEnv is not initialized.");
+    return recoverableDeletionManager;
   }
 
   /**
@@ -655,6 +669,15 @@ public class GravitinoEnv {
     // Initialize EntityStore
     this.entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
+    Long deletionRetentionMs = config.get(Configs.STORE_DELETE_AFTER_TIME);
+    this.recoverableDeletionManager =
+        new RecoverableDeletionManager(
+            deletionRetentionMs == null
+                ? Configs.DEFAULT_STORE_DELETE_AFTER_TIME
+                : deletionRetentionMs,
+            entityStore instanceof RelationalEntityStore
+                ? ((RelationalEntityStore) entityStore).getCache()
+                : null);
 
     // create and initialize a random id generator
     this.idGenerator = new RandomIdGenerator();

@@ -32,10 +32,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.credential.Credential;
 import org.apache.gravitino.credential.SupportsCredentials;
@@ -131,6 +134,33 @@ class RelationalCatalog extends BaseSchemaCatalog
   }
 
   /**
+   * Lists retained table deletion generations under the given schema namespace.
+   *
+   * @param namespace The one-level schema namespace.
+   * @param name An exact table-name filter, or {@code null}.
+   * @param id An exact immutable table-ID filter, or {@code null}.
+   * @return The matching retained table deletion generations.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   */
+  @Override
+  public DeletedEntity[] listDeletedTables(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException {
+    checkTableNamespace(namespace);
+
+    Namespace fullNamespace = getEntityFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatTableRequestPath(fullNamespace), name, id, ErrorHandlers.tableErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.TABLE, name, id));
+    return generations;
+  }
+
+  /**
    * Load the table with specified identifier.
    *
    * @param ident The identifier of the table to load, which should be "schema.table" format.
@@ -151,6 +181,53 @@ class RelationalCatalog extends BaseSchemaCatalog
     resp.validate();
 
     return RelationalTable.from(fullNamespace, resp.getTable(), restClient);
+  }
+
+  /**
+   * Loads an exact table deletion generation under the given identifier.
+   *
+   * @param ident The table identifier in {@code schema.table} form.
+   * @param id The immutable table ID.
+   * @return The exact retained table deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedTable(NameIdentifier ident, String id) {
+    checkTableNameIdentifier(ident);
+
+    Namespace fullNamespace = getEntityFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatTableRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.tableErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.TABLE, ident.name(), id);
+    return generation;
+  }
+
+  /**
+   * Restores an exact retained generation as active Gravitino table metadata.
+   *
+   * @param ident The table identifier in {@code schema.table} form.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored table metadata.
+   */
+  @Override
+  public Table restoreTable(NameIdentifier ident, DeletedEntity generation) {
+    checkTableNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.TABLE, ident.name(), null);
+
+    Namespace fullNamespace = getEntityFullNamespace(ident.namespace());
+    TableResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatTableRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            TableResponse.class,
+            ErrorHandlers.tableErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getTable().name()),
+        "Restored table name must match the requested table name");
+    return RelationalTable.from(fullNamespace, response.getTable(), restClient);
   }
 
   @Override

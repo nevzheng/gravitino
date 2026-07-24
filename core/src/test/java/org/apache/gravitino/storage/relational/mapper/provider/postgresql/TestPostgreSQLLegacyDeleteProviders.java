@@ -23,12 +23,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TableMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
 import org.junit.jupiter.api.Test;
 
 class TestPostgreSQLLegacyDeleteProviders {
-
-  private static final String OUTER_TOMBSTONE_GUARD =
-      ") AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
 
   private static final List<Class<?>> PROVIDER_CLASSES =
       List.of(
@@ -70,10 +69,55 @@ class TestPostgreSQLLegacyDeleteProviders {
       Object provider = providerClass.getDeclaredConstructor().newInstance();
       Method legacyDeleteMethod = legacyDeleteMethod(providerClass);
       String sql = (String) legacyDeleteMethod.invoke(provider, 1L, 1);
+      String outerDeletePredicate = sql.substring(sql.lastIndexOf(") AND "));
 
       assertTrue(
-          sql.endsWith(OUTER_TOMBSTONE_GUARD),
+          outerDeletePredicate.contains("deleted_at > 0")
+              && outerDeletePredicate.contains("deleted_at < #{legacyTimeline}"),
           () -> providerClass.getSimpleName() + " does not recheck the tombstone cutoff: " + sql);
+    }
+  }
+
+  @Test
+  void testLegacyTableDeletesExcludeRecordedDeletionGenerations() {
+    List<String> sqlStatements =
+        List.of(
+            new TableMetaBaseSQLProvider().deleteTableMetasByLegacyTimeline(1L, 1),
+            new TableVersionBaseSQLProvider().deleteTableVersionByLegacyTimeline(1L, 1),
+            new TableMetaPostgreSQLProvider().deleteTableMetasByLegacyTimeline(1L, 1),
+            new TableVersionPostgreSQLProvider().deleteTableVersionByLegacyTimeline(1L, 1));
+
+    for (String sql : sqlStatements) {
+      assertTrue(
+          sql.contains("deletion_id IS NULL"),
+          () -> "Legacy table deletion can select a recorded deletion generation: " + sql);
+    }
+  }
+
+  @Test
+  void testTableVersionSoftDeleteCannotClearARecordedGenerationToken() {
+    String sql =
+        new TableVersionPostgreSQLProvider().softDeleteTableVersionByTableIdAndVersion(1L, 1L);
+
+    assertTrue(sql.contains("deletion_id = NULL"));
+    assertTrue(sql.endsWith("AND deleted_at = 0"));
+  }
+
+  @Test
+  void testBaseTableSoftDeletesKeepMillisecondPrecisionBeforeClearingGenerationToken() {
+    TableMetaBaseSQLProvider tableProvider = new TableMetaBaseSQLProvider();
+    List<String> sqlStatements =
+        List.of(
+            tableProvider.softDeleteTableMetasByTableId(1L),
+            tableProvider.softDeleteTableMetasByMetalakeId(1L),
+            tableProvider.softDeleteTableMetasByCatalogId(1L),
+            tableProvider.softDeleteTableMetasBySchemaIds(List.of(1L)),
+            new TableVersionBaseSQLProvider().softDeleteTableVersionByTableIdAndVersion(1L, 1L));
+
+    for (String sql : sqlStatements) {
+      assertTrue(
+          sql.contains("/ 1000, deletion_id = NULL"),
+          () -> "Deletion token was inserted into the timestamp expression: " + sql);
     }
   }
 

@@ -129,13 +129,21 @@ public class TestTableAuthorizationExpression {
   public void testLoadTable() throws NoSuchMethodException, OgnlException {
     Method method =
         TableOperations.class.getMethod(
-            "loadTable", String.class, String.class, String.class, String.class, String.class);
+            "loadTable",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
     AuthorizationExpression authorizationExpressionAnnotation =
         method.getAnnotation(AuthorizationExpression.class);
     String expression = authorizationExpressionAnnotation.expression();
     MockAuthorizationExpressionEvaluator mockEvaluator =
         new MockAuthorizationExpressionEvaluator(expression);
     assertFalse(mockEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(mockEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
     assertTrue(mockEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
     assertTrue(mockEvaluator.getResult(ImmutableSet.of("CATALOG::OWNER")));
     assertFalse(mockEvaluator.getResult(ImmutableSet.of("SCHEMA::OWNER")));

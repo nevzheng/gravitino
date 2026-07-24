@@ -18,6 +18,15 @@
  */
 package org.apache.gravitino.server.web.rest;
 
+import javax.ws.rs.core.Response;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.dto.responses.ErrorConstants;
+import org.apache.gravitino.dto.responses.ErrorResponse;
+import org.apache.gravitino.exceptions.ConnectionFailedException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -49,5 +58,56 @@ public class TestExceptionHandlers {
 
     String msg6 = ExceptionHandlers.BaseExceptionHandler.getErrorMsg(e6);
     Assertions.assertEquals("", msg6);
+  }
+
+  @Test
+  public void testRecoveryExceptionMappings() {
+    assertRecoveryError(
+        new TombstoneExpiredException("expired"),
+        Response.Status.GONE.getStatusCode(),
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE,
+        null);
+    assertRecoveryError(
+        new TombstoneChangedException("changed"),
+        Response.Status.PRECONDITION_FAILED.getStatusCode(),
+        ErrorConstants.TOMBSTONE_CHANGED_CODE,
+        null);
+    assertRecoveryError(
+        new PreconditionRequiredException("If-Match required"),
+        428,
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        null);
+
+    for (RecoveryConflictReason reason : RecoveryConflictReason.values()) {
+      assertRecoveryError(
+          new RecoveryConflictException(reason, "conflict"),
+          Response.Status.CONFLICT.getStatusCode(),
+          ErrorConstants.RECOVERY_CONFLICT_CODE,
+          reason);
+    }
+  }
+
+  @Test
+  public void testConnectionFailureMappingRemainsBadGateway() {
+    Response response =
+        ExceptionHandlers.handleTableException(
+            OperationType.LOAD,
+            "orders",
+            "sales",
+            new ConnectionFailedException("catalog unavailable"));
+
+    Assertions.assertEquals(Response.Status.BAD_GATEWAY.getStatusCode(), response.getStatus());
+    ErrorResponse error = (ErrorResponse) response.getEntity();
+    Assertions.assertEquals(ErrorConstants.CONNECTION_FAILED_CODE, error.getCode());
+  }
+
+  private static void assertRecoveryError(
+      Exception exception, int status, int code, RecoveryConflictReason reason) {
+    Response response =
+        ExceptionHandlers.handleTableException(OperationType.ALTER, "orders", "sales", exception);
+    Assertions.assertEquals(status, response.getStatus());
+    ErrorResponse error = (ErrorResponse) response.getEntity();
+    Assertions.assertEquals(code, error.getCode());
+    Assertions.assertEquals(reason, error.getReason());
   }
 }

@@ -30,11 +30,53 @@ paths:
         - table
       summary: List tables
       operationId: listTables
+      description: |
+        Lists tables in the schema. With no query parameters, this operation preserves the
+        existing behavior and returns only live table identifiers.
+
+        `include=non-deleted` (the default) returns the existing identifier-only response and
+        supports an optional exact `name` filter. `include=deleted` returns deletion records.
+        Deleted records can be filtered by exact `name`, exact `id`, or both. A filter mismatch
+        returns an empty collection. A name can match more than one deletion generation; an ID
+        identifies at most one current tombstone.
+
+        Collection responses do not carry an HTTP `ETag` because their members have independent
+        versions. Before restoring, clients read one exact tombstone from the existing item URI.
+        Deleted-table discovery is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/tableNameFilter"
+        - $ref: "#/components/parameters/tableIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: |
+            Returns live table identifiers for `include=non-deleted`, or deleted-entity records
+            for `include=deleted`.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/schemas/DeletedEntityListResponse"
+              examples:
+                TableListResponse:
+                  $ref: "#/components/examples/TableListResponse"
+                DeletedEntityListResponse:
+                  $ref: "#/components/examples/DeletedEntityListResponse"
         "400":
-          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+          description: |
+            Bad Request - `include` is unsupported, `id` is not a positive decimal string, or
+            `id` is supplied for a non-deleted listing.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller is not authorized to list tables in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -87,12 +129,50 @@ paths:
         - table
       summary: Get table
       operationId: loadTable
-      description: Returns the specified table object
+      description: |
+        Returns the specified live table by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID must select one exact tombstone under the same live
+        parents. An exact mismatch returns `404` rather than an empty collection. A successful
+        deleted read returns the restore token in both the body's `etag` field and a strong HTTP
+        `ETag` header. Deleted-table reads are temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedTableId"
       responses:
         "200":
-          $ref: "#/components/responses/TableResponse"
+          description: A live table or one exact deleted-table generation
+          headers:
+            ETag:
+              description: |
+                Returned only for an exact deleted-table read. Use it as the restore request's
+                `If-Match` value.
+              schema:
+                type: string
+                example: '"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/TableResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/schemas/DeletedEntityResponse"
+        "400":
+          description: |
+            Bad Request - `include` is unsupported, `include=deleted` is missing `id`, the ID is
+            not a positive decimal string, or `id` is supplied for a live read.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller is not authorized to inspect this tombstone
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The target table does not exist
+          description: |
+            Not Found - The live table does not exist, or the deleted ID and path name do not
+            identify one tombstone under the exact live parents.
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -152,6 +232,103 @@ paths:
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
+    patch:
+      tags:
+        - table
+      summary: Restore a soft-deleted table
+      operationId: restoreTable
+      description: |
+        Makes one exact soft-deleted table generation active again. The immutable `id` selects
+        the table, `{table}` asserts its original name, and `If-Match` conditionally applies the
+        restore to the deletion generation returned by a preceding exact item read.
+
+        Restore is metadata-only: it restores the table record and its nested Gravitino metadata.
+        It never validates, loads, or recreates a table in the downstream catalog, and succeeds
+        even when that downstream object is absent or inaccessible.
+
+        The operation is idempotent only for the same table ID and deletion generation. If the
+        precondition becomes stale, the client should re-read the tombstone and retry only when
+        the same ID and deletion generation remain deleted, latest for the name, and restorable.
+        The client must not silently switch to a newer tombstone.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedTableInclude"
+        - $ref: "#/components/parameters/restoreTableId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/TableResponse"
+        "400":
+          description: |
+            Bad Request - `include=deleted` is missing, the ID is invalid, the patch is malformed,
+            or `deleted` is absent or not exactly `false`.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: |
+            Not Found - The deletion token does not identify the requested table ID and name. A
+            valid token whose immutable parent IDs no longer match the live path returns
+            `409 PARENT_CHANGED`.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The restore cannot be completed without changing its meaning. This
+            includes a live table occupying the name, the ID being active or reused for another
+            logical entity, a newer tombstone existing for the name, an original parent being
+            missing or replaced, an irreversible purge already being in progress, or a legacy
+            tombstone lacking a complete deletion record. These conflicts are not automatically
+            retried.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone's retention expired or it was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: |
+            Precondition Failed - `If-Match` is stale because the exact deleted representation or
+            its action-relevant deletion-record state changed. Re-read before making a bounded retry.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - The required `If-Match` header is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires `application/merge-patch+json`
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
     delete:
       tags:
         - table
@@ -170,6 +347,84 @@ paths:
 
 components:
   parameters:
+    include:
+      name: include
+      in: query
+      description: Select live table identifiers or soft-deleted table records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    tableNameFilter:
+      name: name
+      in: query
+      description: |
+        Exact table-name filter. More than one deletion generation can have the same name. For a
+        deleted listing, `name` and `id` must both match when supplied together.
+      required: false
+      schema:
+        type: string
+
+    tableIdFilter:
+      name: id
+      in: query
+      description: |
+        Immutable table-ID filter selecting one exact deletion record. This filter is supported
+        only with `include=deleted`.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+        example: "984273"
+
+    deletedTableId:
+      name: id
+      in: query
+      description: |
+        Immutable table ID. This parameter is required when `include=deleted` and rejected for a
+        normal live-table read.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+        example: "984273"
+
+    restoreTableId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted table generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+        example: "984273"
+
+    restoreDeletedTableInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted representation targeted by this conditional patch
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: |
+        Strong HTTP entity tag returned by an exact item read with `include=deleted&id=...`. It
+        binds this request to the complete deleted representation and action-relevant deletion record
+        state that the caller read. Wildcards, weak tags, and lists of tags are rejected. The
+        response body's `etag` field contains the same opaque token without HTTP header quoting.
+      required: true
+      schema:
+        type: string
+
     purge:
       name: purge
       in: query
@@ -180,6 +435,144 @@ components:
         default: false
 
   schemas:
+    EntityRestoreRequest:
+      type: object
+      description: Merge patch that restores a soft-deleted table
+      required:
+        - deleted
+      additionalProperties: false
+      properties:
+        deleted:
+          type: boolean
+          description: Must be false to restore the selected table generation
+          enum:
+            - false
+
+    DeletedEntity:
+      type: object
+      required:
+        - deleted
+        - id
+        - deletionId
+        - name
+        - type
+        - deletedAt
+        - expiresAt
+        - etag
+        - latestForName
+        - restorable
+      properties:
+        deleted:
+          type: boolean
+          description: Always true for a deleted-entity representation
+          enum:
+            - true
+        id:
+          type: string
+          description: Immutable Gravitino entity ID
+          example: "984273"
+        deletionId:
+          type: string
+          description: Identifier for this deletion generation
+          example: "77192"
+        name:
+          type: string
+          description: Original table name
+        type:
+          type: string
+          description: Metadata object type
+          enum:
+            - table
+        deletedAt:
+          type: integer
+          format: int64
+          description: Deletion time in milliseconds since the Unix epoch
+        expiresAt:
+          type: integer
+          format: int64
+          description: |
+            Effective retention expiry in milliseconds since the Unix epoch, derived from
+            deletedAt and the server's current global soft-delete retention setting
+        deletedBy:
+          type: string
+          description: Principal that deleted the table, when available
+          nullable: true
+        version:
+          type: integer
+          format: int64
+          description: Metadata version captured by this deletion record, when the entity is versioned
+          minimum: 1
+        etag:
+          type: string
+          description: |
+            Opaque digest of the exact deleted representation and its action-relevant deletion record
+            state. An exact item read returns the same token in a strong HTTP `ETag` header with
+            entity-tag quoting.
+          example: "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        latestForName:
+          type: boolean
+          description: Whether this is the most recent deletion generation with this name
+        restorable:
+          type: boolean
+          description: Whether the server currently considers this deletion record restorable
+        reason:
+          type: string
+          description: |
+            Machine-readable reason the record is not restorable. This field is omitted when no
+            reason applies and is required by the response DTO when `restorable=false`.
+          nullable: true
+
+    DeletedEntityResponse:
+      type: object
+      required:
+        - code
+        - deletedEntity
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: Status code of the response
+          enum:
+            - 0
+        deletedEntity:
+          $ref: "#/components/schemas/DeletedEntity"
+
+    DeletedEntityListResponse:
+      type: object
+      required:
+        - code
+        - deletedEntities
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: Status code of the response
+          enum:
+            - 0
+        deletedEntities:
+          type: array
+          description: Soft-deleted table records selected by the query filters
+          items:
+            $ref: "#/components/schemas/DeletedEntity"
+
+    RecoveryConflictError:
+      allOf:
+        - $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        - type: object
+          required:
+            - reason
+          properties:
+            reason:
+              type: string
+              description: Stable reason the requested restore cannot preserve its meaning
+              enum:
+                - NOT_LATEST_TOMBSTONE
+                - ENTITY_ID_REUSED
+                - NAME_OCCUPIED
+                - PARENT_CHANGED
+                - PURGE_IN_PROGRESS
+                - LEGACY_TOMBSTONE
+
     TableCreateRequest:
       type: object
       required:
@@ -756,6 +1149,9 @@ components:
         application/vnd.gravitino.v1+json:
           schema:
             type: object
+            required:
+              - code
+              - table
             properties:
               code:
                 type: integer
@@ -785,6 +1181,27 @@ components:
               "my_hive_schema"
             ],
             "name": "my_hive_table"
+          }
+        ]
+      }
+
+    DeletedEntityListResponse:
+      value: {
+        "code": 0,
+        "deletedEntities": [
+          {
+            "deleted": true,
+            "id": "984273",
+            "deletionId": "77192",
+            "name": "orders",
+            "type": "table",
+            "deletedAt": 1784800000000,
+            "expiresAt": 1785404800000,
+            "deletedBy": "alice",
+            "version": 17,
+            "etag": "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "latestForName": true,
+            "restorable": true
           }
         ]
       }

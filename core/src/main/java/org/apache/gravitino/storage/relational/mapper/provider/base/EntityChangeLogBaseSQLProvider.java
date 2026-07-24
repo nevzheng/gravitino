@@ -33,8 +33,8 @@ public class EntityChangeLogBaseSQLProvider {
    * multi-node deployment every server instance has its own local cache and should independently
    * consume the same change rows. A new instance may initialize its cursor from {@link
    * #selectMaxChangeId()} because its cache starts empty and it does not need historical
-   * invalidations. Re-consuming a row on an existing instance is acceptable: entity DROP/ALTER
-   * handling only invalidates cache keys, and invalidation is idempotent.
+   * invalidations. Re-consuming a row on an existing instance is acceptable: entity
+   * DROP/ALTER/RESTORE handling only invalidates cache keys, and invalidation is idempotent.
    */
   public String selectEntityChanges(
       @Param("lastConsumedId") long lastConsumedId, @Param("maxRows") int maxRows) {

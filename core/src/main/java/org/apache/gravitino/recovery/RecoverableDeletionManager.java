@@ -1,0 +1,723 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *  http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.gravitino.recovery;
+
+import com.google.common.io.BaseEncoding;
+import com.google.errorprone.annotations.FormatMethod;
+import com.google.errorprone.annotations.FormatString;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletionState;
+import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
+import org.apache.gravitino.cache.EntityCache;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
+import org.apache.gravitino.lock.LockType;
+import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
+import org.apache.gravitino.storage.relational.service.EntityDeletionService;
+
+/** Coordinates the shared recovery protocol and entity-specific deletion adapters. */
+public class RecoverableDeletionManager {
+
+  /** Stable reason returned for tombstones created before deletion records were introduced. */
+  public static final String LEGACY_TOMBSTONE = "LEGACY_TOMBSTONE";
+
+  private final long retentionMs;
+  private final Clock clock;
+  private final RecoverableEntityAdapter<TableEntity> tableAdapter;
+
+  /**
+   * Creates a recoverable-deletion manager using the system clock.
+   *
+   * @param retentionMs default retention window in milliseconds
+   */
+  public RecoverableDeletionManager(long retentionMs) {
+    this(retentionMs, Clock.systemUTC(), null);
+  }
+
+  /**
+   * Creates a recoverable-deletion manager with a local relational entity cache.
+   *
+   * @param retentionMs default retention window in milliseconds
+   * @param entityCache local entity cache to invalidate after a successful restore
+   */
+  public RecoverableDeletionManager(long retentionMs, @Nullable EntityCache entityCache) {
+    this(retentionMs, Clock.systemUTC(), entityCache);
+  }
+
+  RecoverableDeletionManager(long retentionMs, Clock clock) {
+    this(retentionMs, clock, null);
+  }
+
+  private RecoverableDeletionManager(
+      long retentionMs, Clock clock, @Nullable EntityCache entityCache) {
+    this.retentionMs = retentionMs;
+    this.clock = clock;
+    this.tableAdapter = new TableRecoveryAdapter(entityCache);
+  }
+
+  /**
+   * Lists deleted table generations under a live schema.
+   *
+   * @param namespace table namespace
+   * @param name optional exact table name
+   * @param id optional exact immutable table identifier
+   * @return matching deleted table generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedTables(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(tableAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted table representation.
+   *
+   * @param namespace table namespace
+   * @param name original table name
+   * @param id immutable table identifier
+   * @return the selected deletion generation
+   * @throws TombstoneNotFoundException if the exact tombstone does not exist under this path
+   */
+  public DeletedEntityDTO getDeletedTable(Namespace namespace, String name, long id) {
+    return getDeleted(tableAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact table deletion generation using an optimistic entity tag.
+   *
+   * @param namespace table namespace
+   * @param name original table name
+   * @param id immutable table identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-table read
+   * @return restored table, or the already-restored table for an idempotent replay
+   * @throws TombstoneNotFoundException if no exact deletion was recorded under the path
+   * @throws TombstoneChangedException if the optimistic entity tag or deletion state changed
+   * @throws TombstoneExpiredException if the selected deletion is no longer recoverable
+   * @throws RecoveryConflictException if restoring would change the deletion's meaning
+   */
+  public TableEntity restoreDeletedTable(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(tableAdapter, namespace, name, id, etag);
+  }
+
+  private <E> List<DeletedEntityDTO> listDeleted(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String name,
+      @Nullable Long id) {
+    List<RecoveryMetadata.DeletedSnapshot> allTombstones = adapter.listDeleted(namespace);
+    Map<String, GenerationKey> latestLegacyDeletionByName = new HashMap<>();
+    allTombstones.forEach(
+        tombstone ->
+            latestLegacyDeletionByName.putIfAbsent(
+                tombstone.name(), new GenerationKey(tombstone.id(), tombstone.deletedAt())));
+
+    List<RecoveryMetadata.DeletedSnapshot> tombstones = allTombstones;
+    if (name != null) {
+      tombstones =
+          tombstones.stream()
+              .filter(tombstone -> name.equals(tombstone.name()))
+              .collect(Collectors.toList());
+    }
+    if (id != null) {
+      tombstones =
+          tombstones.stream()
+              .filter(tombstone -> id.equals(tombstone.id()))
+              .collect(Collectors.toList());
+    }
+    if (tombstones.isEmpty()) {
+      return List.of();
+    }
+
+    long parentId = allTombstones.get(0).parent().parentId();
+    List<EntityDeletionPO> deletionRecords =
+        EntityDeletionService.getInstance().list(adapter.entityType(), parentId, null, null, null);
+    Map<GenerationKey, EntityDeletionPO> deletionRecordByGeneration = new HashMap<>();
+    Map<String, EntityDeletionPO> latestDeletionRecordByName = new HashMap<>();
+    deletionRecords.forEach(
+        deletionRecord -> {
+          deletionRecordByGeneration.putIfAbsent(
+              new GenerationKey(deletionRecord.getEntityId(), deletionRecord.getDeletedAt()),
+              deletionRecord);
+          latestDeletionRecordByName.putIfAbsent(deletionRecord.getEntityName(), deletionRecord);
+        });
+
+    List<RecoveryMetadata.LiveIdentity> liveInParent =
+        adapter.listLiveInParent(namespace, parentId);
+    List<Long> tombstoneIds =
+        tombstones.stream()
+            .map(RecoveryMetadata.DeletedSnapshot::id)
+            .distinct()
+            .collect(Collectors.toList());
+    Map<Long, RecoveryMetadata.LiveIdentity> liveById = new HashMap<>();
+    adapter.listLiveByIds(tombstoneIds).forEach(live -> liveById.put(live.id(), live));
+
+    List<DeletedEntityDTO> result = new ArrayList<>(tombstones.size());
+    for (RecoveryMetadata.DeletedSnapshot tombstone : tombstones) {
+      EntityDeletionPO deletionRecord =
+          deletionRecordByGeneration.get(new GenerationKey(tombstone.id(), tombstone.deletedAt()));
+      EntityDeletionPO latestDeletionRecord = latestDeletionRecordByName.get(tombstone.name());
+      boolean latestForName;
+      if (deletionRecord != null) {
+        latestForName =
+            latestDeletionRecord != null
+                && deletionRecord.getDeletionId().equals(latestDeletionRecord.getDeletionId());
+      } else {
+        GenerationKey generation = new GenerationKey(tombstone.id(), tombstone.deletedAt());
+        latestForName =
+            generation.equals(latestLegacyDeletionByName.get(tombstone.name()))
+                && (latestDeletionRecord == null
+                    || tombstone.deletedAt() > latestDeletionRecord.getDeletedAt());
+      }
+      result.add(
+          toDTO(
+              adapter,
+              tombstone,
+              deletionRecord,
+              latestForName,
+              liveInParent,
+              liveById.get(tombstone.id())));
+    }
+    return result;
+  }
+
+  private <E> DeletedEntityDTO getDeleted(
+      RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id) {
+    List<DeletedEntityDTO> deleted = listDeleted(adapter, namespace, name, id);
+    if (deleted.size() != 1) {
+      throw new TombstoneNotFoundException(
+          "No deleted %s named %s with ID %d exists under %s",
+          adapter.recoveryType().value(), name, id, namespace);
+    }
+    return deleted.get(0);
+  }
+
+  private <E> E restoreDeleted(
+      RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id, String etag) {
+    NameIdentifier identifier = NameIdentifier.of(namespace, name);
+    return TreeLockUtils.doWithTreeLock(
+        identifier,
+        LockType.WRITE,
+        () -> {
+          E restored = restoreDeletedLocked(adapter, namespace, name, id, etag, identifier);
+          adapter.invalidate(identifier);
+          return restored;
+        });
+  }
+
+  private <E> E restoreDeletedLocked(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      String name,
+      long id,
+      String etag,
+      NameIdentifier identifier) {
+    EntityDeletionService deletionService = EntityDeletionService.getInstance();
+    EntityDeletionPO selected = loadDeletionRecordFromEtag(deletionService, etag);
+    if (selected == null) {
+      handleUnmatchedEtag(adapter, namespace, name, id, etag);
+    }
+    validateDeletionRecordTarget(adapter, selected, name, id, namespace);
+
+    try {
+      RecoveryMetadata.ParentIdentity parent = resolveCurrentParent(adapter, namespace, selected);
+      RecoveryMetadata.LiveIdentity globallyLive = findLiveById(adapter, id);
+
+      if (selected.getState() == DeletionState.RESTORED) {
+        E replay =
+            tryLoadCompletedRestoreReplay(
+                adapter, namespace, name, id, etag, deletionService, selected);
+        if (replay == null) {
+          throw tombstoneChanged(selected);
+        }
+        return replay;
+      }
+
+      List<DeletedEntityDTO> tombstones = listDeleted(adapter, namespace, name, id);
+      if (tombstones.isEmpty()) {
+        validateGloballyLiveIdentity(adapter, globallyLive, parent.parentId(), name, id, false);
+        if (selected.getState() == DeletionState.PURGED
+            || effectiveExpiresAt(selected) <= clock.millis()) {
+          throw new TombstoneExpiredException(
+              "Deletion generation %s is no longer recoverable", selected.getDeletionId());
+        }
+        throw tombstoneChanged(selected);
+      }
+      if (tombstones.size() != 1) {
+        throw tombstoneChanged(selected);
+      }
+      DeletedEntityDTO tombstone = tombstones.get(0);
+      if (!selected.getDeletionId().equals(tombstone.getDeletionId())) {
+        throw tombstoneChanged(selected);
+      }
+      if (!tombstone.getLatestForName()) {
+        throw recoveryConflict(
+            RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+            "A newer deletion generation exists for %s %s",
+            adapter.recoveryType().value(),
+            name);
+      }
+      if (!tombstone.getRestorable()) {
+        throw restoreBlocked(tombstone, selected);
+      }
+      if (!etag.equals(tombstone.getEtag())) {
+        throw tombstoneChanged(selected);
+      }
+
+      return adapter.restoreAtomically(
+          identifier, selected, clock.millis(), etag, effectiveExpiresAt(selected));
+    } catch (TombstoneChangedException
+        | TombstoneExpiredException
+        | RecoveryConflictException failure) {
+      EntityDeletionPO completed = deletionService.get(selected.getDeletionId());
+      E replay =
+          tryLoadCompletedRestoreReplay(
+              adapter, namespace, name, id, etag, deletionService, completed);
+      if (replay != null) {
+        return replay;
+      }
+      throw failure;
+    }
+  }
+
+  @Nullable
+  private <E> E tryLoadCompletedRestoreReplay(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      String name,
+      long id,
+      String etag,
+      EntityDeletionService deletionService,
+      @Nullable EntityDeletionPO completed) {
+    if (completed == null
+        || completed.getState() != DeletionState.RESTORED
+        || !etag.equals(completed.getRestoreEtag())) {
+      return null;
+    }
+    validateDeletionRecordTarget(adapter, completed, name, id, namespace);
+    RecoveryMetadata.ParentIdentity parent = resolveCurrentParent(adapter, namespace, completed);
+    if (!isLatestForName(adapter, deletionService, parent.parentId(), name, completed)) {
+      throw recoveryConflict(
+          RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+          "A newer deletion generation exists for %s %s",
+          adapter.recoveryType().value(),
+          name);
+    }
+    validateGloballyLiveIdentity(
+        adapter, findLiveById(adapter, id), parent.parentId(), name, id, true);
+    return loadIdempotentlyRestored(adapter, namespace, name, id, completed);
+  }
+
+  private <E> void handleUnmatchedEtag(
+      RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id, String etag) {
+    List<DeletedEntityDTO> tombstones;
+    try {
+      tombstones = listDeleted(adapter, namespace, name, id);
+    } catch (NoSuchEntityException e) {
+      throw new TombstoneNotFoundException(
+          e,
+          "No deleted %s named %s with ID %d exists under %s",
+          adapter.recoveryType().value(),
+          name,
+          id,
+          namespace);
+    }
+    if (!tombstones.isEmpty()) {
+      DeletedEntityDTO tombstone = tombstones.get(0);
+      if (etag.equals(tombstone.getEtag()) && LEGACY_TOMBSTONE.equals(tombstone.getReason())) {
+        throw new RecoveryConflictException(
+            RecoveryConflictReason.LEGACY_TOMBSTONE,
+            "Legacy deletion generation %s has no complete deletion record",
+            tombstone.getDeletionId());
+      }
+      throw new TombstoneChangedException(
+          "If-Match does not identify the current deletion generation for %s %s with ID %s",
+          adapter.recoveryType().value(), name, id);
+    }
+    throw new TombstoneNotFoundException(
+        "No deleted %s named %s with ID %d exists under %s",
+        adapter.recoveryType().value(), name, id, namespace);
+  }
+
+  @Nullable
+  private EntityDeletionPO loadDeletionRecordFromEtag(
+      EntityDeletionService deletionService, String etag) {
+    String prefix = "deletion-";
+    String representationMarker = "-representation-";
+    int representationIndex = etag.lastIndexOf(representationMarker);
+    if (!etag.startsWith(prefix)
+        || representationIndex <= prefix.length()
+        || representationIndex + representationMarker.length() >= etag.length()) {
+      return null;
+    }
+    String deletionId = etag.substring(prefix.length(), representationIndex);
+    return deletionService.get(deletionId);
+  }
+
+  private <E> void validateDeletionRecordTarget(
+      RecoverableEntityAdapter<E> adapter,
+      EntityDeletionPO deletion,
+      String name,
+      long id,
+      Namespace namespace) {
+    if (!adapter.entityType().name().equals(deletion.getEntityType())
+        || deletion.getEntityId() != id
+        || !name.equals(deletion.getEntityName())) {
+      throw new TombstoneNotFoundException(
+          "No deleted %s named %s with ID %d exists under %s",
+          adapter.recoveryType().value(), name, id, namespace);
+    }
+  }
+
+  private <E> RecoveryMetadata.ParentIdentity resolveCurrentParent(
+      RecoverableEntityAdapter<E> adapter, Namespace namespace, EntityDeletionPO deletion) {
+    RecoveryMetadata.ParentIdentity parent;
+    try {
+      parent = adapter.resolveLiveParent(namespace);
+    } catch (NoSuchEntityException e) {
+      throw new RecoveryConflictException(
+          e,
+          RecoveryConflictReason.PARENT_CHANGED,
+          "The original parent for deletion generation %s no longer exists",
+          deletion.getDeletionId());
+    }
+    if (!Objects.equals(deletion.getMetalakeId(), parent.metalakeId())
+        || !Objects.equals(deletion.getCatalogId(), parent.catalogId())
+        || !Objects.equals(deletion.getParentId(), parent.parentId())) {
+      throw recoveryConflict(
+          RecoveryConflictReason.PARENT_CHANGED,
+          "The parent for deletion generation %s was replaced",
+          deletion.getDeletionId());
+    }
+    return parent;
+  }
+
+  private <E> boolean isLatestForName(
+      RecoverableEntityAdapter<E> adapter,
+      EntityDeletionService deletionService,
+      long parentId,
+      String name,
+      EntityDeletionPO observed) {
+    List<EntityDeletionPO> generations =
+        deletionService.list(adapter.entityType(), parentId, name, null, null);
+    return !generations.isEmpty()
+        && observed.getDeletionId().equals(generations.get(0).getDeletionId());
+  }
+
+  private <E> E loadIdempotentlyRestored(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      String name,
+      long id,
+      EntityDeletionPO deletion) {
+    E restored;
+    try {
+      restored = adapter.loadLive(NameIdentifier.of(namespace, name));
+    } catch (NoSuchEntityException e) {
+      throw tombstoneChanged(deletion);
+    }
+    if (adapter.id(restored) != id) {
+      throw recoveryConflict(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "%s ID %s is active under a different logical entity",
+          adapter.recoveryType().value(),
+          id);
+    }
+    return restored;
+  }
+
+  @Nullable
+  private <E> RecoveryMetadata.LiveIdentity findLiveById(
+      RecoverableEntityAdapter<E> adapter, long id) {
+    List<RecoveryMetadata.LiveIdentity> matching = adapter.listLiveByIds(List.of(id));
+    return matching.isEmpty() ? null : matching.get(0);
+  }
+
+  private <E> void validateGloballyLiveIdentity(
+      RecoverableEntityAdapter<E> adapter,
+      @Nullable RecoveryMetadata.LiveIdentity live,
+      long parentId,
+      String name,
+      long id,
+      boolean allowExactMatch) {
+    if (live == null) {
+      return;
+    }
+    boolean exactMatch = live.id() == id && live.parentId() == parentId && live.name().equals(name);
+    if (allowExactMatch && exactMatch) {
+      return;
+    }
+    throw recoveryConflict(
+        RecoveryConflictReason.ENTITY_ID_REUSED,
+        "%s ID %s is already active as %s under parent ID %s",
+        adapter.recoveryType().value(),
+        id,
+        live.name(),
+        live.parentId());
+  }
+
+  private RuntimeException restoreBlocked(DeletedEntityDTO tombstone, EntityDeletionPO deletion) {
+    if ("TOMBSTONE_EXPIRED".equals(tombstone.getReason())) {
+      return new TombstoneExpiredException(
+          "Deletion generation %s expired at %s",
+          deletion.getDeletionId(), effectiveExpiresAt(deletion));
+    }
+    if ("STATE_CHANGED".equals(tombstone.getReason())) {
+      return tombstoneChanged(deletion);
+    }
+    try {
+      return recoveryConflict(
+          RecoveryConflictReason.valueOf(tombstone.getReason()),
+          "Deletion generation %s cannot be restored: %s",
+          deletion.getDeletionId(),
+          tombstone.getReason());
+    } catch (IllegalArgumentException e) {
+      return tombstoneChanged(deletion);
+    }
+  }
+
+  @FormatMethod
+  private static RecoveryConflictException recoveryConflict(
+      RecoveryConflictReason reason, @FormatString String message, Object... args) {
+    return new RecoveryConflictException(reason, message, args);
+  }
+
+  private static TombstoneChangedException tombstoneChanged(EntityDeletionPO deletion) {
+    return new TombstoneChangedException(
+        "Deletion generation %s changed", deletion.getDeletionId());
+  }
+
+  private <E> DeletedEntityDTO toDTO(
+      RecoverableEntityAdapter<E> adapter,
+      RecoveryMetadata.DeletedSnapshot tombstone,
+      @Nullable EntityDeletionPO deletionRecord,
+      boolean latestForName,
+      List<RecoveryMetadata.LiveIdentity> liveInParent,
+      @Nullable RecoveryMetadata.LiveIdentity globallyLive) {
+    if (deletionRecord == null) {
+      String deletionId = String.format("legacy-%d-%d", tombstone.id(), tombstone.deletedAt());
+      long expiresAt = Math.addExact(tombstone.deletedAt(), retentionMs);
+      String etag =
+          representationEtag(
+              adapter.recoveryType(),
+              String.valueOf(tombstone.id()),
+              deletionId,
+              tombstone.name(),
+              tombstone.deletedAt(),
+              expiresAt,
+              null,
+              tombstone.version(),
+              latestForName,
+              false,
+              LEGACY_TOMBSTONE,
+              null);
+      return DeletedEntityDTO.builder()
+          .withId(String.valueOf(tombstone.id()))
+          .withDeletionId(deletionId)
+          .withName(tombstone.name())
+          .withType(adapter.recoveryType())
+          .withDeletedAt(tombstone.deletedAt())
+          .withExpiresAt(expiresAt)
+          .withVersion(tombstone.version())
+          .withEtag(etag)
+          .withLatestForName(latestForName)
+          .withRestorable(false)
+          .withReason(LEGACY_TOMBSTONE)
+          .build();
+    }
+
+    String reason =
+        restoreBlockReason(tombstone, deletionRecord, latestForName, liveInParent, globallyLive);
+    boolean restorable = reason == null;
+    String etag =
+        representationEtag(
+            adapter.recoveryType(),
+            String.valueOf(tombstone.id()),
+            deletionRecord.getDeletionId(),
+            tombstone.name(),
+            tombstone.deletedAt(),
+            effectiveExpiresAt(deletionRecord),
+            deletionRecord.getDeletedBy(),
+            tombstone.version(),
+            latestForName,
+            restorable,
+            reason,
+            deletionRecord);
+    return DeletedEntityDTO.builder()
+        .withId(String.valueOf(tombstone.id()))
+        .withDeletionId(deletionRecord.getDeletionId())
+        .withName(tombstone.name())
+        .withType(adapter.recoveryType())
+        .withDeletedAt(tombstone.deletedAt())
+        .withExpiresAt(effectiveExpiresAt(deletionRecord))
+        .withDeletedBy(deletionRecord.getDeletedBy())
+        .withVersion(tombstone.version())
+        .withEtag(etag)
+        .withLatestForName(latestForName)
+        .withRestorable(restorable)
+        .withReason(reason)
+        .build();
+  }
+
+  @Nullable
+  private String restoreBlockReason(
+      RecoveryMetadata.DeletedSnapshot tombstone,
+      EntityDeletionPO deletionRecord,
+      boolean latestForName,
+      List<RecoveryMetadata.LiveIdentity> liveInParent,
+      @Nullable RecoveryMetadata.LiveIdentity globallyLive) {
+    if (globallyLive != null) {
+      return "ENTITY_ID_REUSED";
+    }
+    if (!tombstone.name().equals(deletionRecord.getEntityName())
+        || !Objects.equals(tombstone.parent().parentId(), deletionRecord.getParentId())
+        || !Objects.equals(tombstone.version(), deletionRecord.getEntityVersion())) {
+      return "STATE_CHANGED";
+    }
+    if (deletionRecord.getState() != DeletionState.DELETED) {
+      if (deletionRecord.getState() == DeletionState.PURGING) {
+        return "PURGE_IN_PROGRESS";
+      }
+      if (deletionRecord.getState() == DeletionState.PURGED) {
+        return "TOMBSTONE_EXPIRED";
+      }
+      return "STATE_CHANGED";
+    }
+    if (effectiveExpiresAt(deletionRecord) <= clock.millis()) {
+      return "TOMBSTONE_EXPIRED";
+    }
+    if (!latestForName) {
+      return "NOT_LATEST_TOMBSTONE";
+    }
+    if (liveInParent.stream().anyMatch(live -> live.name().equals(tombstone.name()))) {
+      return "NAME_OCCUPIED";
+    }
+    return null;
+  }
+
+  private static String representationEtag(
+      RecoveryEntityType recoveryType,
+      String id,
+      String deletionId,
+      String name,
+      long deletedAt,
+      long expiresAt,
+      @Nullable String deletedBy,
+      @Nullable Long version,
+      boolean latestForName,
+      boolean restorable,
+      @Nullable String reason,
+      @Nullable EntityDeletionPO deletionRecord) {
+    String canonical =
+        String.join(
+            "|",
+            canonicalField(true),
+            canonicalField(id),
+            canonicalField(deletionId),
+            canonicalField(name),
+            canonicalField(recoveryType),
+            canonicalField(deletedAt),
+            canonicalField(expiresAt),
+            canonicalField(deletedBy),
+            canonicalField(version),
+            canonicalField(latestForName),
+            canonicalField(restorable),
+            canonicalField(reason),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getEntityType()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getEntityId()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getMetalakeId()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getCatalogId()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getParentId()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getEntityName()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getDeletedAt()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getExpiresAt()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getDeletedBy()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getEntityVersion()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getState()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getRevision()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getRestoredAt()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getRestoreEtag()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getPurgedAt()));
+    try {
+      byte[] digest =
+          MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+      return String.format(
+          "deletion-%s-representation-%s",
+          deletionId, BaseEncoding.base16().lowerCase().encode(digest));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 is not available", e);
+    }
+  }
+
+  private static String canonicalField(@Nullable Object value) {
+    if (value == null) {
+      return "-1:";
+    }
+    String text = String.valueOf(value);
+    return text.length() + ":" + text;
+  }
+
+  private long effectiveExpiresAt(EntityDeletionPO deletion) {
+    return Math.addExact(deletion.getDeletedAt(), retentionMs);
+  }
+
+  private static class GenerationKey {
+    private final long entityId;
+    private final long deletedAt;
+
+    private GenerationKey(long entityId, long deletedAt) {
+      this.entityId = entityId;
+      this.deletedAt = deletedAt;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) {
+        return true;
+      }
+      if (!(other instanceof GenerationKey)) {
+        return false;
+      }
+      GenerationKey that = (GenerationKey) other;
+      return entityId == that.entityId && deletedAt == that.deletedAt;
+    }
+
+    @Override
+    public int hashCode() {
+      return 31 * Long.hashCode(entityId) + Long.hashCode(deletedAt);
+    }
+  }
+}

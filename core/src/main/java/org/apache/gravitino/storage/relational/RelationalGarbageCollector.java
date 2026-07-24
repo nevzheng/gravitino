@@ -25,10 +25,15 @@ import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.slf4j.Logger;
@@ -37,6 +42,12 @@ import org.slf4j.LoggerFactory;
 public final class RelationalGarbageCollector implements Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(RelationalGarbageCollector.class);
+  private static final List<Entity.EntityType> HARD_DELETE_ORDER =
+      Arrays.stream(Entity.EntityType.values())
+          .sorted(Comparator.comparingInt(type -> type == Entity.EntityType.TABLE ? 0 : 1))
+          .collect(
+              Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
+
   private final RelationalBackend backend;
 
   private final long storeDeleteAfterTimeMillis;
@@ -76,7 +87,7 @@ public final class RelationalGarbageCollector implements Closeable {
     try {
       LOG.debug("Start to collect and delete legacy data by thread {}", threadId);
       long legacyTimeline = System.currentTimeMillis() - storeDeleteAfterTimeMillis;
-      for (Entity.EntityType entityType : Entity.EntityType.values()) {
+      for (Entity.EntityType entityType : HARD_DELETE_ORDER) {
         long deletedCount = Long.MAX_VALUE;
         LOG.debug(
             "Try to physically delete {} legacy data that has been marked deleted before {}",
@@ -88,6 +99,13 @@ public final class RelationalGarbageCollector implements Closeable {
           }
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
+          if (entityType == Entity.EntityType.TABLE) {
+            // Table GC owns the recorded table-deletion purge. Continuing into COLUMN, ROLE, TAG,
+            // POLICY, or TABLE_STATISTIC cleanup after it fails could remove only some rows
+            // affected by an otherwise recoverable deletion.
+            LOG.warn("Stop this hard-delete cycle after table deletion cleanup failed");
+            break;
+          }
         }
       }
 

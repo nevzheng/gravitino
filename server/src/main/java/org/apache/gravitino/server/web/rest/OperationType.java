@@ -40,5 +40,6 @@ public enum OperationType {
   LINK, // An operation to link a version to a model
   RUN, // An operation to run a job
   CANCEL, // An operation to cancel a job
-  UPDATE
+  UPDATE,
+  RESTORE
 }

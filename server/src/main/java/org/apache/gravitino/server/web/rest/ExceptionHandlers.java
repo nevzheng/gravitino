@@ -46,11 +46,15 @@ import org.apache.gravitino.exceptions.NotInUseException;
 import org.apache.gravitino.exceptions.PartitionAlreadyExistsException;
 import org.apache.gravitino.exceptions.PolicyAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
 import org.apache.gravitino.exceptions.TagAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.TagAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TopicAlreadyExistsException;
 import org.apache.gravitino.exceptions.UserAlreadyExistsException;
 import org.apache.gravitino.exceptions.ViewAlreadyExistsException;
@@ -1095,6 +1099,27 @@ public class ExceptionHandlers {
 
       String errorMsg =
           getBaseErrorMsg(formattedObject, op.name(), formattedParent, getErrorMsg(e));
+
+      if (e instanceof TombstoneExpiredException) {
+        LOG.warn(errorMsg, e);
+        return Utils.tombstoneExpired(errorMsg, e);
+      }
+
+      if (e instanceof TombstoneChangedException) {
+        LOG.warn(errorMsg, e);
+        return Utils.tombstoneChanged(errorMsg, e);
+      }
+
+      if (e instanceof PreconditionRequiredException) {
+        LOG.warn(errorMsg, e);
+        return Utils.preconditionRequired(errorMsg, e);
+      }
+
+      if (e instanceof RecoveryConflictException) {
+        LOG.warn(errorMsg, e);
+        RecoveryConflictException conflict = (RecoveryConflictException) e;
+        return Utils.recoveryConflict(conflict.getReason(), errorMsg, e);
+      }
 
       // A backend a catalog federates to being unreachable is a downstream-dependency failure, not
       // an internal Gravitino error: surface it as 502 Bad Gateway so callers can tell a dependency

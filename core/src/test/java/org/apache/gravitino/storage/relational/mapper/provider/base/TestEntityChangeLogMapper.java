@@ -121,6 +121,18 @@ public class TestEntityChangeLogMapper {
   }
 
   @Test
+  void testRestoreOperateTypeRoundTrip() {
+    entityChangeLogMapper.insertEntityChange(
+        "metalake1", "TABLE", "metalake1.cat.schema.tbl", OperateType.RESTORE);
+
+    List<EntityChangeRecord> records = entityChangeLogMapper.selectEntityChanges(0L, 10);
+
+    Assertions.assertEquals(1, records.size());
+    Assertions.assertEquals(OperateType.RESTORE, records.get(0).getOperateType());
+    Assertions.assertEquals(4, records.get(0).getOperateType().getCode());
+  }
+
+  @Test
   void testEntityChangeLogPruneOldEntries() throws SQLException {
     entityChangeLogMapper.insertEntityChange(
         "metalake1", "SCHEMA", "metalake1.cat.schema", OperateType.ALTER);
