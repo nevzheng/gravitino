@@ -240,6 +240,30 @@ public class GravitinoClient extends GravitinoClientBase
   }
 
   /**
+   * Loads one exact retained User deletion generation.
+   *
+   * @param user The User name.
+   * @param id The immutable User ID.
+   * @return The exact retained User deletion generation.
+   */
+  public DeletedEntity loadDeletedUser(String user, String id) {
+    return getMetalake().loadDeletedUser(user, id);
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino User metadata.
+   *
+   * <p>This operation does not contact or reconcile an external identity provider.
+   *
+   * @param user The User name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored User metadata.
+   */
+  public User restoreUser(String user, DeletedEntity generation) {
+    return getMetalake().restoreUser(user, generation);
+  }
+
+  /**
    * Lists the users.
    *
    * @return The User list.
@@ -247,6 +271,17 @@ public class GravitinoClient extends GravitinoClientBase
    */
   public User[] listUsers() {
     return getMetalake().listUsers();
+  }
+
+  /**
+   * Lists retained User deletion generations in the configured metalake.
+   *
+   * @param name An exact User-name filter, or {@code null} for every name.
+   * @param id An exact immutable User-ID filter, or {@code null} for every ID.
+   * @return The retained User deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedUsers(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedUsers(name, id);
   }
 
   /**
@@ -315,6 +350,30 @@ public class GravitinoClient extends GravitinoClientBase
   }
 
   /**
+   * Loads one exact retained Group deletion generation.
+   *
+   * @param group The Group name.
+   * @param id The immutable Group ID.
+   * @return The exact retained Group deletion generation.
+   */
+  public DeletedEntity loadDeletedGroup(String group, String id) {
+    return getMetalake().loadDeletedGroup(group, id);
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino Group metadata.
+   *
+   * <p>This operation does not contact or reconcile an external identity provider.
+   *
+   * @param group The Group name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored Group metadata.
+   */
+  public Group restoreGroup(String group, DeletedEntity generation) {
+    return getMetalake().restoreGroup(group, generation);
+  }
+
+  /**
    * List the groups.
    *
    * @return The Group list
@@ -322,6 +381,17 @@ public class GravitinoClient extends GravitinoClientBase
    */
   public Group[] listGroups() throws NoSuchMetalakeException {
     return getMetalake().listGroups();
+  }
+
+  /**
+   * Lists retained Group deletion generations in the configured metalake.
+   *
+   * @param name An exact Group-name filter, or {@code null} for every name.
+   * @param id An exact immutable Group-ID filter, or {@code null} for every ID.
+   * @return The retained Group deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedGroups(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedGroups(name, id);
   }
 
   /**
@@ -345,6 +415,31 @@ public class GravitinoClient extends GravitinoClientBase
    */
   public Role getRole(String role) throws NoSuchRoleException, NoSuchMetalakeException {
     return getMetalake().getRole(role);
+  }
+
+  /**
+   * Loads one exact retained Role deletion generation.
+   *
+   * @param role The Role name.
+   * @param id The immutable Role ID.
+   * @return The exact retained Role deletion generation.
+   */
+  public DeletedEntity loadDeletedRole(String role, String id) {
+    return getMetalake().loadDeletedRole(role, id);
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino Role metadata.
+   *
+   * <p>This operation does not replay privileges to Ranger or another external authorization
+   * system.
+   *
+   * @param role The Role name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored Role metadata.
+   */
+  public Role restoreRole(String role, DeletedEntity generation) {
+    return getMetalake().restoreRole(role, generation);
   }
 
   /**
@@ -474,6 +569,17 @@ public class GravitinoClient extends GravitinoClientBase
    */
   public String[] listRoleNames() throws NoSuchMetalakeException {
     return getMetalake().listRoleNames();
+  }
+
+  /**
+   * Lists retained Role deletion generations in the configured metalake.
+   *
+   * @param name An exact Role-name filter, or {@code null} for every name.
+   * @param id An exact immutable Role-ID filter, or {@code null} for every ID.
+   * @return The retained Role deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedRoles(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedRoles(name, id);
   }
 
   /**

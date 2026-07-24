@@ -35,6 +35,7 @@ public class OwnerRelPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
   private Long updatedAt;
 
   private OwnerRelPO() {}
@@ -92,6 +93,12 @@ public class OwnerRelPO {
 
     public Builder withDeleteAt(Long deleteAt) {
       ownerRelPO.deletedAt = deleteAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      ownerRelPO.deletionId = deletionId;
       return this;
     }
 

@@ -50,11 +50,14 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
+import org.apache.gravitino.meta.GroupEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.TopicEntity;
+import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
@@ -78,6 +81,9 @@ public class RecoverableDeletionManager {
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
   private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
   private final RecoverableEntityAdapter<PolicyEntity> policyAdapter;
+  private final RecoverableEntityAdapter<UserEntity> userAdapter;
+  private final RecoverableEntityAdapter<GroupEntity> groupAdapter;
+  private final RecoverableEntityAdapter<RoleEntity> roleAdapter;
 
   /**
    * Creates a recoverable-deletion manager using the system clock.
@@ -116,6 +122,9 @@ public class RecoverableDeletionManager {
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
     this.policyAdapter = new PolicyRecoveryAdapter(entityCache);
+    this.userAdapter = new UserRecoveryAdapter(entityCache);
+    this.groupAdapter = new GroupRecoveryAdapter(entityCache);
+    this.roleAdapter = new RoleRecoveryAdapter(entityCache);
   }
 
   /**
@@ -532,6 +541,130 @@ public class RecoverableDeletionManager {
    */
   public PolicyEntity restoreDeletedPolicy(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(policyAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted user generations under one live metalake.
+   *
+   * @param namespace user namespace
+   * @param name optional exact user name
+   * @param id optional exact immutable user identifier
+   * @return matching deleted user generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedUsers(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(userAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted user representation.
+   *
+   * @param namespace user namespace
+   * @param name original user name
+   * @param id immutable user identifier
+   * @return selected user deletion generation
+   */
+  public DeletedEntityDTO getDeletedUser(Namespace namespace, String name, long id) {
+    return getDeleted(userAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact user metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores only Gravitino's user row and the role-assignment and ownership
+   * rows that the same standalone user deletion marked.
+   *
+   * @param namespace user namespace
+   * @param name original user name
+   * @param id immutable user identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-user read
+   * @return restored user, or the already-restored user for an idempotent replay
+   */
+  public UserEntity restoreDeletedUser(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(userAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted group generations under one live metalake.
+   *
+   * @param namespace group namespace
+   * @param name optional exact group name
+   * @param id optional exact immutable group identifier
+   * @return matching deleted group generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedGroups(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(groupAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted group representation.
+   *
+   * @param namespace group namespace
+   * @param name original group name
+   * @param id immutable group identifier
+   * @return selected group deletion generation
+   */
+  public DeletedEntityDTO getDeletedGroup(Namespace namespace, String name, long id) {
+    return getDeleted(groupAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact group metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores only Gravitino's group row and the role-assignment and ownership
+   * rows that the same standalone group deletion marked.
+   *
+   * @param namespace group namespace
+   * @param name original group name
+   * @param id immutable group identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-group read
+   * @return restored group, or the already-restored group for an idempotent replay
+   */
+  public GroupEntity restoreDeletedGroup(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(groupAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted role generations under one live metalake.
+   *
+   * @param namespace role namespace
+   * @param name optional exact role name
+   * @param id optional exact immutable role identifier
+   * @return matching deleted role generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedRoles(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(roleAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted role representation.
+   *
+   * @param namespace role namespace
+   * @param name original role name
+   * @param id immutable role identifier
+   * @return selected role deletion generation
+   */
+  public DeletedEntityDTO getDeletedRole(Namespace namespace, String name, long id) {
+    return getDeleted(roleAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact role metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores only Gravitino's role row and the memberships, grants, and
+   * ownership rows that the same standalone role deletion marked. External authorization systems
+   * are not invoked.
+   *
+   * @param namespace role namespace
+   * @param name original role name
+   * @param id immutable role identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-role read
+   * @return restored role, or the already-restored role for an idempotent replay
+   */
+  public RoleEntity restoreDeletedRole(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(roleAdapter, namespace, name, id, etag);
   }
 
   private <E> List<DeletedEntityDTO> listDeleted(
@@ -1000,6 +1133,7 @@ public class RecoverableDeletionManager {
               latestForName,
               false,
               LEGACY_TOMBSTONE,
+              tombstone.externalId(),
               null);
       return DeletedEntityDTO.builder()
           .withId(String.valueOf(tombstone.id()))
@@ -1032,6 +1166,7 @@ public class RecoverableDeletionManager {
             latestForName,
             restorable,
             reason,
+            tombstone.externalId(),
             deletionRecord);
     return DeletedEntityDTO.builder()
         .withId(String.valueOf(tombstone.id()))
@@ -1084,6 +1219,11 @@ public class RecoverableDeletionManager {
     if (liveInParent.stream().anyMatch(live -> live.name().equals(tombstone.name()))) {
       return "NAME_OCCUPIED";
     }
+    if (tombstone.externalId() != null
+        && liveInParent.stream()
+            .anyMatch(live -> Objects.equals(live.externalId(), tombstone.externalId()))) {
+      return "EXTERNAL_ID_OCCUPIED";
+    }
     return null;
   }
 
@@ -1099,6 +1239,7 @@ public class RecoverableDeletionManager {
       boolean latestForName,
       boolean restorable,
       @Nullable String reason,
+      @Nullable String externalId,
       @Nullable EntityDeletionPO deletionRecord) {
     String canonical =
         String.join(
@@ -1115,6 +1256,7 @@ public class RecoverableDeletionManager {
             canonicalField(latestForName),
             canonicalField(restorable),
             canonicalField(reason),
+            canonicalField(externalId),
             canonicalField(deletionRecord == null ? null : deletionRecord.getEntityType()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getEntityId()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getMetalakeId()),

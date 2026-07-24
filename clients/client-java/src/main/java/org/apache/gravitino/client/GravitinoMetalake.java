@@ -975,6 +975,60 @@ public class GravitinoMetalake extends MetalakeDTO
   }
 
   /**
+   * Loads one exact retained deletion generation for a User.
+   *
+   * @param user The User name.
+   * @param id The immutable User ID.
+   * @return The exact retained User deletion generation.
+   */
+  public DeletedEntity loadDeletedUser(String user, String id) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(user), "user name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(
+                API_METALAKES_USERS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(user)),
+            id,
+            ErrorHandlers.userErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.USER, user, id);
+    return generation;
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino User metadata.
+   *
+   * <p>This method does not contact or reconcile an external identity provider. After a changed
+   * tombstone response, callers must reread the same User path and immutable ID before retrying;
+   * they must never substitute another ID or generation.
+   *
+   * @param user The User name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored User metadata.
+   */
+  public User restoreUser(String user, DeletedEntity generation) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(user), "user name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.USER, user, null);
+
+    UserResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(
+                API_METALAKES_USERS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(user)),
+            generation,
+            UserResponse.class,
+            ErrorHandlers.userErrorHandler());
+    User restored = response.getUser();
+    Preconditions.checkArgument(
+        user.equals(restored.name()), "Restored User name must match the requested User name");
+    return restored;
+  }
+
+  /**
    * Lists the users.
    *
    * @return The User list.
@@ -995,6 +1049,32 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return resp.getUsers();
+  }
+
+  /**
+   * Lists retained User deletion generations in this metalake.
+   *
+   * <p>Returned generations describe Gravitino metadata only and do not assert recoverability in an
+   * external identity provider.
+   *
+   * @param name An exact User-name filter, or {@code null} for every name.
+   * @param id An exact immutable User-ID filter, or {@code null} for every ID.
+   * @return The retained User deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedUsers(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(
+                API_METALAKES_USERS_PATH, RESTUtils.encodeString(this.name()), BLANK_PLACEHOLDER),
+            name,
+            id,
+            ErrorHandlers.userErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.USER, name, id));
+    return generations;
   }
 
   /**
@@ -1120,6 +1200,60 @@ public class GravitinoMetalake extends MetalakeDTO
   }
 
   /**
+   * Loads one exact retained deletion generation for a Group.
+   *
+   * @param group The Group name.
+   * @param id The immutable Group ID.
+   * @return The exact retained Group deletion generation.
+   */
+  public DeletedEntity loadDeletedGroup(String group, String id) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(group), "group name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(
+                API_METALAKES_GROUPS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(group)),
+            id,
+            ErrorHandlers.groupErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.GROUP, group, id);
+    return generation;
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino Group metadata.
+   *
+   * <p>This method does not contact or reconcile an external identity provider. After a changed
+   * tombstone response, callers must reread the same Group path and immutable ID before retrying;
+   * they must never substitute another ID or generation.
+   *
+   * @param group The Group name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored Group metadata.
+   */
+  public Group restoreGroup(String group, DeletedEntity generation) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(group), "group name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.GROUP, group, null);
+
+    GroupResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(
+                API_METALAKES_GROUPS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(group)),
+            generation,
+            GroupResponse.class,
+            ErrorHandlers.groupErrorHandler());
+    Group restored = response.getGroup();
+    Preconditions.checkArgument(
+        group.equals(restored.name()), "Restored Group name must match the requested Group name");
+    return restored;
+  }
+
+  /**
    * Lists the groups
    *
    * @return The Group list
@@ -1139,6 +1273,32 @@ public class GravitinoMetalake extends MetalakeDTO
             ErrorHandlers.groupErrorHandler());
     resp.validate();
     return resp.getGroups();
+  }
+
+  /**
+   * Lists retained Group deletion generations in this metalake.
+   *
+   * <p>Returned generations describe Gravitino metadata only and do not assert recoverability in an
+   * external identity provider.
+   *
+   * @param name An exact Group-name filter, or {@code null} for every name.
+   * @param id An exact immutable Group-ID filter, or {@code null} for every ID.
+   * @return The retained Group deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedGroups(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(
+                API_METALAKES_GROUPS_PATH, RESTUtils.encodeString(this.name()), BLANK_PLACEHOLDER),
+            name,
+            id,
+            ErrorHandlers.groupErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.GROUP, name, id));
+    return generations;
   }
 
   /**
@@ -1181,6 +1341,60 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return resp.getRole();
+  }
+
+  /**
+   * Loads one exact retained deletion generation for a Role.
+   *
+   * @param role The Role name.
+   * @param id The immutable Role ID.
+   * @return The exact retained Role deletion generation.
+   */
+  public DeletedEntity loadDeletedRole(String role, String id) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(role), "role name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(
+                API_METALAKES_ROLES_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(role)),
+            id,
+            ErrorHandlers.roleErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.ROLE, role, id);
+    return generation;
+  }
+
+  /**
+   * Restores one exact retained generation as active Gravitino Role metadata.
+   *
+   * <p>This method does not replay privileges to Ranger or another external authorization system.
+   * After a changed tombstone response, callers must reread the same Role path and immutable ID
+   * before retrying; they must never substitute another ID or generation.
+   *
+   * @param role The Role name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored Role metadata.
+   */
+  public Role restoreRole(String role, DeletedEntity generation) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(role), "role name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.ROLE, role, null);
+
+    RoleResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(
+                API_METALAKES_ROLES_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(role)),
+            generation,
+            RoleResponse.class,
+            ErrorHandlers.roleErrorHandler());
+    Role restored = response.getRole();
+    Preconditions.checkArgument(
+        role.equals(restored.name()), "Restored Role name must match the requested Role name");
+    return restored;
   }
 
   /**
@@ -1261,6 +1475,32 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return resp.getNames();
+  }
+
+  /**
+   * Lists retained Role deletion generations in this metalake.
+   *
+   * <p>Returned generations describe Gravitino metadata only and do not assert that privileges in
+   * an external authorization system can be recovered.
+   *
+   * @param name An exact Role-name filter, or {@code null} for every name.
+   * @param id An exact immutable Role-ID filter, or {@code null} for every ID.
+   * @return The retained Role deletion generations matching the filters.
+   */
+  public DeletedEntity[] listDeletedRoles(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(
+                API_METALAKES_ROLES_PATH, RESTUtils.encodeString(this.name()), BLANK_PLACEHOLDER),
+            name,
+            id,
+            ErrorHandlers.roleErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.ROLE, name, id));
+    return generations;
   }
 
   /**

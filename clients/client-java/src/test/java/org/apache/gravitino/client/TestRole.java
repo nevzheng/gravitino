@@ -24,19 +24,27 @@ import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.apache.gravitino.dto.util.DTOConverters.toDTO;
 import static org.apache.hc.core5.http.HttpStatus.SC_SERVER_ERROR;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.time.Instant;
+import java.util.Map;
+import org.apache.gravitino.DeletedEntity;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.authorization.Privileges;
 import org.apache.gravitino.authorization.Role;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.authorization.SecurableObjects;
 import org.apache.gravitino.dto.AuditDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.MetalakeDTO;
 import org.apache.gravitino.dto.authorization.PrivilegeDTO;
 import org.apache.gravitino.dto.authorization.RoleDTO;
 import org.apache.gravitino.dto.authorization.SecurableObjectDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.RoleCreateRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.MetalakeResponse;
@@ -45,6 +53,7 @@ import org.apache.gravitino.dto.responses.RoleResponse;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.hc.core5.http.HttpStatus;
 import org.apache.hc.core5.http.Method;
 import org.junit.jupiter.api.Assertions;
@@ -193,6 +202,113 @@ public class TestRole extends TestBase {
   }
 
   @Test
+  public void testRecoverableRoleMetadataDoesNotReplayExternalAuthorization()
+      throws JsonProcessingException {
+    String roleName = "deleted-role";
+    String collectionPath = withSlash(String.format(API_METALAKES_ROLES_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_ROLES_PATH, metalakeName, roleName));
+    DeletedEntityDTO generation =
+        createDeletedRoleGeneration(roleName, "784273", RecoveryEntityType.ROLE);
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", roleName, "id", generation.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedRoles(roleName, generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.ROLE, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedRole(roleName, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    RoleDTO restoredRole = mockRoleDTO(roleName);
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    RoleResponse response = new RoleResponse(restoredRole);
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+
+    // Recovery performs one Gravitino metadata PATCH. It does not replay permissions to Ranger or
+    // any other external authorization system.
+    Role restored = gravitinoClient.restoreRole(roleName, loaded);
+    assertRole(restoredRole, restored);
+
+    // An accepted exact-generation replay returns the same active metadata representation.
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+    Role replayed = gravitinoClient.restoreRole(roleName, loaded);
+    Assertions.assertEquals(roleName, replayed.name());
+
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("generation changed", null);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        changed,
+        HttpStatus.SC_PRECONDITION_FAILED);
+    Assertions.assertThrows(
+        TombstoneChangedException.class, () -> gravitinoClient.restoreRole(roleName, loaded));
+  }
+
+  @Test
+  public void testDeletedRoleResponseBinding() throws JsonProcessingException {
+    String roleName = "deleted-role";
+    String id = "784273";
+    String collectionPath = withSlash(String.format(API_METALAKES_ROLES_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_ROLES_PATH, metalakeName, roleName));
+    DeletedEntityDTO wrongType =
+        createDeletedRoleGeneration(roleName, id, RecoveryEntityType.GROUP);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.listDeletedRoles(null, null));
+
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", id);
+    DeletedEntityDTO wrongName =
+        createDeletedRoleGeneration("another-role", id, RecoveryEntityType.ROLE);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedRole(roleName, id));
+
+    DeletedEntityDTO wrongId =
+        createDeletedRoleGeneration(roleName, "784274", RecoveryEntityType.ROLE);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedRole(roleName, id));
+
+    DeletedEntityDTO valid = createDeletedRoleGeneration(roleName, id, RecoveryEntityType.ROLE);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new RoleResponse(mockRoleDTO("another-role")),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.restoreRole(roleName, valid));
+
+    DeletedEntityDTO restoreWrongType =
+        createDeletedRoleGeneration(roleName, id, RecoveryEntityType.USER);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> gravitinoClient.restoreRole(roleName, restoreWrongType));
+  }
+
+  @Test
   public void testDeleteRoles() throws Exception {
     String roleName = "role";
     String rolePath = withSlash(String.format(API_METALAKES_ROLES_PATH, metalakeName, roleName));
@@ -260,6 +376,24 @@ public class TestRole extends TestBase {
         .withProperties(ImmutableMap.of("k1", "v1"))
         .withSecurableObjects(new SecurableObjectDTO[] {DTOConverters.toSecurableObject(schema)})
         .withAudit(AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+        .build();
+  }
+
+  private static DeletedEntityDTO createDeletedRoleGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
         .build();
   }
 

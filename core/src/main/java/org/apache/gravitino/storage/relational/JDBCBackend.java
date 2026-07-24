@@ -440,11 +440,11 @@ public class JDBCBackend implements RelationalBackend {
       case TOPIC:
         return TopicMetaService.getInstance().deleteTopic(ident, deletionRetentionMs);
       case USER:
-        return UserMetaService.getInstance().deleteUser(ident);
+        return UserMetaService.getInstance().deleteUser(ident, deletionRetentionMs);
       case GROUP:
-        return GroupMetaService.getInstance().deleteGroup(ident);
+        return GroupMetaService.getInstance().deleteGroup(ident, deletionRetentionMs);
       case ROLE:
-        return RoleMetaService.getInstance().deleteRole(ident);
+        return RoleMetaService.getInstance().deleteRole(ident, deletionRetentionMs);
       case TAG:
         return TagMetaService.getInstance().deleteTag(ident);
       case MODEL:
@@ -582,17 +582,57 @@ public class JDBCBackend implements RelationalBackend {
             .deleteTerminalReceipts(
                 Entity.EntityType.TOPIC, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case USER:
-        return UserMetaService.getInstance()
-            .deleteUserMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableUserDeletionCount =
+            UserMetaService.getInstance()
+                .purgeExpiredUserDeletions(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableUserDeletionCount > 0) {
+          return recoverableUserDeletionCount;
+        }
+        int legacyUserCount =
+            UserMetaService.getInstance()
+                .deleteUserMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyUserCount > 0) {
+          return legacyUserCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.USER, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case GROUP:
-        return GroupMetaService.getInstance()
-            .deleteGroupMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableGroupDeletionCount =
+            GroupMetaService.getInstance()
+                .purgeExpiredGroupDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableGroupDeletionCount > 0) {
+          return recoverableGroupDeletionCount;
+        }
+        int legacyGroupCount =
+            GroupMetaService.getInstance()
+                .deleteGroupMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyGroupCount > 0) {
+          return legacyGroupCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.GROUP, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case ROLE:
-        return RoleMetaService.getInstance()
-            .deleteRoleMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableRoleDeletionCount =
+            RoleMetaService.getInstance()
+                .purgeExpiredRoleDeletions(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableRoleDeletionCount > 0) {
+          return recoverableRoleDeletionCount;
+        }
+        int legacyRoleCount =
+            RoleMetaService.getInstance()
+                .deleteRoleMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyRoleCount > 0) {
+          return legacyRoleCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.ROLE, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TAG:
         return TagMetaService.getInstance()
             .deleteTagMetasByLegacyTimeline(

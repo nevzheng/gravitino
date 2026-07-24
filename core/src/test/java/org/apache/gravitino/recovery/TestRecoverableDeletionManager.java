@@ -35,6 +35,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.RecoveryConflictReason;
@@ -479,6 +480,208 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
             manager.restoreDeletedPolicy(namespace, policy.name(), policy.id(), deleted.getEtag()));
     Assertions.assertFalse(backend.exists(policy.nameIdentifier(), Entity.EntityType.POLICY));
     assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testIdentityRecoveryWhenPrincipalsOwnSharedMemberships() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("identity_principal_first");
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofRole(metalake.name()),
+            "shared_role",
+            AUDIT_INFO,
+            List.of(),
+            Map.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+    UserEntity user =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofUser(metalake.name()),
+            "shared_user",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    UserMetaService.getInstance().insertUser(user, false);
+    GroupEntity group =
+        createGroupEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofGroup(metalake.name()),
+            "shared_group",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    GroupMetaService.getInstance().insertGroup(group, false);
+
+    Assertions.assertTrue(
+        UserMetaService.getInstance().deleteUser(user.nameIdentifier(), RETENTION_MS));
+    Assertions.assertTrue(
+        GroupMetaService.getInstance().deleteGroup(group.nameIdentifier(), RETENTION_MS));
+    Assertions.assertTrue(
+        RoleMetaService.getInstance().deleteRole(role.nameIdentifier(), RETENTION_MS));
+    Assertions.assertEquals(2L, identityDeletion(metalake, user).getAffectedRowCount().longValue());
+    Assertions.assertEquals(
+        2L, identityDeletion(metalake, group).getAffectedRowCount().longValue());
+    Assertions.assertEquals(1L, identityDeletion(metalake, role).getAffectedRowCount().longValue());
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deletedUser = manager.getDeletedUser(user.namespace(), user.name(), user.id());
+    DeletedEntityDTO deletedGroup =
+        manager.getDeletedGroup(group.namespace(), group.name(), group.id());
+    DeletedEntityDTO deletedRole = manager.getDeletedRole(role.namespace(), role.name(), role.id());
+    manager.restoreDeletedUser(user.namespace(), user.name(), user.id(), deletedUser.getEtag());
+    manager.restoreDeletedGroup(
+        group.namespace(), group.name(), group.id(), deletedGroup.getEtag());
+
+    Assertions.assertTrue(
+        RoleMetaService.getInstance().listRolesByUserIdent(user.nameIdentifier()).isEmpty());
+    Assertions.assertTrue(RoleMetaService.getInstance().listRolesByGroupId(group.id()).isEmpty());
+    manager.restoreDeletedRole(role.namespace(), role.name(), role.id(), deletedRole.getEtag());
+    Assertions.assertEquals(
+        role.id(),
+        RoleMetaService.getInstance().listRolesByUserIdent(user.nameIdentifier()).get(0).id());
+    Assertions.assertEquals(
+        role.id(), RoleMetaService.getInstance().listRolesByGroupId(group.id()).get(0).getRoleId());
+    Assertions.assertEquals(
+        user.id(),
+        manager
+            .restoreDeletedUser(user.namespace(), user.name(), user.id(), deletedUser.getEtag())
+            .id());
+  }
+
+  @TestTemplate
+  public void testIdentityRecoveryWhenRoleOwnsSharedMemberships() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("identity_role_first");
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofRole(metalake.name()),
+            "shared_role",
+            AUDIT_INFO,
+            List.of(),
+            Map.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+    UserEntity user =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofUser(metalake.name()),
+            "shared_user",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    UserMetaService.getInstance().insertUser(user, false);
+    GroupEntity group =
+        createGroupEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofGroup(metalake.name()),
+            "shared_group",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    GroupMetaService.getInstance().insertGroup(group, false);
+
+    Assertions.assertTrue(
+        RoleMetaService.getInstance().deleteRole(role.nameIdentifier(), RETENTION_MS));
+    Assertions.assertTrue(
+        UserMetaService.getInstance().deleteUser(user.nameIdentifier(), RETENTION_MS));
+    Assertions.assertTrue(
+        GroupMetaService.getInstance().deleteGroup(group.nameIdentifier(), RETENTION_MS));
+    Assertions.assertEquals(3L, identityDeletion(metalake, role).getAffectedRowCount().longValue());
+    Assertions.assertEquals(1L, identityDeletion(metalake, user).getAffectedRowCount().longValue());
+    Assertions.assertEquals(
+        1L, identityDeletion(metalake, group).getAffectedRowCount().longValue());
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deletedRole = manager.getDeletedRole(role.namespace(), role.name(), role.id());
+    DeletedEntityDTO deletedUser = manager.getDeletedUser(user.namespace(), user.name(), user.id());
+    DeletedEntityDTO deletedGroup =
+        manager.getDeletedGroup(group.namespace(), group.name(), group.id());
+    manager.restoreDeletedRole(role.namespace(), role.name(), role.id(), deletedRole.getEtag());
+
+    Assertions.assertTrue(
+        UserMetaService.getInstance().listUsersByRoleIdent(role.nameIdentifier()).isEmpty());
+    Assertions.assertTrue(
+        GroupMetaService.getInstance().listGroupsByRoleIdent(role.nameIdentifier()).isEmpty());
+    manager.restoreDeletedUser(user.namespace(), user.name(), user.id(), deletedUser.getEtag());
+    manager.restoreDeletedGroup(
+        group.namespace(), group.name(), group.id(), deletedGroup.getEtag());
+    Assertions.assertEquals(
+        user.id(),
+        UserMetaService.getInstance().listUsersByRoleIdent(role.nameIdentifier()).get(0).id());
+    Assertions.assertEquals(
+        group.id(),
+        GroupMetaService.getInstance().listGroupsByRoleIdent(role.nameIdentifier()).get(0).id());
+  }
+
+  @TestTemplate
+  public void testIdentityExternalIdConflictAndIncompleteGeneration() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("identity_conflicts");
+    UserEntity original =
+        UserEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("original_user")
+            .withNamespace(NamespaceUtil.ofUser(metalake.name()))
+            .withExternalId("external-user-1")
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    UserMetaService.getInstance().insertUser(original, false);
+    Assertions.assertTrue(
+        UserMetaService.getInstance().deleteUser(original.nameIdentifier(), RETENTION_MS));
+    UserEntity replacement =
+        UserEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("replacement_user")
+            .withNamespace(original.namespace())
+            .withExternalId(original.externalId())
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    UserMetaService.getInstance().insertUser(replacement, false);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO occupied =
+        manager.getDeletedUser(original.namespace(), original.name(), original.id());
+    Assertions.assertFalse(occupied.getRestorable());
+    Assertions.assertEquals("EXTERNAL_ID_OCCUPIED", occupied.getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.EXTERNAL_ID_OCCUPIED,
+        () ->
+            manager.restoreDeletedUser(
+                original.namespace(), original.name(), original.id(), occupied.getEtag()));
+
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofRole(metalake.name()),
+            "broken_role",
+            AUDIT_INFO,
+            List.of(),
+            Map.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+    UserEntity broken =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofUser(metalake.name()),
+            "broken_user",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    UserMetaService.getInstance().insertUser(broken, false);
+    Assertions.assertTrue(
+        UserMetaService.getInstance().deleteUser(broken.nameIdentifier(), RETENTION_MS));
+    DeletedEntityDTO brokenDeletion =
+        manager.getDeletedUser(broken.namespace(), broken.name(), broken.id());
+    updateDeletionRecord(
+        "DELETE FROM user_role_rel WHERE user_id = ? AND deletion_id = ?",
+        broken.id(),
+        brokenDeletion.getDeletionId());
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.INCOMPLETE_GENERATION,
+        () ->
+            manager.restoreDeletedUser(
+                broken.namespace(), broken.name(), broken.id(), brokenDeletion.getEtag()));
+    Assertions.assertFalse(backend.exists(broken.nameIdentifier(), Entity.EntityType.USER));
+    assertDeletionReceiptUnchanged(brokenDeletion.getDeletionId());
   }
 
   @TestTemplate
@@ -1778,6 +1981,13 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
     Assertions.assertNotNull(receipt);
     Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
     Assertions.assertEquals(0L, receipt.getRevision());
+  }
+
+  private static <E extends Entity & HasIdentifier> EntityDeletionPO identityDeletion(
+      BaseMetalake metalake, E entity) {
+    return EntityDeletionService.getInstance()
+        .list(entity.type(), metalake.id(), entity.name(), entity.id(), null)
+        .get(0);
   }
 
   private EntityDeletionPO deleteAndGetDeletionRecord(

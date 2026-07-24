@@ -46,7 +46,10 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
           Entity.EntityType.TOPIC,
           Entity.EntityType.FUNCTION,
           Entity.EntityType.MODEL,
-          Entity.EntityType.POLICY);
+          Entity.EntityType.POLICY,
+          Entity.EntityType.USER,
+          Entity.EntityType.GROUP,
+          Entity.EntityType.ROLE);
 
   private final EntityCache cache;
 
@@ -76,7 +79,10 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
       if (entityType == Entity.EntityType.METALAKE
           || entityType == Entity.EntityType.CATALOG
           || entityType == Entity.EntityType.SCHEMA
-          || entityType == Entity.EntityType.POLICY) {
+          || entityType == Entity.EntityType.POLICY
+          || entityType == Entity.EntityType.USER
+          || entityType == Entity.EntityType.GROUP
+          || entityType == Entity.EntityType.ROLE) {
         clearCache(change);
         continue;
       }

@@ -24,18 +24,25 @@ import static javax.servlet.http.HttpServletResponse.SC_OK;
 import static org.apache.hc.core5.http.HttpStatus.SC_SERVER_ERROR;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.gravitino.DeletedEntity;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.User;
 import org.apache.gravitino.dto.AuditDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.MetalakeDTO;
 import org.apache.gravitino.dto.authorization.GroupDTO;
 import org.apache.gravitino.dto.authorization.UserDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.GroupAddRequest;
 import org.apache.gravitino.dto.requests.UserAddRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.GroupListResponse;
 import org.apache.gravitino.dto.responses.GroupResponse;
@@ -184,6 +191,100 @@ public class TestUserGroup extends TestBase {
     buildMockResource(Method.GET, userPath, null, errResp3, SC_SERVER_ERROR);
     Assertions.assertThrows(
         RuntimeException.class, () -> gravitinoClient.getUser(username), "internal error");
+  }
+
+  @Test
+  public void testRecoverableUserMetadataDoesNotContactIdentityProvider()
+      throws JsonProcessingException {
+    String username = "deleted-user";
+    String collectionPath = withSlash(String.format(API_METALAKES_USERS_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_USERS_PATH, metalakeName, username));
+    DeletedEntityDTO generation =
+        createDeletedIdentityGeneration(username, "584273", RecoveryEntityType.USER);
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", username, "id", generation.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedUsers(username, generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.USER, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedUser(username, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    UserDTO restoredUser =
+        UserDTO.builder()
+            .withName(username)
+            .withExternalId("idp-user-42")
+            .withEnabled(false)
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH, itemPath, exactParameters, request, new UserResponse(restoredUser), SC_OK);
+
+    // Recovery is one Gravitino metadata PATCH. The client neither calls an identity provider nor
+    // reconciles its state; it returns the stored external identity fields exactly as received.
+    User restored = gravitinoClient.restoreUser(username, loaded);
+    Assertions.assertEquals(username, restored.name());
+    Assertions.assertEquals("idp-user-42", restored.externalId());
+    Assertions.assertFalse(restored.enabled());
+  }
+
+  @Test
+  public void testDeletedUserResponseBinding() throws JsonProcessingException {
+    String username = "deleted-user";
+    String collectionPath = withSlash(String.format(API_METALAKES_USERS_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_USERS_PATH, metalakeName, username));
+    DeletedEntityDTO wrongType =
+        createDeletedIdentityGeneration(username, "584273", RecoveryEntityType.GROUP);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.listDeletedUsers(null, null));
+
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "584273");
+    DeletedEntityDTO wrongName =
+        createDeletedIdentityGeneration("another-user", "584273", RecoveryEntityType.USER);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedUser(username, "584273"));
+
+    DeletedEntityDTO wrongId =
+        createDeletedIdentityGeneration(username, "584274", RecoveryEntityType.USER);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedUser(username, "584273"));
+
+    DeletedEntityDTO valid =
+        createDeletedIdentityGeneration(username, "584273", RecoveryEntityType.USER);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new UserResponse(mockUserDTO("another-user")),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.restoreUser(username, valid));
   }
 
   @Test
@@ -357,6 +458,100 @@ public class TestUserGroup extends TestBase {
   }
 
   @Test
+  public void testRecoverableGroupMetadataDoesNotContactIdentityProvider()
+      throws JsonProcessingException {
+    String groupName = "deleted-group";
+    String collectionPath = withSlash(String.format(API_METALAKES_GROUPS_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_GROUPS_PATH, metalakeName, groupName));
+    DeletedEntityDTO generation =
+        createDeletedIdentityGeneration(groupName, "684273", RecoveryEntityType.GROUP);
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", groupName, "id", generation.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedGroups(groupName, generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.GROUP, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedGroup(groupName, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    GroupDTO restoredGroup =
+        GroupDTO.builder()
+            .withName(groupName)
+            .withExternalId("idp-group-42")
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH, itemPath, exactParameters, request, new GroupResponse(restoredGroup), SC_OK);
+
+    // Recovery is one Gravitino metadata PATCH. The client neither calls an identity provider nor
+    // reconciles its state; it returns the stored external identity fields exactly as received.
+    Group restored = gravitinoClient.restoreGroup(groupName, loaded);
+    Assertions.assertEquals(groupName, restored.name());
+    Assertions.assertEquals("idp-group-42", restored.externalId());
+  }
+
+  @Test
+  public void testDeletedGroupResponseBinding() throws JsonProcessingException {
+    String groupName = "deleted-group";
+    String collectionPath = withSlash(String.format(API_METALAKES_GROUPS_PATH, metalakeName, ""));
+    String itemPath = withSlash(String.format(API_METALAKES_GROUPS_PATH, metalakeName, groupName));
+    DeletedEntityDTO wrongType =
+        createDeletedIdentityGeneration(groupName, "684273", RecoveryEntityType.USER);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.listDeletedGroups(null, null));
+
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "684273");
+    DeletedEntityDTO wrongName =
+        createDeletedIdentityGeneration("another-group", "684273", RecoveryEntityType.GROUP);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> gravitinoClient.loadDeletedGroup(groupName, "684273"));
+
+    DeletedEntityDTO wrongId =
+        createDeletedIdentityGeneration(groupName, "684274", RecoveryEntityType.GROUP);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> gravitinoClient.loadDeletedGroup(groupName, "684273"));
+
+    DeletedEntityDTO valid =
+        createDeletedIdentityGeneration(groupName, "684273", RecoveryEntityType.GROUP);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new GroupResponse(mockGroupDTO("another-group")),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.restoreGroup(groupName, valid));
+  }
+
+  @Test
   public void testRemoveGroups() throws Exception {
     String groupName = "user";
     String groupPath = withSlash(String.format(API_METALAKES_GROUPS_PATH, metalakeName, groupName));
@@ -436,6 +631,24 @@ public class TestUserGroup extends TestBase {
     return GroupDTO.builder()
         .withName(name)
         .withAudit(AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+        .build();
+  }
+
+  private static DeletedEntityDTO createDeletedIdentityGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
         .build();
   }
 

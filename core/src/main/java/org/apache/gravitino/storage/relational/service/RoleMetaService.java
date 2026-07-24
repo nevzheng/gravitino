@@ -19,43 +19,73 @@
 package org.apache.gravitino.storage.relational.service;
 
 import static org.apache.gravitino.metrics.source.MetricsSource.GRAVITINO_RELATIONAL_STORE_METRIC_NAME;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.claimPurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.claimRestore;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.completePurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.completeRestore;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.eligibleForPurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.incompleteGeneration;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.insertRestoreChange;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.isCompletedRestoreReplay;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.loadDeletion;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.lockLiveMetalake;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.lockLiveMetalakeForRestore;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.sumCounts;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateDeletionSnapshot;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateGenerationCompleteness;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateLatestDeletion;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateNotExpired;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateRestoreArguments;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
+import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.metrics.Monitored;
-import org.apache.gravitino.storage.relational.mapper.GroupRoleRelMapper;
-import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
+import org.apache.gravitino.storage.relational.mapper.IdentityRecoveryMapper;
+import org.apache.gravitino.storage.relational.mapper.RoleAggregateTable;
 import org.apache.gravitino.storage.relational.mapper.RoleMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.SecurableObjectMapper;
-import org.apache.gravitino.storage.relational.mapper.UserRoleRelMapper;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.RolePO;
 import org.apache.gravitino.storage.relational.po.SecurableObjectPO;
+import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.apache.gravitino.storage.relational.utils.ExceptionUtils;
 import org.apache.gravitino.storage.relational.utils.POConverters;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,6 +207,19 @@ public class RoleMetaService {
 
       SessionUtils.doMultipleWithCommit(
           () -> MetadataMutationLock.lockMetadataIds(metalakeIds, catalogIds, schemaIds),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  IdentityRecoveryMapper.class,
+                  mapper -> {
+                    if (!mapper
+                        .selectDeletedRolesForUpdate(List.of(rolePO.getRoleId()))
+                        .isEmpty()) {
+                      throw new RecoveryConflictException(
+                          RecoveryConflictReason.ENTITY_ID_REUSED,
+                          "Role ID %s belongs to a recoverable deletion; use metadata restore",
+                          rolePO.getRoleId());
+                    }
+                  }),
           () ->
               SessionUtils.doWithoutCommit(
                   SecurableObjectMapper.class,
@@ -325,36 +368,239 @@ public class RoleMetaService {
     return POConverters.fromRolePO(rolePO, securableObjects, identifier.namespace());
   }
 
+  /** Lists independently deleted role roots under one live metalake. */
+  public List<RolePO> listDeletedRolesByNamespace(Namespace namespace) {
+    AuthorizationUtils.checkRoleNamespace(namespace);
+    long metalakeId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.level(0)), Entity.EntityType.METALAKE);
+    return SessionUtils.getWithoutCommit(
+        IdentityRecoveryMapper.class, mapper -> mapper.listDeletedRootRoles(metalakeId));
+  }
+
+  /** Lists live role roots under one metalake for recovery collision checks. */
+  public List<RolePO> listLiveRolePOsByNamespace(Namespace namespace) {
+    AuthorizationUtils.checkRoleNamespace(namespace);
+    long metalakeId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.level(0)), Entity.EntityType.METALAKE);
+    return SessionUtils.getWithoutCommit(
+        IdentityRecoveryMapper.class, mapper -> mapper.listLiveRoles(metalakeId));
+  }
+
+  /** Lists globally live role roots matching immutable identifiers. */
+  public List<RolePO> listLiveRolesByIds(List<Long> roleIds) {
+    if (roleIds.isEmpty()) {
+      return List.of();
+    }
+    return SessionUtils.getWithoutCommit(
+        IdentityRecoveryMapper.class, mapper -> mapper.listLiveRolesByIds(roleIds));
+  }
+
   @Monitored(metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME, baseMetricName = "deleteRole")
   public boolean deleteRole(NameIdentifier identifier) {
+    return deleteRole(identifier, Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+  }
+
+  /** Soft-deletes one role aggregate and records its recoverable deletion generation. */
+  public boolean deleteRole(NameIdentifier identifier, long retentionMs) {
+    return deleteRole(identifier, Instant.now().toEpochMilli(), retentionMs);
+  }
+
+  /** Soft-deletes live role relations first and the role root last using one deletion token. */
+  public boolean deleteRole(NameIdentifier identifier, long requestedDeletedAt, long retentionMs) {
     AuthorizationUtils.checkRole(identifier);
+    Preconditions.checkArgument(requestedDeletedAt > 0, "deletedAt must be positive");
+    Preconditions.checkArgument(retentionMs >= 0, "retentionMs must not be negative");
 
-    Long metalakeId =
+    long metalakeId =
         MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
-    Long roleId = getRoleIdByMetalakeIdAndName(metalakeId, identifier.name());
-
+    AtomicInteger deleted = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
-        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             SessionUtils.doWithoutCommit(
-                RoleMetaMapper.class, mapper -> mapper.softDeleteRoleMetaByRoleId(roleId)),
-        () ->
+                IdentityRecoveryMapper.class,
+                mapper -> {
+                  lockLiveMetalake(mapper, metalakeId);
+                  RolePO role = mapper.lockLiveRole(metalakeId, identifier.name());
+                  if (role == null) {
+                    throw new NoSuchEntityException(
+                        NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+                        Entity.EntityType.ROLE.name().toLowerCase(Locale.ROOT),
+                        identifier.name());
+                  }
+                  long deletedAt =
+                      chooseDeletedAt(
+                          mapper,
+                          role.getRoleId(),
+                          metalakeId,
+                          role.getRoleName(),
+                          requestedDeletedAt);
+                  EntityDeletionPO deletion =
+                      EntityDeletionService.getInstance()
+                          .newDeletion(
+                              Entity.EntityType.ROLE,
+                              role.getRoleId(),
+                              metalakeId,
+                              null,
+                              metalakeId,
+                              role.getRoleName(),
+                              role.getCurrentVersion(),
+                              deletedAt,
+                              retentionMs,
+                              PrincipalUtils.getCurrentUserName());
+
+                  long affected = 0L;
+                  for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+                    int changed =
+                        mapper.softDeleteRoleAggregateRows(
+                            aggregateTable, role.getRoleId(), deletedAt, deletion.getDeletionId());
+                    if (aggregateTable == RoleAggregateTable.ROLE) {
+                      deleted.set(changed);
+                    }
+                    affected = Math.addExact(affected, changed);
+                  }
+                  deletion.setAffectedRowCount(affected);
+                  if (deleted.get() != 1
+                      || generationRowCount(mapper, deletion) != affected
+                      || mapper.countBrokenRoleGenerationReferences(
+                              deletion.getEntityId(),
+                              deletion.getDeletedAt(),
+                              deletion.getDeletionId())
+                          != 0) {
+                    throw incompleteGeneration(deletion.getDeletionId());
+                  }
+                  EntityDeletionService.getInstance().insert(deletion);
+                  SessionUtils.doWithoutCommit(
+                      EntityChangeLogMapper.class,
+                      changeLogMapper ->
+                          changeLogMapper.insertEntityChange(
+                              identifier.namespace().level(0),
+                              Entity.EntityType.ROLE.name(),
+                              identifier.toString(),
+                              OperateType.DROP));
+                }));
+    return deleted.get() == 1;
+  }
+
+  /** Restores one exact role metadata deletion generation transactionally. */
+  public RoleEntity restoreRole(
+      NameIdentifier identifier,
+      EntityDeletionPO observed,
+      long restoredAt,
+      String restoreEtag,
+      long effectiveExpiresAt) {
+    AuthorizationUtils.checkRole(identifier);
+    validateRestoreArguments(observed, restoredAt, restoreEtag, effectiveExpiresAt);
+    long metalakeId =
+        MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
+    AtomicReference<RoleEntity> restored = new AtomicReference<>();
+    try {
+      SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  IdentityRecoveryMapper.class,
+                  mapper -> {
+                    lockLiveMetalakeForRestore(mapper, metalakeId, identifier);
+                    validateLatestDeletion(
+                        Entity.EntityType.ROLE, identifier, metalakeId, observed);
+                    EntityDeletionPO actual = loadDeletion(observed.getDeletionId());
+                    if (isCompletedRestoreReplay(
+                        Entity.EntityType.ROLE,
+                        identifier,
+                        metalakeId,
+                        observed,
+                        actual,
+                        restoreEtag)) {
+                      restored.set(loadIdempotentlyRestoredRole(identifier, metalakeId, actual));
+                      return;
+                    }
+                    validateDeletionSnapshot(
+                        Entity.EntityType.ROLE, identifier, metalakeId, observed, actual);
+                    validateNotExpired(actual, effectiveExpiresAt);
+                    claimRestore(actual);
+
+                    RolePO generation =
+                        mapper.selectRoleGenerationForUpdate(
+                            actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                    validateRoleGeneration(actual, generation);
+                    validateRoleOccupancy(mapper, actual);
+                    Map<RoleAggregateTable, Integer> counts = generationCounts(mapper, actual);
+                    validateGenerationCompleteness(
+                        actual,
+                        counts.get(RoleAggregateTable.ROLE),
+                        sumCounts(counts),
+                        mapper.countBrokenRoleGenerationReferences(
+                            actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId()));
+
+                    for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+                      int changed =
+                          restoreRoleGenerationRows(
+                              mapper, aggregateTable, actual, restoredAt, identifier);
+                      if (changed != counts.get(aggregateTable)) {
+                        throw incompleteGeneration(actual.getDeletionId());
+                      }
+                    }
+                    completeRestore(actual, restoredAt, restoreEtag);
+                    insertRestoreChange(identifier, Entity.EntityType.ROLE);
+                    restored.set(getRoleByIdentifier(identifier));
+                  }));
+    } catch (RuntimeException failure) {
+      EntityDeletionPO completed =
+          EntityDeletionService.getInstance().get(observed.getDeletionId());
+      if (isCompletedRestoreReplay(
+          Entity.EntityType.ROLE, identifier, metalakeId, observed, completed, restoreEtag)) {
+        return loadIdempotentlyRestoredRole(identifier, metalakeId, completed);
+      }
+      throw failure;
+    }
+    return Objects.requireNonNull(restored.get(), "restored role must not be null");
+  }
+
+  /** Permanently deletes a bounded batch of expired recorded role generations. */
+  public int purgeExpiredRoleDeletions(long legacyTimeline, int limit) {
+    List<EntityDeletionPO> expired =
+        EntityDeletionService.getInstance()
+            .listExpired(Entity.EntityType.ROLE, legacyTimeline, limit);
+    if (expired.isEmpty()) {
+      return 0;
+    }
+    long purgedAt = Instant.now().toEpochMilli();
+    AtomicInteger purged = new AtomicInteger();
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          for (EntityDeletionPO observed : expired) {
+            EntityDeletionPO actual = loadDeletion(observed.getDeletionId());
+            if (!eligibleForPurge(observed, actual, legacyTimeline) || !claimPurge(actual)) {
+              continue;
+            }
             SessionUtils.doWithoutCommit(
-                UserRoleRelMapper.class, mapper -> mapper.softDeleteUserRoleRelByRoleId(roleId)),
-        () ->
-            SessionUtils.doWithoutCommit(
-                GroupRoleRelMapper.class, mapper -> mapper.softDeleteGroupRoleRelByRoleId(roleId)),
-        () ->
-            SessionUtils.doWithoutCommit(
-                SecurableObjectMapper.class,
-                mapper -> mapper.softDeleteSecurableObjectsByRoleId(roleId)),
-        () ->
-            SessionUtils.doWithoutCommit(
-                OwnerMetaMapper.class,
-                mapper ->
-                    mapper.softDeleteOwnerRelByMetadataObjectIdAndType(
-                        roleId, MetadataObject.Type.ROLE.name())));
-    return true;
+                IdentityRecoveryMapper.class,
+                mapper -> {
+                  RolePO generation =
+                      mapper.selectRoleGenerationForUpdate(
+                          actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                  validateRoleGeneration(actual, generation);
+                  Map<RoleAggregateTable, Integer> counts = generationCounts(mapper, actual);
+                  validateGenerationCompleteness(
+                      actual,
+                      counts.get(RoleAggregateTable.ROLE),
+                      sumCounts(counts),
+                      mapper.countBrokenRoleGenerationReferences(
+                          actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId()));
+                  for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+                    if (mapper.hardDeleteRoleGenerationRows(
+                            aggregateTable, actual.getDeletedAt(), actual.getDeletionId())
+                        != counts.get(aggregateTable)) {
+                      throw incompleteGeneration(actual.getDeletionId());
+                    }
+                  }
+                });
+            completePurge(actual, purgedAt);
+            purged.incrementAndGet();
+          }
+        });
+    return purged.get();
   }
 
   @Monitored(
@@ -388,39 +634,137 @@ public class RoleMetaService {
       metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME,
       baseMetricName = "deleteRoleMetasByLegacyTimeline")
   public int deleteRoleMetasByLegacyTimeline(long legacyTimeline, int limit) {
-    int[] roleDeletedCount = new int[] {0};
-    int[] userRoleRelDeletedCount = new int[] {0};
-    int[] groupRoleRelDeletedCount = new int[] {0};
-    int[] securableObjectsCount = new int[] {0};
-
+    AtomicInteger deleted = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
         () ->
-            roleDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    RoleMetaMapper.class,
-                    mapper -> mapper.deleteRoleMetasByLegacyTimeline(legacyTimeline, limit)),
-        () ->
-            userRoleRelDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    UserRoleRelMapper.class,
-                    mapper -> mapper.deleteUserRoleRelMetasByLegacyTimeline(legacyTimeline, limit)),
-        () ->
-            groupRoleRelDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    GroupRoleRelMapper.class,
-                    mapper ->
-                        mapper.deleteGroupRoleRelMetasByLegacyTimeline(legacyTimeline, limit)),
-        () ->
-            securableObjectsCount[0] =
-                SessionUtils.getWithoutCommit(
-                    SecurableObjectMapper.class,
-                    mapper ->
-                        mapper.deleteSecurableObjectsByLegacyTimeline(legacyTimeline, limit)));
+            SessionUtils.doWithoutCommit(
+                IdentityRecoveryMapper.class,
+                mapper -> {
+                  List<Long> roleIds =
+                      mapper.selectLegacyRoleRootsForUpdate(legacyTimeline, limit).stream()
+                          .map(RolePO::getRoleId)
+                          .collect(Collectors.toList());
+                  if (roleIds.isEmpty()) {
+                    return;
+                  }
+                  for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+                    deleted.addAndGet(
+                        mapper.hardDeleteLegacyRoleAggregateRows(
+                            aggregateTable, roleIds, legacyTimeline));
+                  }
+                }));
+    return deleted.get();
+  }
 
-    return roleDeletedCount[0]
-        + userRoleRelDeletedCount[0]
-        + groupRoleRelDeletedCount[0]
-        + securableObjectsCount[0];
+  private static long chooseDeletedAt(
+      IdentityRecoveryMapper mapper,
+      long roleId,
+      long metalakeId,
+      String roleName,
+      long requestedDeletedAt) {
+    Long newest = mapper.selectNewestRoleDeletedAt(roleId, metalakeId, roleName);
+    return newest == null || newest < requestedDeletedAt
+        ? requestedDeletedAt
+        : Math.addExact(newest, 1L);
+  }
+
+  private static long generationRowCount(IdentityRecoveryMapper mapper, EntityDeletionPO deletion) {
+    long count = 0L;
+    for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+      count =
+          Math.addExact(
+              count,
+              mapper.countRoleGenerationRows(
+                  aggregateTable, deletion.getDeletedAt(), deletion.getDeletionId()));
+    }
+    return count;
+  }
+
+  private static Map<RoleAggregateTable, Integer> generationCounts(
+      IdentityRecoveryMapper mapper, EntityDeletionPO deletion) {
+    Map<RoleAggregateTable, Integer> counts = new EnumMap<>(RoleAggregateTable.class);
+    for (RoleAggregateTable aggregateTable : RoleAggregateTable.values()) {
+      counts.put(
+          aggregateTable,
+          mapper.countRoleGenerationRows(
+              aggregateTable, deletion.getDeletedAt(), deletion.getDeletionId()));
+    }
+    return counts;
+  }
+
+  private static void validateRoleGeneration(
+      EntityDeletionPO deletion, @Nullable RolePO generation) {
+    if (generation == null
+        || !Objects.equals(generation.getRoleId(), deletion.getEntityId())
+        || !Objects.equals(generation.getMetalakeId(), deletion.getMetalakeId())
+        || !Objects.equals(generation.getRoleName(), deletion.getEntityName())
+        || !Objects.equals(generation.getCurrentVersion(), deletion.getEntityVersion())
+        || !Objects.equals(generation.getDeletedAt(), deletion.getDeletedAt())
+        || !Objects.equals(generation.getDeletionId(), deletion.getDeletionId())) {
+      throw incompleteGeneration(deletion.getDeletionId());
+    }
+  }
+
+  private static void validateRoleOccupancy(
+      IdentityRecoveryMapper mapper, EntityDeletionPO deletion) {
+    RolePO occupant = mapper.lockLiveRole(deletion.getMetalakeId(), deletion.getEntityName());
+    if (occupant == null) {
+      return;
+    }
+    if (Objects.equals(occupant.getRoleId(), deletion.getEntityId())) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "Role ID %s is already active under a different logical role",
+          deletion.getEntityId());
+    }
+    throw new RecoveryConflictException(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        "A live role already occupies name %s",
+        deletion.getEntityName());
+  }
+
+  private static int restoreRoleGenerationRows(
+      IdentityRecoveryMapper mapper,
+      RoleAggregateTable aggregateTable,
+      EntityDeletionPO deletion,
+      long restoredAt,
+      NameIdentifier identifier) {
+    try {
+      return mapper.restoreRoleGenerationRows(
+          aggregateTable, deletion.getDeletedAt(), deletion.getDeletionId(), restoredAt);
+    } catch (RuntimeException failure) {
+      try {
+        ExceptionUtils.checkSQLException(failure, Entity.EntityType.ROLE, identifier.toString());
+      } catch (EntityAlreadyExistsException duplicate) {
+        validateRoleOccupancy(mapper, deletion);
+        throw new RecoveryConflictException(
+            duplicate,
+            RecoveryConflictReason.NAME_OCCUPIED,
+            "A live role conflicts with restore target %s",
+            identifier);
+      } catch (IOException ignored) {
+        // Preserve non-duplicate persistence failures.
+      }
+      throw failure;
+    }
+  }
+
+  private static RoleEntity loadIdempotentlyRestoredRole(
+      NameIdentifier identifier, long metalakeId, EntityDeletionPO deletion) {
+    RoleEntity live;
+    try {
+      live = getInstance().getRoleByIdentifier(identifier);
+    } catch (NoSuchEntityException e) {
+      throw MetalakeScopedRecoveryServiceSupport.tombstoneChanged(deletion.getDeletionId());
+    }
+    if (!Objects.equals(live.id(), deletion.getEntityId())
+        || !Objects.equals(deletion.getParentId(), metalakeId)) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "Role ID %s is active under a different logical role",
+          deletion.getEntityId());
+    }
+    return live;
   }
 
   private static List<SecurableObject> listSecurableObjects(RolePO po) {

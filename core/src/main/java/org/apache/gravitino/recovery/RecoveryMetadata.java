@@ -57,14 +57,26 @@ final class RecoveryMetadata {
     private final ParentIdentity parent;
     private final long deletedAt;
     @Nullable private final Long version;
+    @Nullable private final String externalId;
 
     DeletedSnapshot(
         long id, String name, ParentIdentity parent, long deletedAt, @Nullable Long version) {
+      this(id, name, parent, deletedAt, version, null);
+    }
+
+    DeletedSnapshot(
+        long id,
+        String name,
+        ParentIdentity parent,
+        long deletedAt,
+        @Nullable Long version,
+        @Nullable String externalId) {
       this.id = id;
       this.name = name;
       this.parent = parent;
       this.deletedAt = deletedAt;
       this.version = version;
+      this.externalId = externalId;
     }
 
     long id() {
@@ -87,17 +99,28 @@ final class RecoveryMetadata {
     Long version() {
       return version;
     }
+
+    @Nullable
+    String externalId() {
+      return externalId;
+    }
   }
 
   static final class LiveIdentity {
     private final long id;
     @Nullable private final Long parentId;
     private final String name;
+    @Nullable private final String externalId;
 
     LiveIdentity(long id, @Nullable Long parentId, String name) {
+      this(id, parentId, name, null);
+    }
+
+    LiveIdentity(long id, @Nullable Long parentId, String name, @Nullable String externalId) {
       this.id = id;
       this.parentId = parentId;
       this.name = name;
+      this.externalId = externalId;
     }
 
     long id() {
@@ -111,6 +134,11 @@ final class RecoveryMetadata {
 
     String name() {
       return name;
+    }
+
+    @Nullable
+    String externalId() {
+      return externalId;
     }
   }
 }

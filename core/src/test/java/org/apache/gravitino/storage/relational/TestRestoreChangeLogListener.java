@@ -55,27 +55,33 @@ public class TestRestoreChangeLogListener {
       NameIdentifier.of("metalake", "catalog", "schema", "table");
 
   private static final Map<Entity.EntityType, NameIdentifier> RECOVERABLE_IDENTIFIERS =
-      Map.of(
-          Entity.EntityType.METALAKE,
-          NameIdentifier.of("metalake"),
-          Entity.EntityType.CATALOG,
-          CATALOG,
-          Entity.EntityType.SCHEMA,
-          SCHEMA,
-          Entity.EntityType.TABLE,
-          TABLE,
-          Entity.EntityType.VIEW,
-          NameIdentifier.of("metalake", "catalog", "schema", "view"),
-          Entity.EntityType.FILESET,
-          NameIdentifier.of("metalake", "catalog", "schema", "fileset"),
-          Entity.EntityType.TOPIC,
-          NameIdentifier.of("metalake", "catalog", "schema", "topic"),
-          Entity.EntityType.FUNCTION,
-          NameIdentifier.of("metalake", "catalog", "schema", "function"),
-          Entity.EntityType.MODEL,
-          NameIdentifier.of("metalake", "catalog", "schema", "model"),
-          Entity.EntityType.POLICY,
-          NameIdentifier.of(NamespaceUtil.ofPolicy("metalake"), "policy"));
+      Map.ofEntries(
+          Map.entry(Entity.EntityType.METALAKE, NameIdentifier.of("metalake")),
+          Map.entry(Entity.EntityType.CATALOG, CATALOG),
+          Map.entry(Entity.EntityType.SCHEMA, SCHEMA),
+          Map.entry(Entity.EntityType.TABLE, TABLE),
+          Map.entry(
+              Entity.EntityType.VIEW, NameIdentifier.of("metalake", "catalog", "schema", "view")),
+          Map.entry(
+              Entity.EntityType.FILESET,
+              NameIdentifier.of("metalake", "catalog", "schema", "fileset")),
+          Map.entry(
+              Entity.EntityType.TOPIC, NameIdentifier.of("metalake", "catalog", "schema", "topic")),
+          Map.entry(
+              Entity.EntityType.FUNCTION,
+              NameIdentifier.of("metalake", "catalog", "schema", "function")),
+          Map.entry(
+              Entity.EntityType.MODEL, NameIdentifier.of("metalake", "catalog", "schema", "model")),
+          Map.entry(
+              Entity.EntityType.POLICY,
+              NameIdentifier.of(NamespaceUtil.ofPolicy("metalake"), "policy")),
+          Map.entry(
+              Entity.EntityType.USER, NameIdentifier.of(NamespaceUtil.ofUser("metalake"), "user")),
+          Map.entry(
+              Entity.EntityType.GROUP,
+              NameIdentifier.of(NamespaceUtil.ofGroup("metalake"), "group")),
+          Map.entry(
+              Entity.EntityType.ROLE, NameIdentifier.of(NamespaceUtil.ofRole("metalake"), "role")));
 
   @Test
   void testFiltersAndParsesRestoreRecords() {
@@ -112,13 +118,16 @@ public class TestRestoreChangeLogListener {
 
     listener.onEntityChange(changes);
 
-    verify(cache, times(4)).clear();
+    verify(cache, times(7)).clear();
     RECOVERABLE_IDENTIFIERS.forEach(
         (entityType, identifier) -> {
           if (entityType == Entity.EntityType.METALAKE
               || entityType == Entity.EntityType.CATALOG
               || entityType == Entity.EntityType.SCHEMA
-              || entityType == Entity.EntityType.POLICY) {
+              || entityType == Entity.EntityType.POLICY
+              || entityType == Entity.EntityType.USER
+              || entityType == Entity.EntityType.GROUP
+              || entityType == Entity.EntityType.ROLE) {
             return;
           }
           verify(cache).invalidate(identifier, entityType);

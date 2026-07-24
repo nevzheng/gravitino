@@ -25,14 +25,22 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
@@ -43,17 +51,24 @@ import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.authorization.SecurableObjects;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.authorization.PrivilegeDTO;
 import org.apache.gravitino.dto.authorization.SecurableObjectDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.RoleCreateRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.dto.responses.RoleResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
+import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
@@ -62,6 +77,7 @@ import org.apache.gravitino.server.authorization.expression.AuthorizationExpress
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,11 +87,19 @@ public class RoleOperations {
   private static final Logger LOG = LoggerFactory.getLogger(RoleOperations.class);
 
   private final AccessControlDispatcher accessControlManager;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
-  public RoleOperations() {
+  /**
+   * Creates role REST operations.
+   *
+   * @param recoverableDeletionManager recoverable-deletion coordinator
+   */
+  @Inject
+  public RoleOperations(RecoverableDeletionManager recoverableDeletionManager) {
     this.accessControlManager = GravitinoEnv.getInstance().accessControlDispatcher();
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -85,13 +109,35 @@ public class RoleOperations {
   @AuthorizationExpression(expression = "")
   public Response listRoles(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
-          String metalake) {
+          String metalake,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedRoleAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedRoles =
+                  recoverableDeletionManager.listDeletedRoles(
+                      NamespaceUtil.ofRole(metalake), name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedRoles.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             MetalakeManager.checkMetalakeInUse(metalake);
             String[] names = accessControlManager.listRoleNames(metalake);
+            if (name != null) {
+              names = Arrays.stream(names).filter(name::equals).toArray(String[]::new);
+            }
             names =
                 MetadataAuthzHelper.filterByExpression(
                     metalake,
@@ -112,15 +158,40 @@ public class RoleOperations {
   @Timed(name = "get-role." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-role", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_ROLE_AUTHORIZATION_EXPRESSION)
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_ROLE_AUTHORIZATION_EXPRESSION
+              + ")")
   public Response getRole(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @PathParam("role") @AuthorizationMetadata(type = Entity.EntityType.ROLE) String role) {
+      @PathParam("role") @AuthorizationMetadata(type = Entity.EntityType.ROLE) String role,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedRoleAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted role");
+              }
+              DeletedEntityDTO deletedRole =
+                  recoverableDeletionManager.getDeletedRole(
+                      NamespaceUtil.ofRole(metalake), role, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedRole)))
+                  .tag(new EntityTag(deletedRole.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             MetalakeManager.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new RoleResponse(
@@ -128,6 +199,62 @@ public class RoleOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleRoleException(OperationType.GET, role, metalake, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted role metadata generation.
+   *
+   * @param metalake metalake name
+   * @param role original role name
+   * @param include deleted-resource selector
+   * @param id immutable role identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-role read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored role response
+   */
+  @PATCH
+  @Path("{role}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-role." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-role", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.METALAKE)
+  public Response restoreRole(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("role") String role,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted role");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted role");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "role");
+            checkDeletedRoleAccess(metalake);
+            RoleEntity restored =
+                recoverableDeletionManager.restoreDeletedRole(
+                    NamespaceUtil.ofRole(metalake), role, entityId, etag);
+            return Utils.ok(new RoleResponse(DTOConverters.toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleRoleException(OperationType.RESTORE, role, metalake, e);
     }
   }
 
@@ -225,6 +352,14 @@ public class RoleOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleRoleException(OperationType.DELETE, role, metalake, e);
+    }
+  }
+
+  private static void checkDeletedRoleAccess(String metalake) {
+    if (!MetadataAuthzHelper.checkAccess(
+        NameIdentifierUtil.ofMetalake(metalake), Entity.EntityType.METALAKE, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted roles under %s", metalake);
     }
   }
 }

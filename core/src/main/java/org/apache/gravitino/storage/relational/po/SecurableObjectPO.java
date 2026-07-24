@@ -31,6 +31,7 @@ public class SecurableObjectPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getRoleId() {
     return roleId;
@@ -64,6 +65,11 @@ public class SecurableObjectPO {
     return deletedAt;
   }
 
+  /** Returns the recoverable-deletion generation identifier. */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -80,7 +86,8 @@ public class SecurableObjectPO {
         && Objects.equal(getPrivilegeNames(), securableObjectPO.getPrivilegeNames())
         && Objects.equal(getCurrentVersion(), securableObjectPO.getCurrentVersion())
         && Objects.equal(getLastVersion(), securableObjectPO.getLastVersion())
-        && Objects.equal(getDeletedAt(), securableObjectPO.getDeletedAt());
+        && Objects.equal(getDeletedAt(), securableObjectPO.getDeletedAt())
+        && Objects.equal(getDeletionId(), securableObjectPO.getDeletionId());
   }
 
   @Override
@@ -93,7 +100,8 @@ public class SecurableObjectPO {
         getPrivilegeConditions(),
         getCurrentVersion(),
         getLastVersion(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -140,6 +148,12 @@ public class SecurableObjectPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       securableObjectPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      securableObjectPO.deletionId = deletionId;
       return this;
     }
 
