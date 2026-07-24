@@ -57,6 +57,18 @@ public class ErrorConstants {
   /** Error codes for unauthorized access. */
   public static final int UNAUTHORIZED_CODE = 1011;
 
+  /** Error code for an expired recoverable-deletion tombstone. */
+  public static final int TOMBSTONE_EXPIRED_CODE = 1012;
+
+  /** Error code for a changed recoverable-deletion tombstone. */
+  public static final int TOMBSTONE_CHANGED_CODE = 1013;
+
+  /** Error code for an omitted required request precondition. */
+  public static final int PRECONDITION_REQUIRED_CODE = 1014;
+
+  /** Error code for a conflict between recovery and current state. */
+  public static final int RECOVERY_CONFLICT_CODE = 1015;
+
   /** Error codes for invalid state. */
   public static final int UNKNOWN_ERROR_CODE = 1100;
 
