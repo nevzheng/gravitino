@@ -34,6 +34,7 @@ public class FilesetVersionPO {
   private String locationName;
   private String storageLocation;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getId() {
     return id;
@@ -79,6 +80,11 @@ public class FilesetVersionPO {
     return deletedAt;
   }
 
+  /** Returns the recoverable-deletion generation identifier. */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -98,7 +104,8 @@ public class FilesetVersionPO {
         && Objects.equal(getProperties(), that.getProperties())
         && Objects.equal(getLocationName(), that.getLocationName())
         && Objects.equal(getStorageLocation(), that.getStorageLocation())
-        && Objects.equal(getDeletedAt(), that.getDeletedAt());
+        && Objects.equal(getDeletedAt(), that.getDeletedAt())
+        && Objects.equal(getDeletionId(), that.getDeletionId());
   }
 
   @Override
@@ -114,7 +121,8 @@ public class FilesetVersionPO {
         getProperties(),
         getLocationName(),
         getStorageLocation(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -176,6 +184,12 @@ public class FilesetVersionPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       filesetVersionPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      filesetVersionPO.deletionId = deletionId;
       return this;
     }
 

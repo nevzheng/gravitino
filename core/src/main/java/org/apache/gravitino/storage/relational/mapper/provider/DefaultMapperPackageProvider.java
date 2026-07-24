@@ -24,6 +24,7 @@ import org.apache.gravitino.storage.relational.mapper.CatalogMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
 import org.apache.gravitino.storage.relational.mapper.EntityDeletionMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.FilesetRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.FunctionMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.FunctionRecoveryMapper;
@@ -68,6 +69,7 @@ public class DefaultMapperPackageProvider implements MapperPackageProvider {
         EntityChangeLogMapper.class,
         EntityDeletionMapper.class,
         FilesetMetaMapper.class,
+        FilesetRecoveryMapper.class,
         FilesetVersionMapper.class,
         FunctionMetaMapper.class,
         FunctionRecoveryMapper.class,

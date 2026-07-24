@@ -33,12 +33,13 @@ public class FilesetVersionBaseSQLProvider {
         + VERSION_TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, fileset_id,"
         + " version, fileset_comment, properties, storage_location_name, storage_location,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='filesetVersions' item='version' separator=','>"
         + " (#{version.metalakeId}, #{version.catalogId}, #{version.schemaId}, #{version.filesetId},"
         + " #{version.version}, #{version.filesetComment}, #{version.properties},"
-        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt})"
+        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt},"
+        + " #{version.deletionId})"
         + "</foreach>"
         + "</script>";
   }
@@ -50,12 +51,13 @@ public class FilesetVersionBaseSQLProvider {
         + VERSION_TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, fileset_id,"
         + " version, fileset_comment, properties, storage_location_name, storage_location,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='filesetVersions' item='version' separator=','>"
         + " (#{version.metalakeId}, #{version.catalogId}, #{version.schemaId}, #{version.filesetId},"
         + " #{version.version}, #{version.filesetComment}, #{version.properties},"
-        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt})"
+        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt},"
+        + " #{version.deletionId})"
         + "</foreach>"
         + " ON DUPLICATE KEY UPDATE"
         + " metalake_id = VALUES(metalake_id),"
@@ -67,7 +69,8 @@ public class FilesetVersionBaseSQLProvider {
         + " properties = VALUES(properties),"
         + " storage_location_name = VALUES(storage_location_name),"
         + " storage_location = VALUES(storage_location),"
-        + " deleted_at = VALUES(deleted_at)"
+        + " deleted_at = VALUES(deleted_at),"
+        + " deletion_id = VALUES(deletion_id)"
         + "</script>";
   }
 
@@ -75,7 +78,7 @@ public class FilesetVersionBaseSQLProvider {
     return "UPDATE "
         + VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -83,7 +86,7 @@ public class FilesetVersionBaseSQLProvider {
     return "UPDATE "
         + VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -92,7 +95,7 @@ public class FilesetVersionBaseSQLProvider {
         + "UPDATE "
         + VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -105,7 +108,7 @@ public class FilesetVersionBaseSQLProvider {
     return "UPDATE "
         + VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE fileset_id = #{filesetId} AND deleted_at = 0";
   }
 
@@ -113,7 +116,8 @@ public class FilesetVersionBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + VERSION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectFilesetVersionsByRetentionCount(
@@ -133,7 +137,7 @@ public class FilesetVersionBaseSQLProvider {
     return "UPDATE "
         + VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE fileset_id = #{filesetId} AND version <= #{versionRetentionLine} AND deleted_at = 0 LIMIT #{limit}";
   }
 }

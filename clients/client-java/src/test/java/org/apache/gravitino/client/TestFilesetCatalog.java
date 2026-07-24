@@ -22,6 +22,7 @@ import static org.apache.gravitino.file.Fileset.LOCATION_NAME_UNKNOWN;
 import static org.apache.hc.core5.http.HttpStatus.SC_CONFLICT;
 import static org.apache.hc.core5.http.HttpStatus.SC_NOT_FOUND;
 import static org.apache.hc.core5.http.HttpStatus.SC_OK;
+import static org.apache.hc.core5.http.HttpStatus.SC_PRECONDITION_FAILED;
 import static org.apache.hc.core5.http.HttpStatus.SC_SERVER_ERROR;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -36,20 +37,26 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.audit.FilesetAuditConstants;
 import org.apache.gravitino.audit.FilesetDataOperation;
 import org.apache.gravitino.audit.InternalClientType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.file.FilesetDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FilesetCreateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdatesRequest;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -61,6 +68,7 @@ import org.apache.gravitino.exceptions.NoSuchFilesetException;
 import org.apache.gravitino.exceptions.NoSuchLocationNameException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NotFoundException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.hc.core5.http.Method;
 import org.junit.jupiter.api.Assertions;
@@ -164,6 +172,125 @@ public class TestFilesetCatalog extends TestBase {
         RuntimeException.class,
         () -> catalog.asFilesetCatalog().listFilesets(fileset1.namespace()),
         "internal error");
+  }
+
+  @Test
+  public void testRecoverableFilesetMetadata() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    NameIdentifier filesetId = NameIdentifier.of(namespace, "artifacts");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(FilesetCatalog.formatFilesetRequestPath(fullNamespace));
+    String itemPath = collectionPath + "/" + filesetId.name();
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", filesetId.name(), "id", "984273");
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "984273");
+    DeletedEntityDTO generation =
+        createDeletedGeneration(filesetId.name(), "984273", RecoveryEntityType.FILESET);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed =
+        catalog
+            .asFilesetCatalog()
+            .listDeletedFilesets(namespace, filesetId.name(), generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.FILESET, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded =
+        catalog.asFilesetCatalog().loadDeletedFileset(filesetId, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    FilesetDTO restoredFileset =
+        mockFilesetDTO(
+            filesetId.name(),
+            Fileset.Type.MANAGED,
+            "restored metadata",
+            "mock location",
+            ImmutableMap.of("k1", "v1"));
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    FilesetResponse response = new FilesetResponse(restoredFileset);
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+    Fileset restored = catalog.asFilesetCatalog().restoreFileset(filesetId, loaded);
+    Assertions.assertEquals(filesetId.name(), restored.name());
+    Assertions.assertEquals(Fileset.Type.MANAGED, restored.type());
+
+    // An accepted exact-generation replay returns the same active metadata representation.
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+    Fileset replayed = catalog.asFilesetCatalog().restoreFileset(filesetId, loaded);
+    Assertions.assertEquals(filesetId.name(), replayed.name());
+
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("generation changed", null);
+    buildMockResource(
+        Method.PATCH, itemPath, exactParameters, request, changed, SC_PRECONDITION_FAILED);
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () -> catalog.asFilesetCatalog().restoreFileset(filesetId, loaded));
+  }
+
+  @Test
+  public void testDeletedFilesetResponseBinding() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(FilesetCatalog.formatFilesetRequestPath(fullNamespace));
+    DeletedEntityDTO wrongType =
+        createDeletedGeneration("artifacts", "984273", RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asFilesetCatalog().listDeletedFilesets(namespace, null, null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asFilesetCatalog().listDeletedFilesets(Namespace.of("a", "b"), null, null));
+
+    NameIdentifier filesetId = NameIdentifier.of(namespace, "artifacts");
+    String itemPath = collectionPath + "/" + filesetId.name();
+    DeletedEntityDTO wrongName =
+        createDeletedGeneration("models", "984273", RecoveryEntityType.FILESET);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", wrongName.id()),
+        null,
+        new DeletedEntityResponse(wrongName),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asFilesetCatalog().loadDeletedFileset(filesetId, wrongName.id()));
+
+    DeletedEntityDTO generation =
+        createDeletedGeneration(filesetId.name(), "984273", RecoveryEntityType.FILESET);
+    FilesetDTO wrongRestoredName =
+        mockFilesetDTO(
+            "models",
+            Fileset.Type.MANAGED,
+            "restored metadata",
+            "mock location",
+            ImmutableMap.of());
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", generation.id()),
+        new EntityRestoreRequest(false),
+        new FilesetResponse(wrongRestoredName),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asFilesetCatalog().restoreFileset(filesetId, generation));
   }
 
   @Test
@@ -606,5 +733,24 @@ public class TestFilesetCatalog extends TestBase {
     Assertions.assertEquals(expected.comment(), actual.comment());
     Assertions.assertEquals(expected.type(), actual.type());
     Assertions.assertEquals(expected.properties(), actual.properties());
+  }
+
+  private static DeletedEntityDTO createDeletedGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-"
+                + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 }

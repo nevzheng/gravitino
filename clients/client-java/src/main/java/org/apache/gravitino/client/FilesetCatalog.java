@@ -26,10 +26,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.credential.Credential;
 import org.apache.gravitino.credential.SupportsCredentials;
@@ -103,6 +106,33 @@ class FilesetCatalog extends BaseSchemaCatalog
   }
 
   /**
+   * Lists retained fileset deletion generations under the given schema namespace.
+   *
+   * @param namespace The one-level schema namespace.
+   * @param name An exact fileset-name filter, or {@code null}.
+   * @param id An exact immutable fileset-ID filter, or {@code null}.
+   * @return The matching retained fileset deletion generations.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   */
+  @Override
+  public DeletedEntity[] listDeletedFilesets(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException {
+    checkFilesetNamespace(namespace);
+
+    Namespace fullNamespace = getFilesetFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatFilesetRequestPath(fullNamespace), name, id, ErrorHandlers.filesetErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.FILESET, name, id));
+    return generations;
+  }
+
+  /**
    * Load fileset metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A fileset identifier, which should be "schema.fileset" format.
@@ -123,6 +153,56 @@ class FilesetCatalog extends BaseSchemaCatalog
     resp.validate();
 
     return new GenericFileset(resp.getFileset(), restClient, fullNamespace);
+  }
+
+  /**
+   * Loads an exact fileset deletion generation under the given identifier.
+   *
+   * @param ident The fileset identifier in {@code schema.fileset} form.
+   * @param id The immutable fileset ID.
+   * @return The exact retained fileset deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedFileset(NameIdentifier ident, String id) {
+    checkFilesetNameIdentifier(ident);
+
+    Namespace fullNamespace = getFilesetFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatFilesetRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.filesetErrorHandler());
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.FILESET, ident.name(), id);
+    return generation;
+  }
+
+  /**
+   * Restores an exact retained generation as active Gravitino fileset metadata.
+   *
+   * <p>This does not recreate a managed fileset's storage location or files.
+   *
+   * @param ident The fileset identifier in {@code schema.fileset} form.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored fileset metadata.
+   */
+  @Override
+  public Fileset restoreFileset(NameIdentifier ident, DeletedEntity generation) {
+    checkFilesetNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.FILESET, ident.name(), null);
+
+    Namespace fullNamespace = getFilesetFullNamespace(ident.namespace());
+    FilesetResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatFilesetRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            FilesetResponse.class,
+            ErrorHandlers.filesetErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getFileset().name()),
+        "Restored fileset name must match the requested fileset name");
+    return new GenericFileset(response.getFileset(), restClient, fullNamespace);
   }
 
   /**

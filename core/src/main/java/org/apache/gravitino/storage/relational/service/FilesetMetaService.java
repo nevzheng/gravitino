@@ -22,29 +22,38 @@ import static org.apache.gravitino.metrics.source.MetricsSource.GRAVITINO_RELATI
 
 import com.google.common.base.Preconditions;
 import java.io.IOException;
+import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import org.apache.gravitino.Configs;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
+import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
-import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.NamespacedEntityId;
 import org.apache.gravitino.metrics.Monitored;
 import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
+import org.apache.gravitino.storage.relational.mapper.EntityDeletionMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.FilesetRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetVersionMapper;
-import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
-import org.apache.gravitino.storage.relational.mapper.PolicyMetadataObjectRelMapper;
-import org.apache.gravitino.storage.relational.mapper.SecurableObjectMapper;
-import org.apache.gravitino.storage.relational.mapper.StatisticMetaMapper;
-import org.apache.gravitino.storage.relational.mapper.TagMetadataObjectRelMapper;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.FilesetMaxVersionPO;
 import org.apache.gravitino.storage.relational.po.FilesetPO;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
@@ -53,6 +62,7 @@ import org.apache.gravitino.storage.relational.utils.POConverters;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -125,6 +135,53 @@ public class FilesetMetaService {
     return POConverters.fromFilesetPOs(filesetPOs, namespace);
   }
 
+  /**
+   * Lists deleted fileset base rows under one live schema.
+   *
+   * @param namespace fileset namespace
+   * @return deleted fileset generations, newest first
+   */
+  @Monitored(
+      metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME,
+      baseMetricName = "listDeletedFilesetsByNamespace")
+  public List<FilesetPO> listDeletedFilesetsByNamespace(Namespace namespace) {
+    NamespaceUtil.checkFileset(namespace);
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.levels()), Entity.EntityType.SCHEMA);
+    return SessionUtils.getWithoutCommit(
+        FilesetRecoveryMapper.class, mapper -> mapper.listDeletedFilesets(schemaId));
+  }
+
+  /**
+   * Lists live fileset base rows under one schema for recovery conflict detection.
+   *
+   * @param namespace fileset namespace
+   * @return live fileset base rows
+   */
+  public List<FilesetPO> listLiveFilesetPOsByNamespace(Namespace namespace) {
+    NamespaceUtil.checkFileset(namespace);
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.levels()), Entity.EntityType.SCHEMA);
+    return SessionUtils.getWithoutCommit(
+        FilesetRecoveryMapper.class, mapper -> mapper.listLiveFilesets(schemaId));
+  }
+
+  /**
+   * Lists globally live fileset rows matching candidate immutable IDs.
+   *
+   * @param filesetIds candidate fileset IDs
+   * @return matching live fileset rows
+   */
+  public List<FilesetPO> listLiveFilesetsByIds(List<Long> filesetIds) {
+    if (filesetIds.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return SessionUtils.getWithoutCommit(
+        FilesetRecoveryMapper.class, mapper -> mapper.listLiveFilesetsByIds(filesetIds));
+  }
+
   private List<FilesetPO> listFilesetPOs(Namespace namespace) {
     return filesetListFetcher().apply(namespace);
   }
@@ -170,13 +227,26 @@ public class FilesetMetaService {
       SessionUtils.doMultipleWithCommit(
           () ->
               SessionUtils.doWithoutCommit(
-                  FilesetMetaMapper.class,
-                  mapper -> {
-                    if (overwrite) {
-                      mapper.insertFilesetMetaOnDuplicateKeyUpdate(po);
-                    } else {
-                      mapper.insertFilesetMeta(po);
+                  FilesetRecoveryMapper.class,
+                  recoveryMapper -> {
+                    lockLiveSchema(recoveryMapper, po.getSchemaId());
+                    if (overwrite
+                        && recoveryMapper.selectRecordedDeletedFilesetForUpdate(po.getFilesetId())
+                            != null) {
+                      throw new RecoveryConflictException(
+                          RecoveryConflictReason.ENTITY_ID_REUSED,
+                          "Fileset ID %s belongs to a recoverable deletion; use metadata restore",
+                          po.getFilesetId());
                     }
+                    SessionUtils.doWithoutCommit(
+                        FilesetMetaMapper.class,
+                        mapper -> {
+                          if (overwrite) {
+                            mapper.insertFilesetMetaOnDuplicateKeyUpdate(po);
+                          } else {
+                            mapper.insertFilesetMeta(po);
+                          }
+                        });
                   }),
           () ->
               SessionUtils.doWithoutCommit(
@@ -200,177 +270,443 @@ public class FilesetMetaService {
       baseMetricName = "updateFileset")
   public <E extends Entity & HasIdentifier> FilesetEntity updateFileset(
       NameIdentifier identifier, Function<E, E> updater) throws IOException {
-    FilesetPO oldFilesetPO = getFilesetPOByIdentifier(identifier);
-    FilesetEntity oldFilesetEntity =
-        POConverters.fromFilesetPO(oldFilesetPO, identifier.namespace());
-    FilesetEntity newEntity = (FilesetEntity) updater.apply((E) oldFilesetEntity);
-    Preconditions.checkArgument(
-        Objects.equals(oldFilesetEntity.id(), newEntity.id()),
-        "The updated fileset entity id: %s should be same with the table entity id before: %s",
-        newEntity.id(),
-        oldFilesetEntity.id());
-
-    String metalakeName = identifier.namespace().level(0);
-    String catalogName = identifier.namespace().level(1);
-    String schemaName = identifier.namespace().level(2);
-    String oldFullName =
-        NameIdentifierUtil.ofFileset(metalakeName, catalogName, schemaName, oldFilesetEntity.name())
-            .toString();
-    boolean isRenamed = !Objects.equals(oldFilesetEntity.name(), newEntity.name());
-
-    Integer updateResult;
+    NameIdentifierUtil.checkFileset(identifier);
+    Objects.requireNonNull(updater, "updater must not be null");
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(identifier.namespace().levels()), Entity.EntityType.SCHEMA);
+    AtomicReference<FilesetEntity> candidate = new AtomicReference<>();
     try {
-      boolean checkNeedUpdateVersion =
-          POConverters.checkFilesetVersionNeedUpdate(
-              oldFilesetPO.getFilesetVersionPOs(), newEntity);
-      FilesetPO newFilesetPO =
-          POConverters.updateFilesetPOWithVersion(oldFilesetPO, newEntity, checkNeedUpdateVersion);
-      if (checkNeedUpdateVersion) {
-        // These operations are performed atomically within a single transaction. The version
-        // insert is protected by a unique constraint on `fileset_id + version + deleted_at`. If
-        // the meta update affects 0 rows (concurrent modification), the transaction is rolled
-        // back — including the version insert — and the update is treated as a conflict.
-        int[] metaUpdateCountRef = new int[1];
-        try {
-          SessionUtils.doMultipleWithCommit(
-              () ->
-                  SessionUtils.doWithoutCommit(
-                      FilesetVersionMapper.class,
-                      mapper -> mapper.insertFilesetVersions(newFilesetPO.getFilesetVersionPOs())),
-              () -> {
-                metaUpdateCountRef[0] =
-                    SessionUtils.getWithoutCommit(
-                        FilesetMetaMapper.class,
-                        mapper -> mapper.updateFilesetMeta(newFilesetPO, oldFilesetPO));
-                if (metaUpdateCountRef[0] == 0) {
-                  throw new RuntimeException("Failed to update the entity: " + identifier);
-                }
-              },
-              () -> {
-                if (isRenamed && metaUpdateCountRef[0] > 0) {
-                  SessionUtils.doWithoutCommit(
-                      EntityChangeLogMapper.class,
-                      mapper ->
-                          mapper.insertEntityChange(
-                              metalakeName,
-                              Entity.EntityType.FILESET.name(),
-                              oldFullName,
-                              OperateType.ALTER));
-                }
-              });
-          updateResult = 1;
-        } catch (RuntimeException re) {
-          if (metaUpdateCountRef[0] == 0) {
-            // The meta update matched no rows; the transaction was rolled back,
-            // including the version insert above.
-            throw new IOException("Failed to update the entity: " + identifier);
-          } else {
-            ExceptionUtils.checkSQLException(
-                re, Entity.EntityType.FILESET, newEntity.nameIdentifier().toString());
-            throw re;
-          }
-        }
-      } else {
-        int[] metaUpdateCountRef = new int[1];
-        SessionUtils.doMultipleWithCommit(
-            () ->
-                metaUpdateCountRef[0] =
-                    SessionUtils.getWithoutCommit(
-                        FilesetMetaMapper.class,
-                        mapper -> mapper.updateFilesetMeta(newFilesetPO, oldFilesetPO)),
-            () -> {
-              if (isRenamed && metaUpdateCountRef[0] > 0) {
-                SessionUtils.doWithoutCommit(
-                    EntityChangeLogMapper.class,
-                    mapper ->
-                        mapper.insertEntityChange(
-                            metalakeName,
-                            Entity.EntityType.FILESET.name(),
-                            oldFullName,
-                            OperateType.ALTER));
-              }
-            });
-        updateResult = metaUpdateCountRef[0];
-      }
+      SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  FilesetRecoveryMapper.class,
+                  recoveryMapper -> {
+                    lockLiveSchema(recoveryMapper, schemaId);
+                    FilesetPO locked =
+                        recoveryMapper.selectLiveFilesetForUpdate(schemaId, identifier.name());
+                    if (locked == null) {
+                      throw new NoSuchEntityException(
+                          NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+                          Entity.EntityType.FILESET.name().toLowerCase(Locale.ROOT),
+                          identifier.name());
+                    }
+
+                    FilesetPO oldFilesetPO =
+                        SessionUtils.getWithoutCommit(
+                            FilesetMetaMapper.class,
+                            mapper ->
+                                mapper.selectFilesetMetaBySchemaIdAndName(
+                                    schemaId, identifier.name()));
+                    if (oldFilesetPO == null
+                        || !Objects.equals(oldFilesetPO.getFilesetId(), locked.getFilesetId())) {
+                      throw new TombstoneChangedException(
+                          "Fileset changed while updating %s", identifier);
+                    }
+                    FilesetEntity oldFilesetEntity =
+                        POConverters.fromFilesetPO(oldFilesetPO, identifier.namespace());
+                    FilesetEntity newEntity = (FilesetEntity) updater.apply((E) oldFilesetEntity);
+                    candidate.set(newEntity);
+                    Preconditions.checkArgument(
+                        Objects.equals(oldFilesetEntity.id(), newEntity.id()),
+                        "The updated fileset entity id: %s should be same with the entity id before: %s",
+                        newEntity.id(),
+                        oldFilesetEntity.id());
+
+                    boolean updateVersion =
+                        POConverters.checkFilesetVersionNeedUpdate(
+                            oldFilesetPO.getFilesetVersionPOs(), newEntity);
+                    FilesetPO newFilesetPO =
+                        POConverters.updateFilesetPOWithVersion(
+                            oldFilesetPO, newEntity, updateVersion);
+                    if (updateVersion) {
+                      SessionUtils.doWithoutCommit(
+                          FilesetVersionMapper.class,
+                          mapper ->
+                              mapper.insertFilesetVersions(newFilesetPO.getFilesetVersionPOs()));
+                    }
+                    int updated =
+                        SessionUtils.getWithoutCommit(
+                            FilesetMetaMapper.class,
+                            mapper -> mapper.updateFilesetMeta(newFilesetPO, oldFilesetPO));
+                    if (updated != 1) {
+                      throw new TombstoneChangedException(
+                          "Fileset changed while updating %s", identifier);
+                    }
+
+                    if (!Objects.equals(oldFilesetEntity.name(), newEntity.name())) {
+                      String oldFullName =
+                          NameIdentifierUtil.ofFileset(
+                                  identifier.namespace().level(0),
+                                  identifier.namespace().level(1),
+                                  identifier.namespace().level(2),
+                                  oldFilesetEntity.name())
+                              .toString();
+                      SessionUtils.doWithoutCommit(
+                          EntityChangeLogMapper.class,
+                          mapper ->
+                              mapper.insertEntityChange(
+                                  identifier.namespace().level(0),
+                                  Entity.EntityType.FILESET.name(),
+                                  oldFullName,
+                                  OperateType.ALTER));
+                    }
+                  }));
     } catch (RuntimeException re) {
+      FilesetEntity newEntity = candidate.get();
       ExceptionUtils.checkSQLException(
-          re, Entity.EntityType.FILESET, newEntity.nameIdentifier().toString());
+          re,
+          Entity.EntityType.FILESET,
+          newEntity == null ? identifier.toString() : newEntity.nameIdentifier().toString());
       throw re;
     }
-
-    if (updateResult > 0) {
-      return newEntity;
-    } else {
-      throw new IOException("Failed to update the entity: " + identifier);
-    }
+    return Objects.requireNonNull(candidate.get(), "updated fileset must not be null");
   }
 
   @Monitored(
       metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME,
       baseMetricName = "deleteFileset")
   public boolean deleteFileset(NameIdentifier identifier) {
-    FilesetPO filesetPO = getFilesetPOByIdentifier(identifier);
-    Long filesetId = filesetPO.getFilesetId();
+    return deleteFileset(identifier, Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+  }
 
-    String metalakeName = identifier.namespace().level(0);
-    String catalogName = identifier.namespace().level(1);
-    String schemaName = identifier.namespace().level(2);
-    String filesetFullName =
-        NameIdentifierUtil.ofFileset(metalakeName, catalogName, schemaName, identifier.name())
-            .toString();
+  /**
+   * Soft-deletes a fileset and records its durable deletion generation atomically.
+   *
+   * @param identifier fileset identifier
+   * @param retentionMs recoverability window in milliseconds
+   * @return {@code true} when a live fileset row was deleted
+   */
+  public boolean deleteFileset(NameIdentifier identifier, long retentionMs) {
+    return deleteFileset(identifier, Instant.now().toEpochMilli(), retentionMs);
+  }
 
-    // We should delete meta and version info
-    AtomicInteger deleteResult = new AtomicInteger(0);
+  /**
+   * Soft-deletes a fileset using one timestamp and generation token for every affected row.
+   *
+   * @param identifier fileset identifier
+   * @param deletedAt deletion timestamp in milliseconds
+   * @param retentionMs recoverability window in milliseconds
+   * @return {@code true} when the exact live fileset snapshot was deleted
+   */
+  public boolean deleteFileset(NameIdentifier identifier, long deletedAt, long retentionMs) {
+    NameIdentifierUtil.checkFileset(identifier);
+    Preconditions.checkArgument(deletedAt > 0, "deletedAt must be positive");
+    Preconditions.checkArgument(retentionMs >= 0, "retentionMs must not be negative");
+
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(identifier.namespace().levels()), Entity.EntityType.SCHEMA);
+    AtomicInteger deleteResult = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
         () ->
-            deleteResult.set(
+            SessionUtils.doWithoutCommit(
+                FilesetRecoveryMapper.class,
+                mapper -> {
+                  lockLiveSchema(mapper, schemaId);
+                  FilesetPO fileset =
+                      mapper.selectLiveFilesetForUpdate(schemaId, identifier.name());
+                  if (fileset == null) {
+                    throw new NoSuchEntityException(
+                        NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+                        Entity.EntityType.FILESET.name().toLowerCase(Locale.ROOT),
+                        identifier.name());
+                  }
+                  long deletionTimestamp =
+                      chooseDeletedAt(
+                          mapper,
+                          fileset.getFilesetId(),
+                          schemaId,
+                          fileset.getFilesetName(),
+                          deletedAt);
+                  EntityDeletionPO deletion =
+                      EntityDeletionService.getInstance()
+                          .newDeletion(
+                              Entity.EntityType.FILESET,
+                              fileset.getFilesetId(),
+                              fileset.getMetalakeId(),
+                              fileset.getCatalogId(),
+                              fileset.getSchemaId(),
+                              fileset.getFilesetName(),
+                              fileset.getCurrentVersion(),
+                              deletionTimestamp,
+                              retentionMs,
+                              PrincipalUtils.getCurrentUserName());
+
+                  int filesetMeta =
+                      mapper.softDeleteFilesetMeta(
+                          fileset.getFilesetId(),
+                          fileset.getSchemaId(),
+                          fileset.getFilesetName(),
+                          fileset.getCurrentVersion(),
+                          fileset.getLastVersion(),
+                          deletionTimestamp,
+                          deletion.getDeletionId());
+                  deleteResult.set(filesetMeta);
+                  if (filesetMeta != 1) {
+                    throw new TombstoneChangedException(
+                        "Fileset changed while deleting %s", identifier);
+                  }
+
+                  if (mapper.softDeleteFilesetVersions(
+                          fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId())
+                      < 1) {
+                    throw new TombstoneChangedException(
+                        "Fileset versions changed while deleting %s", identifier);
+                  }
+                  if (mapper.countCurrentVersionGeneration(
+                          fileset.getFilesetId(),
+                          fileset.getCurrentVersion(),
+                          deletionTimestamp,
+                          deletion.getDeletionId())
+                      < 1) {
+                    throw new TombstoneChangedException(
+                        "Fileset current version changed while deleting %s", identifier);
+                  }
+                  mapper.softDeleteOwnerRelations(
+                      fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId());
+                  mapper.softDeleteSecurableObjects(
+                      fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId());
+                  mapper.softDeleteTagRelations(
+                      fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId());
+                  mapper.softDeleteStatistics(
+                      fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId());
+                  mapper.softDeletePolicyRelations(
+                      fileset.getFilesetId(), deletionTimestamp, deletion.getDeletionId());
+                  EntityDeletionService.getInstance().insert(deletion);
+                  SessionUtils.doWithoutCommit(
+                      EntityChangeLogMapper.class,
+                      changeLogMapper ->
+                          changeLogMapper.insertEntityChange(
+                              identifier.namespace().level(0),
+                              Entity.EntityType.FILESET.name(),
+                              identifier.toString(),
+                              OperateType.DROP));
+                }));
+    return deleteResult.get() == 1;
+  }
+
+  /**
+   * Restores one exact fileset metadata deletion generation transactionally.
+   *
+   * <p>This operation never calls a connector or filesystem. Managed and external filesets both
+   * restore only their Gravitino metadata.
+   *
+   * @param identifier original fileset identifier
+   * @param observed optimistic deletion-generation snapshot
+   * @param restoredAt restoration timestamp in milliseconds
+   * @param restoreEtag exact entity tag whose precondition authorized the restore
+   * @param effectiveExpiresAt expiry under the active retention policy
+   * @return restored fileset entity
+   */
+  public FilesetEntity restoreFileset(
+      NameIdentifier identifier,
+      EntityDeletionPO observed,
+      long restoredAt,
+      String restoreEtag,
+      long effectiveExpiresAt) {
+    NameIdentifierUtil.checkFileset(identifier);
+    Objects.requireNonNull(observed, "observed deletion must not be null");
+    Objects.requireNonNull(restoreEtag, "restore ETag must not be null");
+    Preconditions.checkArgument(restoredAt > 0, "restoredAt must be positive");
+    Preconditions.checkArgument(!restoreEtag.isEmpty(), "restore ETag must not be empty");
+    Preconditions.checkArgument(effectiveExpiresAt > 0, "effectiveExpiresAt must be positive");
+
+    AtomicReference<FilesetEntity> restored = new AtomicReference<>();
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          long schemaId =
+              EntityIdService.getEntityId(
+                  NameIdentifier.of(identifier.namespace().levels()), Entity.EntityType.SCHEMA);
+          SessionUtils.doWithoutCommit(
+              FilesetRecoveryMapper.class,
+              mapper -> {
+                Long lockedSchemaId = mapper.lockLiveSchema(schemaId);
+                if (!Objects.equals(schemaId, lockedSchemaId)) {
+                  throw new RecoveryConflictException(
+                      RecoveryConflictReason.PARENT_CHANGED,
+                      "The parent schema changed while restoring %s",
+                      identifier);
+                }
+                EntityDeletionPO latest =
+                    SessionUtils.getWithoutCommit(
+                        EntityDeletionMapper.class,
+                        deletionMapper ->
+                            deletionMapper.selectLatestEntityDeletion(
+                                Entity.EntityType.FILESET.name(), schemaId, identifier.name()));
+                if (latest == null
+                    || !Objects.equals(latest.getDeletionId(), observed.getDeletionId())) {
+                  throw new RecoveryConflictException(
+                      RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+                      "Deletion generation %s is no longer latest for fileset %s",
+                      observed.getDeletionId(),
+                      identifier);
+                }
+
+                EntityDeletionPO actual =
+                    SessionUtils.getWithoutCommit(
+                        EntityDeletionMapper.class,
+                        deletionMapper ->
+                            deletionMapper.selectEntityDeletion(observed.getDeletionId()));
+                if (isCompletedRestoreReplay(identifier, schemaId, observed, actual, restoreEtag)) {
+                  restored.set(loadIdempotentlyRestoredFileset(identifier, schemaId, actual));
+                  return;
+                }
+                validateDeletionSnapshot(identifier, schemaId, observed, actual);
+                if (Instant.now().toEpochMilli() >= effectiveExpiresAt) {
+                  throw new TombstoneExpiredException(
+                      "Deletion generation %s expired at %s",
+                      observed.getDeletionId(), effectiveExpiresAt);
+                }
+
+                FilesetPO generation =
+                    mapper.selectFilesetGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateFilesetGeneration(actual, generation);
+                if (mapper.countCurrentVersionGeneration(
+                        actual.getEntityId(),
+                        actual.getEntityVersion(),
+                        actual.getDeletedAt(),
+                        actual.getDeletionId())
+                    < 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                int claimed =
+                    SessionUtils.getWithoutCommit(
+                        EntityDeletionMapper.class,
+                        deletionMapper ->
+                            deletionMapper.compareAndSetState(
+                                actual.getDeletionId(),
+                                DeletionState.DELETED,
+                                actual.getRevision(),
+                                DeletionState.RESTORING,
+                                null,
+                                null));
+                if (claimed != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                mapper.restoreOwnerRelations(
+                    actual.getEntityId(),
+                    actual.getDeletedAt(),
+                    actual.getDeletionId(),
+                    restoredAt);
+                mapper.restoreSecurableObjects(
+                    actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                mapper.restoreTagRelations(
+                    actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                mapper.restoreStatistics(
+                    actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                mapper.restorePolicyRelations(
+                    actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                if (mapper.restoreFilesetVersions(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId())
+                    < 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+                if (restoreFilesetMeta(mapper, actual, generation, identifier) != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                int receipt =
+                    SessionUtils.getWithoutCommit(
+                        EntityDeletionMapper.class,
+                        deletionMapper ->
+                            deletionMapper.compareAndSetState(
+                                actual.getDeletionId(),
+                                DeletionState.RESTORING,
+                                actual.getRevision() + 1,
+                                DeletionState.RESTORED,
+                                restoredAt,
+                                restoreEtag));
+                if (receipt != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+                SessionUtils.doWithoutCommit(
+                    EntityChangeLogMapper.class,
+                    changeLogMapper ->
+                        changeLogMapper.insertEntityChange(
+                            identifier.namespace().level(0),
+                            Entity.EntityType.FILESET.name(),
+                            identifier.toString(),
+                            OperateType.RESTORE));
+                restored.set(getFilesetByIdentifier(identifier));
+              });
+        });
+    return Objects.requireNonNull(restored.get(), "restored fileset must not be null");
+  }
+
+  /**
+   * Permanently deletes a bounded batch of expired, recorded fileset deletion generations.
+   *
+   * @param legacyTimeline current global retention cutoff
+   * @param limit maximum deletion generations to purge
+   * @return number of deletion generations purged
+   */
+  @Monitored(
+      metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME,
+      baseMetricName = "purgeExpiredFilesetDeletions")
+  public int purgeExpiredFilesetDeletions(long legacyTimeline, int limit) {
+    List<EntityDeletionPO> expired =
+        EntityDeletionService.getInstance()
+            .listExpired(Entity.EntityType.FILESET, legacyTimeline, limit);
+    if (expired.isEmpty()) {
+      return 0;
+    }
+
+    long purgedAt = Instant.now().toEpochMilli();
+    AtomicInteger purged = new AtomicInteger();
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          for (EntityDeletionPO observed : expired) {
+            EntityDeletionPO actual =
                 SessionUtils.getWithoutCommit(
-                    FilesetMetaMapper.class,
-                    mapper -> mapper.softDeleteFilesetMetasByFilesetId(filesetId))),
-        () -> {
-          if (deleteResult.get() > 0) {
+                    EntityDeletionMapper.class,
+                    mapper -> mapper.selectEntityDeletion(observed.getDeletionId()));
+            if (actual == null
+                || actual.getState() != DeletionState.DELETED
+                || !Objects.equals(actual.getRevision(), observed.getRevision())
+                || actual.getDeletedAt() <= 0
+                || actual.getDeletedAt() >= legacyTimeline) {
+              continue;
+            }
+
+            int claimed =
+                SessionUtils.getWithoutCommit(
+                    EntityDeletionMapper.class,
+                    mapper ->
+                        mapper.compareAndSetState(
+                            actual.getDeletionId(),
+                            DeletionState.DELETED,
+                            actual.getRevision(),
+                            DeletionState.PURGING,
+                            null,
+                            null));
+            if (claimed != 1) {
+              continue;
+            }
             SessionUtils.doWithoutCommit(
-                FilesetVersionMapper.class,
-                mapper -> mapper.softDeleteFilesetVersionsByFilesetId(filesetId));
-            SessionUtils.doWithoutCommit(
-                OwnerMetaMapper.class,
-                mapper ->
-                    mapper.softDeleteOwnerRelByMetadataObjectIdAndType(
-                        filesetId, MetadataObject.Type.FILESET.name()));
-            SessionUtils.doWithoutCommit(
-                SecurableObjectMapper.class,
-                mapper ->
-                    mapper.softDeleteObjectRelsByMetadataObject(
-                        filesetId, MetadataObject.Type.FILESET.name()));
-            SessionUtils.doWithoutCommit(
-                TagMetadataObjectRelMapper.class,
-                mapper ->
-                    mapper.softDeleteTagMetadataObjectRelsByMetadataObject(
-                        filesetId, MetadataObject.Type.FILESET.name()));
-            SessionUtils.doWithoutCommit(
-                StatisticMetaMapper.class,
-                mapper -> mapper.softDeleteStatisticsByEntityId(filesetId));
-            SessionUtils.doWithoutCommit(
-                PolicyMetadataObjectRelMapper.class,
-                mapper ->
-                    mapper.softDeletePolicyMetadataObjectRelsByMetadataObject(
-                        filesetId, MetadataObject.Type.FILESET.name()));
-          }
-        },
-        () -> {
-          if (deleteResult.get() > 0) {
-            SessionUtils.doWithoutCommit(
-                EntityChangeLogMapper.class,
-                mapper ->
-                    mapper.insertEntityChange(
-                        metalakeName,
-                        Entity.EntityType.FILESET.name(),
-                        filesetFullName,
-                        OperateType.DROP));
+                FilesetRecoveryMapper.class,
+                mapper -> purgeFilesetDeletionGeneration(mapper, actual));
+            int receipt =
+                SessionUtils.getWithoutCommit(
+                    EntityDeletionMapper.class,
+                    mapper ->
+                        mapper.compareAndSetState(
+                            actual.getDeletionId(),
+                            DeletionState.PURGING,
+                            actual.getRevision() + 1,
+                            DeletionState.PURGED,
+                            purgedAt,
+                            null));
+            if (receipt != 1) {
+              throw tombstoneChanged(actual.getDeletionId());
+            }
+            purged.incrementAndGet();
           }
         });
-
-    return deleteResult.get() > 0;
+    return purged.get();
   }
 
   @Monitored(
@@ -425,6 +761,193 @@ public class FilesetMetaService {
           filesetCurVersion.getVersion());
     }
     return totalDeletedCount;
+  }
+
+  private static void lockLiveSchema(FilesetRecoveryMapper mapper, long schemaId) {
+    Long lockedSchemaId = mapper.lockLiveSchema(schemaId);
+    if (!Objects.equals(schemaId, lockedSchemaId)) {
+      throw new NoSuchEntityException(
+          NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+          Entity.EntityType.SCHEMA.name().toLowerCase(Locale.ROOT),
+          schemaId);
+    }
+  }
+
+  private static long chooseDeletedAt(
+      FilesetRecoveryMapper mapper,
+      long filesetId,
+      long schemaId,
+      String filesetName,
+      long requestedDeletedAt) {
+    Long newestDeletedAt = mapper.selectNewestFilesetDeletedAt(filesetId, schemaId, filesetName);
+    if (newestDeletedAt == null || newestDeletedAt < requestedDeletedAt) {
+      return requestedDeletedAt;
+    }
+    return Math.addExact(newestDeletedAt, 1L);
+  }
+
+  private static void validateDeletionSnapshot(
+      NameIdentifier identifier,
+      long schemaId,
+      EntityDeletionPO observed,
+      @Nullable EntityDeletionPO actual) {
+    boolean unchanged =
+        actual != null
+            && Objects.equals(actual.getDeletionId(), observed.getDeletionId())
+            && Objects.equals(actual.getEntityType(), observed.getEntityType())
+            && Objects.equals(actual.getEntityId(), observed.getEntityId())
+            && Objects.equals(actual.getMetalakeId(), observed.getMetalakeId())
+            && Objects.equals(actual.getCatalogId(), observed.getCatalogId())
+            && Objects.equals(actual.getParentId(), observed.getParentId())
+            && Objects.equals(actual.getEntityName(), observed.getEntityName())
+            && Objects.equals(actual.getDeletedAt(), observed.getDeletedAt())
+            && Objects.equals(actual.getExpiresAt(), observed.getExpiresAt())
+            && Objects.equals(actual.getDeletedBy(), observed.getDeletedBy())
+            && Objects.equals(actual.getEntityVersion(), observed.getEntityVersion())
+            && Objects.equals(actual.getState(), observed.getState())
+            && Objects.equals(actual.getRevision(), observed.getRevision())
+            && Objects.equals(actual.getRestoredAt(), observed.getRestoredAt())
+            && Objects.equals(actual.getRestoreEtag(), observed.getRestoreEtag())
+            && Objects.equals(actual.getPurgedAt(), observed.getPurgedAt())
+            && actual.getState() == DeletionState.DELETED
+            && Entity.EntityType.FILESET.name().equals(actual.getEntityType())
+            && Objects.equals(actual.getParentId(), schemaId)
+            && Objects.equals(actual.getEntityName(), identifier.name());
+    if (!unchanged) {
+      throw tombstoneChanged(observed.getDeletionId());
+    }
+  }
+
+  private static boolean isCompletedRestoreReplay(
+      NameIdentifier identifier,
+      long schemaId,
+      EntityDeletionPO observed,
+      @Nullable EntityDeletionPO actual,
+      String restoreEtag) {
+    return actual != null
+        && observed.getState() == DeletionState.DELETED
+        && actual.getState() == DeletionState.RESTORED
+        && Objects.equals(actual.getDeletionId(), observed.getDeletionId())
+        && Objects.equals(actual.getEntityType(), observed.getEntityType())
+        && Objects.equals(actual.getEntityId(), observed.getEntityId())
+        && Objects.equals(actual.getMetalakeId(), observed.getMetalakeId())
+        && Objects.equals(actual.getCatalogId(), observed.getCatalogId())
+        && Objects.equals(actual.getParentId(), observed.getParentId())
+        && Objects.equals(actual.getEntityName(), observed.getEntityName())
+        && Objects.equals(actual.getDeletedAt(), observed.getDeletedAt())
+        && Objects.equals(actual.getExpiresAt(), observed.getExpiresAt())
+        && Objects.equals(actual.getDeletedBy(), observed.getDeletedBy())
+        && Objects.equals(actual.getEntityVersion(), observed.getEntityVersion())
+        && Objects.equals(actual.getParentId(), schemaId)
+        && Objects.equals(actual.getEntityName(), identifier.name())
+        && Objects.equals(actual.getRevision(), observed.getRevision() + 2L)
+        && actual.getRestoredAt() != null
+        && actual.getPurgedAt() == null
+        && Objects.equals(actual.getRestoreEtag(), restoreEtag);
+  }
+
+  private static FilesetEntity loadIdempotentlyRestoredFileset(
+      NameIdentifier identifier, long schemaId, EntityDeletionPO deletion) {
+    FilesetEntity liveFileset;
+    try {
+      liveFileset = getInstance().getFilesetByIdentifier(identifier);
+    } catch (NoSuchEntityException e) {
+      throw tombstoneChanged(deletion.getDeletionId());
+    }
+    if (!Objects.equals(liveFileset.id(), deletion.getEntityId())
+        || !Objects.equals(deletion.getParentId(), schemaId)) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "Fileset ID %s is active under a different logical fileset",
+          deletion.getEntityId());
+    }
+    return liveFileset;
+  }
+
+  private static void validateFilesetGeneration(
+      EntityDeletionPO deletion, @Nullable FilesetPO generation) {
+    if (generation == null
+        || !Objects.equals(generation.getFilesetId(), deletion.getEntityId())
+        || !Objects.equals(generation.getSchemaId(), deletion.getParentId())
+        || !Objects.equals(generation.getFilesetName(), deletion.getEntityName())
+        || !Objects.equals(generation.getCurrentVersion(), deletion.getEntityVersion())
+        || !Objects.equals(generation.getDeletedAt(), deletion.getDeletedAt())
+        || !Objects.equals(generation.getDeletionId(), deletion.getDeletionId())) {
+      throw tombstoneChanged(deletion.getDeletionId());
+    }
+  }
+
+  private static int restoreFilesetMeta(
+      FilesetRecoveryMapper mapper,
+      EntityDeletionPO deletion,
+      FilesetPO generation,
+      NameIdentifier identifier) {
+    try {
+      return mapper.restoreFilesetMeta(
+          deletion.getEntityId(),
+          deletion.getParentId(),
+          deletion.getEntityName(),
+          generation.getCurrentVersion(),
+          generation.getLastVersion(),
+          deletion.getDeletedAt(),
+          deletion.getDeletionId());
+    } catch (RuntimeException e) {
+      try {
+        ExceptionUtils.checkSQLException(e, Entity.EntityType.FILESET, identifier.toString());
+      } catch (EntityAlreadyExistsException duplicateName) {
+        throw new RecoveryConflictException(
+            duplicateName,
+            RecoveryConflictReason.NAME_OCCUPIED,
+            "A live fileset already occupies name %s",
+            identifier);
+      } catch (IOException ignored) {
+        // Preserve the original persistence exception for non-duplicate SQL failures.
+      }
+      throw e;
+    }
+  }
+
+  private static void purgeFilesetDeletionGeneration(
+      FilesetRecoveryMapper mapper, EntityDeletionPO deletion) {
+    FilesetPO generation =
+        mapper.selectFilesetGeneration(
+            deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    validateFilesetGeneration(deletion, generation);
+    if (mapper.countCurrentVersionGeneration(
+            deletion.getEntityId(),
+            deletion.getEntityVersion(),
+            deletion.getDeletedAt(),
+            deletion.getDeletionId())
+        < 1) {
+      throw tombstoneChanged(deletion.getDeletionId());
+    }
+    mapper.hardDeleteOwnerRelations(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    mapper.hardDeleteSecurableObjects(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    mapper.hardDeleteTagRelations(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    mapper.hardDeleteStatistics(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    mapper.hardDeletePolicyRelations(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    mapper.hardDeleteFilesetVersions(
+        deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+    if (mapper.hardDeleteFilesetMeta(
+            deletion.getEntityId(),
+            deletion.getParentId(),
+            deletion.getEntityName(),
+            generation.getCurrentVersion(),
+            generation.getLastVersion(),
+            deletion.getDeletedAt(),
+            deletion.getDeletionId())
+        != 1) {
+      throw tombstoneChanged(deletion.getDeletionId());
+    }
+  }
+
+  private static TombstoneChangedException tombstoneChanged(String deletionId) {
+    return new TombstoneChangedException("Deletion generation %s changed", deletionId);
   }
 
   private FilesetPO getFilesetPOByIdentifier(NameIdentifier identifier) {

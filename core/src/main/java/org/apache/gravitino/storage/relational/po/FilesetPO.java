@@ -33,6 +33,7 @@ public class FilesetPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
   private List<FilesetVersionPO> filesetVersionPOs;
 
   public Long getFilesetId() {
@@ -75,6 +76,11 @@ public class FilesetPO {
     return deletedAt;
   }
 
+  /** Returns the recoverable-deletion generation identifier. */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   public List<FilesetVersionPO> getFilesetVersionPOs() {
     return filesetVersionPOs;
   }
@@ -98,6 +104,7 @@ public class FilesetPO {
         && Objects.equal(getCurrentVersion(), filesetPO.getCurrentVersion())
         && Objects.equal(getLastVersion(), filesetPO.getLastVersion())
         && Objects.equal(getDeletedAt(), filesetPO.getDeletedAt())
+        && Objects.equal(getDeletionId(), filesetPO.getDeletionId())
         && Objects.equal(getFilesetVersionPOs(), filesetPO.getFilesetVersionPOs());
   }
 
@@ -114,6 +121,7 @@ public class FilesetPO {
         getCurrentVersion(),
         getLastVersion(),
         getDeletedAt(),
+        getDeletionId(),
         getFilesetVersionPOs());
   }
 
@@ -171,6 +179,12 @@ public class FilesetPO {
 
     public FilesetPO.Builder withDeletedAt(Long deletedAt) {
       filesetPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public FilesetPO.Builder withDeletionId(String deletionId) {
+      filesetPO.deletionId = deletionId;
       return this;
     }
 

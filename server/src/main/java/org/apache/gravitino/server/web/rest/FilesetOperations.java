@@ -23,16 +23,21 @@ import static org.apache.gravitino.file.Fileset.LOCATION_NAME_UNKNOWN;
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import com.google.common.collect.ImmutableMap;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.constraints.NotNull;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -40,6 +45,8 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
@@ -47,19 +54,27 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.catalog.FilesetDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.dto.file.FilesetDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FilesetCreateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.FileInfoListResponse;
 import org.apache.gravitino.dto.responses.FileLocationResponse;
 import org.apache.gravitino.dto.responses.FilesetResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.file.FileInfo;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.file.FilesetChange;
+import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
@@ -77,12 +92,15 @@ public class FilesetOperations {
   private static final Logger LOG = LoggerFactory.getLogger(FilesetOperations.class);
 
   private final FilesetDispatcher dispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public FilesetOperations(FilesetDispatcher dispatcher) {
+  public FilesetOperations(
+      FilesetDispatcher dispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.dispatcher = dispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -90,13 +108,19 @@ public class FilesetOperations {
   @Timed(name = "list-fileset." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "list-fileset", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.SCHEMA)
   public Response listFilesets(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
-      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema) {
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
 
     try {
       LOG.info("Received list filesets request for schema: {}.{}.{}", metalake, catalog, schema);
@@ -104,7 +128,28 @@ public class FilesetOperations {
           httpRequest,
           () -> {
             Namespace filesetNS = NamespaceUtil.ofFileset(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedFilesetAccess(filesetNS);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedFilesets =
+                  recoverableDeletionManager.listDeletedFilesets(filesetNS, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedFilesets.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier[] idents = dispatcher.listFilesets(filesetNS);
+            if (name != null) {
+              idents =
+                  Arrays.stream(idents)
+                      .filter(ident -> name.equals(ident.name()))
+                      .toArray(NameIdentifier[]::new);
+            }
             idents =
                 MetadataAuthzHelper.filterByExpression(
                     metalake,
@@ -191,20 +236,44 @@ public class FilesetOperations {
   @Timed(name = "load-fileset." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "load-fileset", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_FILESET_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_FILESET_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.FILESET)
   public Response loadFileset(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
       @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
-      @PathParam("fileset") @AuthorizationMetadata(type = Entity.EntityType.FILESET)
-          String fileset) {
+      @PathParam("fileset") @AuthorizationMetadata(type = Entity.EntityType.FILESET) String fileset,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received load fileset request: {}.{}.{}.{}", metalake, catalog, schema, fileset);
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            Namespace namespace = NamespaceUtil.ofFileset(metalake, catalog, schema);
+            if ("deleted".equals(include)) {
+              checkDeletedFilesetAccess(namespace);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted fileset");
+              }
+              DeletedEntityDTO deletedFileset =
+                  recoverableDeletionManager.getDeletedFileset(namespace, fileset, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedFileset)))
+                  .tag(new EntityTag(deletedFileset.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier ident = NameIdentifierUtil.ofFileset(metalake, catalog, schema, fileset);
             Fileset t = dispatcher.loadFileset(ident);
             Response response = Utils.ok(new FilesetResponse(DTOConverters.toDTO(t)));
@@ -213,6 +282,68 @@ public class FilesetOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleFilesetException(OperationType.LOAD, fileset, schema, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted fileset metadata generation.
+   *
+   * @param metalake metalake name
+   * @param catalog catalog name
+   * @param schema schema name
+   * @param fileset original fileset name
+   * @param include deleted-resource selector
+   * @param id immutable fileset identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-fileset read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored fileset response
+   */
+  @PATCH
+  @Path("{fileset}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-fileset." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-fileset", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response restoreFileset(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("fileset") String fileset,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore fileset request: {}.{}.{}.{}", metalake, catalog, schema, fileset);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted fileset");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted fileset");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "fileset");
+            Namespace namespace = NamespaceUtil.ofFileset(metalake, catalog, schema);
+            checkDeletedFilesetAccess(namespace);
+            FilesetEntity restored =
+                recoverableDeletionManager.restoreDeletedFileset(
+                    namespace, fileset, entityId, etag);
+            return Utils.ok(new FilesetResponse(toDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleFilesetException(OperationType.RESTORE, fileset, schema, e);
     }
   }
 
@@ -404,6 +535,27 @@ public class FilesetOperations {
     } finally {
       // Clear the caller context
       CallerContext.CallerContextHolder.remove();
+    }
+  }
+
+  private static FilesetDTO toDTO(FilesetEntity fileset) {
+    return FilesetDTO.builder()
+        .name(fileset.name())
+        .comment(fileset.comment())
+        .type(fileset.filesetType())
+        .storageLocations(fileset.storageLocations())
+        .properties(fileset.properties())
+        .audit(DTOConverters.toDTO(fileset.auditInfo()))
+        .build();
+  }
+
+  private static void checkDeletedFilesetAccess(Namespace filesetNamespace) {
+    NameIdentifier schemaIdentifier = NameIdentifier.of(filesetNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        schemaIdentifier, Entity.EntityType.SCHEMA, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted filesets under %s",
+          filesetNamespace);
     }
   }
 }

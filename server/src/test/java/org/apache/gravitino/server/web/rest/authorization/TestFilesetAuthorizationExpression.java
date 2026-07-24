@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import ognl.OgnlException;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FilesetCreateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdatesRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
@@ -32,6 +33,60 @@ import org.apache.gravitino.server.web.rest.FilesetOperations;
 import org.junit.jupiter.api.Test;
 
 public class TestFilesetAuthorizationExpression {
+
+  @Test
+  public void testDeletedFilesetReadAndRestoreAuthorization()
+      throws NoSuchMethodException, OgnlException {
+    Method listMethod =
+        FilesetOperations.class.getMethod(
+            "listFilesets",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
+    MockAuthorizationExpressionEvaluator listEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            listMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(listEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(listEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method loadMethod =
+        FilesetOperations.class.getMethod(
+            "loadFileset",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class);
+    MockAuthorizationExpressionEvaluator loadEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            loadMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(loadEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertTrue(loadEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+
+    Method restoreMethod =
+        FilesetOperations.class.getMethod(
+            "restoreFileset",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            EntityRestoreRequest.class);
+    MockAuthorizationExpressionEvaluator restoreEvaluator =
+        new MockAuthorizationExpressionEvaluator(
+            restoreMethod.getAnnotation(AuthorizationExpression.class).expression());
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of()));
+    assertTrue(restoreEvaluator.getResult(ImmutableSet.of("SERVICE_ADMIN")));
+    assertFalse(restoreEvaluator.getResult(ImmutableSet.of("METALAKE::OWNER")));
+  }
 
   @Test
   public void testCreateFileset() throws NoSuchMethodException, OgnlException {

@@ -58,7 +58,8 @@ public interface FilesetMetaMapper {
         @Result(property = "properties", column = "properties"),
         @Result(property = "locationName", column = "storage_location_name"),
         @Result(property = "storageLocation", column = "storage_location"),
-        @Result(property = "deletedAt", column = "version_deleted_at")
+        @Result(property = "deletedAt", column = "version_deleted_at"),
+        @Result(property = "deletionId", column = "version_deletion_id")
       })
   @Select("SELECT 1") // Dummy SQL to avoid MyBatis error, never be executed
   FilesetVersionPO mapToFilesetVersionPO();
@@ -74,12 +75,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(type = FilesetMetaSQLProviderFactory.class, method = "listFilesetPOsBySchemaId")
@@ -96,12 +99,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(
@@ -123,12 +128,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(type = FilesetMetaSQLProviderFactory.class, method = "listFilesetPOsByFilesetIds")
@@ -151,12 +158,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(
@@ -176,12 +185,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(type = FilesetMetaSQLProviderFactory.class, method = "selectFilesetMetaById")
@@ -198,12 +209,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(
@@ -265,12 +278,14 @@ public interface FilesetMetaMapper {
     @Result(property = "currentVersion", column = "current_version"),
     @Result(property = "lastVersion", column = "last_version"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "filesetVersionPOs",
         javaType = List.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_fileset_id,version,"
-                + "fileset_comment,properties,storage_location_name,storage_location,version_deleted_at}",
+                + "fileset_comment,properties,storage_location_name,storage_location,"
+                + "version_deleted_at,version_deletion_id}",
         many = @Many(resultMap = "mapToFilesetVersionPO"))
   })
   @SelectProvider(
