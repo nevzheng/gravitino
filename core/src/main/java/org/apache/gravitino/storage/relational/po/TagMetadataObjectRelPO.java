@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 
 @Getter
 public class TagMetadataObjectRelPO {
+  private Long id;
   private Long tagId;
   private Long metadataObjectId;
   private String metadataObjectType;
@@ -32,6 +33,7 @@ public class TagMetadataObjectRelPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public static Builder builder() {
     return new Builder();
@@ -46,25 +48,29 @@ public class TagMetadataObjectRelPO {
       return false;
     }
     TagMetadataObjectRelPO tagRelPO = (TagMetadataObjectRelPO) o;
-    return Objects.equal(tagId, tagRelPO.tagId)
+    return Objects.equal(id, tagRelPO.id)
+        && Objects.equal(tagId, tagRelPO.tagId)
         && Objects.equal(metadataObjectId, tagRelPO.metadataObjectId)
         && Objects.equal(metadataObjectType, tagRelPO.metadataObjectType)
         && Objects.equal(auditInfo, tagRelPO.auditInfo)
         && Objects.equal(currentVersion, tagRelPO.currentVersion)
         && Objects.equal(lastVersion, tagRelPO.lastVersion)
-        && Objects.equal(deletedAt, tagRelPO.deletedAt);
+        && Objects.equal(deletedAt, tagRelPO.deletedAt)
+        && Objects.equal(deletionId, tagRelPO.deletionId);
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(
+        id,
         tagId,
         metadataObjectId,
         metadataObjectType,
         auditInfo,
         currentVersion,
         lastVersion,
-        deletedAt);
+        deletedAt,
+        deletionId);
   }
 
   public static class Builder {
@@ -72,6 +78,11 @@ public class TagMetadataObjectRelPO {
 
     private Builder() {
       tagRelPO = new TagMetadataObjectRelPO();
+    }
+
+    public Builder withId(Long id) {
+      tagRelPO.id = id;
+      return this;
     }
 
     public Builder withTagId(Long tagId) {
@@ -106,6 +117,12 @@ public class TagMetadataObjectRelPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       tagRelPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      tagRelPO.deletionId = deletionId;
       return this;
     }
 

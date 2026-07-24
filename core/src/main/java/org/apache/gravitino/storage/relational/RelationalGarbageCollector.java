@@ -63,6 +63,7 @@ public final class RelationalGarbageCollector implements Closeable {
                                           || type == Entity.EntityType.USER
                                           || type == Entity.EntityType.GROUP
                                           || type == Entity.EntityType.ROLE
+                                          || type == Entity.EntityType.TAG
                                           || type == Entity.EntityType.JOB_TEMPLATE
                                       ? 3
                                       : 4))
@@ -133,6 +134,7 @@ public final class RelationalGarbageCollector implements Closeable {
               || entityType == Entity.EntityType.USER
               || entityType == Entity.EntityType.GROUP
               || entityType == Entity.EntityType.ROLE
+              || entityType == Entity.EntityType.TAG
               || entityType == Entity.EntityType.JOB_TEMPLATE) {
             // Aggregate GC owns the recorded deletion purge. Continuing into shared relation
             // cleanup after it fails could remove only part of a recoverable deletion generation.

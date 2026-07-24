@@ -24,12 +24,16 @@ import static org.apache.gravitino.server.authorization.expression.Authorization
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -37,14 +41,21 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.TagCreateRequest;
 import org.apache.gravitino.dto.requests.TagUpdateRequest;
 import org.apache.gravitino.dto.requests.TagUpdatesRequest;
 import org.apache.gravitino.dto.requests.TagsAssociateRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.MetadataObjectListResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
@@ -53,7 +64,10 @@ import org.apache.gravitino.dto.responses.TagResponse;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
 import org.apache.gravitino.dto.tag.TagDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
@@ -66,6 +80,7 @@ import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagChange;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,12 +90,21 @@ public class TagOperations {
   private static final Logger LOG = LoggerFactory.getLogger(TagOperations.class);
 
   private final TagDispatcher tagDispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates tag REST operations.
+   *
+   * @param tagDispatcher live tag dispatcher
+   * @param recoverableDeletionManager recoverable-deletion coordinator
+   */
   @Inject
-  public TagOperations(TagDispatcher tagDispatcher) {
+  public TagOperations(
+      TagDispatcher tagDispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.tagDispatcher = tagDispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -91,7 +115,10 @@ public class TagOperations {
   public Response listTags(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @QueryParam("details") @DefaultValue("false") boolean verbose) {
+      @QueryParam("details") @DefaultValue("false") boolean verbose,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info(
         "Received list tag {} request for metalake: {}", verbose ? "infos" : "names", metalake);
 
@@ -99,8 +126,32 @@ public class TagOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              if (verbose) {
+                throw new IllegalArgumentException(
+                    "details=true is not supported with include=deleted");
+              }
+              checkDeletedTagAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              Namespace namespace = NamespaceUtil.ofTag(metalake);
+              List<DeletedEntityDTO> deletedTags =
+                  recoverableDeletionManager.listDeletedTags(namespace, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedTags.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             if (verbose) {
               Tag[] tags = tagDispatcher.listTagsInfo(metalake);
+              if (name != null && !ArrayUtils.isEmpty(tags)) {
+                tags =
+                    Arrays.stream(tags).filter(tag -> name.equals(tag.name())).toArray(Tag[]::new);
+              }
               TagDTO[] tagDTOs;
               if (ArrayUtils.isEmpty(tags)) {
                 tagDTOs = new TagDTO[0];
@@ -123,6 +174,9 @@ public class TagOperations {
             } else {
               String[] tagNames = tagDispatcher.listTags(metalake);
               tagNames = tagNames == null ? new String[0] : tagNames;
+              if (name != null) {
+                tagNames = Arrays.stream(tagNames).filter(name::equals).toArray(String[]::new);
+              }
               tagNames =
                   MetadataAuthzHelper.filterByExpression(
                       metalake,
@@ -174,24 +228,107 @@ public class TagOperations {
   @Timed(name = "get-tag." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-tag", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.TAG)
   public Response getTag(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @PathParam("tag") @AuthorizationMetadata(type = Entity.EntityType.TAG) String name) {
+      @PathParam("tag") @AuthorizationMetadata(type = Entity.EntityType.TAG) String name,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received get tag request for tag: {} under metalake: {}", name, metalake);
 
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedTagAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted tag");
+              }
+              DeletedEntityDTO deletedTag =
+                  recoverableDeletionManager.getDeletedTag(
+                      NamespaceUtil.ofTag(metalake), name, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedTag)))
+                  .tag(new EntityTag(deletedTag.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             Tag tag = tagDispatcher.getTag(metalake, name);
             LOG.info("Get tag: {} under metalake: {}", name, metalake);
             return Utils.ok(new TagResponse(DTOConverters.toDTO(tag, Optional.empty())));
           });
     } catch (Exception e) {
       return ExceptionHandlers.handleTagException(OperationType.GET, name, metalake, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted tag metadata generation.
+   *
+   * @param metalake metalake name
+   * @param name original tag name
+   * @param include deleted-resource selector
+   * @param id immutable tag identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-tag read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored tag response
+   */
+  @PATCH
+  @Path("{tag}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-tag." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-tag", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.METALAKE)
+  public Response restoreTag(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("tag") String name,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore tag request for tag: {} under metalake: {}", name, metalake);
+
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted tag");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted tag");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "tag");
+            checkDeletedTagAccess(metalake);
+            TagEntity restored =
+                recoverableDeletionManager.restoreDeletedTag(
+                    NamespaceUtil.ofTag(metalake), name, entityId, etag);
+            return Utils.ok(new TagResponse(DTOConverters.toDTO(restored, Optional.empty())));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleTagException(OperationType.RESTORE, name, metalake, e);
     }
   }
 
@@ -364,5 +501,13 @@ public class TagOperations {
         new MetadataObjectTagOperations(tagDispatcher);
     metadataObjectTagOperations.setHttpRequest(httpRequest);
     return metadataObjectTagOperations.associateTagsForObject(metalake, type, fullName, request);
+  }
+
+  private static void checkDeletedTagAccess(String metalake) {
+    if (!MetadataAuthzHelper.checkAccess(
+        NameIdentifierUtil.ofMetalake(metalake), Entity.EntityType.METALAKE, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted tags under %s", metalake);
+    }
   }
 }

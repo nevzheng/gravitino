@@ -57,6 +57,7 @@ import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.meta.ViewEntity;
@@ -81,6 +82,7 @@ public class RecoverableDeletionManager {
   private final RecoverableEntityAdapter<TopicEntity> topicAdapter;
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
   private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
+  private final RecoverableEntityAdapter<TagEntity> tagAdapter;
   private final RecoverableEntityAdapter<PolicyEntity> policyAdapter;
   private final RecoverableEntityAdapter<UserEntity> userAdapter;
   private final RecoverableEntityAdapter<GroupEntity> groupAdapter;
@@ -123,6 +125,7 @@ public class RecoverableDeletionManager {
     this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
+    this.tagAdapter = new TagRecoveryAdapter(entityCache);
     this.policyAdapter = new PolicyRecoveryAdapter(entityCache);
     this.userAdapter = new UserRecoveryAdapter(entityCache);
     this.groupAdapter = new GroupRecoveryAdapter(entityCache);
@@ -501,6 +504,47 @@ public class RecoverableDeletionManager {
    */
   public ModelEntity restoreDeletedModel(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(modelAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted tag generations under one live metalake.
+   *
+   * @param namespace tag namespace
+   * @param name optional exact tag name
+   * @param id optional exact immutable tag identifier
+   * @return matching deleted tag generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedTags(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(tagAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted tag representation.
+   *
+   * @param namespace tag namespace
+   * @param name original tag name
+   * @param id immutable tag identifier
+   * @return selected tag deletion generation
+   */
+  public DeletedEntityDTO getDeletedTag(Namespace namespace, String name, long id) {
+    return getDeleted(tagAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact tag-and-relation deletion generation using an optimistic entity tag.
+   *
+   * <p>Only relations captured while live by this standalone tag deletion are restored. Ownership,
+   * grants, connectors, and external systems are not mutated.
+   *
+   * @param namespace tag namespace
+   * @param name original tag name
+   * @param id immutable tag identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-tag read
+   * @return restored tag, or the already-restored tag for an idempotent replay
+   */
+  public TagEntity restoreDeletedTag(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(tagAdapter, namespace, name, id, etag);
   }
 
   /**

@@ -41,7 +41,8 @@ public class TagMetaBaseSQLProvider {
         + " tm JOIN "
         + MetalakeMetaMapper.TABLE_NAME
         + " mm ON tm.metalake_id = mm.metalake_id"
-        + " WHERE mm.metalake_name = #{metalakeName} AND tm.deleted_at = 0 AND mm.deleted_at = 0";
+        + " WHERE mm.metalake_name = #{metalakeName} AND tm.deleted_at = 0"
+        + " AND tm.deletion_id IS NULL AND mm.deleted_at = 0";
   }
 
   public String listTagPOsByMetalakeAndTagNames(
@@ -65,7 +66,7 @@ public class TagMetaBaseSQLProvider {
         + " item='tagName' index='index' collection='tagNames' open='(' separator=',' close=')'>"
         + " #{tagName}"
         + " </foreach>"
-        + " AND tm.deleted_at = 0 AND mm.deleted_at = 0"
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL AND mm.deleted_at = 0"
         + "</script>";
   }
 
@@ -77,7 +78,7 @@ public class TagMetaBaseSQLProvider {
         + MetalakeMetaMapper.TABLE_NAME
         + " mm ON tm.metalake_id = mm.metalake_id"
         + " WHERE mm.metalake_name = #{metalakeName} AND tm.tag_name = #{tagName}"
-        + " AND tm.deleted_at = 0 AND mm.deleted_at = 0";
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL AND mm.deleted_at = 0";
   }
 
   public String selectTagMetaByMetalakeAndName(
@@ -96,7 +97,7 @@ public class TagMetaBaseSQLProvider {
         + MetalakeMetaMapper.TABLE_NAME
         + " mm ON tm.metalake_id = mm.metalake_id"
         + " WHERE mm.metalake_name = #{metalakeName} AND tm.tag_name = #{tagName}"
-        + " AND tm.deleted_at = 0 AND mm.deleted_at = 0";
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL AND mm.deleted_at = 0";
   }
 
   public String insertTagMeta(@Param("tagMeta") TagPO tagPO) {
@@ -170,7 +171,7 @@ public class TagMetaBaseSQLProvider {
         + " AND audit_info = #{oldTagMeta.auditInfo}"
         + " AND current_version = #{oldTagMeta.currentVersion}"
         + " AND last_version = #{oldTagMeta.lastVersion}"
-        + " AND deleted_at = 0";
+        + " AND deleted_at = 0 AND deletion_id IS NULL";
   }
 
   public String softDeleteTagMetaByMetalakeAndTagName(
@@ -216,7 +217,8 @@ public class TagMetaBaseSQLProvider {
         + " deleted_at as deletedAt"
         + " FROM "
         + TAG_TABLE_NAME
-        + " WHERE metalake_id = #{metalakeId} AND tag_name = #{name} and deleted_at = 0";
+        + " WHERE metalake_id = #{metalakeId} AND tag_name = #{name}"
+        + " AND deleted_at = 0 AND deletion_id IS NULL";
   }
 
   public String selectTagByTagId(@Param("tagId") Long tagId) {
@@ -230,7 +232,7 @@ public class TagMetaBaseSQLProvider {
         + " deleted_at as deletedAt"
         + " FROM "
         + TAG_TABLE_NAME
-        + " WHERE tag_id = #{tagId} and deleted_at = 0";
+        + " WHERE tag_id = #{tagId} AND deleted_at = 0 AND deletion_id IS NULL";
   }
 
   public String listTagPOsByTagIds(@Param("tagIds") List<Long> tagIds) {
@@ -245,7 +247,7 @@ public class TagMetaBaseSQLProvider {
         + " deleted_at as deletedAt"
         + " FROM "
         + TAG_TABLE_NAME
-        + " WHERE deleted_at = 0"
+        + " WHERE deleted_at = 0 AND deletion_id IS NULL"
         + " AND tag_id IN ("
         + "<foreach collection='tagIds' item='tagId' separator=','>"
         + "#{tagId}"
@@ -277,7 +279,7 @@ public class TagMetaBaseSQLProvider {
         + "#{tagName}"
         + "</foreach>"
         + " )"
-        + " AND tm.deleted_at = 0 AND mm.deleted_at = 0"
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL AND mm.deleted_at = 0"
         + "</script>";
   }
 }

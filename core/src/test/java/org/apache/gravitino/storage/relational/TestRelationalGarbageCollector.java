@@ -278,4 +278,25 @@ class TestRelationalGarbageCollector {
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.JOB), anyLong());
     verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
   }
+
+  @Test
+  void testTagFailureStopsSharedRelationCleanupForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.TAG), anyLong()))
+        .thenThrow(new IllegalStateException("tag deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TAG), anyLong());
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
+  }
 }

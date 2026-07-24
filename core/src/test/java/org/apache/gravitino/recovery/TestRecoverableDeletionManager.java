@@ -121,6 +121,142 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testTagRestoreUsesExactLiveRelationGenerationAndReplays() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    TableEntity table = newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA), "tagged");
+    TableMetaService.getInstance().insertTable(table, false);
+    TagEntity tag = newTag("recoverable_tag");
+    TagMetaService.getInstance().insertTag(tag, false);
+
+    associateTag(table, tag, true);
+    associateTag(table, tag, false);
+    associateTag(table, tag, true);
+    Assertions.assertTrue(
+        TagMetaService.getInstance().deleteTag(tag.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted =
+        manager.getDeletedTag(NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id());
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deleted.getDeletionId());
+    Assertions.assertEquals(2L, receipt.getAffectedRowCount());
+    Assertions.assertEquals(1, countTagRelations(tag.id(), deleted.getDeletionId(), true));
+    Assertions.assertEquals(1, countTagRelations(tag.id(), null, false));
+    assertRecoveryConflict(
+        RecoveryConflictReason.ENTITY_ID_REUSED,
+        () -> TagMetaService.getInstance().insertTag(tag, true));
+
+    Assertions.assertEquals(
+        tag.id(),
+        manager
+            .restoreDeletedTag(
+                NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id(), deleted.getEtag())
+            .id());
+    Assertions.assertEquals(
+        List.of(tag),
+        TagMetaService.getInstance()
+            .listTagsForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertEquals(1, countTagRelations(tag.id(), null, false));
+    Assertions.assertEquals(
+        tag.id(),
+        manager
+            .restoreDeletedTag(
+                NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id(), deleted.getEtag())
+            .id());
+  }
+
+  @TestTemplate
+  public void testTagRestoreRejectsMissingRelationWithoutPartialRevival() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    TableEntity table = newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA), "broken_tag");
+    TableMetaService.getInstance().insertTable(table, false);
+    TagEntity tag = newTag("broken_tag");
+    TagMetaService.getInstance().insertTag(tag, false);
+    associateTag(table, tag, true);
+    Assertions.assertTrue(
+        TagMetaService.getInstance().deleteTag(tag.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted =
+        manager.getDeletedTag(NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id());
+    updateDeletionRecord(
+        "DELETE FROM tag_relation_meta WHERE tag_id = ? AND deletion_id = ?",
+        tag.id(),
+        deleted.getDeletionId());
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.INCOMPLETE_GENERATION,
+        () ->
+            manager.restoreDeletedTag(
+                NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(tag.nameIdentifier(), Entity.EntityType.TAG));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testTagExactPurgeAndLegacyOrphanCleanup() throws Exception {
+    long deletedAt = Instant.now().toEpochMilli();
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    TableEntity table = newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA), "tag_gc");
+    TableMetaService.getInstance().insertTable(table, false);
+
+    TagEntity recorded = newTag("recorded_tag_gc");
+    TagMetaService.getInstance().insertTag(recorded, false);
+    associateTag(table, recorded, true);
+    Assertions.assertTrue(
+        TagMetaService.getInstance().deleteTag(recorded.nameIdentifier(), deletedAt, RETENTION_MS));
+    RecoverableDeletionManager manager =
+        new RecoverableDeletionManager(
+            RETENTION_MS,
+            Clock.fixed(Instant.ofEpochMilli(deletedAt + RETENTION_MS + 1L), ZoneOffset.UTC));
+    DeletedEntityDTO expired =
+        manager.getDeletedTag(NamespaceUtil.ofTag(METALAKE), recorded.name(), recorded.id());
+    Assertions.assertFalse(expired.getRestorable());
+    Assertions.assertEquals("TOMBSTONE_EXPIRED", expired.getReason());
+
+    Assertions.assertEquals(
+        1,
+        TagMetaService.getInstance().purgeExpiredTagDeletions(deletedAt + RETENTION_MS + 1L, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(recorded.id(), Entity.EntityType.TAG));
+    Assertions.assertEquals(0, countAllTagRelations(recorded.id()));
+    Assertions.assertEquals(
+        DeletionState.PURGED,
+        EntityDeletionService.getInstance().get(expired.getDeletionId()).getState());
+
+    TagEntity legacy = newTag("legacy_tag_gc");
+    TagMetaService.getInstance().insertTag(legacy, false);
+    associateTag(table, legacy, true);
+    long legacyDeletedAt = deletedAt - 1_000L;
+    updateDeletionRecord(
+        "UPDATE tag_meta SET deleted_at = ?, deletion_id = NULL WHERE tag_id = ?",
+        legacyDeletedAt,
+        legacy.id());
+    Assertions.assertEquals(1, countAllTagRelations(legacy.id()));
+
+    Assertions.assertEquals(
+        2, TagMetaService.getInstance().deleteTagMetasByLegacyTimeline(legacyDeletedAt + 1L, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(legacy.id(), Entity.EntityType.TAG));
+    Assertions.assertEquals(0, countAllTagRelations(legacy.id()));
+  }
+
+  @TestTemplate
+  public void testSharedTagTableRelationCanRestoreEitherRootFirst() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+
+    assertSharedTagTableRestoreOrder("tag_first_table_first", true, false);
+    assertSharedTagTableRestoreOrder("tag_first_tag_first", true, true);
+    assertSharedTagTableRestoreOrder("table_first_tag_first", false, true);
+    assertSharedTagTableRestoreOrder("table_first_table_first", false, false);
+  }
+
+  @TestTemplate
   public void testJobTemplateRestoreRevivesOnlyJobsCapturedByExactGeneration() throws Exception {
     createAndInsertMakeLake(METALAKE);
     JobTemplateEntity template =
@@ -2136,6 +2272,106 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
     Assertions.assertEquals(0L, receipt.getRevision());
   }
 
+  private void assertSharedTagTableRestoreOrder(
+      String suffix, boolean deleteTagFirst, boolean restoreTagFirst) throws Exception {
+    TableEntity table =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA), "table_" + suffix);
+    TableMetaService.getInstance().insertTable(table, false);
+    TagEntity tag = newTag("tag_" + suffix);
+    TagMetaService.getInstance().insertTag(tag, false);
+    associateTag(table, tag, true);
+
+    if (deleteTagFirst) {
+      Assertions.assertTrue(
+          TagMetaService.getInstance().deleteTag(tag.nameIdentifier(), RETENTION_MS));
+      Assertions.assertTrue(
+          TableMetaService.getInstance().deleteTable(table.nameIdentifier(), RETENTION_MS));
+    } else {
+      Assertions.assertTrue(
+          TableMetaService.getInstance().deleteTable(table.nameIdentifier(), RETENTION_MS));
+      Assertions.assertTrue(
+          TagMetaService.getInstance().deleteTag(tag.nameIdentifier(), RETENTION_MS));
+    }
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deletedTag =
+        manager.getDeletedTag(NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id());
+    DeletedEntityDTO deletedTable =
+        manager.getDeletedTable(table.namespace(), table.name(), table.id());
+    EntityDeletionPO tagReceipt =
+        EntityDeletionService.getInstance().get(deletedTag.getDeletionId());
+    Assertions.assertEquals(deleteTagFirst ? 2L : 1L, tagReceipt.getAffectedRowCount());
+
+    if (restoreTagFirst) {
+      manager.restoreDeletedTag(
+          NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id(), deletedTag.getEtag());
+      Assertions.assertTrue(
+          TagMetaService.getInstance()
+              .listAssociatedMetadataObjectsForTag(tag.nameIdentifier())
+              .isEmpty());
+      manager.restoreDeletedTable(
+          table.namespace(), table.name(), table.id(), deletedTable.getEtag());
+    } else {
+      manager.restoreDeletedTable(
+          table.namespace(), table.name(), table.id(), deletedTable.getEtag());
+      Assertions.assertTrue(
+          TagMetaService.getInstance()
+              .listTagsForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE)
+              .isEmpty());
+      manager.restoreDeletedTag(
+          NamespaceUtil.ofTag(METALAKE), tag.name(), tag.id(), deletedTag.getEtag());
+    }
+
+    Assertions.assertEquals(
+        List.of(tag),
+        TagMetaService.getInstance()
+            .listTagsForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE));
+  }
+
+  private static void associateTag(TableEntity table, TagEntity tag, boolean add) throws Exception {
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            table.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            add ? new NameIdentifier[] {tag.nameIdentifier()} : new NameIdentifier[0],
+            add ? new NameIdentifier[0] : new NameIdentifier[] {tag.nameIdentifier()});
+  }
+
+  private static int countTagRelations(long tagId, String deletionId, boolean recorded)
+      throws Exception {
+    String predicate = recorded ? "deletion_id = ?" : "deleted_at > 0 AND deletion_id IS NULL";
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                "SELECT COUNT(*) FROM tag_relation_meta WHERE tag_id = ? AND " + predicate)) {
+      statement.setLong(1, tagId);
+      if (recorded) {
+        statement.setString(2, deletionId);
+      }
+      try (ResultSet result = statement.executeQuery()) {
+        Assertions.assertTrue(result.next());
+        return result.getInt(1);
+      }
+    }
+  }
+
+  private static int countAllTagRelations(long tagId) throws Exception {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                "SELECT COUNT(*) FROM tag_relation_meta WHERE tag_id = ?")) {
+      statement.setLong(1, tagId);
+      try (ResultSet result = statement.executeQuery()) {
+        Assertions.assertTrue(result.next());
+        return result.getInt(1);
+      }
+    }
+  }
+
   private static <E extends Entity & HasIdentifier> EntityDeletionPO identityDeletion(
       BaseMetalake metalake, E entity) {
     return EntityDeletionService.getInstance()
@@ -2219,6 +2455,15 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
 
   private TableEntity newTable(Namespace namespace, String name) {
     return createTableEntity(RandomIdGenerator.INSTANCE.nextId(), namespace, name, AUDIT_INFO);
+  }
+
+  private TagEntity newTag(String name) {
+    return TagEntity.builder()
+        .withId(RandomIdGenerator.INSTANCE.nextId())
+        .withName(name)
+        .withNamespace(NamespaceUtil.ofTag(METALAKE))
+        .withAuditInfo(AUDIT_INFO)
+        .build();
   }
 
   private FilesetEntity newFileset(Namespace namespace, String name) {

@@ -19,41 +19,79 @@
 package org.apache.gravitino.storage.relational.service;
 
 import static org.apache.gravitino.metrics.source.MetricsSource.GRAVITINO_RELATIONAL_STORE_METRIC_NAME;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.claimPurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.claimRestore;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.completePurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.completeRestore;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.eligibleForPurge;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.incompleteGeneration;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.insertRestoreChange;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.isCompletedRestoreReplay;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.loadDeletion;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.tombstoneChanged;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateDeletionSnapshot;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateLatestDeletion;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateNotExpired;
+import static org.apache.gravitino.storage.relational.service.MetalakeScopedRecoveryServiceSupport.validateRestoreArguments;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchTagException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.meta.GenericEntity;
 import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.metrics.Monitored;
+import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetadataObjectRelMapper;
+import org.apache.gravitino.storage.relational.mapper.TagRecoveryMapper;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TagMetadataObjectRelPO;
 import org.apache.gravitino.storage.relational.po.TagPO;
+import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.apache.gravitino.storage.relational.utils.ExceptionUtils;
 import org.apache.gravitino.storage.relational.utils.POConverters;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.apache.gravitino.utils.PrincipalUtils;
 
 public class TagMetaService {
 
   private static final TagMetaService INSTANCE = new TagMetaService();
+  private static final Set<String> SUPPORTED_RELATION_TYPES =
+      Set.of(
+          MetadataObject.Type.CATALOG.name(),
+          MetadataObject.Type.SCHEMA.name(),
+          MetadataObject.Type.TABLE.name(),
+          MetadataObject.Type.VIEW.name(),
+          MetadataObject.Type.FILESET.name(),
+          MetadataObject.Type.TOPIC.name(),
+          MetadataObject.Type.COLUMN.name(),
+          MetadataObject.Type.MODEL.name(),
+          MetadataObject.Type.FUNCTION.name());
 
   public static TagMetaService getInstance() {
     return INSTANCE;
@@ -83,6 +121,35 @@ public class TagMetaService {
     return POConverters.fromTagPO(tagPO, ident.namespace());
   }
 
+  /** Lists independently deleted tag roots under one live metalake. */
+  public List<TagPO> listDeletedTagsByNamespace(Namespace namespace) {
+    NameIdentifierUtil.checkTag(NameIdentifier.of(namespace, "tag"));
+    long metalakeId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.level(0)), Entity.EntityType.METALAKE);
+    return SessionUtils.getWithoutCommit(
+        TagRecoveryMapper.class, mapper -> mapper.listDeletedRootTags(metalakeId));
+  }
+
+  /** Lists live tag roots under one metalake for recovery collision checks. */
+  public List<TagPO> listLiveTagPOsByNamespace(Namespace namespace) {
+    NameIdentifierUtil.checkTag(NameIdentifier.of(namespace, "tag"));
+    long metalakeId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.level(0)), Entity.EntityType.METALAKE);
+    return SessionUtils.getWithoutCommit(
+        TagRecoveryMapper.class, mapper -> mapper.listLiveTags(metalakeId));
+  }
+
+  /** Lists globally live tag roots matching immutable identifiers. */
+  public List<TagPO> listLiveTagsByIds(List<Long> tagIds) {
+    if (tagIds.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return SessionUtils.getWithoutCommit(
+        TagRecoveryMapper.class, mapper -> mapper.listLiveTagsByIds(tagIds));
+  }
+
   @Monitored(metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME, baseMetricName = "insertTag")
   public void insertTag(TagEntity tagEntity, boolean overwritten) throws IOException {
     Namespace ns = tagEntity.namespace();
@@ -96,6 +163,19 @@ public class TagMetaService {
 
       SessionUtils.doMultipleWithCommit(
           () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  TagRecoveryMapper.class,
+                  mapper -> {
+                    if (!mapper
+                        .selectDeletedTagsForUpdate(Collections.singletonList(tagPO.getTagId()))
+                        .isEmpty()) {
+                      throw new RecoveryConflictException(
+                          RecoveryConflictReason.ENTITY_ID_REUSED,
+                          "Tag ID %s belongs to a deleted root; use metadata restore",
+                          tagPO.getTagId());
+                    }
+                  }),
           () ->
               SessionUtils.doWithoutCommit(
                   TagMetaMapper.class,
@@ -154,29 +234,211 @@ public class TagMetaService {
 
   @Monitored(metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME, baseMetricName = "deleteTag")
   public boolean deleteTag(NameIdentifier identifier) {
-    String metalakeName = identifier.namespace().level(0);
-    long metalakeId = MetalakeMetaService.getInstance().getMetalakeIdByName(metalakeName);
-    int[] tagDeletedCount = new int[] {0};
-    int[] tagMetadataObjectRelDeletedCount = new int[] {0};
+    return deleteTag(identifier, Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+  }
 
+  /** Soft-deletes one tag aggregate and records its recoverable deletion generation. */
+  public boolean deleteTag(NameIdentifier identifier, long retentionMs) {
+    return deleteTag(identifier, Instant.now().toEpochMilli(), retentionMs);
+  }
+
+  /** Soft-deletes live tag relations first and the exact tag root last using one token. */
+  public boolean deleteTag(NameIdentifier identifier, long requestedDeletedAt, long retentionMs) {
+    NameIdentifierUtil.checkTag(identifier);
+    Preconditions.checkArgument(requestedDeletedAt > 0, "deletedAt must be positive");
+    Preconditions.checkArgument(retentionMs >= 0, "retentionMs must not be negative");
+
+    long metalakeId =
+        MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
+    AtomicInteger deleted = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
-        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
-            tagDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    TagMetaMapper.class,
-                    mapper ->
-                        mapper.softDeleteTagMetaByMetalakeAndTagName(
-                            metalakeName, identifier.name())),
-        () ->
-            tagMetadataObjectRelDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    TagMetadataObjectRelMapper.class,
-                    mapper ->
-                        mapper.softDeleteTagMetadataObjectRelsByMetalakeAndTagName(
-                            metalakeName, identifier.name())));
+            SessionUtils.doWithoutCommit(
+                TagRecoveryMapper.class,
+                mapper -> {
+                  lockLiveMetalake(mapper, metalakeId);
+                  TagPO tag = mapper.lockLiveTag(metalakeId, identifier.name());
+                  if (tag == null) {
+                    return;
+                  }
 
-    return tagDeletedCount[0] + tagMetadataObjectRelDeletedCount[0] > 0;
+                  long deletedAt =
+                      chooseDeletedAt(
+                          mapper, tag.getTagId(), metalakeId, tag.getTagName(), requestedDeletedAt);
+                  EntityDeletionPO deletion =
+                      EntityDeletionService.getInstance()
+                          .newDeletion(
+                              Entity.EntityType.TAG,
+                              tag.getTagId(),
+                              metalakeId,
+                              null,
+                              metalakeId,
+                              tag.getTagName(),
+                              tag.getCurrentVersion(),
+                              deletedAt,
+                              retentionMs,
+                              PrincipalUtils.getCurrentUserName());
+
+                  int relationCount =
+                      mapper.softDeleteTagRelations(
+                          tag.getTagId(), deletedAt, deletion.getDeletionId());
+                  deletion.setAffectedRowCount(Math.addExact(1L, relationCount));
+
+                  int rootCount =
+                      mapper.softDeleteTag(
+                          tag.getTagId(),
+                          metalakeId,
+                          tag.getTagName(),
+                          tag.getCurrentVersion(),
+                          deletedAt,
+                          deletion.getDeletionId());
+                  deleted.set(rootCount);
+                  if (rootCount != 1) {
+                    throw tombstoneChanged(deletion.getDeletionId());
+                  }
+
+                  TagPO generation =
+                      mapper.selectTagGenerationForUpdate(
+                          tag.getTagId(), deletedAt, deletion.getDeletionId());
+                  List<TagMetadataObjectRelPO> relations =
+                      mapper.listTagRelationGenerationForUpdate(
+                          tag.getTagId(), deletedAt, deletion.getDeletionId());
+                  validateTagGeneration(mapper, deletion, generation, relations);
+
+                  EntityDeletionService.getInstance().insert(deletion);
+                  SessionUtils.doWithoutCommit(
+                      EntityChangeLogMapper.class,
+                      changeLogMapper ->
+                          changeLogMapper.insertEntityChange(
+                              identifier.namespace().level(0),
+                              Entity.EntityType.TAG.name(),
+                              identifier.toString(),
+                              OperateType.DROP));
+                }));
+    return deleted.get() == 1;
+  }
+
+  /** Restores one exact tag-and-relation deletion generation transactionally. */
+  public TagEntity restoreTag(
+      NameIdentifier identifier,
+      EntityDeletionPO observed,
+      long restoredAt,
+      String restoreEtag,
+      long effectiveExpiresAt) {
+    NameIdentifierUtil.checkTag(identifier);
+    validateRestoreArguments(observed, restoredAt, restoreEtag, effectiveExpiresAt);
+    long metalakeId =
+        MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
+    AtomicReference<TagEntity> restored = new AtomicReference<>();
+    try {
+      SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  TagRecoveryMapper.class,
+                  mapper -> {
+                    lockLiveMetalakeForRestore(mapper, metalakeId, identifier);
+                    validateLatestDeletion(Entity.EntityType.TAG, identifier, metalakeId, observed);
+                    EntityDeletionPO actual = loadDeletion(observed.getDeletionId());
+                    if (isCompletedRestoreReplay(
+                        Entity.EntityType.TAG,
+                        identifier,
+                        metalakeId,
+                        observed,
+                        actual,
+                        restoreEtag)) {
+                      restored.set(loadIdempotentlyRestoredTag(identifier, metalakeId, actual));
+                      return;
+                    }
+                    validateDeletionSnapshot(
+                        Entity.EntityType.TAG, identifier, metalakeId, observed, actual);
+                    validateNotExpired(actual, effectiveExpiresAt);
+                    claimRestore(actual);
+
+                    TagPO generation =
+                        mapper.selectTagGenerationForUpdate(
+                            actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                    List<TagMetadataObjectRelPO> relations =
+                        mapper.listTagRelationGenerationForUpdate(
+                            actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                    validateTagGeneration(mapper, actual, generation, relations);
+                    validateTagOccupancy(mapper, actual);
+
+                    int restoredRelations =
+                        restoreTagRelations(mapper, actual, identifier, relations.size());
+                    if (restoredRelations != relations.size()) {
+                      throw incompleteGeneration(actual.getDeletionId());
+                    }
+                    int restoredRoot = restoreTagRoot(mapper, actual, generation, identifier);
+                    if (restoredRoot != 1) {
+                      throw incompleteGeneration(actual.getDeletionId());
+                    }
+
+                    completeRestore(actual, restoredAt, restoreEtag);
+                    insertRestoreChange(identifier, Entity.EntityType.TAG);
+                    restored.set(getTagByIdentifier(identifier));
+                  }));
+    } catch (RuntimeException failure) {
+      EntityDeletionPO completed =
+          EntityDeletionService.getInstance().get(observed.getDeletionId());
+      if (isCompletedRestoreReplay(
+          Entity.EntityType.TAG, identifier, metalakeId, observed, completed, restoreEtag)) {
+        return loadIdempotentlyRestoredTag(identifier, metalakeId, completed);
+      }
+      throw failure;
+    }
+    return Objects.requireNonNull(restored.get(), "restored tag must not be null");
+  }
+
+  /** Permanently deletes a bounded batch of expired recorded tag generations. */
+  public int purgeExpiredTagDeletions(long legacyTimeline, int limit) {
+    List<EntityDeletionPO> expired =
+        EntityDeletionService.getInstance()
+            .listExpired(Entity.EntityType.TAG, legacyTimeline, limit);
+    if (expired.isEmpty()) {
+      return 0;
+    }
+
+    long purgedAt = Instant.now().toEpochMilli();
+    AtomicInteger purged = new AtomicInteger();
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          for (EntityDeletionPO observed : expired) {
+            EntityDeletionPO actual = loadDeletion(observed.getDeletionId());
+            if (!eligibleForPurge(observed, actual, legacyTimeline) || !claimPurge(actual)) {
+              continue;
+            }
+            SessionUtils.doWithoutCommit(
+                TagRecoveryMapper.class,
+                mapper -> {
+                  TagPO generation =
+                      mapper.selectTagGenerationForUpdate(
+                          actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                  List<TagMetadataObjectRelPO> relations =
+                      mapper.listTagRelationGenerationForUpdate(
+                          actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                  validateTagGeneration(mapper, actual, generation, relations);
+
+                  if (mapper.hardDeleteTagRelations(
+                          actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId())
+                      != relations.size()) {
+                    throw incompleteGeneration(actual.getDeletionId());
+                  }
+                  if (mapper.hardDeleteTag(
+                          actual.getEntityId(),
+                          actual.getMetalakeId(),
+                          actual.getEntityName(),
+                          actual.getEntityVersion(),
+                          actual.getDeletedAt(),
+                          actual.getDeletionId())
+                      != 1) {
+                    throw incompleteGeneration(actual.getDeletionId());
+                  }
+                });
+            completePurge(actual, purgedAt);
+            purged.incrementAndGet();
+          }
+        });
+    return purged.get();
   }
 
   @Monitored(
@@ -395,22 +657,210 @@ public class TagMetaService {
       metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME,
       baseMetricName = "deleteTagMetasByLegacyTimeline")
   public int deleteTagMetasByLegacyTimeline(long legacyTimeline, int limit) {
-    int[] tagDeletedCount = new int[] {0};
-    int[] tagMetadataObjectRelDeletedCount = new int[] {0};
-
+    AtomicInteger deleted = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
         () ->
-            tagDeletedCount[0] =
-                SessionUtils.getWithoutCommit(
-                    TagMetaMapper.class,
-                    mapper -> mapper.deleteTagMetasByLegacyTimeline(legacyTimeline, limit)),
+            SessionUtils.doWithoutCommit(
+                TagRecoveryMapper.class,
+                mapper -> {
+                  List<Long> tagIds =
+                      mapper.selectLegacyTagRootsForUpdate(legacyTimeline, limit).stream()
+                          .map(TagPO::getTagId)
+                          .collect(Collectors.toList());
+                  if (tagIds.isEmpty()) {
+                    return;
+                  }
+                  // Old root-first tag deletion could leave a live null-token relation behind.
+                  // Remove all such rows for selected legacy roots before deleting those roots.
+                  deleted.addAndGet(mapper.hardDeleteLegacyTagRelations(tagIds));
+                  deleted.addAndGet(mapper.hardDeleteLegacyTags(tagIds, legacyTimeline));
+                }),
         () ->
-            tagMetadataObjectRelDeletedCount[0] =
+            deleted.addAndGet(
                 SessionUtils.getWithoutCommit(
                     TagMetadataObjectRelMapper.class,
-                    mapper -> mapper.deleteTagEntityRelsByLegacyTimeline(legacyTimeline, limit)));
+                    mapper -> mapper.deleteTagEntityRelsByLegacyTimeline(legacyTimeline, limit))));
 
-    return tagDeletedCount[0] + tagMetadataObjectRelDeletedCount[0];
+    return deleted.get();
+  }
+
+  private static long chooseDeletedAt(
+      TagRecoveryMapper mapper,
+      long tagId,
+      long metalakeId,
+      String tagName,
+      long requestedDeletedAt) {
+    Long newestDeletedAt = mapper.selectNewestTagDeletedAt(tagId, metalakeId, tagName);
+    if (newestDeletedAt == null || newestDeletedAt < requestedDeletedAt) {
+      return requestedDeletedAt;
+    }
+    return Math.addExact(newestDeletedAt, 1L);
+  }
+
+  private static void lockLiveMetalake(TagRecoveryMapper mapper, long metalakeId) {
+    if (!Objects.equals(mapper.lockLiveMetalake(metalakeId), metalakeId)) {
+      throw new NoSuchEntityException(
+          NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+          Entity.EntityType.METALAKE.name().toLowerCase(),
+          metalakeId);
+    }
+  }
+
+  private static void lockLiveMetalakeForRestore(
+      TagRecoveryMapper mapper, long metalakeId, NameIdentifier identifier) {
+    if (!Objects.equals(mapper.lockLiveMetalake(metalakeId), metalakeId)) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.PARENT_CHANGED,
+          "The parent metalake changed while restoring tag %s",
+          identifier);
+    }
+  }
+
+  private static void validateTagGeneration(
+      TagRecoveryMapper mapper,
+      EntityDeletionPO deletion,
+      TagPO generation,
+      List<TagMetadataObjectRelPO> relations) {
+    Long expected = deletion.getAffectedRowCount();
+    if (generation == null
+        || !Objects.equals(generation.getTagId(), deletion.getEntityId())
+        || !Objects.equals(generation.getMetalakeId(), deletion.getMetalakeId())
+        || !Objects.equals(generation.getMetalakeId(), deletion.getParentId())
+        || !Objects.equals(generation.getTagName(), deletion.getEntityName())
+        || !Objects.equals(generation.getCurrentVersion(), deletion.getEntityVersion())
+        || !Objects.equals(generation.getDeletedAt(), deletion.getDeletedAt())
+        || !Objects.equals(generation.getDeletionId(), deletion.getDeletionId())
+        || expected == null
+        || expected <= 0
+        || expected != Math.addExact(1L, relations.size())
+        || mapper.countTagGeneration(
+                deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId())
+            != 1
+        || mapper.countTagRelationGeneration(
+                deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId())
+            != relations.size()
+        || mapper.countLiveRelationDuplicates(
+                deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId())
+            != 0) {
+      throw incompleteGeneration(deletion.getDeletionId());
+    }
+
+    Set<Long> relationIds = new HashSet<>();
+    Set<String> relationKeys = new HashSet<>();
+    for (TagMetadataObjectRelPO relation : relations) {
+      String relationKey =
+          relation.getMetadataObjectType() + '\u0000' + relation.getMetadataObjectId();
+      if (relation.getId() == null
+          || relation.getId() <= 0
+          || !relationIds.add(relation.getId())
+          || !Objects.equals(relation.getTagId(), deletion.getEntityId())
+          || relation.getMetadataObjectId() == null
+          || relation.getMetadataObjectId() <= 0
+          || !SUPPORTED_RELATION_TYPES.contains(relation.getMetadataObjectType())
+          || !relationKeys.add(relationKey)
+          || relation.getAuditInfo() == null
+          || relation.getCurrentVersion() == null
+          || relation.getCurrentVersion() <= 0
+          || relation.getLastVersion() == null
+          || relation.getLastVersion() < relation.getCurrentVersion()
+          || !Objects.equals(relation.getDeletedAt(), deletion.getDeletedAt())
+          || !Objects.equals(relation.getDeletionId(), deletion.getDeletionId())) {
+        throw incompleteGeneration(deletion.getDeletionId());
+      }
+    }
+  }
+
+  private static void validateTagOccupancy(TagRecoveryMapper mapper, EntityDeletionPO deletion) {
+    TagPO occupant = mapper.lockLiveTag(deletion.getMetalakeId(), deletion.getEntityName());
+    if (occupant == null) {
+      return;
+    }
+    if (Objects.equals(occupant.getTagId(), deletion.getEntityId())) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "Tag ID %s is already active under a different logical tag",
+          deletion.getEntityId());
+    }
+    throw new RecoveryConflictException(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        "A live tag already occupies name %s",
+        deletion.getEntityName());
+  }
+
+  private static int restoreTagRelations(
+      TagRecoveryMapper mapper,
+      EntityDeletionPO deletion,
+      NameIdentifier identifier,
+      int expectedCount) {
+    try {
+      int restored =
+          mapper.restoreTagRelations(
+              deletion.getEntityId(), deletion.getDeletedAt(), deletion.getDeletionId());
+      if (restored != expectedCount) {
+        throw incompleteGeneration(deletion.getDeletionId());
+      }
+      return restored;
+    } catch (RuntimeException failure) {
+      try {
+        ExceptionUtils.checkSQLException(failure, Entity.EntityType.TAG, identifier.toString());
+      } catch (EntityAlreadyExistsException duplicate) {
+        throw new RecoveryConflictException(
+            duplicate,
+            RecoveryConflictReason.INCOMPLETE_GENERATION,
+            "A live relation conflicts with tag deletion generation %s; manual repair is required",
+            deletion.getDeletionId());
+      } catch (IOException ignored) {
+        // Preserve non-duplicate persistence failures.
+      }
+      throw failure;
+    }
+  }
+
+  private static int restoreTagRoot(
+      TagRecoveryMapper mapper,
+      EntityDeletionPO deletion,
+      TagPO generation,
+      NameIdentifier identifier) {
+    try {
+      return mapper.restoreTag(
+          deletion.getEntityId(),
+          deletion.getMetalakeId(),
+          deletion.getEntityName(),
+          generation.getCurrentVersion(),
+          deletion.getDeletedAt(),
+          deletion.getDeletionId());
+    } catch (RuntimeException failure) {
+      try {
+        ExceptionUtils.checkSQLException(failure, Entity.EntityType.TAG, identifier.toString());
+      } catch (EntityAlreadyExistsException duplicate) {
+        throw new RecoveryConflictException(
+            duplicate,
+            RecoveryConflictReason.NAME_OCCUPIED,
+            "A live tag already occupies name %s",
+            identifier);
+      } catch (IOException ignored) {
+        // Preserve non-duplicate persistence failures.
+      }
+      throw failure;
+    }
+  }
+
+  private static TagEntity loadIdempotentlyRestoredTag(
+      NameIdentifier identifier, long metalakeId, EntityDeletionPO deletion) {
+    TagEntity live;
+    try {
+      live = getInstance().getTagByIdentifier(identifier);
+    } catch (NoSuchEntityException e) {
+      throw tombstoneChanged(deletion.getDeletionId());
+    }
+    if (!Objects.equals(live.id(), deletion.getEntityId())
+        || !Objects.equals(deletion.getParentId(), metalakeId)) {
+      throw new RecoveryConflictException(
+          RecoveryConflictReason.ENTITY_ID_REUSED,
+          "Tag ID %s is active under a different logical tag",
+          deletion.getEntityId());
+    }
+    return live;
   }
 
   private TagPO getTagPOByMetalakeAndName(String metalakeName, String tagName) {

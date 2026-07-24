@@ -533,6 +533,23 @@ public class GravitinoMetalake extends MetalakeDTO
         .toArray(Tag[]::new);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedTags(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(API_METALAKES_TAGS_PATH, RESTUtils.encodeString(this.name())),
+            name,
+            id,
+            ErrorHandlers.tagErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.TAG, name, id));
+    return generations;
+  }
+
   /**
    * Get a tag by its name under the current metalake.
    *
@@ -555,6 +572,42 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return new GenericTag(resp.getTag(), restClient, this.name());
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedTag(String name, String id) {
+    Preconditions.checkArgument(StringUtils.isNotBlank(name), "tag name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(API_METALAKES_TAGS_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(name),
+            id,
+            ErrorHandlers.tagErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.TAG, name, id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Tag restoreTag(String name, DeletedEntity generation) {
+    Preconditions.checkArgument(StringUtils.isNotBlank(name), "tag name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.TAG, name, null);
+
+    TagResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(API_METALAKES_TAGS_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(name),
+            generation,
+            TagResponse.class,
+            ErrorHandlers.tagErrorHandler());
+    GenericTag restored = new GenericTag(response.getTag(), restClient, this.name());
+    Preconditions.checkArgument(
+        name.equals(restored.name()), "Restored tag name must match the requested tag name");
+    return restored;
   }
 
   /**

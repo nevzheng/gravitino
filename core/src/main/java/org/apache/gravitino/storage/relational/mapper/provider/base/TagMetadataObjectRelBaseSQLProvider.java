@@ -52,7 +52,7 @@ public class TagMetadataObjectRelBaseSQLProvider {
         + " te ON tm.tag_id = te.tag_id"
         + " WHERE te.metadata_object_id = #{metadataObjectId}"
         + " AND te.metadata_object_type = #{metadataObjectType} AND te.deleted_at = 0"
-        + " AND tm.deleted_at = 0";
+        + " AND te.deletion_id IS NULL AND tm.deleted_at = 0 AND tm.deletion_id IS NULL";
   }
 
   public String getTagPOsByMetadataObjectAndTagName(
@@ -72,7 +72,8 @@ public class TagMetadataObjectRelBaseSQLProvider {
         + " te ON tm.tag_id = te.tag_id"
         + " WHERE te.metadata_object_id = #{metadataObjectId}"
         + " AND te.metadata_object_type = #{metadataObjectType} AND tm.tag_name = #{tagName}"
-        + " AND te.deleted_at = 0 AND tm.deleted_at = 0";
+        + " AND te.deleted_at = 0 AND te.deletion_id IS NULL"
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL";
   }
 
   public String listTagMetadataObjectRelsByMetalakeAndTagName(
@@ -89,7 +90,8 @@ public class TagMetadataObjectRelBaseSQLProvider {
         + MetalakeMetaMapper.TABLE_NAME
         + " mm ON tm.metalake_id = mm.metalake_id"
         + " WHERE mm.metalake_name = #{metalakeName} AND tm.tag_name = #{tagName}"
-        + " AND te.deleted_at = 0 AND tm.deleted_at = 0 AND mm.deleted_at = 0";
+        + " AND te.deleted_at = 0 AND te.deletion_id IS NULL"
+        + " AND tm.deleted_at = 0 AND tm.deletion_id IS NULL AND mm.deleted_at = 0";
   }
 
   public String batchInsertTagMetadataObjectRels(
@@ -127,6 +129,7 @@ public class TagMetadataObjectRelBaseSQLProvider {
         + "</foreach>"
         + " AND metadata_object_id = #{metadataObjectId}"
         + " AND metadata_object_type = #{metadataObjectType} AND deleted_at = 0"
+        + " AND deletion_id IS NULL"
         + "</script>";
   }
 

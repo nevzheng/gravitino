@@ -446,7 +446,7 @@ public class JDBCBackend implements RelationalBackend {
       case ROLE:
         return RoleMetaService.getInstance().deleteRole(ident, deletionRetentionMs);
       case TAG:
-        return TagMetaService.getInstance().deleteTag(ident);
+        return TagMetaService.getInstance().deleteTag(ident, deletionRetentionMs);
       case MODEL:
         return ModelMetaService.getInstance().deleteModel(ident, deletionRetentionMs);
       case MODEL_VERSION:
@@ -634,9 +634,22 @@ public class JDBCBackend implements RelationalBackend {
             .deleteTerminalReceipts(
                 Entity.EntityType.ROLE, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TAG:
-        return TagMetaService.getInstance()
-            .deleteTagMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableTagDeletionCount =
+            TagMetaService.getInstance()
+                .purgeExpiredTagDeletions(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableTagDeletionCount > 0) {
+          return recoverableTagDeletionCount;
+        }
+        int legacyTagCount =
+            TagMetaService.getInstance()
+                .deleteTagMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyTagCount > 0) {
+          return legacyTagCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.TAG, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case POLICY:
         int recoverablePolicyDeletionCount =
             PolicyMetaService.getInstance()

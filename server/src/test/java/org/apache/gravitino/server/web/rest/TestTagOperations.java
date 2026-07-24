@@ -62,6 +62,7 @@ import org.apache.gravitino.exceptions.TagAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.TagAlreadyExistsException;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagChange;
@@ -88,6 +89,8 @@ public class TestTagOperations extends BaseOperationsTest {
   }
 
   private TagManager tagManager = mock(TagManager.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private String metalake = "test_metalake";
 
@@ -118,6 +121,7 @@ public class TestTagOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(tagManager).to(TagDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(TestTagOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }

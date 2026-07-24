@@ -582,6 +582,124 @@ public class TestGravitinoMetalake extends TestBase {
   }
 
   @Test
+  public void testRecoverableTagMetadata() throws JsonProcessingException {
+    String tagName = "deleted-tag";
+    String id = "584273";
+    String collectionPath = "/api/metalakes/" + metalakeName + "/tags";
+    String itemPath = collectionPath + "/" + tagName;
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", tagName, "id", id);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", id);
+    DeletedEntityDTO generation = createDeletedGeneration(tagName, id, RecoveryEntityType.TAG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedTags(tagName, id);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(id, listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.TAG, listed[0].type());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedTag(tagName, id);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    TagDTO restoredTag =
+        TagDTO.builder()
+            .withName(tagName)
+            .withComment("restored metadata")
+            .withProperties(ImmutableMap.of(Tag.PROPERTY_COLOR, "#4f46e5"))
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    TagResponse response = new TagResponse(restoredTag);
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, HttpStatus.SC_OK);
+    Tag restored = gravitinoClient.restoreTag(tagName, loaded);
+    Assertions.assertInstanceOf(GenericTag.class, restored);
+    Assertions.assertEquals(tagName, restored.name());
+    Assertions.assertEquals("restored metadata", restored.comment());
+    Assertions.assertEquals("#4f46e5", restored.properties().get(Tag.PROPERTY_COLOR));
+    Assertions.assertSame(restored, restored.associatedObjects());
+
+    // An accepted exact-generation replay returns the same active metadata representation.
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, HttpStatus.SC_OK);
+    Tag replayed = gravitinoClient.restoreTag(tagName, loaded);
+    Assertions.assertEquals(tagName, replayed.name());
+
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("generation changed", null);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        changed,
+        HttpStatus.SC_PRECONDITION_FAILED);
+    Assertions.assertThrows(
+        TombstoneChangedException.class, () -> gravitinoClient.restoreTag(tagName, loaded));
+  }
+
+  @Test
+  public void testDeletedTagResponseBinding() throws JsonProcessingException {
+    String tagName = "deleted-tag";
+    String id = "584273";
+    String collectionPath = "/api/metalakes/" + metalakeName + "/tags";
+    String itemPath = collectionPath + "/" + tagName;
+
+    DeletedEntityDTO wrongType = createDeletedGeneration(tagName, id, RecoveryEntityType.CATALOG);
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.listDeletedTags(null, null));
+
+    DeletedEntityDTO wrongName = createDeletedGeneration("another-tag", id, RecoveryEntityType.TAG);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", id),
+        null,
+        new DeletedEntityResponse(wrongName),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedTag(tagName, id));
+
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.restoreTag(tagName, wrongType));
+
+    DeletedEntityDTO generation = createDeletedGeneration(tagName, id, RecoveryEntityType.TAG);
+    TagDTO wrongRestoredName =
+        TagDTO.builder()
+            .withName("another-tag")
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", id),
+        new EntityRestoreRequest(false),
+        new TagResponse(wrongRestoredName),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.restoreTag(tagName, generation));
+  }
+
+  @Test
   public void testGetTag() throws JsonProcessingException {
     String tagName = "tag1";
     String path = "/api/metalakes/" + metalakeName + "/tags/" + tagName;

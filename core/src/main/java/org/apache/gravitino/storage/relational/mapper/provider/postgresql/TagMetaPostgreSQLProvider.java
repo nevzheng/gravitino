@@ -101,7 +101,7 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + " AND audit_info = #{oldTagMeta.auditInfo}"
         + " AND current_version = #{oldTagMeta.currentVersion}"
         + " AND last_version = #{oldTagMeta.lastVersion}"
-        + " AND deleted_at = 0";
+        + " AND deleted_at = 0 AND deletion_id IS NULL";
   }
 
   @Override

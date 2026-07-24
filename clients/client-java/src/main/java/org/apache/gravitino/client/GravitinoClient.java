@@ -710,9 +710,27 @@ public class GravitinoClient extends GravitinoClientBase
     return getMetalake().listTagsInfo();
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedTags(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedTags(name, id);
+  }
+
   @Override
   public Tag getTag(String name) throws NoSuchTagException {
     return getMetalake().getTag(name);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedTag(String name, String id) {
+    return getMetalake().loadDeletedTag(name, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Tag restoreTag(String name, DeletedEntity generation) {
+    return getMetalake().restoreTag(name, generation);
   }
 
   @Override

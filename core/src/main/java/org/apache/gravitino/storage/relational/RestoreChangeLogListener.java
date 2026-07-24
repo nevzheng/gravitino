@@ -50,6 +50,7 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
           Entity.EntityType.USER,
           Entity.EntityType.GROUP,
           Entity.EntityType.ROLE,
+          Entity.EntityType.TAG,
           Entity.EntityType.JOB_TEMPLATE);
 
   private final EntityCache cache;
@@ -84,6 +85,7 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
           || entityType == Entity.EntityType.USER
           || entityType == Entity.EntityType.GROUP
           || entityType == Entity.EntityType.ROLE
+          || entityType == Entity.EntityType.TAG
           || entityType == Entity.EntityType.JOB_TEMPLATE) {
         clearCache(change);
         continue;
