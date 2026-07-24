@@ -22,12 +22,21 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
@@ -42,7 +51,9 @@ import org.apache.gravitino.meta.ModelVersionEntity;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.ibatis.session.SqlSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.TestTemplate;
 
@@ -193,6 +204,119 @@ public class TestModelVersionMetaService extends TestJDBCBackend {
     Assertions.assertThrows(
         NoSuchEntityException.class,
         () -> ModelVersionMetaService.getInstance().insertModelVersion(modelVersionEntity3));
+  }
+
+  @TestTemplate
+  public void testInsertVersionAfterModelDropLeavesNoOrphans() throws IOException {
+    createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            MODEL_NS,
+            "dropped_model",
+            "model comment",
+            0,
+            properties,
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    Assertions.assertTrue(ModelMetaService.getInstance().deleteModel(model.nameIdentifier()));
+
+    ModelVersionEntity attemptedVersion =
+        createModelVersionEntity(
+            model.nameIdentifier(),
+            0,
+            ImmutableMap.of(ModelVersion.URI_NAME_UNKNOWN, "orphan-uri"),
+            aliases,
+            "orphan version",
+            properties,
+            AUDIT_INFO);
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () -> ModelVersionMetaService.getInstance().insertModelVersion(attemptedVersion));
+    Assertions.assertEquals(0, countRowsForModel("model_version_info", model.id()));
+    Assertions.assertEquals(0, countRowsForModel("model_version_alias_rel", model.id()));
+  }
+
+  @TestTemplate
+  public void testConcurrentUpdatesDeriveFromLockedLatestVersion() throws Exception {
+    createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            MODEL_NS,
+            "serialized_model",
+            "model comment",
+            0,
+            properties,
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    ModelVersionEntity version =
+        createModelVersionEntity(
+            model.nameIdentifier(),
+            0,
+            ImmutableMap.of(ModelVersion.URI_NAME_UNKNOWN, "initial-uri"),
+            aliases,
+            "initial version",
+            properties,
+            AUDIT_INFO);
+    ModelVersionMetaService.getInstance().insertModelVersion(version);
+
+    CountDownLatch firstUpdaterEntered = new CountDownLatch(1);
+    CountDownLatch releaseFirstUpdater = new CountDownLatch(1);
+    CountDownLatch secondTaskStarted = new CountDownLatch(1);
+    CountDownLatch secondUpdaterEntered = new CountDownLatch(1);
+    AtomicReference<String> secondObservedUri = new AtomicReference<>();
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Function<ModelVersionEntity, ModelVersionEntity> firstUpdater =
+          oldVersion -> {
+            firstUpdaterEntered.countDown();
+            await(releaseFirstUpdater);
+            return copyWithUri(oldVersion, "first-uri");
+          };
+      Future<ModelVersionEntity> first =
+          executor.submit(
+              () ->
+                  ModelVersionMetaService.getInstance()
+                      .updateModelVersion(version.nameIdentifier(), firstUpdater));
+      Assertions.assertTrue(firstUpdaterEntered.await(10, TimeUnit.SECONDS));
+
+      Function<ModelVersionEntity, ModelVersionEntity> secondUpdater =
+          oldVersion -> {
+            secondUpdaterEntered.countDown();
+            String observedUri = oldVersion.uris().get(ModelVersion.URI_NAME_UNKNOWN);
+            secondObservedUri.set(observedUri);
+            return copyWithUri(oldVersion, observedUri + "-second");
+          };
+      Future<ModelVersionEntity> second =
+          executor.submit(
+              () -> {
+                secondTaskStarted.countDown();
+                return ModelVersionMetaService.getInstance()
+                    .updateModelVersion(version.nameIdentifier(), secondUpdater);
+              });
+      Assertions.assertTrue(secondTaskStarted.await(10, TimeUnit.SECONDS));
+      Assertions.assertFalse(
+          secondUpdaterEntered.await(500, TimeUnit.MILLISECONDS),
+          "The second updater must not derive state before acquiring the model lock");
+
+      releaseFirstUpdater.countDown();
+      Assertions.assertEquals(
+          "first-uri", first.get(10, TimeUnit.SECONDS).uris().get(ModelVersion.URI_NAME_UNKNOWN));
+      Assertions.assertEquals(
+          "first-uri-second",
+          second.get(10, TimeUnit.SECONDS).uris().get(ModelVersion.URI_NAME_UNKNOWN));
+      Assertions.assertEquals("first-uri", secondObservedUri.get());
+      Assertions.assertEquals(
+          "first-uri-second",
+          ModelVersionMetaService.getInstance()
+              .getModelVersionByIdentifier(version.nameIdentifier())
+              .uris()
+              .get(ModelVersion.URI_NAME_UNKNOWN));
+    } finally {
+      releaseFirstUpdater.countDown();
+      executor.shutdownNow();
+    }
   }
 
   @TestTemplate
@@ -1033,14 +1157,16 @@ public class TestModelVersionMetaService extends TestJDBCBackend {
                 .getModelVersionByIdentifier(
                     getModelVersionIdent(modelEntity.nameIdentifier(), 1)));
 
-    // Hard delete legacy data for MODEL_VERSION entity type
+    // Recorded whole-model generations are purged as one aggregate before legacy child cleanup.
     int deletedCount =
-        backend.hardDeleteLegacyData(
-            Entity.EntityType.MODEL_VERSION, Instant.now().toEpochMilli() + 1000);
+        backend.hardDeleteLegacyData(Entity.EntityType.MODEL, Instant.now().toEpochMilli() + 1000);
 
-    // Verify correct number of records deleted
-    // Expected: 2 model_version_info records + 3 model_version_alias_rel records = 5 total
-    Assertions.assertEquals(5, deletedCount, "Should have deleted 5 legacy records");
+    Assertions.assertEquals(1, deletedCount, "Should have purged one model deletion generation");
+    Assertions.assertEquals(
+        0,
+        backend.hardDeleteLegacyData(
+            Entity.EntityType.MODEL_VERSION, Instant.now().toEpochMilli() + 1000),
+        "Aggregate purge should leave no recorded model-version rows for legacy cleanup");
   }
 
   private NameIdentifier getModelVersionIdent(NameIdentifier modelIdent, int version) {
@@ -1073,6 +1199,46 @@ public class TestModelVersionMetaService extends TestJDBCBackend {
 
   private String randomModelName() {
     return "model_" + UUID.randomUUID().toString().replace("-", "");
+  }
+
+  private ModelVersionEntity copyWithUri(ModelVersionEntity version, String uri) {
+    return createModelVersionEntity(
+        version.modelIdentifier(),
+        version.version(),
+        ImmutableMap.of(ModelVersion.URI_NAME_UNKNOWN, uri),
+        version.aliases(),
+        version.comment(),
+        version.properties(),
+        version.auditInfo());
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(10, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out waiting for concurrent model-version update");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted while coordinating model-version update", e);
+    }
+  }
+
+  private int countRowsForModel(String table, long modelId) {
+    String sql = String.format("SELECT count(*) FROM %s WHERE model_id = ?", table);
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, modelId);
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) {
+          return resultSet.getInt(1);
+        }
+        throw new IllegalStateException("Count query returned no row");
+      }
+    } catch (SQLException e) {
+      throw new RuntimeException("Failed to count model-version rows", e);
+    }
   }
 
   private ModelVersionEntity createModelVersionEntity(

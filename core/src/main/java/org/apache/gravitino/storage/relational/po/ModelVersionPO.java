@@ -49,6 +49,8 @@ public class ModelVersionPO {
 
   private Long deletedAt;
 
+  private String deletionId;
+
   private ModelVersionPO() {}
 
   public static Builder builder() {
@@ -115,6 +117,12 @@ public class ModelVersionPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       modelVersionPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      modelVersionPO.deletionId = deletionId;
       return this;
     }
 

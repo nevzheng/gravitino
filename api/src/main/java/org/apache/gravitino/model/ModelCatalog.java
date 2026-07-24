@@ -22,6 +22,8 @@ import static org.apache.gravitino.model.ModelVersion.URI_NAME_UNKNOWN;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.annotation.Evolving;
@@ -31,6 +33,11 @@ import org.apache.gravitino.exceptions.NoSuchModelException;
 import org.apache.gravitino.exceptions.NoSuchModelVersionException;
 import org.apache.gravitino.exceptions.NoSuchModelVersionURINameException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * The ModelCatalog interface defines the public API for managing model objects in a schema. If the
@@ -49,6 +56,26 @@ public interface ModelCatalog {
   NameIdentifier[] listModels(Namespace namespace) throws NoSuchSchemaException;
 
   /**
+   * Lists retained model-root deletion generations in a schema namespace.
+   *
+   * <p>Model versions are restored only as members of their captured model-root generation; they
+   * are not independent recovery targets.
+   *
+   * @param namespace A schema namespace.
+   * @param name An exact model-name filter, or {@code null} for every name.
+   * @param id An exact immutable model-ID filter, or {@code null} for every ID.
+   * @return The retained model deletion generations matching the filters.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   * @throws IllegalArgumentException If the namespace or a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable model deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedModels(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedModels not supported.");
+  }
+
+  /**
    * Get a model metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A model identifier.
@@ -56,6 +83,47 @@ public interface ModelCatalog {
    * @throws NoSuchModelException If the model does not exist.
    */
   Model getModel(NameIdentifier ident) throws NoSuchModelException;
+
+  /**
+   * Loads one exact retained model-root deletion generation.
+   *
+   * @param ident A model identifier.
+   * @param id The immutable model ID.
+   * @return The exact retained model deletion generation.
+   * @throws IllegalArgumentException If the identifier or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws UnsupportedOperationException If recoverable model deletion is not supported.
+   */
+  default DeletedEntity loadDeletedModel(NameIdentifier ident, String id)
+      throws TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedModel not supported.");
+  }
+
+  /**
+   * Restores one exact retained model-root generation as active Gravitino metadata.
+   *
+   * <p>This operation restores the captured model metadata aggregate, including applicable model
+   * version rows. It neither validates nor recreates external model artifacts. After {@link
+   * TombstoneChangedException}, callers must reread the same path and immutable ID; clients must
+   * never substitute another generation. An unknown transport outcome may replay the same
+   * generation, while a conflict or expiry is not retryable as-is.
+   *
+   * @param ident A model identifier.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored model metadata.
+   * @throws IllegalArgumentException If the identifier or generation binding is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If a recovery precondition is missing.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable model deletion is not supported.
+   */
+  default Model restoreModel(NameIdentifier ident, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreModel not supported.");
+  }
 
   /**
    * Check if a model exists using an {@link NameIdentifier} from the catalog.

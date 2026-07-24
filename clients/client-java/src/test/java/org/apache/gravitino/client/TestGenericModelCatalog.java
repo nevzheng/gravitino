@@ -26,13 +26,17 @@ import java.util.Collections;
 import java.util.Map;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogProvider;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.model.ModelDTO;
 import org.apache.gravitino.dto.model.ModelVersionDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ModelRegisterRequest;
 import org.apache.gravitino.dto.requests.ModelUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelUpdatesRequest;
@@ -41,6 +45,8 @@ import org.apache.gravitino.dto.requests.ModelVersionUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelVersionUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -190,6 +196,66 @@ public class TestGenericModelCatalog extends TestBase {
 
     Assertions.assertThrows(
         RuntimeException.class, () -> catalog.asModelCatalog().getModel(modelId), "internal error");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"schema1/model1", "스키마1/모델1"})
+  public void testRecoverableModelMetadata(String input) throws JsonProcessingException {
+    String[] split = input.split("/");
+    String schemaName = split[0];
+    String modelName = split[1];
+    NameIdentifier modelId = NameIdentifier.of(schemaName, modelName);
+    String immutableId = "984273";
+    String collectionPath =
+        withSlash(
+            GenericModelCatalog.formatModelRequestPath(
+                Namespace.of(METALAKE_NAME, CATALOG_NAME, schemaName)));
+    String itemPath = collectionPath + "/" + RESTUtils.encodeString(modelName);
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", modelName, "id", immutableId);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", immutableId);
+    DeletedEntityDTO generation = createDeletedGeneration(modelName, immutableId);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed =
+        catalog.asModelCatalog().listDeletedModels(modelId.namespace(), modelName, immutableId);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(immutableId, listed[0].id());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = catalog.asModelCatalog().loadDeletedModel(modelId, immutableId);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    ModelDTO restoredModel =
+        mockModelDTO(modelName, 1, "restored metadata", Collections.emptyMap());
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new ModelResponse(restoredModel),
+        HttpStatus.SC_OK);
+    Model restored = catalog.asModelCatalog().restoreModel(modelId, loaded);
+    Assertions.assertEquals(modelName, restored.name());
+    Assertions.assertEquals(1, restored.latestVersion());
+
+    DeletedEntityDTO wrongType =
+        createDeletedGeneration(modelName, immutableId, RecoveryEntityType.CATALOG);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asModelCatalog().restoreModel(modelId, wrongType));
   }
 
   @ParameterizedTest
@@ -1087,6 +1153,28 @@ public class TestGenericModelCatalog extends TestBase {
         .withComment(comment)
         .withProperties(properties)
         .withAudit(AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+        .build();
+  }
+
+  private static DeletedEntityDTO createDeletedGeneration(String name, String id) {
+    return createDeletedGeneration(name, id, RecoveryEntityType.MODEL);
+  }
+
+  private static DeletedEntityDTO createDeletedGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
         .build();
   }
 

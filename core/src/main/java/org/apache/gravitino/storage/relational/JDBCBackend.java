@@ -449,7 +449,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case TAG:
         return TagMetaService.getInstance().deleteTag(ident);
       case MODEL:
-        return ModelMetaService.getInstance().deleteModel(ident);
+        return ModelMetaService.getInstance().deleteModel(ident, deletionRetentionMs);
       case MODEL_VERSION:
         return ModelVersionMetaService.getInstance().deleteModelVersion(ident);
       case FUNCTION:
@@ -534,9 +534,23 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
         return TableColumnMetaService.getInstance()
             .deleteColumnsByLegacyTimeline(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case MODEL:
-        return ModelMetaService.getInstance()
-            .deleteModelMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableModelDeletionCount =
+            ModelMetaService.getInstance()
+                .purgeExpiredModelDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableModelDeletionCount > 0) {
+          return recoverableModelDeletionCount;
+        }
+        int legacyModelCount =
+            ModelMetaService.getInstance()
+                .deleteModelMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyModelCount > 0) {
+          return legacyModelCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.MODEL, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case MODEL_VERSION:
         return ModelVersionMetaService.getInstance()
             .deleteModelVersionMetasByLegacyTimeline(

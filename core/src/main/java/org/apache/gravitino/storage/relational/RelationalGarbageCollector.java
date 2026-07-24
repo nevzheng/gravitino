@@ -49,7 +49,9 @@ public final class RelationalGarbageCollector implements Closeable {
           .sorted(
               Comparator.comparingInt(
                   type ->
-                      type == Entity.EntityType.TABLE || type == Entity.EntityType.FUNCTION
+                      type == Entity.EntityType.TABLE
+                              || type == Entity.EntityType.FUNCTION
+                              || type == Entity.EntityType.MODEL
                           ? 0
                           : 1))
           .collect(
@@ -124,7 +126,9 @@ public final class RelationalGarbageCollector implements Closeable {
           }
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
-          if (entityType == Entity.EntityType.TABLE || entityType == Entity.EntityType.FUNCTION) {
+          if (entityType == Entity.EntityType.TABLE
+              || entityType == Entity.EntityType.FUNCTION
+              || entityType == Entity.EntityType.MODEL) {
             // Aggregate GC owns the recorded deletion purge. Continuing into shared relation
             // cleanup after it fails could remove only part of an otherwise recoverable cohort.
             LOG.warn("Stop this hard-delete cycle after aggregate deletion cleanup failed");

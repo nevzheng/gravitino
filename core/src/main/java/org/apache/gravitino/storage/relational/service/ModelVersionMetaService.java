@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -40,12 +41,15 @@ import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.ModelVersionEntity;
 import org.apache.gravitino.metrics.Monitored;
 import org.apache.gravitino.storage.relational.mapper.ModelMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.ModelRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelVersionAliasRelMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelVersionMetaMapper;
+import org.apache.gravitino.storage.relational.po.ModelPO;
 import org.apache.gravitino.storage.relational.po.ModelVersionAliasRelPO;
 import org.apache.gravitino.storage.relational.po.ModelVersionPO;
 import org.apache.gravitino.storage.relational.utils.ExceptionUtils;
@@ -163,6 +167,9 @@ public class ModelVersionMetaService {
     NameIdentifierUtil.checkModel(modelIdent);
 
     Long modelId = EntityIdService.getEntityId(modelIdent, Entity.EntityType.MODEL);
+    Long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(modelIdent.namespace().levels()), Entity.EntityType.SCHEMA);
 
     List<ModelVersionPO> modelVersionPOs =
         POConverters.initializeModelVersionPO(modelVersionEntity, modelId);
@@ -171,6 +178,10 @@ public class ModelVersionMetaService {
 
     try {
       SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  ModelRecoveryMapper.class,
+                  mapper -> lockLiveModel(mapper, schemaId, modelId, modelIdent.name())),
           () ->
               SessionUtils.doWithoutCommit(
                   ModelVersionMetaMapper.class,
@@ -186,7 +197,13 @@ public class ModelVersionMetaService {
           () ->
               // If the model version is inserted successfully, update the model latest version.
               SessionUtils.doWithoutCommit(
-                  ModelMetaMapper.class, mapper -> mapper.updateModelLatestVersion(modelId)));
+                  ModelMetaMapper.class,
+                  mapper -> {
+                    if (mapper.updateModelLatestVersion(modelId) != 1) {
+                      throw new TombstoneChangedException(
+                          "Model changed while inserting a version for %s", modelIdent);
+                    }
+                  }));
     } catch (RuntimeException re) {
       ExceptionUtils.checkSQLException(
           re, Entity.EntityType.MODEL_VERSION, modelVersionEntity.modelIdentifier().toString());
@@ -210,9 +227,16 @@ public class ModelVersionMetaService {
     }
 
     boolean isVersionNumber = NumberUtils.isCreatable(ident.name());
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(modelEntity.namespace().levels()), Entity.EntityType.SCHEMA);
 
     AtomicInteger modelVersionDeletedCount = new AtomicInteger();
     SessionUtils.doMultipleWithCommit(
+        () ->
+            SessionUtils.doWithoutCommit(
+                ModelRecoveryMapper.class,
+                mapper -> lockLiveModel(mapper, schemaId, modelEntity.id(), modelEntity.name())),
         // Delete model version relations first
         () ->
             modelVersionDeletedCount.set(
@@ -292,63 +316,70 @@ public class ModelVersionMetaService {
 
     boolean isVersionNumber = NumberUtils.isCreatable(ident.name());
     ModelEntity modelEntity = ModelMetaService.getInstance().getModelByIdentifier(modelIdent);
-
-    List<ModelVersionPO> oldModelVersionPOs =
-        SessionUtils.getWithoutCommit(
-            ModelVersionMetaMapper.class,
-            mapper -> {
-              if (isVersionNumber) {
-                return mapper.selectModelVersionMeta(
-                    modelEntity.id(), Integer.valueOf(ident.name()));
-              } else {
-                return mapper.selectModelVersionMetaByAlias(modelEntity.id(), ident.name());
-              }
-            });
-
-    if (oldModelVersionPOs.isEmpty()) {
-      throw new NoSuchEntityException(
-          NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
-          Entity.EntityType.MODEL_VERSION.name().toLowerCase(Locale.ROOT),
-          ident.toString());
-    }
-
-    List<ModelVersionAliasRelPO> oldAliasRelPOs =
-        SessionUtils.getWithoutCommit(
-            ModelVersionAliasRelMapper.class,
-            mapper -> {
-              if (isVersionNumber) {
-                return mapper.selectModelVersionAliasRelsByModelIdAndVersion(
-                    modelEntity.id(), Integer.valueOf(ident.name()));
-              } else {
-                return mapper.selectModelVersionAliasRelsByModelIdAndAlias(
-                    modelEntity.id(), ident.name());
-              }
-            });
-
-    ModelVersionEntity oldModelVersionEntity =
-        POConverters.fromModelVersionPO(modelIdent, oldModelVersionPOs, oldAliasRelPOs);
-    ModelVersionEntity newModelVersionEntity =
-        (ModelVersionEntity) updater.apply((E) oldModelVersionEntity);
-
-    Preconditions.checkArgument(
-        Objects.equals(oldModelVersionEntity.version(), newModelVersionEntity.version()),
-        "The updated model version: %s should be same with the table entity version before: %s",
-        newModelVersionEntity.version(),
-        oldModelVersionEntity.version());
-
-    boolean isAliasChanged =
-        isModelVersionAliasUpdated(oldModelVersionEntity, newModelVersionEntity);
-    List<ModelVersionAliasRelPO> newAliasRelPOs =
-        POConverters.updateModelVersionAliasRelPO(
-            oldAliasRelPOs, newModelVersionEntity, modelEntity.id());
-
-    boolean isModelVersionUriUpdated =
-        isModelVersionUriUpdated(oldModelVersionEntity, newModelVersionEntity);
-
     final AtomicInteger updateResult = new AtomicInteger(0);
+    final AtomicReference<ModelVersionEntity> updatedEntity = new AtomicReference<>();
+    Long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(modelEntity.namespace().levels()), Entity.EntityType.SCHEMA);
     try {
       SessionUtils.doMultipleWithCommit(
+          () ->
+              SessionUtils.doWithoutCommit(
+                  ModelRecoveryMapper.class,
+                  mapper -> lockLiveModel(mapper, schemaId, modelEntity.id(), modelEntity.name())),
           () -> {
+            List<ModelVersionPO> oldModelVersionPOs =
+                SessionUtils.getWithoutCommit(
+                    ModelVersionMetaMapper.class,
+                    mapper -> {
+                      if (isVersionNumber) {
+                        return mapper.selectModelVersionMeta(
+                            modelEntity.id(), Integer.valueOf(ident.name()));
+                      } else {
+                        return mapper.selectModelVersionMetaByAlias(modelEntity.id(), ident.name());
+                      }
+                    });
+
+            if (oldModelVersionPOs.isEmpty()) {
+              throw new NoSuchEntityException(
+                  NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
+                  Entity.EntityType.MODEL_VERSION.name().toLowerCase(Locale.ROOT),
+                  ident.toString());
+            }
+
+            List<ModelVersionAliasRelPO> oldAliasRelPOs =
+                SessionUtils.getWithoutCommit(
+                    ModelVersionAliasRelMapper.class,
+                    mapper -> {
+                      if (isVersionNumber) {
+                        return mapper.selectModelVersionAliasRelsByModelIdAndVersion(
+                            modelEntity.id(), Integer.valueOf(ident.name()));
+                      } else {
+                        return mapper.selectModelVersionAliasRelsByModelIdAndAlias(
+                            modelEntity.id(), ident.name());
+                      }
+                    });
+
+            ModelVersionEntity oldModelVersionEntity =
+                POConverters.fromModelVersionPO(modelIdent, oldModelVersionPOs, oldAliasRelPOs);
+            ModelVersionEntity newModelVersionEntity =
+                (ModelVersionEntity) updater.apply((E) oldModelVersionEntity);
+            updatedEntity.set(newModelVersionEntity);
+
+            Preconditions.checkArgument(
+                Objects.equals(oldModelVersionEntity.version(), newModelVersionEntity.version()),
+                "The updated model version: %s should be same with the table entity version before: %s",
+                newModelVersionEntity.version(),
+                oldModelVersionEntity.version());
+
+            boolean isAliasChanged =
+                isModelVersionAliasUpdated(oldModelVersionEntity, newModelVersionEntity);
+            List<ModelVersionAliasRelPO> newAliasRelPOs =
+                POConverters.updateModelVersionAliasRelPO(
+                    oldAliasRelPOs, newModelVersionEntity, modelEntity.id());
+            boolean isModelVersionUriUpdated =
+                isModelVersionUriUpdated(oldModelVersionEntity, newModelVersionEntity);
+
             if (isModelVersionUriUpdated) {
               // delete old model version POs first
               updateResult.addAndGet(
@@ -381,8 +412,7 @@ public class ModelVersionMetaService {
                                   oldModelVersionPOs.get(0), newModelVersionEntity),
                               oldModelVersionPOs.get(0))));
             }
-          },
-          () -> {
+
             if (isAliasChanged) {
               SessionUtils.doWithoutCommit(
                   ModelVersionAliasRelMapper.class,
@@ -394,20 +424,25 @@ public class ModelVersionMetaService {
                                   mapper.softDeleteModelVersionAliasRelsByModelIdAndAlias(
                                       modelEntity.id(), alias)));
 
-              SessionUtils.doWithoutCommit(
-                  ModelVersionAliasRelMapper.class,
-                  mapper -> mapper.updateModelVersionAliasRel(newAliasRelPOs));
+              if (!newAliasRelPOs.isEmpty()) {
+                SessionUtils.doWithoutCommit(
+                    ModelVersionAliasRelMapper.class,
+                    mapper -> mapper.updateModelVersionAliasRel(newAliasRelPOs));
+              }
             }
           });
 
     } catch (RuntimeException re) {
+      ModelVersionEntity attemptedEntity = updatedEntity.get();
       ExceptionUtils.checkSQLException(
-          re, Entity.EntityType.MODEL_VERSION, newModelVersionEntity.nameIdentifier().toString());
+          re,
+          Entity.EntityType.MODEL_VERSION,
+          attemptedEntity == null ? ident.toString() : attemptedEntity.nameIdentifier().toString());
       throw re;
     }
 
     if (updateResult.get() > 0) {
-      return newModelVersionEntity;
+      return updatedEntity.get();
     } else {
       throw new IOException("Failed to update the entity: " + ident);
     }
@@ -430,5 +465,18 @@ public class ModelVersionMetaService {
     Map<String, String> oldUris = oldModelVersionEntity.uris();
     Map<String, String> newUris = newModelVersionEntity.uris();
     return !oldUris.equals(newUris);
+  }
+
+  private static void lockLiveModel(
+      ModelRecoveryMapper mapper, long schemaId, long modelId, String modelName) {
+    Long lockedSchemaId = mapper.lockLiveSchema(schemaId);
+    ModelPO lockedModel = mapper.selectLiveModelByIdForUpdate(modelId);
+    if (!Objects.equals(schemaId, lockedSchemaId)
+        || lockedModel == null
+        || !Objects.equals(lockedModel.getSchemaId(), schemaId)
+        || !Objects.equals(lockedModel.getModelName(), modelName)) {
+      throw new TombstoneChangedException(
+          "Model changed while mutating versions for %s", modelName);
+    }
   }
 }

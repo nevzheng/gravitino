@@ -484,6 +484,7 @@ components:
           enum:
             - table
             - function
+            - model
         deletedAt:
           type: integer
           format: int64

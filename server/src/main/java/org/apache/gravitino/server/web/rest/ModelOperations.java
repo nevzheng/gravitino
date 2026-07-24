@@ -23,13 +23,17 @@ import com.codahale.metrics.annotation.Timed;
 import com.google.common.collect.ImmutableMap;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
+import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -37,12 +41,17 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.ModelDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
+import org.apache.gravitino.dto.model.ModelDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ModelRegisterRequest;
 import org.apache.gravitino.dto.requests.ModelUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelUpdatesRequest;
@@ -50,6 +59,8 @@ import org.apache.gravitino.dto.requests.ModelVersionLinkRequest;
 import org.apache.gravitino.dto.requests.ModelVersionUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelVersionUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ModelResponse;
@@ -58,11 +69,14 @@ import org.apache.gravitino.dto.responses.ModelVersionListResponse;
 import org.apache.gravitino.dto.responses.ModelVersionResponse;
 import org.apache.gravitino.dto.responses.ModelVersionUriResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.model.ModelVersionChange;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -79,12 +93,15 @@ public class ModelOperations {
   private static final Logger LOG = LoggerFactory.getLogger(ModelOperations.class);
 
   private final ModelDispatcher modelDispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public ModelOperations(ModelDispatcher modelDispatcher) {
+  public ModelOperations(
+      ModelDispatcher modelDispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.modelDispatcher = modelDispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -92,13 +109,19 @@ public class ModelOperations {
   @Timed(name = "list-model." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "list-model", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_SCHEMA_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.SCHEMA)
   public Response listModels(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
-      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema) {
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info("Received list models request for schema: {}.{}.{}", metalake, catalog, schema);
     Namespace modelNs = NamespaceUtil.ofModel(metalake, catalog, schema);
 
@@ -106,8 +129,29 @@ public class ModelOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedModelAccess(modelNs);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              List<DeletedEntityDTO> deletedModels =
+                  recoverableDeletionManager.listDeletedModels(modelNs, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedModels.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             NameIdentifier[] modelIds = modelDispatcher.listModels(modelNs);
             modelIds = modelIds == null ? new NameIdentifier[0] : modelIds;
+            if (name != null) {
+              modelIds =
+                  Arrays.stream(modelIds)
+                      .filter(identifier -> name.equals(identifier.name()))
+                      .toArray(NameIdentifier[]::new);
+            }
             modelIds =
                 MetadataAuthzHelper.filterByExpression(
                     metalake,
@@ -129,21 +173,46 @@ public class ModelOperations {
   @Timed(name = "get-model." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-model", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION,
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION
+              + ")",
       accessMetadataType = MetadataObject.Type.MODEL)
   public Response getModel(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
       @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
-      @PathParam("model") @AuthorizationMetadata(type = Entity.EntityType.MODEL) String model) {
+      @PathParam("model") @AuthorizationMetadata(type = Entity.EntityType.MODEL) String model,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received get model request: {}.{}.{}.{}", metalake, catalog, schema, model);
     NameIdentifier modelId = NameIdentifierUtil.ofModel(metalake, catalog, schema, model);
+    Namespace modelNs = NamespaceUtil.ofModel(metalake, catalog, schema);
 
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedModelAccess(modelNs);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted model");
+              }
+              DeletedEntityDTO deletedModel =
+                  recoverableDeletionManager.getDeletedModel(modelNs, model, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedModel)))
+                  .tag(new EntityTag(deletedModel.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             Model m = modelDispatcher.getModel(modelId);
             LOG.info("Model got: {}", modelId);
             return Utils.ok(new ModelResponse(DTOConverters.toDTO(m)));
@@ -151,6 +220,67 @@ public class ModelOperations {
 
     } catch (Exception e) {
       return ExceptionHandlers.handleModelException(OperationType.GET, model, schema, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted model metadata generation.
+   *
+   * @param metalake metalake name
+   * @param catalog catalog name
+   * @param schema schema name
+   * @param model original model name
+   * @param include deleted-resource selector
+   * @param id immutable model identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-model read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored model response
+   */
+  @PATCH
+  @Path("{model}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-model." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-model", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response restoreModel(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("catalog") @AuthorizationMetadata(type = Entity.EntityType.CATALOG) String catalog,
+      @PathParam("schema") @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) String schema,
+      @PathParam("model") String model,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore model request: {}.{}.{}.{}", metalake, catalog, schema, model);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted model");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted model");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "model");
+            Namespace namespace = NamespaceUtil.ofModel(metalake, catalog, schema);
+            checkDeletedModelAccess(namespace);
+            ModelEntity restored =
+                recoverableDeletionManager.restoreDeletedModel(namespace, model, entityId, etag);
+            return Utils.ok(new ModelResponse(toModelDTO(restored)));
+          });
+    } catch (Exception e) {
+      return ExceptionHandlers.handleModelException(OperationType.RESTORE, model, schema, e);
     }
   }
 
@@ -780,5 +910,25 @@ public class ModelOperations {
 
   private String aliasString(String model, String alias) {
     return model + " alias(" + alias + ")";
+  }
+
+  private static ModelDTO toModelDTO(ModelEntity model) {
+    return ModelDTO.builder()
+        .withName(model.name())
+        .withComment(model.comment())
+        .withProperties(model.properties())
+        .withLatestVersion(model.latestVersion())
+        .withAudit(DTOConverters.toDTO(model.auditInfo()))
+        .build();
+  }
+
+  private static void checkDeletedModelAccess(Namespace modelNamespace) {
+    NameIdentifier schemaIdentifier = NameIdentifier.of(modelNamespace.levels());
+    if (!MetadataAuthzHelper.checkAccess(
+        schemaIdentifier, Entity.EntityType.SCHEMA, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted models under %s",
+          modelNamespace);
+    }
   }
 }
