@@ -28,6 +28,7 @@ import static org.apache.hc.core5.http.HttpStatus.SC_INTERNAL_SERVER_ERROR;
 import static org.apache.hc.core5.http.HttpStatus.SC_METHOD_NOT_ALLOWED;
 import static org.apache.hc.core5.http.HttpStatus.SC_NOT_FOUND;
 import static org.apache.hc.core5.http.HttpStatus.SC_OK;
+import static org.apache.hc.core5.http.HttpStatus.SC_PRECONDITION_FAILED;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableList;
@@ -38,12 +39,15 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.stream.IntStream;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SupportsSchemas;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.SchemaDTO;
 import org.apache.gravitino.dto.rel.ColumnDTO;
 import org.apache.gravitino.dto.rel.DistributionDTO;
@@ -59,6 +63,7 @@ import org.apache.gravitino.dto.rel.partitioning.Partitioning;
 import org.apache.gravitino.dto.rel.partitioning.RangePartitioningDTO;
 import org.apache.gravitino.dto.rel.partitions.RangePartitionDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.SchemaCreateRequest;
 import org.apache.gravitino.dto.requests.SchemaUpdateRequest;
 import org.apache.gravitino.dto.requests.SchemaUpdatesRequest;
@@ -66,6 +71,8 @@ import org.apache.gravitino.dto.requests.TableCreateRequest;
 import org.apache.gravitino.dto.requests.TableUpdateRequest;
 import org.apache.gravitino.dto.requests.TableUpdatesRequest;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -79,6 +86,7 @@ import org.apache.gravitino.exceptions.NonEmptySchemaException;
 import org.apache.gravitino.exceptions.RESTException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.rel.TableCatalog;
@@ -396,6 +404,103 @@ public class TestRelationalCatalog extends TestBase {
     Throwable ex2 =
         Assertions.assertThrows(RuntimeException.class, () -> tableCatalog.listTables(namespace1));
     Assertions.assertTrue(ex2.getMessage().contains("unparsed error"));
+  }
+
+  @Test
+  public void testRecoverableTableMetadata() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    NameIdentifier tableId = NameIdentifier.of(namespace, "orders");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(RelationalCatalog.formatTableRequestPath(fullNamespace));
+    String itemPath = collectionPath + "/" + tableId.name();
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", tableId.name(), "id", "984273");
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "984273");
+    DeletedEntityDTO generation =
+        createDeletedTableGeneration(tableId.name(), "984273", RecoveryEntityType.TABLE);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed =
+        catalog.asTableCatalog().listDeletedTables(namespace, tableId.name(), generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.TABLE, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = catalog.asTableCatalog().loadDeletedTable(tableId, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    TableDTO restoredTable =
+        createMockTable(
+            tableId.name(),
+            new ColumnDTO[] {createMockColumn("id", Types.LongType.get(), "identifier")},
+            "restored metadata",
+            Collections.emptyMap(),
+            EMPTY_PARTITIONING,
+            DistributionDTO.NONE,
+            SortOrderDTO.EMPTY_SORT);
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    TableResponse response = new TableResponse(restoredTable);
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+    Table restored = catalog.asTableCatalog().restoreTable(tableId, loaded);
+    Assertions.assertEquals(tableId.name(), restored.name());
+
+    // An accepted exact-generation replay returns the same active metadata representation.
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, SC_OK);
+    Table replayed = catalog.asTableCatalog().restoreTable(tableId, loaded);
+    Assertions.assertEquals(tableId.name(), replayed.name());
+
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("generation changed", null);
+    buildMockResource(
+        Method.PATCH, itemPath, exactParameters, request, changed, SC_PRECONDITION_FAILED);
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () -> catalog.asTableCatalog().restoreTable(tableId, loaded));
+  }
+
+  @Test
+  public void testDeletedTableResponseBinding() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(RelationalCatalog.formatTableRequestPath(fullNamespace));
+    DeletedEntityDTO wrongType =
+        createDeletedTableGeneration("orders", "984273", RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTableCatalog().listDeletedTables(namespace, null, null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTableCatalog().listDeletedTables(Namespace.of("a", "b"), null, null));
+
+    NameIdentifier tableId = NameIdentifier.of(namespace, "orders");
+    String itemPath = collectionPath + "/" + tableId.name();
+    DeletedEntityDTO wrongName =
+        createDeletedTableGeneration("payments", "984273", RecoveryEntityType.TABLE);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", wrongName.id()),
+        null,
+        new DeletedEntityResponse(wrongName),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTableCatalog().loadDeletedTable(tableId, wrongName.id()));
   }
 
   @Test
@@ -1312,6 +1417,24 @@ public class TestRelationalCatalog extends TestBase {
         .withAudit(AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
         .withPartitioning(partitioning)
         .withIndex(indexDTOs)
+        .build();
+  }
+
+  private static DeletedEntityDTO createDeletedTableGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
         .build();
   }
 }

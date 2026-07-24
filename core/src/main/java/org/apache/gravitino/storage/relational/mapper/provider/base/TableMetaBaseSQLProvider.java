@@ -50,6 +50,17 @@ public class TableMetaBaseSQLProvider {
         + " WHERE tm.schema_id = #{schemaId} AND tm.deleted_at = 0";
   }
 
+  public String listDeletedTablePOsBySchemaId(@Param("schemaId") Long schemaId) {
+    return "SELECT table_id AS tableId, table_name AS tableName,"
+        + " metalake_id AS metalakeId, catalog_id AS catalogId, schema_id AS schemaId,"
+        + " audit_info AS auditInfo, current_version AS currentVersion,"
+        + " last_version AS lastVersion, deleted_at AS deletedAt"
+        + " FROM "
+        + TABLE_NAME
+        + " WHERE schema_id = #{schemaId} AND deleted_at > 0"
+        + " ORDER BY deleted_at DESC, table_id DESC";
+  }
+
   public String listTablePOsByTableIds(List<Long> tableIds) {
     return "<script>"
         + "SELECT tm.table_id as tableId, tm.table_name as tableName,"
@@ -254,7 +265,7 @@ public class TableMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE table_id = #{tableId} AND deleted_at = 0";
   }
 
@@ -262,7 +273,7 @@ public class TableMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -270,7 +281,7 @@ public class TableMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -279,7 +290,7 @@ public class TableMetaBaseSQLProvider {
         + "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -292,7 +303,8 @@ public class TableMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectTableByFullQualifiedName(

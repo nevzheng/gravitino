@@ -65,6 +65,7 @@ import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.converters.SQLExceptionConverterFactory;
 import org.apache.gravitino.storage.relational.database.H2Database;
 import org.apache.gravitino.storage.relational.service.CatalogMetaService;
+import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.FilesetMetaService;
 import org.apache.gravitino.storage.relational.service.FunctionMetaService;
 import org.apache.gravitino.storage.relational.service.GroupMetaService;
@@ -104,10 +105,14 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
 
   // Database instance of this JDBCBackend.
   private JDBCDatabase jdbcDatabase;
+  private long deletionRetentionMs = Configs.DEFAULT_STORE_DELETE_AFTER_TIME;
 
   /** Initialize the jdbc backend instance. */
   @Override
   public void initialize(Config config) {
+    Long configuredRetention = config.get(Configs.STORE_DELETE_AFTER_TIME);
+    deletionRetentionMs =
+        configuredRetention == null ? Configs.DEFAULT_STORE_DELETE_AFTER_TIME : configuredRetention;
     jdbcDatabase = startJDBCDatabaseIfNecessary(config);
     SqlSessionFactoryHelper.getInstance().init(config);
     SQLExceptionConverterFactory.initConverter(config);
@@ -430,7 +435,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case SCHEMA:
         return SchemaMetaService.getInstance().deleteSchema(ident, cascade);
       case TABLE:
-        return TableMetaService.getInstance().deleteTable(ident);
+        return TableMetaService.getInstance().deleteTable(ident, deletionRetentionMs);
       case FILESET:
         return FilesetMetaService.getInstance().deleteFileset(ident);
       case TOPIC:
@@ -480,9 +485,23 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
             .deleteSchemaMetasByLegacyTimeline(
                 legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TABLE:
-        return TableMetaService.getInstance()
-            .deleteTableMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableDeletionCount =
+            TableMetaService.getInstance()
+                .purgeExpiredTableDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableDeletionCount > 0) {
+          return recoverableDeletionCount;
+        }
+        int legacyTableCount =
+            TableMetaService.getInstance()
+                .deleteTableMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyTableCount > 0) {
+          return legacyTableCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.TABLE, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case FILESET:
         return FilesetMetaService.getInstance()
             .deleteFilesetAndVersionMetasByLegacyTimeline(

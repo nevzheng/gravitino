@@ -27,6 +27,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
@@ -39,6 +41,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -48,9 +51,13 @@ import org.apache.gravitino.Audit;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.TableOperationDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.rel.ColumnDTO;
 import org.apache.gravitino.dto.rel.DistributionDTO;
 import org.apache.gravitino.dto.rel.SortOrderDTO;
@@ -62,9 +69,12 @@ import org.apache.gravitino.dto.rel.partitioning.IdentityPartitioningDTO;
 import org.apache.gravitino.dto.rel.partitioning.ListPartitioningDTO;
 import org.apache.gravitino.dto.rel.partitioning.Partitioning;
 import org.apache.gravitino.dto.rel.partitions.ListPartitionDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.TableCreateRequest;
 import org.apache.gravitino.dto.requests.TableUpdateRequest;
 import org.apache.gravitino.dto.requests.TableUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -73,8 +83,14 @@ import org.apache.gravitino.dto.responses.TableResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.rel.TableChange;
@@ -89,6 +105,7 @@ import org.apache.gravitino.rel.indexes.Indexes;
 import org.apache.gravitino.rel.types.Type;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.rest.RESTUtils;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -110,6 +127,8 @@ public class TestTableOperations extends BaseOperationsTest {
 
   private static SchemaDispatcher schemaDispatcher = mock(SchemaDispatcher.class);
   private TableOperationDispatcher dispatcher = mock(TableOperationDispatcher.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final String metalake = "metalake1";
 
@@ -146,6 +165,7 @@ public class TestTableOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(dispatcher).to(TableDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -205,6 +225,264 @@ public class TestTableOperations extends BaseOperationsTest {
     ErrorResponse errorResp2 = resp2.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp2.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp2.getType());
+  }
+
+  @Test
+  public void testListDeletedTablesByExactId() {
+    DeletedEntityDTO deletedTable =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("77192")
+            .withName("orders")
+            .withType(RecoveryEntityType.TABLE)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(17L)
+            .withEtag(
+                "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedTables(any(), eq("orders"), eq(984273L)))
+        .thenReturn(List.of(deletedTable));
+    when(recoverableDeletionManager.getDeletedTable(any(), eq("orders"), eq(984273L)))
+        .thenReturn(deletedTable);
+
+    Response listResponse =
+        target(tablePath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("name", "orders")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    Assertions.assertNull(listResponse.getHeaderString("ETag"));
+    DeletedEntityListResponse body = listResponse.readEntity(DeletedEntityListResponse.class);
+    body.validate();
+    Assertions.assertArrayEquals(new DeletedEntityDTO[] {deletedTable}, body.getDeletedEntities());
+
+    Response itemResponse =
+        target(tablePath(metalake, catalog, schema) + "orders")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals(
+        "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+        itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    itemBody.validate();
+    Assertions.assertEquals(deletedTable, itemBody.getDeletedEntity());
+  }
+
+  @Test
+  public void testDeletedTableListingAndExactReadValidateId() {
+    when(recoverableDeletionManager.listDeletedTables(any(), eq(null), eq(null)))
+        .thenReturn(List.of());
+    Response noDetailsRequired =
+        target(tablePath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), noDetailsRequired.getStatus());
+
+    Response invalidId =
+        target(tablePath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(tablePath(metalake, catalog, schema) + "orders")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+  }
+
+  @Test
+  public void testRestoreDeletedTable() {
+    TableEntity restored =
+        TableEntity.builder()
+            .withId(984273L)
+            .withName("orders")
+            .withNamespace(Namespace.of(metalake, catalog, schema))
+            .withComment("restored")
+            .withColumns(List.of())
+            .withProperties(ImmutableMap.of())
+            .withAuditInfo(
+                AuditInfo.builder().withCreator("gravitino").withCreateTime(Instant.now()).build())
+            .build();
+    when(recoverableDeletionManager.restoreDeletedTable(
+            any(),
+            eq("orders"),
+            eq(984273L),
+            eq(
+                "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")))
+        .thenReturn(restored);
+
+    Response response =
+        target(tablePath(metalake, catalog, schema) + "orders")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header(
+                "If-Match",
+                "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    TableResponse body = response.readEntity(TableResponse.class);
+    body.validate();
+    Assertions.assertEquals("orders", body.getTable().name());
+    verify(recoverableDeletionManager)
+        .restoreDeletedTable(
+            any(),
+            eq("orders"),
+            eq(984273L),
+            eq(
+                "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedTableValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(tablePath(metalake, catalog, schema) + "orders")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header(
+                "If-Match",
+                "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId =
+        patchRestore(
+            "orders",
+            null,
+            "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch =
+        patchRestore("orders", "984273", null, MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch =
+        patchRestore(
+            "orders",
+            "984273",
+            "W/\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch =
+        patchRestore(
+            "orders",
+            "984273",
+            "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"deletion-2-representation-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestore(
+            "orders",
+            "984273",
+            "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+            MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(tablePath(metalake, catalog, schema) + "orders")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header(
+                "If-Match",
+                "\"deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager);
+  }
+
+  @Test
+  public void testRestoreDeletedTableMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedTable(any(), eq("orders"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedTable(any(), eq("orders"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "name occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedTable(any(), eq("orders"), eq(984273L), eq("conflict"));
+
+    Response stale =
+        patchRestore(
+            "orders", "984273", "\"stale\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired =
+        patchRestore(
+            "orders", "984273", "\"expired\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    Response conflict =
+        patchRestore(
+            "orders", "984273", "\"conflict\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+    ErrorResponse conflictBody = conflict.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictBody.getCode());
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictBody.getReason());
+  }
+
+  private Response patchRestore(
+      String table, String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(tablePath(metalake, catalog, schema) + table)
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
   }
 
   private DistributionDTO createMockDistributionDTO(String columnName, int bucketNum) {

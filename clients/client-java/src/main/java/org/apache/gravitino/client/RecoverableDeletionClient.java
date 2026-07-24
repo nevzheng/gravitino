@@ -28,6 +28,7 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.DeletedEntity;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
 import org.apache.gravitino.dto.responses.DeletedEntityResponse;
@@ -56,12 +57,28 @@ final class RecoverableDeletionClient {
       @Nullable String name,
       @Nullable String id,
       Consumer<ErrorResponse> errorHandler) {
+    return listDeleted(collectionPath, Collections.emptyMap(), name, id, errorHandler);
+  }
+
+  DeletedEntity[] listDeleted(
+      String collectionPath,
+      Map<String, String> scopeQueryParams,
+      @Nullable String name,
+      @Nullable String id,
+      Consumer<ErrorResponse> errorHandler) {
     checkPath(collectionPath);
+    Objects.requireNonNull(scopeQueryParams, "scopeQueryParams must not be null");
+    Preconditions.checkArgument(
+        !scopeQueryParams.containsKey(INCLUDE)
+            && !scopeQueryParams.containsKey(NAME)
+            && !scopeQueryParams.containsKey(ID),
+        "scopeQueryParams must not contain include, name, or id");
     Preconditions.checkArgument(
         name == null || StringUtils.isNotBlank(name), "name must not be blank");
     Preconditions.checkArgument(id == null || StringUtils.isNotBlank(id), "id must not be blank");
 
-    Map<String, String> queryParams = deletedQueryParams(id);
+    Map<String, String> queryParams = new LinkedHashMap<>(scopeQueryParams);
+    queryParams.putAll(deletedQueryParams(id));
     if (name != null) {
       queryParams.put(NAME, name);
     }
@@ -129,6 +146,36 @@ final class RecoverableDeletionClient {
             ErrorHandlers.recoveryErrorHandler(errorHandler));
     response.validate();
     return response;
+  }
+
+  static void checkBinding(
+      DeletedEntity generation,
+      RecoveryEntityType expectedType,
+      @Nullable String expectedName,
+      @Nullable String expectedId) {
+    Preconditions.checkArgument(generation != null, "Deleted entity generation must not be null");
+    Objects.requireNonNull(expectedType, "expectedType must not be null");
+    Preconditions.checkArgument(
+        generation.deleted(), "Deleted entity generation must describe deleted metadata");
+    Preconditions.checkArgument(
+        generation.type() == expectedType,
+        "Deleted entity type must be %s, but was %s",
+        expectedType.value(),
+        generation.type());
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(generation.name()), "Deleted entity name must not be blank");
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(generation.id()), "Deleted entity ID must not be blank");
+    if (expectedName != null) {
+      Preconditions.checkArgument(
+          expectedName.equals(generation.name()),
+          "Deleted entity name must match the requested entity name");
+    }
+    if (expectedId != null) {
+      Preconditions.checkArgument(
+          expectedId.equals(generation.id()),
+          "Deleted entity ID must match the requested entity ID");
+    }
   }
 
   private static Map<String, String> deletedQueryParams(@Nullable String id) {

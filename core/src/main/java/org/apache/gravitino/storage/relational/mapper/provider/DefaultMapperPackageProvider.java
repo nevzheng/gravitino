@@ -46,6 +46,7 @@ import org.apache.gravitino.storage.relational.mapper.SecurableObjectMapper;
 import org.apache.gravitino.storage.relational.mapper.StatisticMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TableColumnMapper;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.TableRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.TableVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetadataObjectRelMapper;
@@ -87,6 +88,7 @@ public class DefaultMapperPackageProvider implements MapperPackageProvider {
         StatisticMetaMapper.class,
         TableColumnMapper.class,
         TableMetaMapper.class,
+        TableRecoveryMapper.class,
         TagMetadataObjectRelMapper.class,
         TagMetaMapper.class,
         TopicMetaMapper.class,

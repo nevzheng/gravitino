@@ -328,6 +328,9 @@ components:
         application/vnd.gravitino.v1+json:
           schema:
             type: object
+            required:
+              - code
+              - identifiers
             properties:
               code:
                 type: integer

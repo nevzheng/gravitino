@@ -75,6 +75,9 @@ abstract class BaseSchemaCatalog extends CatalogDTO
   /** The REST client to send the requests. */
   protected final RESTClient restClient;
 
+  /** Shared client for recoverable metadata deletion operations. */
+  protected final RecoverableDeletionClient recoverableDeletionClient;
+
   /** The namespace of current catalog, which is the metalake name. */
   private final Namespace catalogNamespace;
 
@@ -96,6 +99,7 @@ abstract class BaseSchemaCatalog extends CatalogDTO
     super(name, type, provider, comment, properties, auditDTO);
 
     this.restClient = restClient;
+    this.recoverableDeletionClient = new RecoverableDeletionClient(restClient);
     Namespace.check(
         catalogNamespace != null && catalogNamespace.length() == 1,
         "Catalog namespace must be non-null and have 1 level, the input namespace is %s",

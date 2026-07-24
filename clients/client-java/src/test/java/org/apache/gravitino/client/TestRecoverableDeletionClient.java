@@ -84,6 +84,50 @@ class TestRecoverableDeletionClient {
   }
 
   @Test
+  void testScopedDeletedList() {
+    RESTClient restClient = mock(RESTClient.class);
+    RecoverableDeletionClient recoveryClient = new RecoverableDeletionClient(restClient);
+    DeletedEntityDTO deletedEntity = newDeletedEntity().build();
+
+    when(restClient.get(
+            eq("api/schemas"),
+            eq(
+                ImmutableMap.of(
+                    "parentSchema",
+                    "sales",
+                    "include",
+                    "deleted",
+                    "name",
+                    "sales:orders",
+                    "id",
+                    "984273")),
+            eq(DeletedEntityListResponse.class),
+            eq(Collections.emptyMap()),
+            any(ErrorHandler.class)))
+        .thenReturn(new DeletedEntityListResponse(new DeletedEntityDTO[] {deletedEntity}));
+
+    DeletedEntity[] listed =
+        recoveryClient.listDeleted(
+            "api/schemas",
+            ImmutableMap.of("parentSchema", "sales"),
+            "sales:orders",
+            "984273",
+            ErrorHandlers.schemaErrorHandler());
+
+    assertEquals(1, listed.length);
+    assertSame(deletedEntity, listed[0]);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            recoveryClient.listDeleted(
+                "api/schemas",
+                ImmutableMap.of("include", "all"),
+                null,
+                null,
+                ErrorHandlers.schemaErrorHandler()));
+  }
+
+  @Test
   void testRestoreUsesExactSelectorsAndStrongPrecondition() {
     RESTClient restClient = mock(RESTClient.class);
     RecoverableDeletionClient recoveryClient = new RecoverableDeletionClient(restClient);

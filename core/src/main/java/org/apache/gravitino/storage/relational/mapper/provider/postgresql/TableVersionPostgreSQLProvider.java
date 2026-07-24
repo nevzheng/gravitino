@@ -63,7 +63,8 @@ public class TableVersionPostgreSQLProvider extends TableVersionBaseSQLProvider 
         + TABLE_NAME
         + " SET deleted_at = round(extract(epoch from(current_timestamp -"
         + " timestamp '1970-01-01 00:00:00')) * 1000)"
-        + " WHERE table_id = #{tableId} AND version = #{version}";
+        + ", deletion_id = NULL"
+        + " WHERE table_id = #{tableId} AND version = #{version} AND deleted_at = 0";
   }
 
   @Override
@@ -71,8 +72,9 @@ public class TableVersionPostgreSQLProvider extends TableVersionBaseSQLProvider 
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE table_id IN (SELECT table_id FROM "
+        + " WHERE deletion_id IS NULL AND table_id IN (SELECT table_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
   }
 }

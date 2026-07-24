@@ -20,7 +20,6 @@ package org.apache.gravitino.storage.relational;
 
 import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_STORE;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -79,7 +78,14 @@ public class RelationalEntityStore
   private EntityChangeLogPoller entityChangeLogPoller;
   private EntityCache cache;
 
-  @VisibleForTesting
+  /**
+   * Returns the local entity cache owned by this relational store.
+   *
+   * <p>Callers that mutate relational metadata outside the {@link EntityStore} facade use this
+   * accessor to invalidate affected entries after their transaction commits.
+   *
+   * @return local entity cache
+   */
   public EntityCache getCache() {
     return cache;
   }
@@ -108,6 +114,7 @@ public class RelationalEntityStore
             config.get(Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_RETENTION_SECS)),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS)));
+    this.entityChangeLogPoller.registerListener(new RestoreChangeLogListener(cache));
     this.entityChangeLogPoller.start();
   }
 

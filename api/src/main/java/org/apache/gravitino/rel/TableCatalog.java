@@ -22,13 +22,20 @@ package org.apache.gravitino.rel;
 
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.rel.expressions.distributions.Distribution;
 import org.apache.gravitino.rel.expressions.distributions.Distributions;
 import org.apache.gravitino.rel.expressions.sorts.SortOrder;
@@ -54,6 +61,31 @@ public interface TableCatalog {
   NameIdentifier[] listTables(Namespace namespace) throws NoSuchSchemaException;
 
   /**
+   * Lists retained deletion generations for tables in a namespace.
+   *
+   * <p>The optional filters select an exact table name, immutable table ID, or both. A returned
+   * generation describes Gravitino metadata only; it does not assert that the downstream table
+   * still exists.
+   *
+   * <p>Implementations that support recoverable table deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param namespace A table namespace.
+   * @param name An exact table-name filter, or {@code null} to include every name.
+   * @param id An exact immutable table-ID filter, or {@code null} to include every ID.
+   * @return The retained table deletion generations matching the filters.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   * @throws IllegalArgumentException If the namespace or a supplied filter is invalid.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable table
+   *     deletion.
+   */
+  default DeletedEntity[] listDeletedTables(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedTables not supported.");
+  }
+
+  /**
    * Load table metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A table identifier.
@@ -61,6 +93,67 @@ public interface TableCatalog {
    * @throws NoSuchTableException If the table does not exist.
    */
   Table loadTable(NameIdentifier ident) throws NoSuchTableException;
+
+  /**
+   * Loads one exact retained deletion generation for a table.
+   *
+   * <p>The table name in {@code ident} and immutable {@code id} must identify the same deleted
+   * table. The returned generation supplies the strong optimistic precondition required by {@link
+   * #restoreTable(NameIdentifier, DeletedEntity)}.
+   *
+   * <p>Implementations that support recoverable table deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A table identifier.
+   * @param id The immutable table ID.
+   * @return The exact retained table deletion generation.
+   * @throws NoSuchSchemaException If the parent schema does not exist.
+   * @throws IllegalArgumentException If the identifier or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested table path.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable table
+   *     deletion.
+   */
+  default DeletedEntity loadDeletedTable(NameIdentifier ident, String id)
+      throws NoSuchSchemaException, TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedTable not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino table metadata.
+   *
+   * <p>This operation is metadata-only. It neither validates nor recreates the downstream table.
+   * The generation must come from an exact deleted-table read and must match the identifier's name
+   * and resource type. Replaying a previously accepted generation is idempotent while the server
+   * can still prove that exact restore.
+   *
+   * <p>If a request fails with {@link TombstoneChangedException}, callers must read the same table
+   * path and immutable ID again before deciding whether to retry; clients must never silently
+   * substitute a different ID or generation. An unknown transport outcome may be replayed with the
+   * same generation. A recovery conflict or expired generation is not retryable as-is.
+   *
+   * <p>Implementations that support recoverable table deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A table identifier.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored table metadata.
+   * @throws IllegalArgumentException If the identifier, generation type, name, ID, or ETag is
+   *     invalid or inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested table path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable table
+   *     deletion.
+   */
+  default Table restoreTable(NameIdentifier ident, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreTable not supported.");
+  }
 
   /**
    * Load table metadata by {@link NameIdentifier} from the catalog with required privileges.

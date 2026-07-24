@@ -55,6 +55,10 @@ public class TableMetaSQLProviderFactory {
     return getProvider().listTablePOsBySchemaId(schemaId);
   }
 
+  public static String listDeletedTablePOsBySchemaId(@Param("schemaId") Long schemaId) {
+    return getProvider().listDeletedTablePOsBySchemaId(schemaId);
+  }
+
   public static String listTablePOsByTableIds(@Param("tableIds") List<Long> tableIds) {
     return getProvider().listTablePOsByTableIds(tableIds);
   }

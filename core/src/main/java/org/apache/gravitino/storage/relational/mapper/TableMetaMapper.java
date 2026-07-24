@@ -43,6 +43,11 @@ public interface TableMetaMapper {
 
   @SelectProvider(
       type = TableMetaSQLProviderFactory.class,
+      method = "listDeletedTablePOsBySchemaId")
+  List<TablePO> listDeletedTablePOsBySchemaId(@Param("schemaId") Long schemaId);
+
+  @SelectProvider(
+      type = TableMetaSQLProviderFactory.class,
       method = "listTablePOsByFullQualifiedName")
   List<TablePO> listTablePOsByFullQualifiedName(
       @Param("metalakeName") String metalakeName,

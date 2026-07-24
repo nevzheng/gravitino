@@ -21,13 +21,18 @@ package org.apache.gravitino.storage.relational;
 import static org.apache.gravitino.Configs.GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT;
 import static org.apache.gravitino.Configs.STORE_DELETE_AFTER_TIME;
 import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -68,5 +73,27 @@ public class TestRelationalGarbageCollector {
 
     Assertions.assertDoesNotThrow(
         () -> new RelationalGarbageCollector(backend, config).collectAndClean());
+  }
+
+  @Test
+  public void testTableFailureStopsDependentHardDeletesForCycle() throws Exception {
+    Config config = mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong()))
+        .thenThrow(new IllegalStateException("table deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.VIEW), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
   }
 }

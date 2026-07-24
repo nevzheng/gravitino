@@ -33,7 +33,9 @@ import java.util.stream.Collectors;
  */
 public enum OperateType {
   ALTER(1),
-  DROP(2);
+  DROP(2),
+  // Code 3 is permanently reserved for INSERT by the database schema contract.
+  RESTORE(4);
 
   private static final Map<Integer, OperateType> BY_CODE =
       Arrays.stream(values()).collect(Collectors.toMap(OperateType::getCode, Function.identity()));
