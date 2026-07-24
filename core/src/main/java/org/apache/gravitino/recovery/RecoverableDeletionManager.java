@@ -50,6 +50,7 @@ import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 
@@ -62,6 +63,7 @@ public class RecoverableDeletionManager {
   private final long retentionMs;
   private final Clock clock;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
+  private final RecoverableEntityAdapter<ViewEntity> viewAdapter;
   private final RecoverableEntityAdapter<FilesetEntity> filesetAdapter;
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
   private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
@@ -94,6 +96,7 @@ public class RecoverableDeletionManager {
     this.retentionMs = retentionMs;
     this.clock = clock;
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
+    this.viewAdapter = new ViewRecoveryAdapter(entityCache);
     this.filesetAdapter = new FilesetRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
@@ -140,6 +143,47 @@ public class RecoverableDeletionManager {
    */
   public TableEntity restoreDeletedTable(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(tableAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists deleted view generations under a live schema.
+   *
+   * @param namespace view namespace
+   * @param name optional exact view name
+   * @param id optional exact immutable view identifier
+   * @return matching deleted view generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedViews(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(viewAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted view representation.
+   *
+   * @param namespace view namespace
+   * @param name original view name
+   * @param id immutable view identifier
+   * @return selected view deletion generation
+   */
+  public DeletedEntityDTO getDeletedView(Namespace namespace, String name, long id) {
+    return getDeleted(viewAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact view metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>This operation restores Gravitino metadata only. It never invokes or validates a catalog
+   * connector or downstream view.
+   *
+   * @param namespace view namespace
+   * @param name original view name
+   * @param id immutable view identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-view read
+   * @return restored view, or the already-restored view for an idempotent replay
+   */
+  public ViewEntity restoreDeletedView(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(viewAdapter, namespace, name, id, etag);
   }
 
   /**

@@ -59,6 +59,8 @@ public class ViewVersionInfoPO {
 
   private Long deletedAt;
 
+  private String deletionId;
+
   public ViewVersionInfoPO() {}
 
   @lombok.Builder(setterPrefix = "with")
@@ -76,7 +78,8 @@ public class ViewVersionInfoPO {
       String defaultSchema,
       String representations,
       String auditInfo,
-      Long deletedAt) {
+      Long deletedAt,
+      String deletionId) {
     Preconditions.checkArgument(metalakeId != null, "Metalake id is required");
     Preconditions.checkArgument(catalogId != null, "Catalog id is required");
     Preconditions.checkArgument(schemaId != null, "Schema id is required");
@@ -102,5 +105,6 @@ public class ViewVersionInfoPO {
     this.representations = representations;
     this.auditInfo = auditInfo;
     this.deletedAt = deletedAt;
+    this.deletionId = deletionId;
   }
 }

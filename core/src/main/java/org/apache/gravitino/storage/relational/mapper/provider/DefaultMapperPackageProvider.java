@@ -57,6 +57,7 @@ import org.apache.gravitino.storage.relational.mapper.TopicMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.UserMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.UserRoleRelMapper;
 import org.apache.gravitino.storage.relational.mapper.ViewMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.ViewRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.ViewVersionInfoMapper;
 
 /** The default provider that supplies the primary mapper package for Gravitino. */
@@ -102,6 +103,7 @@ public class DefaultMapperPackageProvider implements MapperPackageProvider {
         UserRoleRelMapper.class,
         TableVersionMapper.class,
         ViewMetaMapper.class,
+        ViewRecoveryMapper.class,
         ViewVersionInfoMapper.class);
   }
 }

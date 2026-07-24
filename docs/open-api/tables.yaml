@@ -485,6 +485,7 @@ components:
             - table
             - function
             - fileset
+            - view
             - model
         deletedAt:
           type: integer

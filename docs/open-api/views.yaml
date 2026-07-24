@@ -30,11 +30,32 @@ paths:
         - view
       summary: List views
       operationId: listViews
+      description: |
+        Lists live views by default. `include=deleted` returns recoverable metadata-deletion
+        records and supports exact `name` and `id` filters. Deleted collection responses do not
+        carry an ETag; read an exact deleted view before restoring it. Deleted-view reads are
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/viewNameFilter"
+        - $ref: "#/components/parameters/viewIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: Live view identifiers or deleted metadata records
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted views in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The target schema does not exist
           content:
@@ -106,10 +127,35 @@ paths:
         - view
       summary: Get view
       operationId: loadView
-      description: Return the specified view object
+      description: |
+        Returns the specified live view by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live parent path. The
+        deleted representation is metadata-only and carries a strong ETag for PATCH.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedViewId"
       responses:
         "200":
-          $ref: "#/components/responses/ViewResponse"
+          description: A live view or one exact deleted-view generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-view read
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/ViewResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted view
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The target view does not exist
           content:
@@ -125,6 +171,83 @@ paths:
                   $ref: "./schemas.yaml#/components/examples/NoSuchSchemaException"
                 NoSuchViewException:
                   $ref: "#/components/examples/NoSuchViewException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - view
+      summary: Restore a soft-deleted view
+      operationId: restoreView
+      description: |
+        Makes one exact soft-deleted view generation active again. The immutable `id`, path name,
+        and strong `If-Match` value bind PATCH to the exact representation returned by GET.
+
+        Restore affects only Gravitino metadata. It does not contact a connector, validate the
+        downstream view, or recreate it. The downstream view may be missing or may differ from the
+        restored metadata. The same accepted ETag can be replayed only while this generation
+        remains latest and the exact view ID is live at its original parent and name.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedViewInclude"
+        - $ref: "#/components/parameters/restoreViewId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/ViewResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The token does not identify the requested view ID and name
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, or the tombstone predates complete deletion records.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -196,6 +319,72 @@ paths:
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 components:
+
+  parameters:
+    include:
+      name: include
+      in: query
+      description: Select live views or soft-deleted view records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    viewNameFilter:
+      name: name
+      in: query
+      description: Exact view-name filter
+      required: false
+      schema:
+        type: string
+
+    viewIdFilter:
+      name: id
+      in: query
+      description: Immutable view-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedViewId:
+      name: id
+      in: query
+      description: Immutable view ID required for an exact deleted-view read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreViewId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted view generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedViewInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted view targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag returned by the exact deleted-view GET
+      required: true
+      schema:
+        type: string
 
   schemas:
     SQLRepresentation:

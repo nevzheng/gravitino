@@ -24,17 +24,25 @@ import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
 import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -43,13 +51,20 @@ import org.apache.gravitino.Audit;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.catalog.ViewDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.rel.ColumnDTO;
 import org.apache.gravitino.dto.rel.SQLRepresentationDTO;
 import org.apache.gravitino.dto.rel.ViewDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ViewCreateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdateRequest;
 import org.apache.gravitino.dto.requests.ViewUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -57,20 +72,31 @@ import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.ViewResponse;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchViewException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.ViewAlreadyExistsException;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.ViewEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.Representation;
 import org.apache.gravitino.rel.SQLRepresentation;
 import org.apache.gravitino.rel.View;
 import org.apache.gravitino.rel.ViewChange;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
+import org.apache.gravitino.utils.NamespaceUtil;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestViewOperations extends BaseOperationsTest {
@@ -87,6 +113,8 @@ public class TestViewOperations extends BaseOperationsTest {
   }
 
   private final ViewDispatcher dispatcher = mock(ViewDispatcher.class);
+  private final RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
   private final String metalake = "metalake";
   private final String catalog = "catalog1";
   private final String schema = "default";
@@ -119,6 +147,7 @@ public class TestViewOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(dispatcher).to(ViewDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(TestViewOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }
@@ -179,6 +208,287 @@ public class TestViewOperations extends BaseOperationsTest {
     ErrorResponse errorResp2 = resp2.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp2.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp2.getType());
+  }
+
+  @Test
+  public void testDeletedViewReadAndIdempotentRestoreReplay() {
+    Namespace viewNamespace = NamespaceUtil.ofView(metalake, catalog, schema);
+    String etag =
+        "deletion-view-1-representation-"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    DeletedEntityDTO deletedView =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("view-1")
+            .withName("view1")
+            .withType(RecoveryEntityType.VIEW)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(2L)
+            .withEtag(etag)
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedViews(eq(viewNamespace), eq("view1"), eq(984273L)))
+        .thenReturn(List.of(deletedView));
+    when(recoverableDeletionManager.getDeletedView(eq(viewNamespace), eq("view1"), eq(984273L)))
+        .thenReturn(deletedView);
+
+    Response listResponse =
+        target(viewPath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("name", "view1")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    DeletedEntityListResponse listBody = listResponse.readEntity(DeletedEntityListResponse.class);
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedView}, listBody.getDeletedEntities());
+
+    Response itemResponse =
+        target(viewPath(metalake, catalog, schema))
+            .path("view1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    Assertions.assertEquals(deletedView, itemBody.getDeletedEntity());
+
+    SQLRepresentation representation =
+        SQLRepresentation.builder().withDialect("trino").withSql("SELECT 1").build();
+    ViewEntity restored =
+        ViewEntity.builder()
+            .withId(984273L)
+            .withName("view1")
+            .withNamespace(viewNamespace)
+            .withComment("restored metadata")
+            .withColumns(new Column[0])
+            .withRepresentations(new Representation[] {representation})
+            .withDefaultCatalog("catalog1")
+            .withDefaultSchema("default")
+            .withProperties(ImmutableMap.of("key", "value"))
+            .withAuditInfo(
+                AuditInfo.builder()
+                    .withCreator("alice")
+                    .withCreateTime(Instant.ofEpochMilli(1_784_000_000_000L))
+                    .build())
+            .build();
+    when(recoverableDeletionManager.restoreDeletedView(
+            eq(viewNamespace), eq("view1"), eq(984273L), eq(etag)))
+        .thenReturn(restored);
+
+    Response restoreResponse = patchRestoreView("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), restoreResponse.getStatus());
+    ViewDTO restoredView = restoreResponse.readEntity(ViewResponse.class).getView();
+    Assertions.assertEquals("view1", restoredView.name());
+    Assertions.assertEquals(
+        "SELECT 1", ((SQLRepresentation) restoredView.representations()[0]).sql());
+
+    Response replayResponse = patchRestoreView("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replayResponse.getStatus());
+    Assertions.assertEquals(
+        "view1", replayResponse.readEntity(ViewResponse.class).getView().name());
+    verify(recoverableDeletionManager, times(2))
+        .restoreDeletedView(viewNamespace, "view1", 984273L, etag);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testDeletedViewQueryValidationAndLiveFiltering() {
+    Response invalidId =
+        target(viewPath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(viewPath(metalake, catalog, schema))
+            .path("view1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response invalidInclude =
+        target(viewPath(metalake, catalog, schema))
+            .queryParam("include", "all")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidInclude.getStatus());
+
+    Response liveId =
+        target(viewPath(metalake, catalog, schema))
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveId.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+
+    NameIdentifier view1 = NameIdentifier.of(metalake, catalog, schema, "view1");
+    NameIdentifier view2 = NameIdentifier.of(metalake, catalog, schema, "view2");
+    when(dispatcher.listViews(any())).thenReturn(new NameIdentifier[] {view1, view2});
+    Response filtered =
+        target(viewPath(metalake, catalog, schema))
+            .queryParam("name", "view2")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), filtered.getStatus());
+    Assertions.assertArrayEquals(
+        new NameIdentifier[] {view2}, filtered.readEntity(EntityListResponse.class).identifiers());
+  }
+
+  @Test
+  public void testRestoreDeletedViewValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(viewPath(metalake, catalog, schema))
+            .path("view1")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .header("If-Match", "\"view-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId =
+        patchRestoreView(null, "\"view-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch =
+        patchRestoreView("984273", null, MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch =
+        patchRestoreView(
+            "984273", "W/\"view-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch =
+        patchRestoreView(
+            "984273",
+            "\"view-etag\", \"other-etag\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestoreView("984273", "\"view-etag\"", MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(viewPath(metalake, catalog, schema))
+            .path("view1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON)
+            .header("If-Match", "\"view-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedViewMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedView(any(), eq("view1"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedView(any(), eq("view1"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedView(any(), eq("view1"), eq(984273L), eq("name-occupied"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.ENTITY_ID_REUSED, "reused"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedView(any(), eq("view1"), eq(984273L), eq("id-reused"));
+    doThrow(
+            new RecoveryConflictException(
+                RecoveryConflictReason.NOT_LATEST_TOMBSTONE, "not latest"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedView(any(), eq("view1"), eq(984273L), eq("not-latest"));
+
+    Response stale = patchRestoreView("984273", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestoreView("984273", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    assertRecoveryConflict("name-occupied", RecoveryConflictReason.NAME_OCCUPIED);
+    assertRecoveryConflict("id-reused", RecoveryConflictReason.ENTITY_ID_REUSED);
+    assertRecoveryConflict("not-latest", RecoveryConflictReason.NOT_LATEST_TOMBSTONE);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testDeletedViewOperationsRequireServiceAdministrator() throws Exception {
+    ViewOperations operations = new ViewOperations(dispatcher, recoverableDeletionManager);
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    FieldUtils.writeField(operations, "httpRequest", request, true);
+
+    try (MockedStatic<MetadataAuthzHelper> ignored = mockStatic(MetadataAuthzHelper.class)) {
+      Response list = operations.listViews(metalake, catalog, schema, "deleted", null, null);
+      Assertions.assertEquals(Response.Status.FORBIDDEN.getStatusCode(), list.getStatus());
+
+      Response item = operations.loadView(metalake, catalog, schema, "view1", "deleted", "984273");
+      Assertions.assertEquals(Response.Status.FORBIDDEN.getStatusCode(), item.getStatus());
+
+      Response restore =
+          operations.restoreView(
+              metalake,
+              catalog,
+              schema,
+              "view1",
+              "deleted",
+              "984273",
+              "\"view-etag\"",
+              new EntityRestoreRequest(false));
+      Assertions.assertEquals(Response.Status.FORBIDDEN.getStatusCode(), restore.getStatus());
+    }
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+
+    Method restoreMethod =
+        ViewOperations.class.getMethod(
+            "restoreView",
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            String.class,
+            EntityRestoreRequest.class);
+    Assertions.assertEquals(
+        "SERVICE_ADMIN", restoreMethod.getAnnotation(AuthorizationExpression.class).expression());
   }
 
   @Test
@@ -396,6 +706,34 @@ public class TestViewOperations extends BaseOperationsTest {
     Assertions.assertEquals(updatedView.name(), dto.name());
     Assertions.assertEquals(updatedView.comment(), dto.comment());
     Assertions.assertEquals(updatedView.properties(), dto.properties());
+  }
+
+  private void assertRecoveryConflict(String etag, RecoveryConflictReason reason) {
+    Response response = patchRestoreView("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    ErrorResponse body = response.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, body.getCode());
+    Assertions.assertEquals(reason, body.getReason());
+  }
+
+  private Response patchRestoreView(String id, String ifMatch) {
+    return patchRestoreView(id, ifMatch, MediaType.valueOf("application/merge-patch+json"));
+  }
+
+  private Response patchRestoreView(String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(viewPath(metalake, catalog, schema))
+            .path("view1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(VND_V1_JSON);
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
   }
 
   private View mockView(

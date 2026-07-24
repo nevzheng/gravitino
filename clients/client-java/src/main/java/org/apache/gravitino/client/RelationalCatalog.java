@@ -417,6 +417,33 @@ class RelationalCatalog extends BaseSchemaCatalog
   }
 
   /**
+   * Lists retained view deletion generations under the given schema namespace.
+   *
+   * @param namespace The one-level schema namespace.
+   * @param name An exact view-name filter, or {@code null}.
+   * @param id An exact immutable view-ID filter, or {@code null}.
+   * @return The matching retained view deletion generations.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   */
+  @Override
+  public DeletedEntity[] listDeletedViews(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException {
+    checkViewNamespace(namespace);
+
+    Namespace fullNamespace = getEntityFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatViewRequestPath(fullNamespace), name, id, ErrorHandlers.viewErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.VIEW, name, id));
+    return generations;
+  }
+
+  /**
    * Load the view with specified identifier.
    *
    * @param ident The identifier of the view to load, which should be "schema.view" format.
@@ -437,6 +464,53 @@ class RelationalCatalog extends BaseSchemaCatalog
     resp.validate();
 
     return new GenericView(resp.getView(), restClient, fullNamespace);
+  }
+
+  /**
+   * Loads an exact view deletion generation under the given identifier.
+   *
+   * @param ident The view identifier in {@code schema.view} form.
+   * @param id The immutable view ID.
+   * @return The exact retained view deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedView(NameIdentifier ident, String id) {
+    checkViewNameIdentifier(ident);
+
+    Namespace fullNamespace = getEntityFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatViewRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.viewErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.VIEW, ident.name(), id);
+    return generation;
+  }
+
+  /**
+   * Restores an exact retained generation as active Gravitino view metadata without contacting a
+   * downstream system.
+   *
+   * @param ident The view identifier in {@code schema.view} form.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored view metadata.
+   */
+  @Override
+  public View restoreView(NameIdentifier ident, DeletedEntity generation) {
+    checkViewNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.VIEW, ident.name(), null);
+
+    Namespace fullNamespace = getEntityFullNamespace(ident.namespace());
+    ViewResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatViewRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            ViewResponse.class,
+            ErrorHandlers.viewErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getView().name()),
+        "Restored view name must match the requested view name");
+    return new GenericView(response.getView(), restClient, fullNamespace);
   }
 
   /**

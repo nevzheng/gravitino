@@ -54,6 +54,7 @@ import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
@@ -65,6 +66,7 @@ import org.apache.gravitino.storage.relational.service.FilesetMetaService;
 import org.apache.gravitino.storage.relational.service.ModelMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
+import org.apache.gravitino.storage.relational.service.ViewMetaService;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -233,6 +235,63 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
             .id());
     Assertions.assertTrue(
         manager.listDeletedFilesets(namespace, fileset.name(), fileset.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testViewDiscoveryMetadataRestoreAndReplay() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofView(METALAKE, CATALOG, SCHEMA);
+    ViewEntity view =
+        createViewEntity(RandomIdGenerator.INSTANCE.nextId(), namespace, "monthly_revenue");
+    ViewMetaService.getInstance().insertView(view, false);
+    Assertions.assertTrue(
+        ViewMetaService.getInstance().deleteView(view.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    List<DeletedEntityDTO> discovered = manager.listDeletedViews(namespace, view.name(), view.id());
+    Assertions.assertEquals(1, discovered.size());
+    DeletedEntityDTO exact = manager.getDeletedView(namespace, view.name(), view.id());
+    Assertions.assertEquals(discovered.get(0).getEtag(), exact.getEtag());
+    Assertions.assertEquals(String.valueOf(view.id()), exact.getId());
+    Assertions.assertEquals("view", exact.getType().value());
+    Assertions.assertTrue(exact.getLatestForName());
+    Assertions.assertTrue(exact.getRestorable());
+
+    ViewEntity restored =
+        manager.restoreDeletedView(namespace, view.name(), view.id(), exact.getEtag());
+    Assertions.assertEquals(view.id(), restored.id());
+    Assertions.assertEquals(view.name(), restored.name());
+    Assertions.assertEquals(view.namespace(), restored.namespace());
+    Assertions.assertEquals(view.columns().length, restored.columns().length);
+    Assertions.assertArrayEquals(view.representations(), restored.representations());
+    Assertions.assertEquals(
+        view.id(),
+        manager.restoreDeletedView(namespace, view.name(), view.id(), exact.getEtag()).id());
+    Assertions.assertTrue(manager.listDeletedViews(namespace, view.name(), view.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testViewRestoreFailsWhenParentDisappears() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofView(METALAKE, CATALOG, SCHEMA);
+    ViewEntity view =
+        createViewEntity(RandomIdGenerator.INSTANCE.nextId(), namespace, "parent_bound_view");
+    ViewMetaService.getInstance().insertView(view, false);
+    Assertions.assertTrue(
+        ViewMetaService.getInstance().deleteView(view.nameIdentifier(), RETENTION_MS));
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    String etag = manager.getDeletedView(namespace, view.name(), view.id()).getEtag();
+
+    Assertions.assertTrue(
+        SchemaMetaService.getInstance()
+            .deleteSchema(NameIdentifier.of(METALAKE, CATALOG, SCHEMA), true));
+    assertRecoveryConflict(
+        RecoveryConflictReason.PARENT_CHANGED,
+        () -> manager.restoreDeletedView(namespace, view.name(), view.id(), etag));
   }
 
   @TestTemplate

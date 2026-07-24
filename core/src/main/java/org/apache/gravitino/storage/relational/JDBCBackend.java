@@ -461,7 +461,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case JOB:
         return JobMetaService.getInstance().deleteJob(ident);
       case VIEW:
-        return ViewMetaService.getInstance().deleteView(ident);
+        return ViewMetaService.getInstance().deleteView(ident, deletionRetentionMs);
       default:
         throw new UnsupportedEntityTypeException(
             "Unsupported entity type: %s for delete operation", entityType);
@@ -601,9 +601,22 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
         return JobMetaService.getInstance()
             .deleteJobsByLegacyTimeline(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case VIEW:
-        return ViewMetaService.getInstance()
-            .deleteViewMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableViewDeletionCount =
+            ViewMetaService.getInstance()
+                .purgeExpiredViewDeletions(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableViewDeletionCount > 0) {
+          return recoverableViewDeletionCount;
+        }
+        int legacyViewCount =
+            ViewMetaService.getInstance()
+                .deleteViewMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyViewCount > 0) {
+          return legacyViewCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.VIEW, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case AUDIT:
         return 0;
         // TODO: Implement hard delete logic for these entity types.
