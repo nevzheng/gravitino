@@ -23,9 +23,14 @@ import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
 import static org.apache.gravitino.dto.util.DTOConverters.toDTO;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
@@ -33,9 +38,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -44,12 +51,19 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.policy.PolicyContentDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.PolicyCreateRequest;
 import org.apache.gravitino.dto.requests.PolicySetRequest;
 import org.apache.gravitino.dto.requests.PolicyUpdateRequest;
 import org.apache.gravitino.dto.requests.PolicyUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -60,6 +74,9 @@ import org.apache.gravitino.dto.responses.PolicyResponse;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchPolicyException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.policy.Policy;
@@ -68,7 +85,9 @@ import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -91,8 +110,11 @@ public class TestPolicyOperations extends BaseOperationsTest {
   }
 
   private final PolicyManager policyManager = mock(PolicyManager.class);
+  private final RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final String metalake = "test_metalake";
+  private final Namespace policyNamespace = NamespaceUtil.ofPolicy(metalake);
 
   private final AuditInfo testAuditInfo1 =
       AuditInfo.builder().withCreator("user1").withCreateTime(Instant.now()).build();
@@ -121,6 +143,7 @@ public class TestPolicyOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(policyManager).to(PolicyDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -263,6 +286,270 @@ public class TestPolicyOperations extends BaseOperationsTest {
     PolicyListResponse policyListResp2 = resp2.readEntity(PolicyListResponse.class);
     Assertions.assertEquals(0, policyListResp2.getCode());
     Assertions.assertEquals(0, policyListResp2.getPolicies().length);
+  }
+
+  @Test
+  public void testDeletedPolicyReadRestoreAndReplay() {
+    String etag =
+        "deletion-policy-1-representation-"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    DeletedEntityDTO deletedPolicy =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("policy-1")
+            .withName("policy1")
+            .withType(RecoveryEntityType.POLICY)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(2L)
+            .withEtag(etag)
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedPolicies(policyNamespace, "policy1", 984273L))
+        .thenReturn(List.of(deletedPolicy));
+    when(recoverableDeletionManager.getDeletedPolicy(policyNamespace, "policy1", 984273L))
+        .thenReturn(deletedPolicy);
+
+    Response listResponse =
+        target(policyPath(metalake))
+            .queryParam("include", "deleted")
+            .queryParam("name", "policy1")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    DeletedEntityListResponse listBody = listResponse.readEntity(DeletedEntityListResponse.class);
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedPolicy}, listBody.getDeletedEntities());
+
+    Response itemResponse =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    Assertions.assertEquals(deletedPolicy, itemBody.getDeletedEntity());
+
+    PolicyEntity restored = policyEntity(984273L, "policy1");
+    when(recoverableDeletionManager.restoreDeletedPolicy(policyNamespace, "policy1", 984273L, etag))
+        .thenReturn(restored);
+    when(policyManager.getPolicy(metalake, "policy1")).thenReturn(restored);
+
+    Response firstRestore = patchRestorePolicy("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), firstRestore.getStatus());
+    Assertions.assertEquals(
+        "policy1", firstRestore.readEntity(PolicyResponse.class).getPolicy().name());
+
+    Response replay = patchRestorePolicy("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replay.getStatus());
+    Assertions.assertEquals("policy1", replay.readEntity(PolicyResponse.class).getPolicy().name());
+    verify(recoverableDeletionManager, times(2))
+        .restoreDeletedPolicy(policyNamespace, "policy1", 984273L, etag);
+    verify(policyManager, times(2)).getPolicy(metalake, "policy1");
+    verifyNoMoreInteractions(policyManager);
+  }
+
+  @Test
+  public void testDeletedPolicyQueryValidation() {
+    Response invalidId =
+        target(policyPath(metalake))
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response deletedDetails =
+        target(policyPath(metalake))
+            .queryParam("include", "deleted")
+            .queryParam("details", true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), deletedDetails.getStatus());
+
+    Response liveId =
+        target(policyPath(metalake))
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveId.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, policyManager);
+  }
+
+  @Test
+  public void testRestoreDeletedPolicyValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"policy-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId = patchRestorePolicy(null, "\"policy-etag\"");
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch = patchRestorePolicy("984273", null);
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch = patchRestorePolicy("984273", "W/\"policy-etag\"");
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch = patchRestorePolicy("984273", "\"policy-etag\", \"other-etag\"");
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response invalidBody =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"policy-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+
+    Response unsupportedMediaType =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"policy-etag\"")
+            .method("PATCH", Entity.entity("deleted=false", MediaType.TEXT_PLAIN_TYPE));
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), unsupportedMediaType.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, policyManager);
+  }
+
+  @Test
+  public void testPolicyPatchMediaTypesCannotCrossMutate() {
+    PolicySetRequest setRequest = new PolicySetRequest(true);
+    Response setResponse =
+        target(policyPath(metalake))
+            .path("policy1")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .method("PATCH", Entity.entity(setRequest, MediaType.APPLICATION_JSON_TYPE));
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), setResponse.getStatus());
+    verify(policyManager).enablePolicy(metalake, "policy1");
+    verifyNoInteractions(recoverableDeletionManager);
+
+    Response restoreShapedJson =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"policy-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), MediaType.APPLICATION_JSON_TYPE));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), restoreShapedJson.getStatus());
+    verify(policyManager, times(1)).enablePolicy(metalake, "policy1");
+    verifyNoInteractions(recoverableDeletionManager);
+
+    Response selectorFreeRestoreShapedJson =
+        target(policyPath(metalake))
+            .path("policy1")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), MediaType.APPLICATION_JSON_TYPE));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), selectorFreeRestoreShapedJson.getStatus());
+    verify(policyManager, times(1)).enablePolicy(metalake, "policy1");
+    verifyNoInteractions(recoverableDeletionManager);
+
+    Response setShapedMergePatch =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"policy-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new PolicySetRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), setShapedMergePatch.getStatus());
+    verify(policyManager, times(1)).enablePolicy(metalake, "policy1");
+    verifyNoMoreInteractions(policyManager);
+    verifyNoInteractions(recoverableDeletionManager);
+  }
+
+  @Test
+  public void testRestoreDeletedPolicyMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedPolicy(any(), eq("policy1"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedPolicy(any(), eq("policy1"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedPolicy(any(), eq("policy1"), eq(984273L), eq("conflict"));
+
+    Response stale = patchRestorePolicy("984273", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestorePolicy("984273", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    Response conflict = patchRestorePolicy("984273", "\"conflict\"");
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+    ErrorResponse conflictBody = conflict.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictBody.getCode());
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictBody.getReason());
+    verifyNoInteractions(policyManager);
   }
 
   @Test
@@ -770,6 +1057,39 @@ public class TestPolicyOperations extends BaseOperationsTest {
     ErrorResponse errorResponse1 = response2.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResponse1.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResponse1.getType());
+  }
+
+  private Response patchRestorePolicy(String id, String ifMatch) {
+    Invocation.Builder request =
+        target(policyPath(metalake))
+            .path("policy1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+  }
+
+  private PolicyEntity policyEntity(long id, String name) {
+    PolicyContent content =
+        PolicyContents.custom(
+            ImmutableMap.of("target_file_size_bytes", 1000),
+            ImmutableSet.of(MetadataObject.Type.TABLE),
+            null);
+    return PolicyEntity.builder()
+        .withId(id)
+        .withName(name)
+        .withNamespace(policyNamespace)
+        .withPolicyType(Policy.BuiltInType.CUSTOM)
+        .withEnabled(false)
+        .withContent(content)
+        .withAuditInfo(testAuditInfo1)
+        .build();
   }
 
   private String policyPath(String metalake) {

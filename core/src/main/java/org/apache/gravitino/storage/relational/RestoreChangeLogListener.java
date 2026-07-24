@@ -45,7 +45,8 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
           Entity.EntityType.FILESET,
           Entity.EntityType.TOPIC,
           Entity.EntityType.FUNCTION,
-          Entity.EntityType.MODEL);
+          Entity.EntityType.MODEL,
+          Entity.EntityType.POLICY);
 
   private final EntityCache cache;
 
@@ -74,7 +75,8 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
       // descendants or their relations.
       if (entityType == Entity.EntityType.METALAKE
           || entityType == Entity.EntityType.CATALOG
-          || entityType == Entity.EntityType.SCHEMA) {
+          || entityType == Entity.EntityType.SCHEMA
+          || entityType == Entity.EntityType.POLICY) {
         clearCache(change);
         continue;
       }

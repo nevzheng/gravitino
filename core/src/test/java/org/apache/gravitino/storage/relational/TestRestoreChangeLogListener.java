@@ -40,6 +40,7 @@ import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -72,7 +73,9 @@ public class TestRestoreChangeLogListener {
           Entity.EntityType.FUNCTION,
           NameIdentifier.of("metalake", "catalog", "schema", "function"),
           Entity.EntityType.MODEL,
-          NameIdentifier.of("metalake", "catalog", "schema", "model"));
+          NameIdentifier.of("metalake", "catalog", "schema", "model"),
+          Entity.EntityType.POLICY,
+          NameIdentifier.of(NamespaceUtil.ofPolicy("metalake"), "policy"));
 
   @Test
   void testFiltersAndParsesRestoreRecords() {
@@ -109,12 +112,13 @@ public class TestRestoreChangeLogListener {
 
     listener.onEntityChange(changes);
 
-    verify(cache, times(3)).clear();
+    verify(cache, times(4)).clear();
     RECOVERABLE_IDENTIFIERS.forEach(
         (entityType, identifier) -> {
           if (entityType == Entity.EntityType.METALAKE
               || entityType == Entity.EntityType.CATALOG
-              || entityType == Entity.EntityType.SCHEMA) {
+              || entityType == Entity.EntityType.SCHEMA
+              || entityType == Entity.EntityType.POLICY) {
             return;
           }
           verify(cache).invalidate(identifier, entityType);

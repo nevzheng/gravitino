@@ -23,12 +23,15 @@ import static org.apache.gravitino.dto.util.DTOConverters.fromDTO;
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.PATCH;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
@@ -37,15 +40,23 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.HttpHeaders;
+import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.policy.PolicyDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.PolicyCreateRequest;
 import org.apache.gravitino.dto.requests.PolicySetRequest;
 import org.apache.gravitino.dto.requests.PolicyUpdateRequest;
 import org.apache.gravitino.dto.requests.PolicyUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.MetadataObjectListResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
@@ -53,17 +64,20 @@ import org.apache.gravitino.dto.responses.PolicyListResponse;
 import org.apache.gravitino.dto.responses.PolicyResponse;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyChange;
 import org.apache.gravitino.policy.PolicyDispatcher;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.apache.gravitino.utils.NamespaceUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,12 +87,15 @@ public class PolicyOperations {
   private static final Logger LOG = LoggerFactory.getLogger(PolicyOperations.class);
 
   private final PolicyDispatcher policyDispatcher;
+  private final RecoverableDeletionManager recoverableDeletionManager;
 
   @Context private HttpServletRequest httpRequest;
 
   @Inject
-  public PolicyOperations(PolicyDispatcher policyDispatcher) {
+  public PolicyOperations(
+      PolicyDispatcher policyDispatcher, RecoverableDeletionManager recoverableDeletionManager) {
     this.policyDispatcher = policyDispatcher;
+    this.recoverableDeletionManager = recoverableDeletionManager;
   }
 
   @GET
@@ -89,7 +106,10 @@ public class PolicyOperations {
   public Response listPolicies(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @QueryParam("details") @DefaultValue("false") boolean verbose) {
+      @QueryParam("details") @DefaultValue("false") boolean verbose,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("name") String name,
+      @QueryParam("id") String id) {
     LOG.info(
         "Received list policy {} request for metalake: {}", verbose ? "infos" : "names", metalake);
 
@@ -97,8 +117,35 @@ public class PolicyOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              if (verbose) {
+                throw new IllegalArgumentException(
+                    "details=true is not supported with include=deleted");
+              }
+              checkDeletedPolicyAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              Namespace namespace = NamespaceUtil.ofPolicy(metalake);
+              List<DeletedEntityDTO> deletedPolicies =
+                  recoverableDeletionManager.listDeletedPolicies(namespace, name, entityId);
+              return Utils.ok(
+                  new DeletedEntityListResponse(deletedPolicies.toArray(new DeletedEntityDTO[0])));
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             if (verbose) {
               PolicyEntity[] policies = policyDispatcher.listPolicyInfos(metalake);
+              policies = policies == null ? new PolicyEntity[0] : policies;
+              if (name != null) {
+                policies =
+                    Arrays.stream(policies)
+                        .filter(policy -> name.equals(policy.name()))
+                        .toArray(PolicyEntity[]::new);
+              }
               PolicyDTO[] policyDTOs =
                   Arrays.stream(policies)
                       .map(p -> toDTO(p, Optional.empty()))
@@ -116,6 +163,10 @@ public class PolicyOperations {
             } else {
               String[] policyNames = policyDispatcher.listPolicies(metalake);
               policyNames = policyNames == null ? new String[0] : policyNames;
+              if (name != null) {
+                policyNames =
+                    Arrays.stream(policyNames).filter(name::equals).toArray(String[]::new);
+              }
               policyNames =
                   MetadataAuthzHelper.filterByExpression(
                       metalake,
@@ -128,7 +179,7 @@ public class PolicyOperations {
             }
           });
     } catch (Exception e) {
-      return ExceptionHandlers.handlePolicyException(OperationType.LIST, "", metalake, e);
+      return handleRecoveryException(OperationType.LIST, "", metalake, e);
     }
   }
 
@@ -173,23 +224,48 @@ public class PolicyOperations {
   @Timed(name = "get-policy." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "get-policy", absolute = true)
   @AuthorizationExpression(
-      expression = AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION)
+      expression =
+          "SERVICE_ADMIN || ("
+              + AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION
+              + ")")
   public Response getPolicy(
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
-      @PathParam("policy") @AuthorizationMetadata(type = Entity.EntityType.POLICY) String name) {
+      @PathParam("policy") @AuthorizationMetadata(type = Entity.EntityType.POLICY) String name,
+      @QueryParam("include") @DefaultValue("non-deleted") String include,
+      @QueryParam("id") String id) {
     LOG.info("Received get policy request for policy: {} under metalake: {}", name, metalake);
 
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if ("deleted".equals(include)) {
+              checkDeletedPolicyAccess(metalake);
+              Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+              if (entityId == null) {
+                throw new IllegalArgumentException("id is required when loading a deleted policy");
+              }
+              DeletedEntityDTO deletedPolicy =
+                  recoverableDeletionManager.getDeletedPolicy(
+                      NamespaceUtil.ofPolicy(metalake), name, entityId);
+              return Response.fromResponse(Utils.ok(new DeletedEntityResponse(deletedPolicy)))
+                  .tag(new EntityTag(deletedPolicy.getEtag()))
+                  .build();
+            }
+            if (!"non-deleted".equals(include)) {
+              throw new IllegalArgumentException("include must be non-deleted or deleted");
+            }
+            if (id != null) {
+              throw new IllegalArgumentException(
+                  "The id filter currently requires include=deleted");
+            }
             PolicyEntity policy = policyDispatcher.getPolicy(metalake, name);
             LOG.info("Get policy: {} under metalake: {}", name, metalake);
             return Utils.ok(new PolicyResponse(toDTO(policy, Optional.empty())));
           });
     } catch (Exception e) {
-      return ExceptionHandlers.handlePolicyException(OperationType.GET, name, metalake, e);
+      return handleRecoveryException(OperationType.GET, name, metalake, e);
     }
   }
 
@@ -228,6 +304,7 @@ public class PolicyOperations {
 
   @PATCH
   @Path("{policy}")
+  @Consumes(MediaType.APPLICATION_JSON)
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "set-policy." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "set-policy", absolute = true)
@@ -236,15 +313,26 @@ public class PolicyOperations {
       @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
           String metalake,
       @PathParam("policy") @AuthorizationMetadata(type = Entity.EntityType.POLICY) String name,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
       PolicySetRequest request) {
     LOG.info("Received set policy request for policy: {} under metalake: {}", name, metalake);
 
-    OperationType op = request.isEnable() ? OperationType.ENABLE : OperationType.DISABLE;
+    OperationType op =
+        request != null && request.isEnable() ? OperationType.ENABLE : OperationType.DISABLE;
 
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            if (include != null || id != null) {
+              throw new IllegalArgumentException(
+                  "include and id recovery selectors require application/merge-patch+json");
+            }
+            if (request == null) {
+              throw new IllegalArgumentException("A policy set request body is required");
+            }
+            request.validate();
             if (op == OperationType.ENABLE) {
               policyDispatcher.enablePolicy(metalake, name);
             } else {
@@ -261,6 +349,64 @@ public class PolicyOperations {
           });
     } catch (Exception e) {
       return ExceptionHandlers.handlePolicyException(op, name, metalake, e);
+    }
+  }
+
+  /**
+   * Restores one exact soft-deleted policy metadata generation.
+   *
+   * @param metalake metalake name
+   * @param name original policy name
+   * @param include deleted-resource selector
+   * @param id immutable policy identifier
+   * @param ifMatch strong entity tag returned by the exact deleted-policy read
+   * @param request merge patch that changes {@code deleted} to {@code false}
+   * @return the restored policy response
+   */
+  @PATCH
+  @Path("{policy}")
+  @Consumes("application/merge-patch+json")
+  @Produces("application/vnd.gravitino.v1+json")
+  @Timed(name = "restore-policy." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "restore-policy", absolute = true)
+  @AuthorizationExpression(
+      expression = "SERVICE_ADMIN",
+      accessMetadataType = MetadataObject.Type.METALAKE)
+  public Response restorePolicy(
+      @PathParam("metalake") @AuthorizationMetadata(type = Entity.EntityType.METALAKE)
+          String metalake,
+      @PathParam("policy") String name,
+      @QueryParam("include") String include,
+      @QueryParam("id") String id,
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      EntityRestoreRequest request) {
+    LOG.info("Received restore policy request for policy: {} under metalake: {}", name, metalake);
+
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            if (request == null) {
+              throw new IllegalArgumentException("A merge-patch request body is required");
+            }
+            request.validate();
+            if (!"deleted".equals(include)) {
+              throw new IllegalArgumentException(
+                  "include=deleted is required when restoring a deleted policy");
+            }
+            Long entityId = RecoveryRequestUtils.parsePositiveEntityId(id);
+            if (entityId == null) {
+              throw new IllegalArgumentException("id is required when restoring a deleted policy");
+            }
+            String etag = RecoveryRequestUtils.parseStrongIfMatch(ifMatch, "policy");
+            checkDeletedPolicyAccess(metalake);
+            recoverableDeletionManager.restoreDeletedPolicy(
+                NamespaceUtil.ofPolicy(metalake), name, entityId, etag);
+            PolicyEntity restored = policyDispatcher.getPolicy(metalake, name);
+            return Utils.ok(new PolicyResponse(toDTO(restored, Optional.empty())));
+          });
+    } catch (Exception e) {
+      return handleRecoveryException(OperationType.RESTORE, name, metalake, e);
     }
   }
 
@@ -346,6 +492,22 @@ public class PolicyOperations {
             .withAudit(DTOConverters.toDTO(policy.auditInfo()));
 
     return builder.build();
+  }
+
+  private static void checkDeletedPolicyAccess(String metalake) {
+    if (!MetadataAuthzHelper.checkAccess(
+        NameIdentifierUtil.ofMetalake(metalake), Entity.EntityType.METALAKE, "SERVICE_ADMIN")) {
+      throw new ForbiddenException(
+          "Only a service administrator can read or restore deleted policies under %s", metalake);
+    }
+  }
+
+  private static Response handleRecoveryException(
+      OperationType operation, String name, String metalake, Exception exception) {
+    if (exception instanceof ForbiddenException) {
+      return Utils.forbidden(exception.getMessage(), exception);
+    }
+    return ExceptionHandlers.handlePolicyException(operation, name, metalake, exception);
   }
 
   private static void validateCreatePolicyType(String policyType) {

@@ -24,6 +24,7 @@ import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -67,6 +68,8 @@ import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.mapper.PolicyMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.PolicyVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
@@ -224,6 +227,258 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         model.id(),
         manager.restoreDeletedModel(namespace, model.name(), model.id(), exact.getEtag()).id());
     Assertions.assertTrue(manager.listDeletedModels(namespace, model.name(), model.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testPolicyAggregateRestorePreservesPriorVersionAndAssociation() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("policy_recovery_metalake");
+    CatalogEntity catalog = createAndInsertCatalog(metalake.name(), "policy_recovery_catalog");
+    SchemaEntity schema =
+        createAndInsertSchema(metalake.name(), catalog.name(), "policy_recovery_schema");
+    TableEntity table =
+        newTable(
+            NamespaceUtil.ofTable(metalake.name(), catalog.name(), schema.name()),
+            "policy_recovery_table");
+    TableMetaService.getInstance().insertTable(table, false);
+
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, "recoverable_policy", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyEntity policyV2 =
+        PolicyEntity.builder()
+            .withId(policy.id())
+            .withNamespace(policy.namespace())
+            .withName(policy.name())
+            .withPolicyType(policy.policyType())
+            .withComment("second version")
+            .withEnabled(!policy.enabled())
+            .withContent(policy.content())
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    PolicyMetaService.getInstance().updatePolicy(policy.nameIdentifier(), ignored -> policyV2);
+    PolicyMetaService.getInstance()
+        .associatePoliciesWithMetadataObject(
+            table.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            new NameIdentifier[] {policy.nameIdentifier()},
+            new NameIdentifier[0]);
+    Assertions.assertEquals(1, countPolicyRelations(policy.id()));
+
+    Assertions.assertEquals(
+        1, PolicyMetaService.getInstance().deletePolicyVersionsByRetentionCount(1L, 100));
+    Object[] priorVersion = policyVersionState(policy.id(), 1L);
+    Assertions.assertTrue((Long) priorVersion[0] > 0);
+    Assertions.assertNull(priorVersion[1]);
+
+    Assertions.assertTrue(
+        PolicyMetaService.getInstance().deletePolicy(policy.nameIdentifier(), RETENTION_MS));
+    EntityDeletionPO receipt =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.POLICY, metalake.id(), policy.name(), policy.id(), null)
+            .get(0);
+    Object[] currentVersion = policyVersionState(policy.id(), 2L);
+    Assertions.assertEquals(receipt.getDeletionId(), currentVersion[1]);
+    Assertions.assertArrayEquals(priorVersion, policyVersionState(policy.id(), 1L));
+    Assertions.assertEquals(1, countPolicyRelations(policy.id()));
+    Assertions.assertTrue(
+        PolicyMetaService.getInstance()
+            .listPoliciesForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE)
+            .isEmpty());
+
+    EntityCache cache = Mockito.mock(EntityCache.class);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS, cache);
+    DeletedEntityDTO deleted = manager.getDeletedPolicy(namespace, policy.name(), policy.id());
+    Assertions.assertEquals("policy", deleted.getType().value());
+    Assertions.assertTrue(deleted.getLatestForName());
+    Assertions.assertTrue(deleted.getRestorable());
+    PolicyEntity restored =
+        manager.restoreDeletedPolicy(namespace, policy.name(), policy.id(), deleted.getEtag());
+    Assertions.assertEquals(policyV2, restored);
+    Assertions.assertEquals(
+        policy.id(),
+        manager
+            .restoreDeletedPolicy(namespace, policy.name(), policy.id(), deleted.getEtag())
+            .id());
+    Mockito.verify(cache, Mockito.atLeastOnce()).clear();
+    Assertions.assertArrayEquals(priorVersion, policyVersionState(policy.id(), 1L));
+    Assertions.assertEquals(0L, policyVersionState(policy.id(), 2L)[0]);
+    Assertions.assertNull(policyVersionState(policy.id(), 2L)[1]);
+    Assertions.assertEquals(1, countPolicyRelations(policy.id()));
+    Assertions.assertEquals(
+        List.of(policyV2),
+        PolicyMetaService.getInstance()
+            .listPoliciesForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE));
+  }
+
+  @TestTemplate
+  public void testPolicyRestoreRejectsOlderGenerationAndNameOccupancy() throws Exception {
+    long deletedAt = Instant.now().toEpochMilli();
+    BaseMetalake metalake = createAndInsertMakeLake("repeated_policy_metalake");
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity first =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, "repeated_policy", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(first, false);
+    PolicyMetaService.getInstance().deletePolicy(first.nameIdentifier(), deletedAt, RETENTION_MS);
+    PolicyEntity reusedId = createPolicy(first.id(), namespace, "reused_policy_id", AUDIT_INFO);
+    assertRecoveryConflict(
+        RecoveryConflictReason.ENTITY_ID_REUSED,
+        () -> PolicyMetaService.getInstance().insertPolicy(reusedId, true));
+    PolicyEntity second =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, first.name(), AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(second, false);
+    PolicyMetaService.getInstance().deletePolicy(second.nameIdentifier(), deletedAt, RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO firstDeletion = manager.getDeletedPolicy(namespace, first.name(), first.id());
+    DeletedEntityDTO secondDeletion =
+        manager.getDeletedPolicy(namespace, second.name(), second.id());
+    Assertions.assertFalse(firstDeletion.getLatestForName());
+    Assertions.assertEquals("NOT_LATEST_TOMBSTONE", firstDeletion.getReason());
+    Assertions.assertTrue(secondDeletion.getDeletedAt() > firstDeletion.getDeletedAt());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+        () ->
+            manager.restoreDeletedPolicy(
+                namespace, first.name(), first.id(), firstDeletion.getEtag()));
+
+    PolicyEntity replacement =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, second.name(), AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(replacement, false);
+    Assertions.assertEquals(
+        "NAME_OCCUPIED",
+        manager.getDeletedPolicy(namespace, second.name(), second.id()).getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        () ->
+            manager.restoreDeletedPolicy(
+                namespace, second.name(), second.id(), secondDeletion.getEtag()));
+  }
+
+  @TestTemplate
+  public void testPolicyLegacyExpiryAndExactPurge() throws Exception {
+    long deletedAt = Instant.now().toEpochMilli();
+    BaseMetalake metalake = createAndInsertMakeLake("policy_expiry_metalake");
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity legacy =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, "legacy_policy", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(legacy, false);
+    SessionUtils.doWithCommit(
+        PolicyVersionMapper.class,
+        mapper ->
+            mapper.softDeletePolicyVersionByMetalakeAndPolicyName(metalake.name(), legacy.name()));
+    SessionUtils.doWithCommit(
+        PolicyMetaMapper.class,
+        mapper -> mapper.softDeletePolicyByMetalakeAndPolicyName(metalake.name(), legacy.name()));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO legacyDeletion =
+        manager.getDeletedPolicy(namespace, legacy.name(), legacy.id());
+    Assertions.assertFalse(legacyDeletion.getRestorable());
+    Assertions.assertEquals(
+        RecoverableDeletionManager.LEGACY_TOMBSTONE, legacyDeletion.getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.LEGACY_TOMBSTONE,
+        () ->
+            manager.restoreDeletedPolicy(
+                namespace, legacy.name(), legacy.id(), legacyDeletion.getEtag()));
+
+    PolicyEntity expiring =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, "expiring_policy", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(expiring, false);
+    PolicyMetaService.getInstance()
+        .deletePolicy(expiring.nameIdentifier(), deletedAt, RETENTION_MS);
+    RecoverableDeletionManager expiredManager =
+        new RecoverableDeletionManager(
+            RETENTION_MS,
+            Clock.fixed(Instant.ofEpochMilli(deletedAt + RETENTION_MS + 1L), ZoneOffset.UTC));
+    DeletedEntityDTO expired =
+        expiredManager.getDeletedPolicy(namespace, expiring.name(), expiring.id());
+    Assertions.assertFalse(expired.getRestorable());
+    Assertions.assertEquals("TOMBSTONE_EXPIRED", expired.getReason());
+    Assertions.assertThrows(
+        TombstoneExpiredException.class,
+        () ->
+            expiredManager.restoreDeletedPolicy(
+                namespace, expiring.name(), expiring.id(), expired.getEtag()));
+
+    Assertions.assertEquals(
+        1,
+        PolicyMetaService.getInstance()
+            .purgeExpiredPolicyDeletions(deletedAt + RETENTION_MS + 1L, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(expiring.id(), Entity.EntityType.POLICY));
+    Assertions.assertEquals(0, countPolicyVersions(expiring.id()));
+    EntityDeletionPO purged = EntityDeletionService.getInstance().get(expired.getDeletionId());
+    Assertions.assertNotNull(purged);
+    Assertions.assertEquals(DeletionState.PURGED, purged.getState());
+  }
+
+  @TestTemplate
+  public void testPolicyRestoreRefusesMissingCurrentVersionWithoutPartialRevival()
+      throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("broken_policy_metalake");
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity policy =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, "broken_policy", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyMetaService.getInstance().deletePolicy(policy.nameIdentifier(), RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedPolicy(namespace, policy.name(), policy.id());
+    updateDeletionRecord(
+        "DELETE FROM policy_version_info WHERE policy_id = ? AND version = ? AND deletion_id = ?",
+        policy.id(),
+        1L,
+        deleted.getDeletionId());
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.INCOMPLETE_GENERATION,
+        () ->
+            manager.restoreDeletedPolicy(namespace, policy.name(), policy.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(policy.nameIdentifier(), Entity.EntityType.POLICY));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testPolicyRestoreRefusesMissingNonCurrentVersionWithoutPartialRevival()
+      throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("broken_policy_history_metalake");
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, "broken_policy_history", AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyEntity policyV2 =
+        PolicyEntity.builder()
+            .withId(policy.id())
+            .withNamespace(policy.namespace())
+            .withName(policy.name())
+            .withPolicyType(policy.policyType())
+            .withComment("second version")
+            .withEnabled(!policy.enabled())
+            .withContent(policy.content())
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    PolicyMetaService.getInstance().updatePolicy(policy.nameIdentifier(), ignored -> policyV2);
+    PolicyMetaService.getInstance().deletePolicy(policy.nameIdentifier(), RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedPolicy(namespace, policy.name(), policy.id());
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deleted.getDeletionId());
+    Assertions.assertEquals(3L, receipt.getAffectedRowCount());
+    updateDeletionRecord(
+        "DELETE FROM policy_version_info WHERE policy_id = ? AND version = ? AND deletion_id = ?",
+        policy.id(),
+        1L,
+        deleted.getDeletionId());
+
+    assertRecoveryConflict(
+        RecoveryConflictReason.INCOMPLETE_GENERATION,
+        () ->
+            manager.restoreDeletedPolicy(namespace, policy.name(), policy.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(policy.nameIdentifier(), Entity.EntityType.POLICY));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
   }
 
   @TestTemplate
@@ -1538,6 +1793,46 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
             table.id(),
             null)
         .get(0);
+  }
+
+  private static Object[] policyVersionState(long policyId, long version) throws Exception {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                "SELECT deleted_at, deletion_id FROM policy_version_info"
+                    + " WHERE policy_id = ? AND version = ?")) {
+      statement.setLong(1, policyId);
+      statement.setLong(2, version);
+      try (ResultSet result = statement.executeQuery()) {
+        Assertions.assertTrue(result.next());
+        return new Object[] {result.getLong("deleted_at"), result.getString("deletion_id")};
+      }
+    }
+  }
+
+  private static int countPolicyRelations(long policyId) throws Exception {
+    return countPolicyRows(
+        "SELECT COUNT(*) FROM policy_relation_meta WHERE policy_id = ?", policyId);
+  }
+
+  private static int countPolicyVersions(long policyId) throws Exception {
+    return countPolicyRows(
+        "SELECT COUNT(*) FROM policy_version_info WHERE policy_id = ?", policyId);
+  }
+
+  private static int countPolicyRows(String sql, long policyId) throws Exception {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setLong(1, policyId);
+      try (ResultSet result = statement.executeQuery()) {
+        Assertions.assertTrue(result.next());
+        return result.getInt(1);
+      }
+    }
   }
 
   private static void updateDeletionRecord(String sql, Object... parameters) throws Exception {

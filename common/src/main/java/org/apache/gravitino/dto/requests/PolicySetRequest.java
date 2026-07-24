@@ -19,6 +19,7 @@
 package org.apache.gravitino.dto.requests;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
@@ -31,11 +32,11 @@ import org.apache.gravitino.rest.RESTRequest;
 public class PolicySetRequest implements RESTRequest {
 
   @JsonProperty("enable")
-  private final boolean enable;
+  private final Boolean enable;
 
   /** Default constructor for PolicySetRequest. */
   public PolicySetRequest() {
-    this(false);
+    this.enable = null;
   }
 
   /**
@@ -48,12 +49,21 @@ public class PolicySetRequest implements RESTRequest {
   }
 
   /**
-   * Validates the request. No validation needed.
+   * Returns whether the policy should be enabled.
+   *
+   * @return {@code true} when the policy should be enabled
+   */
+  public boolean isEnable() {
+    return Boolean.TRUE.equals(enable);
+  }
+
+  /**
+   * Validates that the request explicitly carries the enable state.
    *
    * @throws IllegalArgumentException If the request is invalid.
    */
   @Override
   public void validate() throws IllegalArgumentException {
-    // No validation needed
+    Preconditions.checkArgument(enable != null, "enable must be explicitly set");
   }
 }

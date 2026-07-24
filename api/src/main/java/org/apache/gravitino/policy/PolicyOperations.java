@@ -18,10 +18,17 @@
  */
 package org.apache.gravitino.policy;
 
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchPolicyException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * The interface of the policy operations. The policy operations are used to manage policies under a
@@ -48,6 +55,28 @@ public interface PolicyOperations {
   Policy[] listPolicyInfos() throws NoSuchMetalakeException;
 
   /**
+   * Lists retained deletion generations for policies in this metalake.
+   *
+   * <p>The optional filters select an exact policy name, immutable policy ID, or both. A returned
+   * generation describes Gravitino metadata only; it does not assert that policy state in any
+   * external system can be recovered.
+   *
+   * <p>Implementations that support recoverable policy deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param name An exact policy-name filter, or {@code null} to include every name.
+   * @param id An exact immutable policy-ID filter, or {@code null} to include every ID.
+   * @return The retained policy deletion generations matching the filters.
+   * @throws NoSuchMetalakeException If the metalake does not exist.
+   * @throws IllegalArgumentException If a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable policy deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedPolicies(@Nullable String name, @Nullable String id)
+      throws NoSuchMetalakeException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedPolicies not supported.");
+  }
+
+  /**
    * Get a policy by its name under a metalake.
    *
    * @param name The name of the policy.
@@ -55,6 +84,65 @@ public interface PolicyOperations {
    * @throws NoSuchPolicyException If the policy does not exist.
    */
   Policy getPolicy(String name) throws NoSuchPolicyException;
+
+  /**
+   * Loads one exact retained deletion generation for a policy.
+   *
+   * <p>The policy name and immutable {@code id} must identify the same deleted policy. The returned
+   * generation supplies the strong optimistic precondition required by {@link
+   * #restorePolicy(String, DeletedEntity)}.
+   *
+   * <p>Implementations that support recoverable policy deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param name The policy name.
+   * @param id The immutable policy ID.
+   * @return The exact retained policy deletion generation.
+   * @throws IllegalArgumentException If the name or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested policy path.
+   * @throws UnsupportedOperationException If recoverable policy deletion is not supported.
+   */
+  default DeletedEntity loadDeletedPolicy(String name, String id)
+      throws TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedPolicy not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino policy metadata.
+   *
+   * <p>This operation restores the retained Gravitino policy metadata aggregate selected by the
+   * server. It does not validate, recreate, or reconcile policy state in external systems. The
+   * generation must come from an exact deleted-policy read and must match the requested name and
+   * resource type. Replaying a previously accepted generation is idempotent while the server can
+   * still prove that exact restore.
+   *
+   * <p>If a request fails with {@link TombstoneChangedException}, callers must read the same policy
+   * path and immutable ID again before deciding whether to retry; clients must never silently
+   * substitute a different ID or generation. An unknown transport outcome may be replayed with the
+   * same generation. A recovery conflict or expired generation is not retryable as-is.
+   *
+   * <p>Implementations that support recoverable policy deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param name The policy name.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored policy metadata.
+   * @throws IllegalArgumentException If the name, generation type, ID, or ETag is invalid or
+   *     inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested policy path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable policy deletion is not supported.
+   */
+  default Policy restorePolicy(String name, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restorePolicy not supported.");
+  }
 
   /**
    * Create a policy under a metalake.

@@ -454,7 +454,7 @@ public class JDBCBackend implements RelationalBackend {
       case FUNCTION:
         return FunctionMetaService.getInstance().deleteFunction(ident, deletionRetentionMs);
       case POLICY:
-        return PolicyMetaService.getInstance().deletePolicy(ident);
+        return PolicyMetaService.getInstance().deletePolicy(ident, deletionRetentionMs);
       case JOB_TEMPLATE:
         return JobTemplateMetaService.getInstance().deleteJobTemplate(ident);
       case JOB:
@@ -598,9 +598,23 @@ public class JDBCBackend implements RelationalBackend {
             .deleteTagMetasByLegacyTimeline(
                 legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case POLICY:
-        return PolicyMetaService.getInstance()
-            .deletePolicyAndVersionMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverablePolicyDeletionCount =
+            PolicyMetaService.getInstance()
+                .purgeExpiredPolicyDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverablePolicyDeletionCount > 0) {
+          return recoverablePolicyDeletionCount;
+        }
+        int legacyPolicyCount =
+            PolicyMetaService.getInstance()
+                .deletePolicyAndVersionMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyPolicyCount > 0) {
+          return legacyPolicyCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.POLICY, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case COLUMN:
         return TableColumnMetaService.getInstance()
             .deleteColumnsByLegacyTimeline(legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);

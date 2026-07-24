@@ -75,6 +75,7 @@ import org.apache.gravitino.exceptions.NoSuchTagException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
 import org.apache.gravitino.exceptions.RESTException;
 import org.apache.gravitino.exceptions.TagAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyChange;
 import org.apache.gravitino.policy.PolicyContents;
@@ -885,6 +886,135 @@ public class TestGravitinoMetalake extends TestBase {
     Throwable ex1 =
         Assertions.assertThrows(RuntimeException.class, gravitinoClient::listPolicyInfos);
     Assertions.assertTrue(ex1.getMessage().contains("mock error"));
+  }
+
+  @Test
+  public void testRecoverablePolicyMetadata() throws JsonProcessingException {
+    String policyName = "deleted-policy";
+    String id = "584273";
+    String collectionPath = "/api/metalakes/" + metalakeName + "/policies";
+    String itemPath = collectionPath + "/" + policyName;
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", policyName, "id", id);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", id);
+    DeletedEntityDTO generation =
+        createDeletedGeneration(policyName, id, RecoveryEntityType.POLICY);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedPolicies(policyName, id);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(id, listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.POLICY, listed[0].type());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedPolicy(policyName, id);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    Set<MetadataObject.Type> supportedTypes = Collections.singleton(MetadataObject.Type.TABLE);
+    PolicyDTO restoredPolicy =
+        PolicyDTO.builder()
+            .withName(policyName)
+            .withComment("restored metadata")
+            .withPolicyType("custom")
+            .withContent(
+                PolicyContentDTO.CustomContentDTO.builder()
+                    .withSupportedObjectTypes(supportedTypes)
+                    .build())
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    PolicyResponse response = new PolicyResponse(restoredPolicy);
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, HttpStatus.SC_OK);
+    Policy restored = gravitinoClient.restorePolicy(policyName, loaded);
+    Assertions.assertEquals(policyName, restored.name());
+    Assertions.assertEquals("restored metadata", restored.comment());
+    Assertions.assertEquals(fromDTO(restoredPolicy.content()), restored.content());
+    Assertions.assertSame(restored, restored.associatedObjects());
+
+    // An accepted exact-generation replay returns the same active metadata representation.
+    buildMockResource(Method.PATCH, itemPath, exactParameters, request, response, HttpStatus.SC_OK);
+    Policy replayed = gravitinoClient.restorePolicy(policyName, loaded);
+    Assertions.assertEquals(policyName, replayed.name());
+
+    ErrorResponse changed = ErrorResponse.tombstoneChanged("generation changed", null);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        changed,
+        HttpStatus.SC_PRECONDITION_FAILED);
+    Assertions.assertThrows(
+        TombstoneChangedException.class, () -> gravitinoClient.restorePolicy(policyName, loaded));
+  }
+
+  @Test
+  public void testDeletedPolicyResponseBinding() throws JsonProcessingException {
+    String policyName = "deleted-policy";
+    String id = "584273";
+    String collectionPath = "/api/metalakes/" + metalakeName + "/policies";
+    String itemPath = collectionPath + "/" + policyName;
+
+    DeletedEntityDTO wrongType =
+        createDeletedGeneration(policyName, id, RecoveryEntityType.CATALOG);
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.listDeletedPolicies(null, null));
+
+    DeletedEntityDTO wrongName =
+        createDeletedGeneration("another-policy", id, RecoveryEntityType.POLICY);
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", id),
+        null,
+        new DeletedEntityResponse(wrongName),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> gravitinoClient.loadDeletedPolicy(policyName, id));
+
+    DeletedEntityDTO generation =
+        createDeletedGeneration(policyName, id, RecoveryEntityType.POLICY);
+    PolicyDTO wrongRestoredName =
+        PolicyDTO.builder()
+            .withName("another-policy")
+            .withPolicyType("custom")
+            .withContent(
+                PolicyContentDTO.CustomContentDTO.builder()
+                    .withSupportedObjectTypes(Collections.singleton(MetadataObject.Type.TABLE))
+                    .build())
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        ImmutableMap.of("include", "deleted", "id", id),
+        new EntityRestoreRequest(false),
+        new PolicyResponse(wrongRestoredName),
+        HttpStatus.SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> gravitinoClient.restorePolicy(policyName, generation));
   }
 
   @Test

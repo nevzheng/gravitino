@@ -689,9 +689,27 @@ public class GravitinoClient extends GravitinoClientBase
     return getMetalake().listPolicyInfos();
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedPolicies(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedPolicies(name, id);
+  }
+
   @Override
   public Policy getPolicy(String name) throws NoSuchPolicyException {
     return getMetalake().getPolicy(name);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedPolicy(String name, String id) {
+    return getMetalake().loadDeletedPolicy(name, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Policy restorePolicy(String name, DeletedEntity generation) {
+    return getMetalake().restorePolicy(name, generation);
   }
 
   @Override

@@ -35,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.MetadataObject;
@@ -55,7 +57,11 @@ import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.mapper.PolicyMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.PolicyVersionMapper;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
+import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.ibatis.session.SqlSession;
@@ -437,6 +443,9 @@ public class TestPolicyMetaService extends TestJDBCBackend {
     boolean deleted =
         policyMetaService.deletePolicy(NameIdentifierUtil.ofPolicy(METALAKE_NAME, "policy1"));
     Assertions.assertTrue(deleted);
+    Map<Integer, Long> deletedVersions = listPolicyVersions(policyEntity1.id());
+    Assertions.assertEquals(1, deletedVersions.size());
+    Assertions.assertTrue(deletedVersions.get(1) > 0);
 
     deleted = policyMetaService.deletePolicy(NameIdentifierUtil.ofPolicy(METALAKE_NAME, "policy1"));
     Assertions.assertFalse(deleted);
@@ -448,6 +457,95 @@ public class TestPolicyMetaService extends TestJDBCBackend {
                 policyMetaService.getPolicyByIdentifier(
                     NameIdentifierUtil.ofPolicy(METALAKE_NAME, "policy1")));
     assertEquals("No such policy entity: policy1", excep.getMessage());
+  }
+
+  @TestTemplate
+  public void testLegacyCleanupRemovesVersionsLeftLiveByBaseFirstDelete() throws IOException {
+    createAndInsertMakeLake("legacy_policy_cleanup");
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy("legacy_policy_cleanup"),
+            "legacy_policy",
+            AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+
+    int baseDeleted =
+        SessionUtils.doWithCommitAndFetchResult(
+            PolicyMetaMapper.class,
+            mapper ->
+                mapper.softDeletePolicyByMetalakeAndPolicyName(
+                    "legacy_policy_cleanup", policy.name()));
+    int versionsDeleted =
+        SessionUtils.doWithCommitAndFetchResult(
+            PolicyVersionMapper.class,
+            mapper ->
+                mapper.softDeletePolicyVersionByMetalakeAndPolicyName(
+                    "legacy_policy_cleanup", policy.name()));
+    Assertions.assertEquals(1, baseDeleted);
+    Assertions.assertEquals(0, versionsDeleted);
+    Assertions.assertEquals(0L, listPolicyVersions(policy.id()).get(1));
+
+    Assertions.assertEquals(
+        2,
+        PolicyMetaService.getInstance()
+            .deletePolicyAndVersionMetasByLegacyTimeline(Long.MAX_VALUE, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(policy.id(), Entity.EntityType.POLICY));
+    Assertions.assertTrue(listPolicyVersions(policy.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testBackendDeleteUsesConfiguredPolicyRetention() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("configured_policy_retention");
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy(metalake.name()),
+            "configured_policy",
+            AUDIT_INFO);
+    backend.insert(policy, false);
+
+    long configuredRetentionMs = 12_345L;
+    long originalRetentionMs = (long) FieldUtils.readField(backend, "deletionRetentionMs", true);
+    try {
+      FieldUtils.writeField(backend, "deletionRetentionMs", configuredRetentionMs, true);
+      Assertions.assertTrue(
+          backend.delete(policy.nameIdentifier(), Entity.EntityType.POLICY, false));
+
+      EntityDeletionPO receipt =
+          EntityDeletionService.getInstance()
+              .list(Entity.EntityType.POLICY, metalake.id(), policy.name(), policy.id(), null)
+              .get(0);
+      Assertions.assertEquals(
+          configuredRetentionMs, receipt.getExpiresAt() - receipt.getDeletedAt());
+    } finally {
+      FieldUtils.writeField(backend, "deletionRetentionMs", originalRetentionMs, true);
+    }
+  }
+
+  @TestTemplate
+  public void testBackendGarbageCollectionPurgesExactPolicyGeneration() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("policy_gc_routing");
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy(metalake.name()),
+            "garbage_collected_policy",
+            AUDIT_INFO);
+    backend.insert(policy, false);
+    Assertions.assertTrue(backend.delete(policy.nameIdentifier(), Entity.EntityType.POLICY, false));
+
+    EntityDeletionPO receipt =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.POLICY, metalake.id(), policy.name(), policy.id(), null)
+            .get(0);
+    Assertions.assertEquals(
+        1, backend.hardDeleteLegacyData(Entity.EntityType.POLICY, receipt.getExpiresAt() + 1L));
+    Assertions.assertFalse(legacyRecordExistsInDB(policy.id(), Entity.EntityType.POLICY));
+    Assertions.assertTrue(listPolicyVersions(policy.id()).isEmpty());
+    Assertions.assertEquals(
+        DeletionState.PURGED,
+        EntityDeletionService.getInstance().get(receipt.getDeletionId()).getState());
   }
 
   @TestTemplate
