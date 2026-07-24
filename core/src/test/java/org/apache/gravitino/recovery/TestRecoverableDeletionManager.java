@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
@@ -46,10 +47,15 @@ import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.FilesetEntity;
+import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
+import org.apache.gravitino.meta.ModelVersionEntity;
+import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.ViewEntity;
+import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
@@ -58,9 +64,12 @@ import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.EntityIdService;
 import org.apache.gravitino.storage.relational.service.FilesetMetaService;
+import org.apache.gravitino.storage.relational.service.FunctionMetaService;
 import org.apache.gravitino.storage.relational.service.ModelMetaService;
+import org.apache.gravitino.storage.relational.service.ModelVersionMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
+import org.apache.gravitino.storage.relational.service.TagMetaService;
 import org.apache.gravitino.storage.relational.service.TopicMetaService;
 import org.apache.gravitino.storage.relational.service.ViewMetaService;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
@@ -512,6 +521,35 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testTableRestoreRollsBackReceiptClaimWhenGenerationValidationFails()
+      throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofTable(METALAKE, CATALOG, SCHEMA);
+    TableEntity table = newTable(namespace, "incomplete_generation_orders");
+    TableMetaService.getInstance().insertTable(table, false);
+    Assertions.assertTrue(
+        TableMetaService.getInstance().deleteTable(table.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedTable(namespace, table.name(), table.id());
+    updateDeletionRecord(
+        "DELETE FROM table_version_info WHERE table_id = ? AND deletion_id = ?",
+        table.id(),
+        deleted.getDeletionId());
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () -> manager.restoreDeletedTable(namespace, table.name(), table.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deleted.getDeletionId());
+    Assertions.assertNotNull(receipt);
+    Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
+    Assertions.assertEquals(0L, receipt.getRevision());
+  }
+
+  @TestTemplate
   public void testRestoreFailurePrecedence() throws Exception {
     long now = 1_800_000_000_000L;
     createAndInsertMakeLake(METALAKE);
@@ -584,6 +622,290 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         () ->
             manager.restoreDeletedTable(
                 namespace, changedParentTable.name(), changedParentTable.id(), changedParentEtag));
+  }
+
+  @TestTemplate
+  public void testSchemaCascadeListsOnlyRootAndRestoresExactMetadataTree() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    String parentName = "tree_a";
+    String rootName = parentName + ":tree_b";
+    String childName = rootName + ":tree_c";
+    SchemaEntity child = createAndInsertSchema(METALAKE, CATALOG, childName);
+    SchemaEntity parent =
+        SchemaMetaService.getInstance()
+            .getSchemaByIdentifier(NameIdentifier.of(METALAKE, CATALOG, parentName));
+    SchemaEntity root =
+        SchemaMetaService.getInstance()
+            .getSchemaByIdentifier(NameIdentifier.of(METALAKE, CATALOG, rootName));
+
+    Namespace childTableNamespace = NamespaceUtil.ofTable(METALAKE, CATALOG, childName);
+    TableEntity liveTable = newTable(childTableNamespace, "tree_table");
+    TableMetaService.getInstance().insertTable(liveTable, false);
+    FilesetEntity fileset =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofFileset(METALAKE, CATALOG, childName),
+            "tree_fileset",
+            AUDIT_INFO);
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+    FunctionEntity function =
+        createFunctionEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofFunction(METALAKE, CATALOG, rootName),
+            "tree_function",
+            AUDIT_INFO);
+    FunctionMetaService.getInstance().insertFunction(function, false);
+    ViewEntity view =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(METALAKE, CATALOG, childName),
+            "tree_view");
+    ViewMetaService.getInstance().insertView(view, false);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofModel(METALAKE, CATALOG, childName),
+            "tree_model",
+            "tree model",
+            0,
+            Map.of("kind", "test"),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    ModelVersionEntity modelVersion =
+        ModelVersionEntity.builder()
+            .withModelIdentifier(model.nameIdentifier())
+            .withVersion(0)
+            .withUris(Map.of(ModelVersion.URI_NAME_UNKNOWN, "/models/tree_model"))
+            .withAliases(List.of("production"))
+            .withComment("recoverable model version")
+            .withProperties(Map.of("stage", "production"))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    ModelVersionMetaService.getInstance().insertModelVersion(modelVersion);
+    TagEntity tag =
+        TagEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("tree_tag")
+            .withNamespace(NamespaceUtil.ofTag(METALAKE))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    TagMetaService.getInstance().insertTag(tag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            liveTable.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            new NameIdentifier[] {tag.nameIdentifier()},
+            new NameIdentifier[0]);
+    TableEntity priorTombstone = newTable(childTableNamespace, "prior_table");
+    TableMetaService.getInstance().insertTable(priorTombstone, false);
+    EntityDeletionPO priorDeletion =
+        deleteAndGetDeletionRecord(priorTombstone, Instant.now().toEpochMilli(), RETENTION_MS);
+    TopicEntity rootTopic =
+        createTopicEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofTopic(METALAKE, CATALOG, rootName),
+            "tree_topic",
+            AUDIT_INFO);
+    TopicMetaService.getInstance().insertTopic(rootTopic, false);
+
+    Assertions.assertTrue(
+        SchemaMetaService.getInstance()
+            .deleteSchema(
+                NameIdentifier.of(METALAKE, CATALOG, rootName),
+                true,
+                Instant.now().toEpochMilli(),
+                RETENTION_MS));
+
+    Namespace schemaNamespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    Assertions.assertTrue(manager.listDeletedSchemas(schemaNamespace, null, null, null).isEmpty());
+    List<DeletedEntityDTO> deletedRoots =
+        manager.listDeletedSchemas(schemaNamespace, parentName, null, null);
+    Assertions.assertEquals(1, deletedRoots.size());
+    DeletedEntityDTO rootDeletion = deletedRoots.get(0);
+    Assertions.assertEquals(String.valueOf(root.id()), rootDeletion.getId());
+    Assertions.assertEquals(rootName, rootDeletion.getName());
+    Assertions.assertEquals("schema", rootDeletion.getType().value());
+    Assertions.assertTrue(rootDeletion.getLatestForName());
+    Assertions.assertTrue(rootDeletion.getRestorable());
+    Assertions.assertTrue(
+        manager.listDeletedSchemas(schemaNamespace, parentName, childName, child.id()).isEmpty());
+
+    List<EntityDeletionPO> rootReceipts =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.SCHEMA, parent.id(), rootName, root.id(), null);
+    Assertions.assertEquals(1, rootReceipts.size());
+    Assertions.assertTrue(
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.SCHEMA, root.id(), childName, child.id(), null)
+            .isEmpty());
+
+    SchemaEntity restored =
+        manager.restoreDeletedSchema(schemaNamespace, rootName, root.id(), rootDeletion.getEtag());
+    Assertions.assertEquals(root.id(), restored.id());
+    Assertions.assertTrue(backend.exists(root.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertTrue(backend.exists(child.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertTrue(backend.exists(liveTable.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertTrue(backend.exists(fileset.nameIdentifier(), Entity.EntityType.FILESET));
+    Assertions.assertTrue(backend.exists(function.nameIdentifier(), Entity.EntityType.FUNCTION));
+    Assertions.assertTrue(backend.exists(view.nameIdentifier(), Entity.EntityType.VIEW));
+    Assertions.assertTrue(backend.exists(model.nameIdentifier(), Entity.EntityType.MODEL));
+    Assertions.assertEquals(
+        modelVersion,
+        ModelVersionMetaService.getInstance()
+            .getModelVersionByIdentifier(
+                NameIdentifier.of(METALAKE, CATALOG, childName, model.name(), "production")));
+    Assertions.assertEquals(
+        List.of(tag),
+        TagMetaService.getInstance()
+            .listTagsForMetadataObject(liveTable.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertTrue(backend.exists(rootTopic.nameIdentifier(), Entity.EntityType.TOPIC));
+    Assertions.assertFalse(
+        backend.exists(priorTombstone.nameIdentifier(), Entity.EntityType.TABLE));
+    EntityDeletionPO unchangedPrior =
+        EntityDeletionService.getInstance().get(priorDeletion.getDeletionId());
+    Assertions.assertNotNull(unchangedPrior);
+    Assertions.assertEquals(priorDeletion.getDeletedAt(), unchangedPrior.getDeletedAt());
+    Assertions.assertEquals(DeletionState.DELETED, unchangedPrior.getState());
+    Assertions.assertEquals(
+        root.id(),
+        manager
+            .restoreDeletedSchema(schemaNamespace, rootName, root.id(), rootDeletion.getEtag())
+            .id());
+    Assertions.assertTrue(
+        manager.listDeletedSchemas(schemaNamespace, parentName, null, null).isEmpty());
+  }
+
+  @TestTemplate
+  public void testEmptySchemaDeleteAndRestoreUsesSameRootProtocol() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    SchemaEntity schema = createAndInsertSchema(METALAKE, CATALOG, "empty_schema");
+    Assertions.assertTrue(
+        SchemaMetaService.getInstance().deleteSchema(schema.nameIdentifier(), false, RETENTION_MS));
+
+    Namespace namespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedSchema(namespace, schema.name(), schema.id());
+    Assertions.assertTrue(deleted.getRestorable());
+    Assertions.assertEquals(
+        schema.id(),
+        manager
+            .restoreDeletedSchema(namespace, schema.name(), schema.id(), deleted.getEtag())
+            .id());
+    Assertions.assertTrue(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+  }
+
+  @TestTemplate
+  public void testSchemaRestoreRejectsOlderGenerationAndNameOccupancy() throws Exception {
+    long requestedDeletedAt = Instant.now().toEpochMilli();
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    SchemaEntity first = createAndInsertSchema(METALAKE, CATALOG, "repeated_schema");
+    SchemaMetaService.getInstance()
+        .deleteSchema(first.nameIdentifier(), false, requestedDeletedAt, RETENTION_MS);
+    SchemaEntity second = createAndInsertSchema(METALAKE, CATALOG, first.name());
+    SchemaMetaService.getInstance()
+        .deleteSchema(second.nameIdentifier(), false, requestedDeletedAt, RETENTION_MS);
+
+    Namespace namespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO firstDeletion = manager.getDeletedSchema(namespace, first.name(), first.id());
+    DeletedEntityDTO secondDeletion =
+        manager.getDeletedSchema(namespace, second.name(), second.id());
+    Assertions.assertFalse(firstDeletion.getLatestForName());
+    Assertions.assertEquals("NOT_LATEST_TOMBSTONE", firstDeletion.getReason());
+    Assertions.assertTrue(secondDeletion.getLatestForName());
+    Assertions.assertTrue(secondDeletion.getDeletedAt() > firstDeletion.getDeletedAt());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+        () ->
+            manager.restoreDeletedSchema(
+                namespace, first.name(), first.id(), firstDeletion.getEtag()));
+
+    SchemaEntity replacement = createAndInsertSchema(METALAKE, CATALOG, second.name());
+    DeletedEntityDTO occupied = manager.getDeletedSchema(namespace, second.name(), second.id());
+    Assertions.assertEquals("NAME_OCCUPIED", occupied.getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        () ->
+            manager.restoreDeletedSchema(
+                namespace, second.name(), second.id(), secondDeletion.getEtag()));
+    Assertions.assertTrue(backend.exists(replacement.nameIdentifier(), Entity.EntityType.SCHEMA));
+  }
+
+  @TestTemplate
+  public void testSchemaRestoreRefusesIncompleteAggregateWithoutPartialRevival() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    SchemaEntity schema = createAndInsertSchema(METALAKE, CATALOG, "broken_tree");
+    TableEntity table =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schema.name()), "broken_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    SchemaMetaService.getInstance()
+        .deleteSchema(schema.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Namespace namespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedSchema(namespace, schema.name(), schema.id());
+    updateDeletionRecord(
+        "DELETE FROM table_version_info WHERE table_id = ? AND deletion_id = ?",
+        table.id(),
+        deleted.getDeletionId());
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () ->
+            manager.restoreDeletedSchema(namespace, schema.name(), schema.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deleted.getDeletionId());
+    Assertions.assertNotNull(receipt);
+    // Restore claims the receipt before locking and validating aggregate rows so that it shares
+    // GC's lock order. The failed validation must still roll the claim back atomically.
+    Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
+    Assertions.assertEquals(0L, receipt.getRevision());
+  }
+
+  @TestTemplate
+  public void testSchemaRestoreRefusesTreeWithMissingIntermediateSchema() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    String rootName = "broken_root";
+    String parentName = rootName + ":missing_parent";
+    String childName = parentName + ":child";
+    SchemaEntity child = createAndInsertSchema(METALAKE, CATALOG, childName);
+    SchemaEntity root =
+        SchemaMetaService.getInstance()
+            .getSchemaByIdentifier(NameIdentifier.of(METALAKE, CATALOG, rootName));
+    SchemaEntity parent =
+        SchemaMetaService.getInstance()
+            .getSchemaByIdentifier(NameIdentifier.of(METALAKE, CATALOG, parentName));
+    SchemaMetaService.getInstance()
+        .deleteSchema(root.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Namespace namespace = NamespaceUtil.ofSchema(METALAKE, CATALOG);
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedSchema(namespace, root.name(), root.id());
+    updateDeletionRecord(
+        "DELETE FROM schema_meta WHERE schema_id = ? AND deletion_id = ?",
+        parent.id(),
+        deleted.getDeletionId());
+
+    Assertions.assertThrows(
+        TombstoneChangedException.class,
+        () -> manager.restoreDeletedSchema(namespace, root.name(), root.id(), deleted.getEtag()));
+    Assertions.assertFalse(backend.exists(root.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(backend.exists(child.nameIdentifier(), Entity.EntityType.SCHEMA));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  private static void assertDeletionReceiptUnchanged(String deletionId) {
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deletionId);
+    Assertions.assertNotNull(receipt);
+    Assertions.assertEquals(DeletionState.DELETED, receipt.getState());
+    Assertions.assertEquals(0L, receipt.getRevision());
   }
 
   private EntityDeletionPO deleteAndGetDeletionRecord(

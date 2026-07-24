@@ -236,6 +236,125 @@ public class TestRelationalCatalog extends TestBase {
   }
 
   @Test
+  public void testRecoverableSchemaMetadata() throws JsonProcessingException {
+    SupportsSchemas schemas = catalog.asSchemas();
+    Namespace schemaNamespace = Namespace.of(metalakeName, catalogName);
+    String collectionPath = withSlash(RelationalCatalog.formatSchemaRequestPath(schemaNamespace));
+    String rootName = "sales";
+    DeletedEntityDTO rootGeneration =
+        createDeletedGeneration(rootName, "184273", RecoveryEntityType.SCHEMA);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted", "name", rootName, "id", rootGeneration.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {rootGeneration}),
+        SC_OK);
+    DeletedEntity[] rootGenerations = schemas.listDeletedSchemas(rootName, rootGeneration.id());
+    Assertions.assertEquals(1, rootGenerations.length);
+    Assertions.assertEquals(rootGeneration.id(), rootGenerations[0].id());
+
+    String nestedName = "sales:staging";
+    DeletedEntityDTO nestedGeneration =
+        createDeletedGeneration(nestedName, "184274", RecoveryEntityType.SCHEMA);
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of(
+            "parentSchema",
+            rootName,
+            "include",
+            "deleted",
+            "name",
+            nestedName,
+            "id",
+            nestedGeneration.id()),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {nestedGeneration}),
+        SC_OK);
+    DeletedEntity[] nestedGenerations =
+        schemas.listDeletedSchemas(rootName, nestedName, nestedGeneration.id());
+    Assertions.assertEquals(1, nestedGenerations.length);
+    Assertions.assertEquals(nestedName, nestedGenerations[0].name());
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> schemas.listDeletedSchemas(" ", null, null));
+
+    String itemPath = collectionPath + "/" + rootName;
+    Map<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", rootGeneration.id());
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(rootGeneration),
+        SC_OK);
+    DeletedEntity loaded = schemas.loadDeletedSchema(rootName, rootGeneration.id());
+    Assertions.assertEquals(rootGeneration.etag(), loaded.etag());
+
+    SchemaDTO restoredSchema =
+        createMockSchema(rootName, "restored metadata", Collections.emptyMap());
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        new SchemaResponse(restoredSchema),
+        SC_OK);
+    Schema restored = schemas.restoreSchema(rootName, loaded);
+    Assertions.assertEquals(rootName, restored.name());
+    Assertions.assertEquals("restored metadata", restored.comment());
+  }
+
+  @Test
+  public void testDeletedSchemaResponseBinding() throws JsonProcessingException {
+    SupportsSchemas schemas = catalog.asSchemas();
+    Namespace schemaNamespace = Namespace.of(metalakeName, catalogName);
+    String collectionPath = withSlash(RelationalCatalog.formatSchemaRequestPath(schemaNamespace));
+    DeletedEntityDTO wrongType =
+        createDeletedGeneration("sales", "184273", RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> schemas.listDeletedSchemas(null, null));
+
+    String itemPath = collectionPath + "/sales";
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "184273");
+    DeletedEntityDTO wrongName =
+        createDeletedGeneration("payments", "184273", RecoveryEntityType.SCHEMA);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> schemas.loadDeletedSchema("sales", "184273"));
+
+    DeletedEntityDTO wrongId =
+        createDeletedGeneration("sales", "184274", RecoveryEntityType.SCHEMA);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> schemas.loadDeletedSchema("sales", "184273"));
+
+    DeletedEntityDTO valid = createDeletedGeneration("sales", "184273", RecoveryEntityType.SCHEMA);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new SchemaResponse(createMockSchema("payments", "wrong name", Collections.emptyMap())),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> schemas.restoreSchema("sales", valid));
+  }
+
+  @Test
   public void testCreateSchema() throws JsonProcessingException {
     String schemaName = "schema1";
     String schemaPath =
@@ -417,7 +536,7 @@ public class TestRelationalCatalog extends TestBase {
         ImmutableMap.of("include", "deleted", "name", tableId.name(), "id", "984273");
     Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", "984273");
     DeletedEntityDTO generation =
-        createDeletedTableGeneration(tableId.name(), "984273", RecoveryEntityType.TABLE);
+        createDeletedGeneration(tableId.name(), "984273", RecoveryEntityType.TABLE);
 
     buildMockResource(
         Method.GET,
@@ -471,7 +590,7 @@ public class TestRelationalCatalog extends TestBase {
     Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
     String collectionPath = withSlash(RelationalCatalog.formatTableRequestPath(fullNamespace));
     DeletedEntityDTO wrongType =
-        createDeletedTableGeneration("orders", "984273", RecoveryEntityType.CATALOG);
+        createDeletedGeneration("orders", "984273", RecoveryEntityType.CATALOG);
 
     buildMockResource(
         Method.GET,
@@ -490,7 +609,7 @@ public class TestRelationalCatalog extends TestBase {
     NameIdentifier tableId = NameIdentifier.of(namespace, "orders");
     String itemPath = collectionPath + "/" + tableId.name();
     DeletedEntityDTO wrongName =
-        createDeletedTableGeneration("payments", "984273", RecoveryEntityType.TABLE);
+        createDeletedGeneration("payments", "984273", RecoveryEntityType.TABLE);
     buildMockResource(
         Method.GET,
         itemPath,
@@ -1420,7 +1539,7 @@ public class TestRelationalCatalog extends TestBase {
         .build();
   }
 
-  private static DeletedEntityDTO createDeletedTableGeneration(
+  private static DeletedEntityDTO createDeletedGeneration(
       String name, String id, RecoveryEntityType type) {
     return DeletedEntityDTO.builder()
         .withId(id)

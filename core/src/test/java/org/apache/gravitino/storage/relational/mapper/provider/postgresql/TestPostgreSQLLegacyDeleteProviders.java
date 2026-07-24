@@ -23,14 +23,72 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
+import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.FunctionMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.FunctionVersionMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.ModelMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.ModelVersionAliasRelBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.ModelVersionMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.OwnerMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.PolicyMetadataObjectRelBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.SchemaMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.SecurableObjectBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.StatisticBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TableColumnBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TagMetadataObjectRelBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TopicMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewVersionInfoBaseSQLProvider;
 import org.junit.jupiter.api.Test;
 
 class TestPostgreSQLLegacyDeleteProviders {
+
+  private static final List<Class<?>> SCHEMA_AGGREGATE_BASE_PROVIDER_CLASSES =
+      List.of(
+          OwnerMetaBaseSQLProvider.class,
+          PolicyMetadataObjectRelBaseSQLProvider.class,
+          SchemaMetaBaseSQLProvider.class,
+          SecurableObjectBaseSQLProvider.class,
+          StatisticBaseSQLProvider.class,
+          TableColumnBaseSQLProvider.class,
+          TableMetaBaseSQLProvider.class,
+          TableVersionBaseSQLProvider.class,
+          FilesetMetaBaseSQLProvider.class,
+          FilesetVersionBaseSQLProvider.class,
+          FunctionMetaBaseSQLProvider.class,
+          FunctionVersionMetaBaseSQLProvider.class,
+          ModelMetaBaseSQLProvider.class,
+          ModelVersionAliasRelBaseSQLProvider.class,
+          ModelVersionMetaBaseSQLProvider.class,
+          TagMetadataObjectRelBaseSQLProvider.class,
+          TopicMetaBaseSQLProvider.class,
+          ViewMetaBaseSQLProvider.class,
+          ViewVersionInfoBaseSQLProvider.class);
+
+  private static final List<Class<?>> SCHEMA_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES =
+      List.of(
+          OwnerMetaPostgreSQLProvider.class,
+          PolicyMetadataObjectRelPostgreSQLProvider.class,
+          SchemaMetaPostgreSQLProvider.class,
+          SecurableObjectPostgreSQLProvider.class,
+          StatisticPostgresSQLProvider.class,
+          TableColumnPostgreSQLProvider.class,
+          TableMetaPostgreSQLProvider.class,
+          TableVersionPostgreSQLProvider.class,
+          FilesetMetaPostgreSQLProvider.class,
+          FilesetVersionPostgreSQLProvider.class,
+          FunctionMetaPostgreSQLProvider.class,
+          FunctionVersionMetaPostgreSQLProvider.class,
+          ModelMetaPostgreSQLProvider.class,
+          ModelVersionAliasRelPostgreSQLProvider.class,
+          ModelVersionMetaPostgreSQLProvider.class,
+          TagMetadataObjectRelPostgreSQLProvider.class,
+          TopicMetaPostgreSQLProvider.class,
+          ViewMetaPostgreSQLProvider.class,
+          ViewVersionInfoPostgreSQLProvider.class);
 
   private static final List<Class<?>> PROVIDER_CLASSES =
       List.of(
@@ -78,6 +136,27 @@ class TestPostgreSQLLegacyDeleteProviders {
           outerDeletePredicate.contains("deleted_at > 0")
               && outerDeletePredicate.contains("deleted_at < #{legacyTimeline}"),
           () -> providerClass.getSimpleName() + " does not recheck the tombstone cutoff: " + sql);
+    }
+  }
+
+  @Test
+  void testSchemaAggregateLegacyDeletesExcludeRecordedDeletionGenerations()
+      throws ReflectiveOperationException {
+    for (Class<?> providerClass : SCHEMA_AGGREGATE_BASE_PROVIDER_CLASSES) {
+      String sql = legacyDeleteSql(providerClass);
+      assertTrue(
+          sql.contains("deletion_id IS NULL"),
+          () -> providerClass.getSimpleName() + " can select a schema deletion generation: " + sql);
+    }
+
+    for (Class<?> providerClass : SCHEMA_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES) {
+      String sql = legacyDeleteSql(providerClass);
+      assertTrue(
+          sql.indexOf("deletion_id IS NULL") != sql.lastIndexOf("deletion_id IS NULL"),
+          () ->
+              providerClass.getSimpleName()
+                  + " does not recheck the schema generation token: "
+                  + sql);
     }
   }
 
@@ -193,5 +272,11 @@ class TestPostgreSQLLegacyDeleteProviders {
             () ->
                 new AssertionError(
                     "No legacy delete method found on " + providerClass.getSimpleName()));
+  }
+
+  private static String legacyDeleteSql(Class<?> providerClass)
+      throws ReflectiveOperationException {
+    Object provider = providerClass.getDeclaredConstructor().newInstance();
+    return (String) legacyDeleteMethod(providerClass).invoke(provider, 1L, 1);
   }
 }

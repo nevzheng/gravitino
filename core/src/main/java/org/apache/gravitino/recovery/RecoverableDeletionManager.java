@@ -49,11 +49,13 @@ import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
+import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 
 /** Coordinates the shared recovery protocol and entity-specific deletion adapters. */
 public class RecoverableDeletionManager {
@@ -63,6 +65,7 @@ public class RecoverableDeletionManager {
 
   private final long retentionMs;
   private final Clock clock;
+  private final RecoverableEntityAdapter<SchemaEntity> schemaAdapter;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
   private final RecoverableEntityAdapter<ViewEntity> viewAdapter;
   private final RecoverableEntityAdapter<FilesetEntity> filesetAdapter;
@@ -97,12 +100,59 @@ public class RecoverableDeletionManager {
       long retentionMs, Clock clock, @Nullable EntityCache entityCache) {
     this.retentionMs = retentionMs;
     this.clock = clock;
+    this.schemaAdapter = new SchemaRecoveryAdapter(entityCache);
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
     this.viewAdapter = new ViewRecoveryAdapter(entityCache);
     this.filesetAdapter = new FilesetRecoveryAdapter(entityCache);
     this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
+  }
+
+  /**
+   * Lists independently deleted schema roots under one live catalog or parent schema.
+   *
+   * @param namespace catalog namespace
+   * @param parentSchema optional full logical parent schema name; {@code null} selects top-level
+   *     schemas
+   * @param name optional exact full logical schema name
+   * @param id optional exact immutable schema identifier
+   * @return matching deleted schema generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedSchemas(
+      Namespace namespace,
+      @Nullable String parentSchema,
+      @Nullable String name,
+      @Nullable Long id) {
+    return listDeleted(schemaAdapter, namespace, parentSchema, name, id);
+  }
+
+  /**
+   * Loads one exact deleted schema root representation.
+   *
+   * @param namespace catalog namespace
+   * @param name original full logical schema name
+   * @param id immutable schema identifier
+   * @return selected schema deletion generation
+   */
+  public DeletedEntityDTO getDeletedSchema(Namespace namespace, String name, long id) {
+    return getDeleted(schemaAdapter, namespace, immediateSchemaParent(name), name, id);
+  }
+
+  /**
+   * Restores one exact schema metadata-tree deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores Gravitino metadata only. When the original deletion cascaded, all
+   * descendants carrying that exact deletion generation are restored atomically.
+   *
+   * @param namespace catalog namespace
+   * @param name original full logical schema name
+   * @param id immutable schema identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-schema read
+   * @return restored root schema, or the already-restored root for an idempotent replay
+   */
+  public SchemaEntity restoreDeletedSchema(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(schemaAdapter, namespace, immediateSchemaParent(name), name, id, etag);
   }
 
   /**
@@ -356,7 +406,17 @@ public class RecoverableDeletionManager {
       Namespace namespace,
       @Nullable String name,
       @Nullable Long id) {
-    List<RecoveryMetadata.DeletedSnapshot> allTombstones = adapter.listDeleted(namespace);
+    return listDeleted(adapter, namespace, null, name, id);
+  }
+
+  private <E> List<DeletedEntityDTO> listDeleted(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      @Nullable String name,
+      @Nullable Long id) {
+    List<RecoveryMetadata.DeletedSnapshot> allTombstones =
+        adapter.listDeleted(namespace, parentScope);
     Map<String, GenerationKey> latestLegacyDeletionByName = new HashMap<>();
     allTombstones.forEach(
         tombstone ->
@@ -394,7 +454,7 @@ public class RecoverableDeletionManager {
         });
 
     List<RecoveryMetadata.LiveIdentity> liveInParent =
-        adapter.listLiveInParent(namespace, parentId);
+        adapter.listLiveInParent(namespace, parentId, parentScope);
     List<Long> tombstoneIds =
         tombstones.stream()
             .map(RecoveryMetadata.DeletedSnapshot::id)
@@ -434,7 +494,16 @@ public class RecoverableDeletionManager {
 
   private <E> DeletedEntityDTO getDeleted(
       RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id) {
-    List<DeletedEntityDTO> deleted = listDeleted(adapter, namespace, name, id);
+    return getDeleted(adapter, namespace, null, name, id);
+  }
+
+  private <E> DeletedEntityDTO getDeleted(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      String name,
+      long id) {
+    List<DeletedEntityDTO> deleted = listDeleted(adapter, namespace, parentScope, name, id);
     if (deleted.size() != 1) {
       throw new TombstoneNotFoundException(
           "No deleted %s named %s with ID %d exists under %s",
@@ -445,12 +514,23 @@ public class RecoverableDeletionManager {
 
   private <E> E restoreDeleted(
       RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(adapter, namespace, null, name, id, etag);
+  }
+
+  private <E> E restoreDeleted(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      String name,
+      long id,
+      String etag) {
     NameIdentifier identifier = NameIdentifier.of(namespace, name);
     return TreeLockUtils.doWithTreeLock(
         identifier,
         LockType.WRITE,
         () -> {
-          E restored = restoreDeletedLocked(adapter, namespace, name, id, etag, identifier);
+          E restored =
+              restoreDeletedLocked(adapter, namespace, parentScope, name, id, etag, identifier);
           adapter.invalidate(identifier);
           return restored;
         });
@@ -459,6 +539,7 @@ public class RecoverableDeletionManager {
   private <E> E restoreDeletedLocked(
       RecoverableEntityAdapter<E> adapter,
       Namespace namespace,
+      @Nullable String parentScope,
       String name,
       long id,
       String etag,
@@ -466,25 +547,26 @@ public class RecoverableDeletionManager {
     EntityDeletionService deletionService = EntityDeletionService.getInstance();
     EntityDeletionPO selected = loadDeletionRecordFromEtag(deletionService, etag);
     if (selected == null) {
-      handleUnmatchedEtag(adapter, namespace, name, id, etag);
+      handleUnmatchedEtag(adapter, namespace, parentScope, name, id, etag);
     }
     validateDeletionRecordTarget(adapter, selected, name, id, namespace);
 
     try {
-      RecoveryMetadata.ParentIdentity parent = resolveCurrentParent(adapter, namespace, selected);
+      RecoveryMetadata.ParentIdentity parent =
+          resolveCurrentParent(adapter, namespace, parentScope, selected);
       RecoveryMetadata.LiveIdentity globallyLive = findLiveById(adapter, id);
 
       if (selected.getState() == DeletionState.RESTORED) {
         E replay =
             tryLoadCompletedRestoreReplay(
-                adapter, namespace, name, id, etag, deletionService, selected);
+                adapter, namespace, parentScope, name, id, etag, deletionService, selected);
         if (replay == null) {
           throw tombstoneChanged(selected);
         }
         return replay;
       }
 
-      List<DeletedEntityDTO> tombstones = listDeleted(adapter, namespace, name, id);
+      List<DeletedEntityDTO> tombstones = listDeleted(adapter, namespace, parentScope, name, id);
       if (tombstones.isEmpty()) {
         validateGloballyLiveIdentity(adapter, globallyLive, parent.parentId(), name, id, false);
         if (selected.getState() == DeletionState.PURGED
@@ -523,7 +605,7 @@ public class RecoverableDeletionManager {
       EntityDeletionPO completed = deletionService.get(selected.getDeletionId());
       E replay =
           tryLoadCompletedRestoreReplay(
-              adapter, namespace, name, id, etag, deletionService, completed);
+              adapter, namespace, parentScope, name, id, etag, deletionService, completed);
       if (replay != null) {
         return replay;
       }
@@ -535,6 +617,7 @@ public class RecoverableDeletionManager {
   private <E> E tryLoadCompletedRestoreReplay(
       RecoverableEntityAdapter<E> adapter,
       Namespace namespace,
+      @Nullable String parentScope,
       String name,
       long id,
       String etag,
@@ -546,7 +629,8 @@ public class RecoverableDeletionManager {
       return null;
     }
     validateDeletionRecordTarget(adapter, completed, name, id, namespace);
-    RecoveryMetadata.ParentIdentity parent = resolveCurrentParent(adapter, namespace, completed);
+    RecoveryMetadata.ParentIdentity parent =
+        resolveCurrentParent(adapter, namespace, parentScope, completed);
     if (!isLatestForName(adapter, deletionService, parent.parentId(), name, completed)) {
       throw recoveryConflict(
           RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
@@ -560,10 +644,15 @@ public class RecoverableDeletionManager {
   }
 
   private <E> void handleUnmatchedEtag(
-      RecoverableEntityAdapter<E> adapter, Namespace namespace, String name, long id, String etag) {
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      String name,
+      long id,
+      String etag) {
     List<DeletedEntityDTO> tombstones;
     try {
-      tombstones = listDeleted(adapter, namespace, name, id);
+      tombstones = listDeleted(adapter, namespace, parentScope, name, id);
     } catch (NoSuchEntityException e) {
       throw new TombstoneNotFoundException(
           e,
@@ -621,10 +710,13 @@ public class RecoverableDeletionManager {
   }
 
   private <E> RecoveryMetadata.ParentIdentity resolveCurrentParent(
-      RecoverableEntityAdapter<E> adapter, Namespace namespace, EntityDeletionPO deletion) {
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      EntityDeletionPO deletion) {
     RecoveryMetadata.ParentIdentity parent;
     try {
-      parent = adapter.resolveLiveParent(namespace);
+      parent = adapter.resolveLiveParent(namespace, parentScope);
     } catch (NoSuchEntityException e) {
       throw new RecoveryConflictException(
           e,
@@ -906,6 +998,13 @@ public class RecoverableDeletionManager {
     }
     String text = String.valueOf(value);
     return text.length() + ":" + text;
+  }
+
+  @Nullable
+  private static String immediateSchemaParent(String schemaName) {
+    String separator = HierarchicalSchemaUtil.schemaSeparator();
+    int separatorIndex = schemaName.lastIndexOf(separator);
+    return separatorIndex < 0 ? null : schemaName.substring(0, separatorIndex);
   }
 
   private long effectiveExpiresAt(EntityDeletionPO deletion) {

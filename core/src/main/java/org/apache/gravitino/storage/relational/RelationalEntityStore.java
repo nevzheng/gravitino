@@ -114,7 +114,7 @@ public class RelationalEntityStore
             config.get(Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_RETENTION_SECS)),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS)));
-    this.entityChangeLogPoller.registerListener(new TableRestoreChangeLogListener(cache));
+    this.entityChangeLogPoller.registerListener(new RestoreChangeLogListener(cache));
     this.entityChangeLogPoller.start();
   }
 

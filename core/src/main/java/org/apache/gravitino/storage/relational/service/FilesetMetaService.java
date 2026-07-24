@@ -559,19 +559,6 @@ public class FilesetMetaService {
                       observed.getDeletionId(), effectiveExpiresAt);
                 }
 
-                FilesetPO generation =
-                    mapper.selectFilesetGeneration(
-                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
-                validateFilesetGeneration(actual, generation);
-                if (mapper.countCurrentVersionGeneration(
-                        actual.getEntityId(),
-                        actual.getEntityVersion(),
-                        actual.getDeletedAt(),
-                        actual.getDeletionId())
-                    < 1) {
-                  throw tombstoneChanged(actual.getDeletionId());
-                }
-
                 int claimed =
                     SessionUtils.getWithoutCommit(
                         EntityDeletionMapper.class,
@@ -584,6 +571,19 @@ public class FilesetMetaService {
                                 null,
                                 null));
                 if (claimed != 1) {
+                  throw tombstoneChanged(actual.getDeletionId());
+                }
+
+                FilesetPO generation =
+                    mapper.selectFilesetGeneration(
+                        actual.getEntityId(), actual.getDeletedAt(), actual.getDeletionId());
+                validateFilesetGeneration(actual, generation);
+                if (mapper.countCurrentVersionGeneration(
+                        actual.getEntityId(),
+                        actual.getEntityVersion(),
+                        actual.getDeletedAt(),
+                        actual.getDeletionId())
+                    < 1) {
                   throw tombstoneChanged(actual.getDeletionId());
                 }
 

@@ -329,7 +329,8 @@ public class OwnerMetaBaseSQLProvider {
     // network isolation, scheduler stalls, or clock skew must still have time to consume them.
     return "DELETE FROM "
         + OWNER_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectOwnerByMetadataObjectIdAndType(

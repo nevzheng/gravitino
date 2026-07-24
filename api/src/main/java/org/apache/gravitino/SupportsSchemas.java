@@ -21,11 +21,17 @@
 package org.apache.gravitino;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NonEmptySchemaException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * The client interface to support schema operations. The server side should use the other one with
@@ -66,6 +72,45 @@ public interface SupportsSchemas {
       throws NoSuchCatalogException, NoSuchSchemaException {
     throw new UnsupportedOperationException(
         "Listing schemas under a parent schema is not supported by this catalog");
+  }
+
+  /**
+   * Lists retained top-level schema deletion generations.
+   *
+   * <p>The optional filters select an exact full logical schema name, immutable schema ID, or both.
+   * Returned generations describe Gravitino metadata only and make no assertion about a downstream
+   * schema.
+   *
+   * @param name An exact full logical schema-name filter, or {@code null} for every name.
+   * @param id An exact immutable schema-ID filter, or {@code null} for every ID.
+   * @return The retained top-level schema deletion generations matching the filters.
+   * @throws NoSuchCatalogException If the catalog does not exist.
+   * @throws UnsupportedOperationException If recoverable schema deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedSchemas(@Nullable String name, @Nullable String id)
+      throws NoSuchCatalogException, UnsupportedOperationException {
+    return listDeletedSchemas(null, name, id);
+  }
+
+  /**
+   * Lists retained schema deletion generations directly under a hierarchy scope.
+   *
+   * <p>Only independently deleted roots are returned. Descendants removed by an ancestor cascade
+   * return with that ancestor rather than as separate recovery targets.
+   *
+   * @param parentSchema The full logical parent schema name, or {@code null} for top-level roots.
+   * @param name An exact full logical schema-name filter, or {@code null} for every name.
+   * @param id An exact immutable schema-ID filter, or {@code null} for every ID.
+   * @return The retained schema deletion generations matching the scope and filters.
+   * @throws NoSuchCatalogException If the catalog does not exist.
+   * @throws NoSuchSchemaException If the requested parent schema does not exist.
+   * @throws IllegalArgumentException If a supplied parent or filter is invalid.
+   * @throws UnsupportedOperationException If recoverable schema deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedSchemas(
+      @Nullable String parentSchema, @Nullable String name, @Nullable String id)
+      throws NoSuchCatalogException, NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedSchemas not supported.");
   }
 
   /**
@@ -111,6 +156,55 @@ public interface SupportsSchemas {
    * @throws NoSuchSchemaException If the schema does not exist (optional).
    */
   Schema loadSchema(String schemaName) throws NoSuchSchemaException;
+
+  /**
+   * Loads one exact retained deletion generation for a schema.
+   *
+   * <p>The full logical schema name and immutable ID must identify the same independently deleted
+   * root. The returned generation supplies the optimistic precondition required by {@link
+   * #restoreSchema(String, DeletedEntity)}.
+   *
+   * @param schemaName The full logical schema name.
+   * @param id The immutable schema ID.
+   * @return The exact retained schema deletion generation.
+   * @throws IllegalArgumentException If the name or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws UnsupportedOperationException If recoverable schema deletion is not supported.
+   */
+  default DeletedEntity loadDeletedSchema(String schemaName, String id)
+      throws TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedSchema not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino schema metadata.
+   *
+   * <p>This operation is metadata-only and does not validate or recreate downstream objects. If the
+   * selected schema deletion cascaded, its recorded metadata tree is restored atomically. Replaying
+   * an accepted generation is idempotent while the server can still prove that exact restore.
+   *
+   * <p>After {@link TombstoneChangedException}, callers must reread the same logical path and
+   * immutable ID before deciding whether to retry; clients must never substitute a different ID or
+   * generation. An unknown transport outcome may replay the same generation. A recovery conflict or
+   * expired generation is not retryable as-is.
+   *
+   * @param schemaName The full logical schema name.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored schema metadata.
+   * @throws IllegalArgumentException If the schema name, generation type, ID, or ETag is invalid or
+   *     inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable schema deletion is not supported.
+   */
+  default Schema restoreSchema(String schemaName, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreSchema not supported.");
+  }
 
   /**
    * Apply the metadata change to a schema in the catalog.

@@ -158,6 +158,7 @@ public class RoleMetaService {
       RolePO.Builder builder = RolePO.builder().withMetalakeId(metalakeId);
       RolePO rolePO = POConverters.initializeRolePOWithVersion(roleEntity, builder);
       List<SecurableObjectPO> securableObjectPOs = Lists.newArrayList();
+      List<Long> schemaIds = Lists.newArrayList();
       for (SecurableObject object : roleEntity.securableObjects()) {
         SecurableObjectPO.Builder objectBuilder =
             POConverters.initializeSecurablePOBuilderWithVersion(
@@ -165,10 +166,12 @@ public class RoleMetaService {
         NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, object);
         Entity.EntityType entityType = MetadataObjectUtil.toEntityType(object.type());
         objectBuilder.withMetadataObjectId(EntityIdService.getEntityId(identifier, entityType));
+        schemaIds.add(SchemaMutationLock.schemaId(identifier, entityType));
         securableObjectPOs.add(objectBuilder.build());
       }
 
       SessionUtils.doMultipleWithCommit(
+          () -> SchemaMutationLock.lockSchemaIds(schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   SecurableObjectMapper.class,
@@ -234,8 +237,18 @@ public class RoleMetaService {
 
       List<SecurableObjectPO> insertSecurableObjectPOs =
           toSecurableObjectPOs(insertObjects, oldRoleEntity, metalake);
+      List<Long> schemaIds = Lists.newArrayList();
+      Sets.union(insertObjects, deleteObjects)
+          .forEach(
+              object -> {
+                NameIdentifier objectIdentifier =
+                    MetadataObjectUtil.toEntityIdent(metalake, object);
+                Entity.EntityType objectType = MetadataObjectUtil.toEntityType(object.type());
+                schemaIds.add(SchemaMutationLock.schemaId(objectIdentifier, objectType));
+              });
 
       SessionUtils.doMultipleWithCommit(
+          () -> SchemaMutationLock.lockSchemaIds(schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   RoleMetaMapper.class,

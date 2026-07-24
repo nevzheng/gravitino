@@ -157,11 +157,13 @@ public class OwnerMetaService {
 
     Long entityId = EntityIdService.getEntityId(entity, entityType);
     Long ownerId = EntityIdService.getEntityId(owner, ownerType);
+    Long schemaId = SchemaMutationLock.schemaId(entity, entityType);
 
     OwnerRelPO ownerRelPO =
         POConverters.initializeOwnerRelPOsWithVersion(
             metalakeId, ownerType.name(), ownerId, entityType.name(), entityId);
     SessionUtils.doMultipleWithCommit(
+        () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,
@@ -198,8 +200,10 @@ public class OwnerMetaService {
 
     List<OwnerRelForDeletion> deletions = new ArrayList<>(ownedObjects.size());
     List<OwnerRelPO> ownerRelPOs = new ArrayList<>(ownedObjects.size());
+    List<Long> schemaIds = new ArrayList<>(ownedObjects.size());
     for (NameIdentifier entity : ownedObjects) {
       Long entityId = EntityIdService.getEntityId(entity, ownedObjectType);
+      schemaIds.add(SchemaMutationLock.schemaId(entity, ownedObjectType));
       deletions.add(
           new OwnerRelForDeletion(
               entityId,
@@ -210,6 +214,7 @@ public class OwnerMetaService {
     }
 
     SessionUtils.doMultipleWithCommit(
+        () -> SchemaMutationLock.lockSchemaIds(schemaIds),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,

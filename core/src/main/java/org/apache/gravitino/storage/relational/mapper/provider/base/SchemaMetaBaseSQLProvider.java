@@ -32,7 +32,7 @@ public class SchemaMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId,"
         + " schema_comment as schemaComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
@@ -51,7 +51,8 @@ public class SchemaMetaBaseSQLProvider {
             sm.audit_info as auditInfo,
             sm.current_version as currentVersion,
             sm.last_version as lastVersion,
-            sm.deleted_at as deletedAt
+            sm.deleted_at as deletedAt,
+            sm.deletion_id as deletionId
         FROM
             %s mm
         INNER JOIN
@@ -74,7 +75,7 @@ public class SchemaMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId,"
         + " schema_comment as schemaComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE schema_id IN ("
@@ -94,7 +95,7 @@ public class SchemaMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId,"
         + " schema_comment as schemaComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE catalog_id = #{catalogId}"
@@ -120,7 +121,7 @@ public class SchemaMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId,"
         + " schema_comment as schemaComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE catalog_id = #{catalogId} AND schema_name = #{schemaName} AND deleted_at = 0";
@@ -141,7 +142,8 @@ public class SchemaMetaBaseSQLProvider {
             sm.audit_info as auditInfo,
             sm.current_version as currentVersion,
             sm.last_version as lastVersion,
-            sm.deleted_at as deletedAt
+            sm.deleted_at as deletedAt,
+            sm.deletion_id as deletionId
         FROM
             %s mm
         INNER JOIN
@@ -164,7 +166,7 @@ public class SchemaMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId,"
         + " schema_comment as schemaComment, properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE schema_id = #{schemaId} AND deleted_at = 0";
@@ -175,7 +177,7 @@ public class SchemaMetaBaseSQLProvider {
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id,"
         + " catalog_id, schema_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{schemaMeta.schemaId},"
         + " #{schemaMeta.schemaName},"
@@ -186,7 +188,8 @@ public class SchemaMetaBaseSQLProvider {
         + " #{schemaMeta.auditInfo},"
         + " #{schemaMeta.currentVersion},"
         + " #{schemaMeta.lastVersion},"
-        + " #{schemaMeta.deletedAt}"
+        + " #{schemaMeta.deletedAt},"
+        + " #{schemaMeta.deletionId}"
         + " )";
   }
 
@@ -195,7 +198,7 @@ public class SchemaMetaBaseSQLProvider {
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id,"
         + " catalog_id, schema_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{schemaMeta.schemaId},"
         + " #{schemaMeta.schemaName},"
@@ -206,7 +209,8 @@ public class SchemaMetaBaseSQLProvider {
         + " #{schemaMeta.auditInfo},"
         + " #{schemaMeta.currentVersion},"
         + " #{schemaMeta.lastVersion},"
-        + " #{schemaMeta.deletedAt}"
+        + " #{schemaMeta.deletedAt},"
+        + " #{schemaMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " schema_name = #{schemaMeta.schemaName},"
@@ -217,7 +221,8 @@ public class SchemaMetaBaseSQLProvider {
         + " audit_info = #{schemaMeta.auditInfo},"
         + " current_version = #{schemaMeta.currentVersion},"
         + " last_version = #{schemaMeta.lastVersion},"
-        + " deleted_at = #{schemaMeta.deletedAt}";
+        + " deleted_at = #{schemaMeta.deletedAt},"
+        + " deletion_id = #{schemaMeta.deletionId}";
   }
 
   public String batchInsertSchemaMeta(@Param("schemaMetas") List<SchemaPO> schemaMetas) {
@@ -225,11 +230,11 @@ public class SchemaMetaBaseSQLProvider {
         + "INSERT INTO "
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id, catalog_id, schema_comment,"
-        + " properties, audit_info, current_version, last_version, deleted_at) VALUES "
+        + " properties, audit_info, current_version, last_version, deleted_at, deletion_id) VALUES "
         + "<foreach collection='schemaMetas' item='po' separator=','>"
         + "(#{po.schemaId}, #{po.schemaName}, #{po.metalakeId}, #{po.catalogId},"
         + " #{po.schemaComment}, #{po.properties}, #{po.auditInfo},"
-        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt})"
+        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt}, #{po.deletionId})"
         + "</foreach>"
         + "</script>";
   }
@@ -240,11 +245,11 @@ public class SchemaMetaBaseSQLProvider {
         + "INSERT INTO "
         + TABLE_NAME
         + " (schema_id, schema_name, metalake_id, catalog_id, schema_comment,"
-        + " properties, audit_info, current_version, last_version, deleted_at) VALUES "
+        + " properties, audit_info, current_version, last_version, deleted_at, deletion_id) VALUES "
         + "<foreach collection='schemaMetas' item='po' separator=','>"
         + "(#{po.schemaId}, #{po.schemaName}, #{po.metalakeId}, #{po.catalogId},"
         + " #{po.schemaComment}, #{po.properties}, #{po.auditInfo},"
-        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt})"
+        + " #{po.currentVersion}, #{po.lastVersion}, #{po.deletedAt}, #{po.deletionId})"
         + "</foreach>"
         + " ON DUPLICATE KEY UPDATE"
         + " schema_name = VALUES(schema_name),"
@@ -255,7 +260,8 @@ public class SchemaMetaBaseSQLProvider {
         + " audit_info = VALUES(audit_info),"
         + " current_version = VALUES(current_version),"
         + " last_version = VALUES(last_version),"
-        + " deleted_at = VALUES(deleted_at)"
+        + " deleted_at = VALUES(deleted_at),"
+        + " deletion_id = VALUES(deletion_id)"
         + "</script>";
   }
 
@@ -271,7 +277,8 @@ public class SchemaMetaBaseSQLProvider {
         + " audit_info = #{newSchemaMeta.auditInfo},"
         + " current_version = #{newSchemaMeta.currentVersion},"
         + " last_version = #{newSchemaMeta.lastVersion},"
-        + " deleted_at = #{newSchemaMeta.deletedAt}"
+        + " deleted_at = #{newSchemaMeta.deletedAt},"
+        + " deletion_id = #{newSchemaMeta.deletionId}"
         + " WHERE schema_id = #{oldSchemaMeta.schemaId}"
         + " AND schema_name = #{oldSchemaMeta.schemaName}"
         + " AND metalake_id = #{oldSchemaMeta.metalakeId}"
@@ -290,7 +297,7 @@ public class SchemaMetaBaseSQLProvider {
         + "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -303,7 +310,7 @@ public class SchemaMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -311,7 +318,7 @@ public class SchemaMetaBaseSQLProvider {
     return "UPDATE "
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -319,7 +326,8 @@ public class SchemaMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectSchemaIdByMetalakeNameAndCatalogNameAndSchemaName(
@@ -348,7 +356,7 @@ public class SchemaMetaBaseSQLProvider {
         + " sm.metalake_id as metalakeId, sm.catalog_id as catalogId,"
         + " sm.schema_comment as schemaComment, sm.properties, sm.audit_info as auditInfo,"
         + " sm.current_version as currentVersion, sm.last_version as lastVersion,"
-        + " sm.deleted_at as deletedAt"
+        + " sm.deleted_at as deletedAt, sm.deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " sm"

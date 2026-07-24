@@ -32,6 +32,7 @@ public class SchemaPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getSchemaId() {
     return schemaId;
@@ -73,6 +74,10 @@ public class SchemaPO {
     return deletedAt;
   }
 
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -91,7 +96,8 @@ public class SchemaPO {
         && Objects.equal(getAuditInfo(), schemaPO.getAuditInfo())
         && Objects.equal(getCurrentVersion(), schemaPO.getCurrentVersion())
         && Objects.equal(getLastVersion(), schemaPO.getLastVersion())
-        && Objects.equal(getDeletedAt(), schemaPO.getDeletedAt());
+        && Objects.equal(getDeletedAt(), schemaPO.getDeletedAt())
+        && Objects.equal(getDeletionId(), schemaPO.getDeletionId());
   }
 
   @Override
@@ -106,7 +112,8 @@ public class SchemaPO {
         getAuditInfo(),
         getCurrentVersion(),
         getLastVersion(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -163,6 +170,11 @@ public class SchemaPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       schemaPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    public Builder withDeletionId(String deletionId) {
+      schemaPO.deletionId = deletionId;
       return this;
     }
 

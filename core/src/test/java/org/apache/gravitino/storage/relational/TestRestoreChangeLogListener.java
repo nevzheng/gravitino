@@ -22,7 +22,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
@@ -31,6 +34,7 @@ import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.cache.CaffeineEntityCache;
 import org.apache.gravitino.cache.EntityCache;
 import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
@@ -38,23 +42,40 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class TestTableRestoreChangeLogListener {
+public class TestRestoreChangeLogListener {
+
+  private static final NameIdentifier SCHEMA = NameIdentifier.of("metalake", "catalog", "schema");
 
   private static final NameIdentifier TABLE =
       NameIdentifier.of("metalake", "catalog", "schema", "table");
 
+  private static final Map<Entity.EntityType, NameIdentifier> RECOVERABLE_IDENTIFIERS =
+      Map.of(
+          Entity.EntityType.SCHEMA,
+          SCHEMA,
+          Entity.EntityType.TABLE,
+          TABLE,
+          Entity.EntityType.VIEW,
+          NameIdentifier.of("metalake", "catalog", "schema", "view"),
+          Entity.EntityType.FILESET,
+          NameIdentifier.of("metalake", "catalog", "schema", "fileset"),
+          Entity.EntityType.TOPIC,
+          NameIdentifier.of("metalake", "catalog", "schema", "topic"),
+          Entity.EntityType.FUNCTION,
+          NameIdentifier.of("metalake", "catalog", "schema", "function"),
+          Entity.EntityType.MODEL,
+          NameIdentifier.of("metalake", "catalog", "schema", "model"));
+
   @Test
   void testFiltersAndParsesRestoreRecords() {
     EntityCache cache = Mockito.mock(EntityCache.class);
-    TableRestoreChangeLogListener listener = new TableRestoreChangeLogListener(cache);
+    RestoreChangeLogListener listener = new RestoreChangeLogListener(cache);
 
     listener.onEntityChange(
         List.of(
             change("metalake", "table", TABLE.toString(), OperateType.RESTORE),
             change("metalake", "TABLE", TABLE.toString(), OperateType.DROP),
-            change("metalake", "CATALOG", TABLE.toString(), OperateType.RESTORE),
-            change("metalake", "TABLE", "metalake.catalog.schema", OperateType.RESTORE),
-            change("other", "TABLE", TABLE.toString(), OperateType.RESTORE)));
+            change("metalake", "CATALOG", TABLE.toString(), OperateType.RESTORE)));
 
     verify(cache).invalidate(TABLE, Entity.EntityType.TABLE);
     for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
@@ -64,15 +85,50 @@ public class TestTableRestoreChangeLogListener {
   }
 
   @Test
-  void testMalformedRestoreRecordDoesNotBlockLaterRecord() {
+  void testInvalidatesEveryRecoverableEntityType() {
     EntityCache cache = Mockito.mock(EntityCache.class);
-    TableRestoreChangeLogListener listener = new TableRestoreChangeLogListener(cache);
+    RestoreChangeLogListener listener = new RestoreChangeLogListener(cache);
+    List<EntityChangeRecord> changes = new ArrayList<>();
+    RECOVERABLE_IDENTIFIERS.forEach(
+        (entityType, identifier) ->
+            changes.add(
+                change(
+                    "metalake",
+                    entityType.name().toLowerCase(Locale.ROOT),
+                    identifier.toString(),
+                    OperateType.RESTORE)));
+
+    listener.onEntityChange(changes);
+
+    RECOVERABLE_IDENTIFIERS.forEach(
+        (entityType, identifier) -> {
+          if (entityType == Entity.EntityType.SCHEMA) {
+            verify(cache).clear();
+            return;
+          }
+          verify(cache).invalidate(identifier, entityType);
+          for (SupportsRelationOperations.Type relationType :
+              SupportsRelationOperations.Type.values()) {
+            verify(cache).invalidateRelationEntry(identifier, entityType, relationType);
+          }
+        });
+    verifyNoMoreInteractions(cache);
+  }
+
+  @Test
+  void testMalformedOrAmbiguousRestoreClearsCacheAndDoesNotBlockLaterRecord() {
+    EntityCache cache = Mockito.mock(EntityCache.class);
+    RestoreChangeLogListener listener = new RestoreChangeLogListener(cache);
 
     listener.onEntityChange(
         List.of(
             change("metalake", "TABLE", "metalake..table", OperateType.RESTORE),
+            change(
+                "metalake", "TABLE", "metalake.catalog.schema.table.with.dot", OperateType.RESTORE),
+            change("other", "TABLE", TABLE.toString(), OperateType.RESTORE),
             change("metalake", "TABLE", TABLE.toString(), OperateType.RESTORE)));
 
+    verify(cache, times(3)).clear();
     verify(cache).invalidate(TABLE, Entity.EntityType.TABLE);
   }
 
@@ -91,12 +147,48 @@ public class TestTableRestoreChangeLogListener {
       cache.put(TABLE, Entity.EntityType.TABLE, relationType, List.<TableEntity>of());
     }
 
-    new TableRestoreChangeLogListener(cache)
+    new RestoreChangeLogListener(cache)
         .onEntityChange(
             List.of(change("metalake", "TABLE", TABLE.toString(), OperateType.RESTORE)));
 
     Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE));
     for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE, relationType));
+    }
+  }
+
+  @Test
+  void testSchemaRestoreClearsCachedTreeAndRootRelations() {
+    CaffeineEntityCache cache = new CaffeineEntityCache(new Config(false) {});
+    SchemaEntity schema =
+        SchemaEntity.builder()
+            .withId(1L)
+            .withNamespace(Namespace.of("metalake", "catalog"))
+            .withName("schema")
+            .withAuditInfo(AuditInfo.EMPTY)
+            .build();
+    TableEntity table =
+        TableEntity.builder()
+            .withId(2L)
+            .withNamespace(Namespace.of("metalake", "catalog", "schema"))
+            .withName("table")
+            .withAuditInfo(AuditInfo.EMPTY)
+            .build();
+    cache.put(schema);
+    cache.put(table);
+    for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      cache.put(SCHEMA, Entity.EntityType.SCHEMA, relationType, List.<SchemaEntity>of());
+      cache.put(TABLE, Entity.EntityType.TABLE, relationType, List.<TableEntity>of());
+    }
+
+    new RestoreChangeLogListener(cache)
+        .onEntityChange(
+            List.of(change("metalake", "SCHEMA", SCHEMA.toString(), OperateType.RESTORE)));
+
+    Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE));
+    for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA, relationType));
       Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE, relationType));
     }
   }
@@ -116,7 +208,7 @@ public class TestTableRestoreChangeLogListener {
     Mockito.doThrow(new IllegalStateException("cache failed"))
         .when(cache)
         .invalidate(first, Entity.EntityType.TABLE);
-    TableRestoreChangeLogListener listener = new TableRestoreChangeLogListener(cache);
+    RestoreChangeLogListener listener = new RestoreChangeLogListener(cache);
 
     listener.onEntityChange(
         List.of(

@@ -20,6 +20,7 @@ package org.apache.gravitino.storage.relational.service;
 
 import static org.apache.gravitino.metrics.source.MetricsSource.GRAVITINO_RELATIONAL_STORE_METRIC_NAME;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
@@ -73,15 +74,19 @@ public class StatisticMetaService {
     }
 
     NamespacedEntityId namespacedEntityId = EntityIdService.getEntityIds(entity, type);
+    Long schemaId = SchemaMutationLock.schemaId(entity, type);
     List<StatisticPO> pos =
         StatisticPO.initializeStatisticPOs(
             statisticEntities,
             namespacedEntityId.namespaceIds()[0],
             namespacedEntityId.entityId(),
             NameIdentifierUtil.toMetadataObject(entity, type).type());
-    SessionUtils.doWithCommit(
-        StatisticMetaMapper.class,
-        mapper -> mapper.batchInsertStatisticPOsOnDuplicateKeyUpdate(pos));
+    SessionUtils.doMultipleWithCommit(
+        () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
+        () ->
+            SessionUtils.doWithoutCommit(
+                StatisticMetaMapper.class,
+                mapper -> mapper.batchInsertStatisticPOsOnDuplicateKeyUpdate(pos)));
   }
 
   @Monitored(
@@ -93,10 +98,17 @@ public class StatisticMetaService {
       return 0;
     }
     Long entityId = EntityIdService.getEntityId(identifier, type);
+    Long schemaId = SchemaMutationLock.schemaId(identifier, type);
 
-    return SessionUtils.doWithCommitAndFetchResult(
-        StatisticMetaMapper.class,
-        mapper -> mapper.batchDeleteStatisticPOs(entityId, statisticNames));
+    int[] deleted = new int[1];
+    SessionUtils.doMultipleWithCommit(
+        () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
+        () ->
+            deleted[0] =
+                SessionUtils.getWithoutCommit(
+                    StatisticMetaMapper.class,
+                    mapper -> mapper.batchDeleteStatisticPOs(entityId, statisticNames)));
+    return deleted[0];
   }
 
   @Monitored(

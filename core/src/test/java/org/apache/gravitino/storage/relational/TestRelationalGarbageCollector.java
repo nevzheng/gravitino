@@ -36,6 +36,48 @@ import org.mockito.Mockito;
 class TestRelationalGarbageCollector {
 
   @Test
+  void testSchemaFailureStopsEveryFollowingHardDeleteForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.SCHEMA), anyLong()))
+        .thenThrow(new IllegalStateException("schema deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.SCHEMA), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
+  }
+
+  @Test
+  void testSchemaHardDeleteRunsBeforeLeafAndLegacyCollectors() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    InOrder hardDeleteOrder = inOrder(backend);
+    hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.SCHEMA), anyLong());
+    hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
+    hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+  }
+
+  @Test
   void testTableFailureStopsDependentHardDeletesForCycle() throws Exception {
     Config config = Mockito.mock(Config.class);
     when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);

@@ -19,6 +19,7 @@
 package org.apache.gravitino.recovery;
 
 import java.util.List;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -37,11 +38,34 @@ interface RecoverableEntityAdapter<E> {
   /** Lists storage tombstones under the specified live namespace, newest first. */
   List<RecoveryMetadata.DeletedSnapshot> listDeleted(Namespace namespace);
 
+  /**
+   * Lists storage tombstones under an optional entity-specific parent scope.
+   *
+   * <p>Leaf resources have exactly one parent encoded by {@code namespace}; hierarchical resources
+   * may override this method to distinguish children of different immediate parents.
+   */
+  default List<RecoveryMetadata.DeletedSnapshot> listDeleted(
+      Namespace namespace, @Nullable String parentScope) {
+    return listDeleted(namespace);
+  }
+
   /** Resolves the immutable IDs of the current live parent path. */
   RecoveryMetadata.ParentIdentity resolveLiveParent(Namespace namespace);
 
+  /** Resolves the immutable IDs of an optional entity-specific parent scope. */
+  default RecoveryMetadata.ParentIdentity resolveLiveParent(
+      Namespace namespace, @Nullable String parentScope) {
+    return resolveLiveParent(namespace);
+  }
+
   /** Lists live identities under the immediate parent. */
   List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId);
+
+  /** Lists live identities under an optional entity-specific parent scope. */
+  default List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, long parentId, @Nullable String parentScope) {
+    return listLiveInParent(namespace, parentId);
+  }
 
   /** Lists globally live identities for the specified immutable IDs. */
   List<RecoveryMetadata.LiveIdentity> listLiveByIds(List<Long> ids);
