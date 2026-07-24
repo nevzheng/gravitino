@@ -18,6 +18,9 @@
  */
 package org.apache.gravitino.storage.relational.service;
 
+import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
+import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
+import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -35,20 +38,28 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Privileges;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.authorization.SecurableObjects;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.integration.test.util.GravitinoITUtils;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.meta.UserEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
@@ -57,6 +68,7 @@ import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.ibatis.session.SqlSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
+import org.mockito.Mockito;
 
 public class TestFunctionMetaService extends TestJDBCBackend {
   private final String metalakeName = GravitinoITUtils.genRandomName("tst_metalake");
@@ -64,7 +76,12 @@ public class TestFunctionMetaService extends TestJDBCBackend {
   private final String schemaName = GravitinoITUtils.genRandomName("tst_fn_schema");
 
   @BeforeEach
-  public void prepare() throws IOException {
+  public void prepare() throws IOException, IllegalAccessException {
+    Config config = GravitinoEnv.getInstance().config();
+    Mockito.when(config.get(TREE_LOCK_MAX_NODE_IN_MEMORY)).thenReturn(100_000L);
+    Mockito.when(config.get(TREE_LOCK_MIN_NODE_IN_MEMORY)).thenReturn(1_000L);
+    Mockito.when(config.get(TREE_LOCK_CLEAN_INTERVAL)).thenReturn(36_000L);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     createAndInsertMakeLake(metalakeName);
     createAndInsertCatalog(metalakeName, catalogName);
     createAndInsertSchema(metalakeName, catalogName, schemaName);
@@ -315,6 +332,26 @@ public class TestFunctionMetaService extends TestJDBCBackend {
 
     // Verify tag relation is cleaned up
     assertEquals(0, countActiveTagRelForMetadataObject(function.id(), "FUNCTION"));
+
+    RecoverableDeletionManager recoveryManager =
+        new RecoverableDeletionManager(Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+    DeletedEntityDTO deletedFunction =
+        recoveryManager.getDeletedFunction(ns, functionName, function.id());
+    assertEquals("function", deletedFunction.getType().value());
+    assertTrue(deletedFunction.getRestorable());
+
+    FunctionEntity restored =
+        recoveryManager.restoreDeletedFunction(
+            ns, functionName, function.id(), deletedFunction.getEtag());
+    assertEquals(function.id(), restored.id());
+    assertEquals(1, countActiveOwnerRelForMetadataObject(function.id(), "FUNCTION"));
+    assertEquals(1, countActiveObjectRelForRole(role.id()));
+    assertEquals(1, countActiveTagRelForMetadataObject(function.id(), "FUNCTION"));
+
+    FunctionEntity replayed =
+        recoveryManager.restoreDeletedFunction(
+            ns, functionName, function.id(), deletedFunction.getEtag());
+    assertEquals(function.id(), replayed.id());
   }
 
   @TestTemplate
@@ -505,6 +542,51 @@ public class TestFunctionMetaService extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testRestoreOnlyVersionsLiveAtFunctionDrop() throws IOException {
+    String functionName = GravitinoITUtils.genRandomName("test_function_restore_versions");
+    Namespace namespace = NamespaceUtil.ofFunction(metalakeName, catalogName, schemaName);
+    FunctionEntity function =
+        createFunctionEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, functionName, AUDIT_INFO);
+    FunctionMetaService.getInstance().insertFunction(function, false);
+    NameIdentifier identifier = NameIdentifier.of(namespace, functionName);
+
+    for (int version = 2; version <= 3; version++) {
+      FunctionEntity updated =
+          FunctionEntity.builder()
+              .withId(function.id())
+              .withName(function.name())
+              .withNamespace(namespace)
+              .withComment("version " + version)
+              .withFunctionType(function.functionType())
+              .withDeterministic(function.deterministic())
+              .withDefinitions(function.definitions())
+              .withAuditInfo(AUDIT_INFO)
+              .build();
+      FunctionMetaService.getInstance().updateFunction(identifier, ignored -> updated);
+    }
+
+    FunctionMetaService.getInstance().deleteFunctionVersionsByRetentionCount(1L, 100);
+    Map<Integer, Long> beforeDrop = listFunctionVersions(function.id());
+    assertVersionSoftDeleted(beforeDrop, 1);
+    assertVersionSoftDeleted(beforeDrop, 2);
+    assertVersionActive(beforeDrop, 3);
+
+    FunctionMetaService.getInstance().deleteFunction(identifier);
+    RecoverableDeletionManager recoveryManager =
+        new RecoverableDeletionManager(Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+    DeletedEntityDTO deleted =
+        recoveryManager.getDeletedFunction(namespace, functionName, function.id());
+    recoveryManager.restoreDeletedFunction(
+        namespace, functionName, function.id(), deleted.getEtag());
+
+    Map<Integer, Long> afterRestore = listFunctionVersions(function.id());
+    assertVersionSoftDeleted(afterRestore, 1);
+    assertVersionSoftDeleted(afterRestore, 2);
+    assertVersionActive(afterRestore, 3);
+  }
+
+  @TestTemplate
   public void testGetNonExistentFunction() {
     NameIdentifier functionIdent =
         NameIdentifier.of(metalakeName, catalogName, schemaName, "non_existent_function");
@@ -545,6 +627,36 @@ public class TestFunctionMetaService extends TestJDBCBackend {
         FunctionMetaService.getInstance().getFunctionByIdentifier(functionIdent);
     assertEquals("overwritten comment", loadedFunction.comment());
     assertTrue(loadedFunction.deterministic());
+  }
+
+  @TestTemplate
+  public void testOverwriteCannotResurrectRecordedDeletion() throws IOException {
+    String functionName = GravitinoITUtils.genRandomName("test_function");
+    Namespace namespace = NamespaceUtil.ofFunction(metalakeName, catalogName, schemaName);
+    FunctionEntity function =
+        createFunctionEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, functionName, AUDIT_INFO);
+    NameIdentifier identifier = NameIdentifier.of(namespace, functionName);
+
+    FunctionMetaService.getInstance().insertFunction(function, false);
+    assertTrue(FunctionMetaService.getInstance().deleteFunction(identifier));
+    assertThrows(
+        RecoveryConflictException.class,
+        () -> FunctionMetaService.getInstance().insertFunction(function, true));
+    assertThrows(
+        NoSuchEntityException.class,
+        () -> FunctionMetaService.getInstance().getFunctionByIdentifier(identifier));
+
+    RecoverableDeletionManager recoveryManager =
+        new RecoverableDeletionManager(Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+    DeletedEntityDTO deleted =
+        recoveryManager.getDeletedFunction(namespace, functionName, function.id());
+    assertTrue(deleted.getRestorable());
+    assertEquals(
+        function.id(),
+        recoveryManager
+            .restoreDeletedFunction(namespace, functionName, function.id(), deleted.getEtag())
+            .id());
   }
 
   private int countActiveOwnerRelForMetadataObject(

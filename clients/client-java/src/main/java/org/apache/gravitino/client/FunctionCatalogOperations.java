@@ -19,14 +19,18 @@
 package org.apache.gravitino.client;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.function.FunctionDefinitionDTO;
 import org.apache.gravitino.dto.requests.FunctionRegisterRequest;
 import org.apache.gravitino.dto.requests.FunctionUpdateRequest;
@@ -52,11 +56,13 @@ import org.apache.gravitino.rest.RESTUtils;
 class FunctionCatalogOperations implements FunctionCatalog {
 
   private final RESTClient restClient;
+  private final RecoverableDeletionClient recoverableDeletionClient;
   private final Namespace catalogNamespace;
   private final String catalogName;
 
   FunctionCatalogOperations(RESTClient restClient, Namespace catalogNamespace, String catalogName) {
     this.restClient = restClient;
+    this.recoverableDeletionClient = new RecoverableDeletionClient(restClient);
     this.catalogNamespace = catalogNamespace;
     this.catalogName = catalogName;
   }
@@ -85,6 +91,36 @@ class FunctionCatalogOperations implements FunctionCatalog {
     return Arrays.stream(resp.identifiers())
         .map(ident -> NameIdentifier.of(ident.namespace().level(2), ident.name()))
         .toArray(NameIdentifier[]::new);
+  }
+
+  /**
+   * Lists retained function deletion generations under the given schema namespace.
+   *
+   * @param namespace The one-level schema namespace.
+   * @param name An exact function-name filter, or {@code null}.
+   * @param id An exact immutable function-ID filter, or {@code null}.
+   * @return The matching retained function deletion generations.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   */
+  @Override
+  public DeletedEntity[] listDeletedFunctions(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException {
+    checkFunctionNamespace(namespace);
+
+    Namespace fullNamespace = getFunctionFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatFunctionRequestPath(fullNamespace),
+            name,
+            id,
+            ErrorHandlers.functionErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.FUNCTION, name, id));
+    return generations;
   }
 
   /**
@@ -137,6 +173,55 @@ class FunctionCatalogOperations implements FunctionCatalog {
     resp.validate();
 
     return new GenericFunction(resp.getFunction(), restClient, fullNamespace);
+  }
+
+  /**
+   * Loads an exact function deletion generation under the given identifier.
+   *
+   * @param ident The function identifier in {@code schema.function} form.
+   * @param id The immutable function ID.
+   * @return The exact retained function deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedFunction(NameIdentifier ident, String id) {
+    checkFunctionNameIdentifier(ident);
+
+    Namespace fullNamespace = getFunctionFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatFunctionRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.functionErrorHandler());
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.FUNCTION, ident.name(), id);
+    return generation;
+  }
+
+  /**
+   * Restores an exact retained generation as active Gravitino function metadata without contacting
+   * a downstream system.
+   *
+   * @param ident The function identifier in {@code schema.function} form.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored function metadata.
+   */
+  @Override
+  public Function restoreFunction(NameIdentifier ident, DeletedEntity generation) {
+    checkFunctionNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.FUNCTION, ident.name(), null);
+
+    Namespace fullNamespace = getFunctionFullNamespace(ident.namespace());
+    FunctionResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatFunctionRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            FunctionResponse.class,
+            ErrorHandlers.functionErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getFunction().name()),
+        "Restored function name must match the requested function name");
+    return new GenericFunction(response.getFunction(), restClient, fullNamespace);
   }
 
   /**

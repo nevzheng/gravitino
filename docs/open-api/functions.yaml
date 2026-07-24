@@ -30,22 +30,40 @@ paths:
         - function
       summary: List functions
       operationId: listFunctions
+      description: |
+        Lists live functions by default. `include=deleted` returns recoverable metadata-deletion
+        records and supports exact `name` and `id` filters. Deleted collection responses do not
+        carry an ETag; read an exact deleted function before restoring it. Deleted-function reads
+        are temporarily restricted to service administrators. `details=true` cannot be combined
+        with `include=deleted`.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/functionNameFilter"
+        - $ref: "#/components/parameters/functionIdFilter"
       responses:
         "200":
-          description: Returns the list of function objects if {details} is true, otherwise returns the list of function identifiers
+          description: |
+            Returns deleted metadata records when `include=deleted`; otherwise returns function
+            objects when `details=true` and function identifiers when `details=false`.
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
                   - $ref: "#/components/schemas/FunctionListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 FunctionListResponse:
                   $ref: "#/components/examples/FunctionListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted functions in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -98,10 +116,35 @@ paths:
         - function
       summary: Get function
       operationId: getFunction
-      description: Returns the specified function object
+      description: |
+        Returns the specified live function by default. With `include=deleted`, `id` is required
+        and the path name plus immutable ID select one exact tombstone under the live parent path.
+        The deleted representation is metadata-only and carries a strong ETag for PATCH.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedFunctionId"
       responses:
         "200":
-          $ref: "#/components/responses/FunctionResponse"
+          description: A live function or one exact deleted-function generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-function read
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/FunctionResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted function
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The target function does not exist
           content:
@@ -147,6 +190,84 @@ paths:
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
+    patch:
+      tags:
+        - function
+      summary: Restore a soft-deleted function
+      operationId: restoreFunction
+      description: |
+        Makes one exact soft-deleted function generation active again. The immutable `id`, path
+        name, and strong `If-Match` value bind PATCH to the exact representation returned by GET.
+
+        Restore is metadata-only. It restores the function base row, the function versions that
+        were live at drop time, and Gravitino owner, grant, and tag relations. It does not contact,
+        validate, or recreate anything in a downstream system. The same accepted ETag can be
+        replayed only while this generation remains latest and the exact function ID is live at
+        its original parent and name.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedFunctionInclude"
+        - $ref: "#/components/parameters/restoreFunctionId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/FunctionResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The token does not identify the requested function ID and name
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, or the tombstone predates complete deletion records.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
     delete:
       tags:
         - function
@@ -170,6 +291,71 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live functions or soft-deleted function records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    functionNameFilter:
+      name: name
+      in: query
+      description: Exact function-name filter
+      required: false
+      schema:
+        type: string
+
+    functionIdFilter:
+      name: id
+      in: query
+      description: Immutable function-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedFunctionId:
+      name: id
+      in: query
+      description: Immutable function ID required for an exact deleted-function read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreFunctionId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted function generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedFunctionInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted function targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag returned by the exact deleted-function GET
+      required: true
+      schema:
+        type: string
 
   schemas:
     Function:

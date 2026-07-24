@@ -72,6 +72,8 @@ public class FunctionPO {
 
   private Long deletedAt;
 
+  private String deletionId;
+
   private FunctionVersionPO functionVersionPO;
 
   public FunctionPO() {}
@@ -93,6 +95,7 @@ public class FunctionPO {
       Integer functionCurrentVersion,
       String auditInfo,
       Long deletedAt,
+      String deletionId,
       FunctionVersionPO functionVersionPO) {
     Preconditions.checkArgument(functionId != null, "Function id is required");
     Preconditions.checkArgument(
@@ -120,6 +123,7 @@ public class FunctionPO {
     this.functionCurrentVersion = functionCurrentVersion;
     this.auditInfo = auditInfo;
     this.deletedAt = deletedAt;
+    this.deletionId = deletionId;
     this.functionVersionPO = functionVersionPO;
   }
 

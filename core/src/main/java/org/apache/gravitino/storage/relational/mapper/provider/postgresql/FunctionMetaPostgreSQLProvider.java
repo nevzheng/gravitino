@@ -68,11 +68,12 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
   public String listFunctionPOsBySchemaId(@Param("schemaId") Long schemaId) {
     return "SELECT fm.function_id, fm.function_name, fm.metalake_id, fm.catalog_id, fm.schema_id,"
         + " fm.function_type, fm.\"deterministic\", fm.function_current_version, fm.function_latest_version,"
-        + " fm.audit_info, fm.deleted_at,"
+        + " fm.audit_info, fm.deleted_at, fm.deletion_id,"
         + " vi.id, vi.metalake_id as version_metalake_id, vi.catalog_id as version_catalog_id,"
         + " vi.schema_id as version_schema_id, vi.function_id as version_function_id,"
         + " vi.version, vi.function_comment, vi.definitions,"
-        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at"
+        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at,"
+        + " vi.deletion_id as version_deletion_id"
         + " FROM "
         + FunctionMetaMapper.TABLE_NAME
         + " fm INNER JOIN "
@@ -86,11 +87,12 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
       @Param("schemaId") Long schemaId, @Param("functionName") String functionName) {
     return "SELECT fm.function_id, fm.function_name, fm.metalake_id, fm.catalog_id, fm.schema_id,"
         + " fm.function_type, fm.\"deterministic\", fm.function_current_version, fm.function_latest_version,"
-        + " fm.audit_info, fm.deleted_at,"
+        + " fm.audit_info, fm.deleted_at, fm.deletion_id,"
         + " vi.id, vi.metalake_id as version_metalake_id, vi.catalog_id as version_catalog_id,"
         + " vi.schema_id as version_schema_id, vi.function_id as version_function_id,"
         + " vi.version, vi.function_comment, vi.definitions,"
-        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at"
+        + " vi.audit_info as version_audit_info, vi.deleted_at as version_deleted_at,"
+        + " vi.deletion_id as version_deletion_id"
         + " FROM "
         + FunctionMetaMapper.TABLE_NAME
         + " fm INNER JOIN "
@@ -104,7 +106,8 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
   public String softDeleteFunctionMetaByFunctionId(@Param("functionId") Long functionId) {
     return "UPDATE "
         + FunctionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE function_id = #{functionId} AND deleted_at = 0";
   }
 
@@ -112,7 +115,8 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
   public String softDeleteFunctionMetasByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + FunctionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -120,7 +124,8 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
   public String softDeleteFunctionMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + FunctionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -129,7 +134,8 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
     return "<script>"
         + "UPDATE "
         + FunctionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -145,8 +151,10 @@ public class FunctionMetaPostgreSQLProvider extends FunctionMetaBaseSQLProvider 
         + FunctionMetaMapper.TABLE_NAME
         + " WHERE function_id IN (SELECT function_id FROM "
         + FunctionMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

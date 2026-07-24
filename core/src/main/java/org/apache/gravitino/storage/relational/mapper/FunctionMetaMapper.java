@@ -49,7 +49,8 @@ public interface FunctionMetaMapper {
         @Result(property = "functionComment", column = "function_comment"),
         @Result(property = "definitions", column = "definitions"),
         @Result(property = "auditInfo", column = "version_audit_info"),
-        @Result(property = "deletedAt", column = "version_deleted_at")
+        @Result(property = "deletedAt", column = "version_deleted_at"),
+        @Result(property = "deletionId", column = "version_deletion_id")
       })
   @Select("SELECT 1") // Dummy SQL to avoid MyBatis error, never be executed
   FunctionVersionPO mapToFunctionVersionPO();
@@ -74,12 +75,14 @@ public interface FunctionMetaMapper {
     @Result(property = "functionLatestVersion", column = "function_latest_version"),
     @Result(property = "auditInfo", column = "audit_info"),
     @Result(property = "deletedAt", column = "deleted_at"),
+    @Result(property = "deletionId", column = "deletion_id"),
     @Result(
         property = "functionVersionPO",
         javaType = FunctionVersionPO.class,
         column =
             "{id,version_metalake_id,version_catalog_id,version_schema_id,version_function_id,"
-                + "version,function_comment,definitions,version_audit_info,version_deleted_at}",
+                + "version,function_comment,definitions,version_audit_info,version_deleted_at,"
+                + "version_deletion_id}",
         one = @One(resultMap = "mapToFunctionVersionPO"))
   })
   @SelectProvider(type = FunctionMetaSQLProviderFactory.class, method = "listFunctionPOsBySchemaId")
@@ -109,12 +112,14 @@ public interface FunctionMetaMapper {
         @Result(property = "functionLatestVersion", column = "function_latest_version"),
         @Result(property = "auditInfo", column = "audit_info"),
         @Result(property = "deletedAt", column = "deleted_at"),
+        @Result(property = "deletionId", column = "deletion_id"),
         @Result(
             property = "functionVersionPO",
             javaType = FunctionVersionPO.class,
             column =
                 "{id,version_metalake_id,version_catalog_id,version_schema_id,version_function_id,"
-                    + "version,function_comment,definitions,version_audit_info,version_deleted_at}",
+                    + "version,function_comment,definitions,version_audit_info,version_deleted_at,"
+                    + "version_deletion_id}",
             one = @One(resultMap = "mapToFunctionVersionPO"))
       })
   @SelectProvider(

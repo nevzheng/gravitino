@@ -44,7 +44,12 @@ public final class RelationalGarbageCollector implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(RelationalGarbageCollector.class);
   private static final List<Entity.EntityType> HARD_DELETE_ORDER =
       Arrays.stream(Entity.EntityType.values())
-          .sorted(Comparator.comparingInt(type -> type == Entity.EntityType.TABLE ? 0 : 1))
+          .sorted(
+              Comparator.comparingInt(
+                  type ->
+                      type == Entity.EntityType.TABLE || type == Entity.EntityType.FUNCTION
+                          ? 0
+                          : 1))
           .collect(
               Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
 
@@ -99,11 +104,10 @@ public final class RelationalGarbageCollector implements Closeable {
           }
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
-          if (entityType == Entity.EntityType.TABLE) {
-            // Table GC owns the recorded table-deletion purge. Continuing into COLUMN, ROLE, TAG,
-            // POLICY, or TABLE_STATISTIC cleanup after it fails could remove only some rows
-            // affected by an otherwise recoverable deletion.
-            LOG.warn("Stop this hard-delete cycle after table deletion cleanup failed");
+          if (entityType == Entity.EntityType.TABLE || entityType == Entity.EntityType.FUNCTION) {
+            // Aggregate GC owns the recorded deletion purge. Continuing into shared relation
+            // cleanup after it fails could remove only part of an otherwise recoverable cohort.
+            LOG.warn("Stop this hard-delete cycle after aggregate deletion cleanup failed");
             break;
           }
         }
