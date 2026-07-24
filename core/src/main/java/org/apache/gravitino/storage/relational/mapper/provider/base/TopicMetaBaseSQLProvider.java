@@ -35,7 +35,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " (topic_id, topic_name, metalake_id, catalog_id, schema_id,"
         + " comment, properties, audit_info, current_version, last_version,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES ("
         + " #{topicMeta.topicId},"
         + " #{topicMeta.topicName},"
@@ -47,7 +47,8 @@ public class TopicMetaBaseSQLProvider {
         + " #{topicMeta.auditInfo},"
         + " #{topicMeta.currentVersion},"
         + " #{topicMeta.lastVersion},"
-        + " #{topicMeta.deletedAt}"
+        + " #{topicMeta.deletedAt},"
+        + " #{topicMeta.deletionId}"
         + " )";
   }
 
@@ -56,7 +57,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " (topic_id, topic_name, metalake_id, catalog_id, schema_id,"
         + " comment, properties, audit_info, current_version, last_version,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES ("
         + " #{topicMeta.topicId},"
         + " #{topicMeta.topicName},"
@@ -68,7 +69,8 @@ public class TopicMetaBaseSQLProvider {
         + " #{topicMeta.auditInfo},"
         + " #{topicMeta.currentVersion},"
         + " #{topicMeta.lastVersion},"
-        + " #{topicMeta.deletedAt}"
+        + " #{topicMeta.deletedAt},"
+        + " #{topicMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " topic_name = #{topicMeta.topicName},"
@@ -80,7 +82,8 @@ public class TopicMetaBaseSQLProvider {
         + " audit_info = #{topicMeta.auditInfo},"
         + " current_version = #{topicMeta.currentVersion},"
         + " last_version = #{topicMeta.lastVersion},"
-        + " deleted_at = #{topicMeta.deletedAt}";
+        + " deleted_at = #{topicMeta.deletedAt},"
+        + " deletion_id = #{topicMeta.deletionId}";
   }
 
   public String listTopicPOsBySchemaId(@Param("schemaId") Long schemaId) {
@@ -88,7 +91,7 @@ public class TopicMetaBaseSQLProvider {
         + " catalog_id as catalogId, schema_id as schemaId,"
         + " comment as comment, properties as properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE schema_id = #{schemaId} AND deleted_at = 0";
@@ -110,7 +113,8 @@ public class TopicMetaBaseSQLProvider {
             tm.audit_info as auditInfo,
             tm.current_version as currentVersion,
             tm.last_version as lastVersion,
-            tm.deleted_at as deletedAt
+            tm.deleted_at as deletedAt,
+            tm.deletion_id as deletionId
         FROM
             %s mm
         INNER JOIN
@@ -141,7 +145,7 @@ public class TopicMetaBaseSQLProvider {
         + " catalog_id as catalogId, schema_id as schemaId,"
         + " comment as comment, properties as properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE deleted_at = 0"
@@ -159,7 +163,7 @@ public class TopicMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId, schema_id as schemaId,"
         + " comment as comment, properties as properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE schema_id = #{schemaId} AND topic_name = #{topicName} AND deleted_at = 0";
@@ -182,7 +186,8 @@ public class TopicMetaBaseSQLProvider {
             tm.audit_info as auditInfo,
             tm.current_version as currentVersion,
             tm.last_version as lastVersion,
-            tm.deleted_at as deletedAt
+            tm.deleted_at as deletedAt,
+            tm.deletion_id as deletionId
         FROM
             %s mm
         INNER JOIN
@@ -213,7 +218,7 @@ public class TopicMetaBaseSQLProvider {
         + " metalake_id as metalakeId, catalog_id as catalogId, schema_id as schemaId,"
         + " comment as comment, properties as properties, audit_info as auditInfo,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE topic_id = #{topicId} AND deleted_at = 0";
@@ -232,7 +237,8 @@ public class TopicMetaBaseSQLProvider {
         + " audit_info = #{newTopicMeta.auditInfo},"
         + " current_version = #{newTopicMeta.currentVersion},"
         + " last_version = #{newTopicMeta.lastVersion},"
-        + " deleted_at = #{newTopicMeta.deletedAt}"
+        + " deleted_at = #{newTopicMeta.deletedAt},"
+        + " deletion_id = #{newTopicMeta.deletionId}"
         + " WHERE topic_id = #{oldTopicMeta.topicId}"
         + " AND topic_name = #{oldTopicMeta.topicName}"
         + " AND metalake_id = #{oldTopicMeta.metalakeId}"
@@ -244,7 +250,8 @@ public class TopicMetaBaseSQLProvider {
         + " AND audit_info = #{oldTopicMeta.auditInfo}"
         + " AND current_version = #{oldTopicMeta.currentVersion}"
         + " AND last_version = #{oldTopicMeta.lastVersion}"
-        + " AND deleted_at = 0";
+        + " AND deleted_at = 0"
+        + " AND deletion_id IS NULL";
   }
 
   public String selectTopicIdBySchemaIdAndName(
@@ -260,6 +267,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE topic_id = #{topicId} AND deleted_at = 0";
   }
 
@@ -268,6 +276,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -276,6 +285,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -285,6 +295,7 @@ public class TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -297,7 +308,8 @@ public class TopicMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at != 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deleted_at != 0 AND deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String batchSelectTopicByIdentifier(
@@ -310,7 +322,7 @@ public class TopicMetaBaseSQLProvider {
         + " tm.metalake_id as metalakeId, tm.catalog_id as catalogId, tm.schema_id as schemaId,"
         + " tm.comment as comment, tm.properties as properties, tm.audit_info as auditInfo,"
         + " tm.current_version as currentVersion, tm.last_version as lastVersion,"
-        + " tm.deleted_at as deletedAt"
+        + " tm.deleted_at as deletedAt, tm.deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " tm"

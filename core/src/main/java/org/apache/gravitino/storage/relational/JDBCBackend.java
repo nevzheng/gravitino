@@ -439,7 +439,7 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
       case FILESET:
         return FilesetMetaService.getInstance().deleteFileset(ident, deletionRetentionMs);
       case TOPIC:
-        return TopicMetaService.getInstance().deleteTopic(ident);
+        return TopicMetaService.getInstance().deleteTopic(ident, deletionRetentionMs);
       case USER:
         return UserMetaService.getInstance().deleteUser(ident);
       case GROUP:
@@ -521,9 +521,23 @@ public class JDBCBackend implements RelationalBackend, SupportsOrphanedRelationC
             .deleteTerminalReceipts(
                 Entity.EntityType.FILESET, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case TOPIC:
-        return TopicMetaService.getInstance()
-            .deleteTopicMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableTopicDeletionCount =
+            TopicMetaService.getInstance()
+                .purgeExpiredTopicDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableTopicDeletionCount > 0) {
+          return recoverableTopicDeletionCount;
+        }
+        int legacyTopicCount =
+            TopicMetaService.getInstance()
+                .deleteTopicMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyTopicCount > 0) {
+          return legacyTopicCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.TOPIC, legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case USER:
         return UserMetaService.getInstance()
             .deleteUserMetasByLegacyTimeline(

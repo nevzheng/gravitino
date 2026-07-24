@@ -25,10 +25,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
 import org.apache.gravitino.dto.requests.TopicCreateRequest;
@@ -105,6 +108,31 @@ class MessagingCatalog extends BaseSchemaCatalog implements TopicCatalog {
   }
 
   /**
+   * Lists retained topic deletion generations under the given schema namespace.
+   *
+   * @param namespace The one-level schema namespace.
+   * @param name An exact topic-name filter, or {@code null}.
+   * @param id An exact immutable topic-ID filter, or {@code null}.
+   * @return The matching retained topic deletion generations.
+   */
+  @Override
+  public DeletedEntity[] listDeletedTopics(
+      Namespace namespace, @Nullable String name, @Nullable String id) {
+    checkTopicNamespace(namespace);
+
+    Namespace fullNamespace = getTopicFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatTopicRequestPath(fullNamespace), name, id, ErrorHandlers.topicErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.TOPIC, name, id));
+    return generations;
+  }
+
+  /**
    * Load the topic with the given identifier.
    *
    * @param ident The identifier of the topic to load, which should be "schema.topic" format.
@@ -125,6 +153,54 @@ class MessagingCatalog extends BaseSchemaCatalog implements TopicCatalog {
     resp.validate();
 
     return new GenericTopic(resp.getTopic(), restClient, fullNamespace);
+  }
+
+  /**
+   * Loads one exact retained topic deletion generation.
+   *
+   * @param ident The topic identifier in {@code schema.topic} form.
+   * @param id The immutable topic ID.
+   * @return The exact retained topic deletion generation.
+   */
+  @Override
+  public DeletedEntity loadDeletedTopic(NameIdentifier ident, String id) {
+    checkTopicNameIdentifier(ident);
+
+    Namespace fullNamespace = getTopicFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatTopicRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.topicErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.TOPIC, ident.name(), id);
+    return generation;
+  }
+
+  /**
+   * Restores one retained generation as active Gravitino topic metadata without recreating a Kafka
+   * topic.
+   *
+   * @param ident The topic identifier in {@code schema.topic} form.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored topic metadata.
+   */
+  @Override
+  public Topic restoreTopic(NameIdentifier ident, DeletedEntity generation) {
+    checkTopicNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.TOPIC, ident.name(), null);
+
+    Namespace fullNamespace = getTopicFullNamespace(ident.namespace());
+    TopicResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatTopicRequestPath(fullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            TopicResponse.class,
+            ErrorHandlers.topicErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getTopic().name()),
+        "Restored topic name must match the requested topic name");
+    return new GenericTopic(response.getTopic(), restClient, fullNamespace);
   }
 
   /**

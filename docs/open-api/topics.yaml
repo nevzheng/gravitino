@@ -30,11 +30,32 @@ paths:
         - topic
       summary: List topics
       operationId: listTopics
+      description: |
+        Lists live topics by default. `include=deleted` returns recoverable metadata-deletion
+        records and supports exact `name` and `id` filters. Deleted collection responses do not
+        carry an ETag; read an exact deleted topic before restoring it. Deleted-topic reads are
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/topicNameFilter"
+        - $ref: "#/components/parameters/topicIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: Live topic identifiers or deleted metadata records
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted topics in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -78,10 +99,36 @@ paths:
         - topic
       summary: Get topic
       operationId: loadTopic
-      description: Return the specified topic object
+      description: |
+        Returns the specified live topic by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact metadata tombstone under the live parent
+        path. The deleted representation carries a strong ETag for PATCH. This read does not
+        inspect Kafka or any other messaging system.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedTopicId"
       responses:
         "200":
-          $ref: "#/components/responses/TopicResponse"
+          description: A live topic or one exact deleted-topic metadata generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-topic read
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/TopicResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted topic
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The target topic does not exist
           content:
@@ -97,6 +144,87 @@ paths:
                   $ref: "./schemas.yaml#/components/examples/NoSuchSchemaException"
                 NoSuchTopicException:
                   $ref: "#/components/examples/NoSuchTopicException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - topic
+      summary: Restore soft-deleted topic metadata
+      operationId: restoreTopic
+      description: |
+        Makes one exact soft-deleted Gravitino topic-metadata generation active again. The
+        immutable `id`, path name, and strong `If-Match` value bind PATCH to the exact
+        representation returned by GET.
+
+        Restore is metadata-only. It does not contact Kafka or another messaging system, recreate
+        or validate a downstream topic, or apply the restored properties to that system. Kafka
+        topic deletion is irreversible through Gravitino today, so the downstream topic may be
+        absent or may have been independently recreated with different configuration. The caller
+        must reconcile downstream state separately. The same accepted ETag can be replayed only
+        while this generation remains latest and the exact topic ID is live at its original parent
+        and name.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedTopicInclude"
+        - $ref: "#/components/parameters/restoreTopicId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/TopicResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The token does not identify the requested topic ID and name
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, or the tombstone predates complete deletion records.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -157,6 +285,72 @@ paths:
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 components:
+
+  parameters:
+    include:
+      name: include
+      in: query
+      description: Select live topics or soft-deleted topic metadata records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    topicNameFilter:
+      name: name
+      in: query
+      description: Exact topic-name filter
+      required: false
+      schema:
+        type: string
+
+    topicIdFilter:
+      name: id
+      in: query
+      description: Immutable topic-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedTopicId:
+      name: id
+      in: query
+      description: Immutable topic ID required for an exact deleted-topic read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreTopicId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted topic metadata generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedTopicInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted topic metadata targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag returned by the exact deleted-topic GET
+      required: true
+      schema:
+        type: string
 
   schemas:
     Topic:
@@ -343,6 +537,5 @@ components:
           "..."
         ]
       }
-
 
 

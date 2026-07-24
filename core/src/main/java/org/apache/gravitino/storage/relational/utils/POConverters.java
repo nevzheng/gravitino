@@ -914,6 +914,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -921,9 +922,6 @@ public class POConverters {
   }
 
   public static TopicPO updateTopicPOWithVersion(TopicPO oldTopicPO, TopicEntity newEntity) {
-    Long lastVersion = oldTopicPO.getLastVersion();
-    // Will set the version to the last version + 1 when having some fields need be multiple version
-    Long nextVersion = lastVersion;
     try {
       return TopicPO.builder()
           .withTopicId(oldTopicPO.getTopicId())
@@ -934,9 +932,10 @@ public class POConverters {
           .withComment(newEntity.comment())
           .withProperties(JsonUtils.anyFieldMapper().writeValueAsString(newEntity.properties()))
           .withAuditInfo(JsonUtils.anyFieldMapper().writeValueAsString(newEntity.auditInfo()))
-          .withCurrentVersion(nextVersion)
-          .withLastVersion(nextVersion)
+          .withCurrentVersion(oldTopicPO.getCurrentVersion())
+          .withLastVersion(oldTopicPO.getLastVersion())
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);

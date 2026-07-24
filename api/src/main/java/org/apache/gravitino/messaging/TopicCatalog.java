@@ -19,11 +19,18 @@
 package org.apache.gravitino.messaging;
 
 import java.util.Map;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTopicException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.exceptions.TopicAlreadyExistsException;
 
 /**
@@ -43,6 +50,27 @@ public interface TopicCatalog {
   NameIdentifier[] listTopics(Namespace namespace) throws NoSuchSchemaException;
 
   /**
+   * Lists retained topic deletion generations in a schema namespace.
+   *
+   * <p>The optional filters select an exact topic name, immutable topic ID, or both. Returned
+   * generations describe Gravitino metadata only and do not assert that a downstream Kafka topic
+   * still exists.
+   *
+   * @param namespace A schema namespace.
+   * @param name An exact topic-name filter, or {@code null} for every name.
+   * @param id An exact immutable topic-ID filter, or {@code null} for every ID.
+   * @return The retained topic deletion generations matching the filters.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   * @throws IllegalArgumentException If the namespace or a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable topic deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedTopics(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedTopics not supported.");
+  }
+
+  /**
    * Load topic metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A topic identifier.
@@ -50,6 +78,56 @@ public interface TopicCatalog {
    * @throws NoSuchTopicException If the topic does not exist.
    */
   Topic loadTopic(NameIdentifier ident) throws NoSuchTopicException;
+
+  /**
+   * Loads one exact retained deletion generation for a topic.
+   *
+   * <p>The topic name and immutable ID must identify the same deleted topic. The returned
+   * generation supplies the strong optimistic precondition required by {@link
+   * #restoreTopic(NameIdentifier, DeletedEntity)}.
+   *
+   * @param ident A topic identifier.
+   * @param id The immutable topic ID.
+   * @return The exact retained topic deletion generation.
+   * @throws NoSuchSchemaException If the parent schema does not exist.
+   * @throws IllegalArgumentException If the identifier or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws UnsupportedOperationException If recoverable topic deletion is not supported.
+   */
+  default DeletedEntity loadDeletedTopic(NameIdentifier ident, String id)
+      throws NoSuchSchemaException, TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedTopic not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino topic metadata.
+   *
+   * <p>This operation is metadata-only. It neither validates nor recreates a downstream Kafka
+   * topic, which may already have been irreversibly deleted. Replaying an accepted generation is
+   * idempotent while the server can still prove that exact restore.
+   *
+   * <p>After {@link TombstoneChangedException}, callers must reread the same topic path and
+   * immutable ID before deciding whether to retry; clients must never substitute a different ID or
+   * generation. An unknown transport outcome may replay the same generation. A recovery conflict or
+   * expired generation is not retryable as-is.
+   *
+   * @param ident A topic identifier.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored topic metadata.
+   * @throws IllegalArgumentException If the identifier, generation type, name, ID, or ETag is
+   *     invalid or inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist at this path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable topic deletion is not supported.
+   */
+  default Topic restoreTopic(NameIdentifier ident, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreTopic not supported.");
+  }
 
   /**
    * Check if a topic exists using an {@link NameIdentifier} from the catalog.

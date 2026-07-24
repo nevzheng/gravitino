@@ -54,6 +54,7 @@ import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
@@ -66,6 +67,7 @@ import org.apache.gravitino.storage.relational.service.FilesetMetaService;
 import org.apache.gravitino.storage.relational.service.ModelMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
+import org.apache.gravitino.storage.relational.service.TopicMetaService;
 import org.apache.gravitino.storage.relational.service.ViewMetaService;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
@@ -270,6 +272,62 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         view.id(),
         manager.restoreDeletedView(namespace, view.name(), view.id(), exact.getEtag()).id());
     Assertions.assertTrue(manager.listDeletedViews(namespace, view.name(), view.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testTopicDiscoveryMetadataRestoreAndReplay() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofTopic(METALAKE, CATALOG, SCHEMA);
+    TopicEntity topic =
+        createTopicEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, "metadata_only_topic", AUDIT_INFO);
+    TopicMetaService.getInstance().insertTopic(topic, false);
+    Assertions.assertTrue(
+        TopicMetaService.getInstance().deleteTopic(topic.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    List<DeletedEntityDTO> discovered =
+        manager.listDeletedTopics(namespace, topic.name(), topic.id());
+    Assertions.assertEquals(1, discovered.size());
+    DeletedEntityDTO exact = manager.getDeletedTopic(namespace, topic.name(), topic.id());
+    Assertions.assertEquals(discovered.get(0).getEtag(), exact.getEtag());
+    Assertions.assertEquals(String.valueOf(topic.id()), exact.getId());
+    Assertions.assertEquals("topic", exact.getType().value());
+    Assertions.assertTrue(exact.getLatestForName());
+    Assertions.assertTrue(exact.getRestorable());
+
+    TopicEntity restored =
+        manager.restoreDeletedTopic(namespace, topic.name(), topic.id(), exact.getEtag());
+    Assertions.assertEquals(topic, restored);
+    Assertions.assertEquals(
+        topic.id(),
+        manager.restoreDeletedTopic(namespace, topic.name(), topic.id(), exact.getEtag()).id());
+    Assertions.assertTrue(manager.listDeletedTopics(namespace, topic.name(), topic.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testTopicRestoreFailsWhenParentDisappears() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofTopic(METALAKE, CATALOG, SCHEMA);
+    TopicEntity topic =
+        createTopicEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, "parent_bound_topic", AUDIT_INFO);
+    TopicMetaService.getInstance().insertTopic(topic, false);
+    Assertions.assertTrue(
+        TopicMetaService.getInstance().deleteTopic(topic.nameIdentifier(), RETENTION_MS));
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    String etag = manager.getDeletedTopic(namespace, topic.name(), topic.id()).getEtag();
+
+    Assertions.assertTrue(
+        SchemaMetaService.getInstance()
+            .deleteSchema(NameIdentifier.of(METALAKE, CATALOG, SCHEMA), true));
+    assertRecoveryConflict(
+        RecoveryConflictReason.PARENT_CHANGED,
+        () -> manager.restoreDeletedTopic(namespace, topic.name(), topic.id(), etag));
   }
 
   @TestTemplate

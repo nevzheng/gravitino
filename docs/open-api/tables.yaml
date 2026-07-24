@@ -487,6 +487,7 @@ components:
             - fileset
             - view
             - model
+            - topic
         deletedAt:
           type: integer
           format: int64

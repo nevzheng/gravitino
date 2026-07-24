@@ -28,16 +28,22 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.messaging.TopicDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.TopicCreateRequest;
 import org.apache.gravitino.dto.requests.TopicUpdateRequest;
 import org.apache.gravitino.dto.requests.TopicUpdatesRequest;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -135,6 +141,110 @@ public class TestMessagingCatalog extends TestBase {
         RuntimeException.class,
         () -> catalog.asTopicCatalog().listTopics(expectedResultTopic1.namespace()),
         "internal error");
+  }
+
+  @Test
+  public void testRecoverableTopicMetadata() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    NameIdentifier topicId = NameIdentifier.of(namespace, "orders");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(MessagingCatalog.formatTopicRequestPath(fullNamespace));
+    String itemPath = collectionPath + "/" + topicId.name();
+    DeletedEntityDTO generation =
+        deletedTopicGeneration(topicId.name(), "284273", RecoveryEntityType.TOPIC);
+    ImmutableMap<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", topicId.name(), "id", generation.id());
+    ImmutableMap<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", generation.id());
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        SC_OK);
+    DeletedEntity[] listed =
+        catalog.asTopicCatalog().listDeletedTopics(namespace, topicId.name(), generation.id());
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(generation.id(), listed[0].id());
+    Assertions.assertEquals(RecoveryEntityType.TOPIC, listed[0].type());
+
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(generation), SC_OK);
+    DeletedEntity loaded = catalog.asTopicCatalog().loadDeletedTopic(topicId, generation.id());
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    TopicDTO restoredTopic =
+        mockTopicDTO(topicId.name(), "restored metadata", ImmutableMap.of("k1", "v1"));
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new TopicResponse(restoredTopic),
+        SC_OK);
+    Topic restored = catalog.asTopicCatalog().restoreTopic(topicId, loaded);
+    assertTopic(restoredTopic, restored);
+  }
+
+  @Test
+  public void testDeletedTopicResponseBinding() throws JsonProcessingException {
+    Namespace namespace = Namespace.of("schema1");
+    NameIdentifier topicId = NameIdentifier.of(namespace, "orders");
+    Namespace fullNamespace = Namespace.of(metalakeName, catalogName, namespace.level(0));
+    String collectionPath = withSlash(MessagingCatalog.formatTopicRequestPath(fullNamespace));
+    DeletedEntityDTO wrongType =
+        deletedTopicGeneration(topicId.name(), "284273", RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        ImmutableMap.of("include", "deleted"),
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {wrongType}),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTopicCatalog().listDeletedTopics(namespace, null, null));
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            catalog
+                .asTopicCatalog()
+                .listDeletedTopics(Namespace.of("schema1", "nested"), null, null));
+
+    String itemPath = collectionPath + "/" + topicId.name();
+    ImmutableMap<String, String> exactParameters =
+        ImmutableMap.of("include", "deleted", "id", "284273");
+    DeletedEntityDTO wrongName =
+        deletedTopicGeneration("payments", "284273", RecoveryEntityType.TOPIC);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongName), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTopicCatalog().loadDeletedTopic(topicId, "284273"));
+
+    DeletedEntityDTO wrongId =
+        deletedTopicGeneration(topicId.name(), "284274", RecoveryEntityType.TOPIC);
+    buildMockResource(
+        Method.GET, itemPath, exactParameters, null, new DeletedEntityResponse(wrongId), SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTopicCatalog().loadDeletedTopic(topicId, "284273"));
+
+    DeletedEntityDTO valid =
+        deletedTopicGeneration(topicId.name(), "284273", RecoveryEntityType.TOPIC);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        new EntityRestoreRequest(false),
+        new TopicResponse(mockTopicDTO("payments", "wrong name", ImmutableMap.of())),
+        SC_OK);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> catalog.asTopicCatalog().restoreTopic(topicId, valid));
   }
 
   @Test
@@ -338,5 +448,23 @@ public class TestMessagingCatalog extends TestBase {
     Assertions.assertEquals(expected.name(), actual.name());
     Assertions.assertEquals(expected.comment(), actual.comment());
     Assertions.assertEquals(expected.properties(), actual.properties());
+  }
+
+  private static DeletedEntityDTO deletedTopicGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("88192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-88192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 }

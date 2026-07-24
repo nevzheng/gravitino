@@ -41,7 +41,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + " audit_info = #{newTopicMeta.auditInfo},"
         + " current_version = #{newTopicMeta.currentVersion},"
         + " last_version = #{newTopicMeta.lastVersion},"
-        + " deleted_at = #{newTopicMeta.deletedAt}"
+        + " deleted_at = #{newTopicMeta.deletedAt},"
+        + " deletion_id = #{newTopicMeta.deletionId}"
         + " WHERE topic_id = #{oldTopicMeta.topicId}"
         + " AND topic_name = #{oldTopicMeta.topicName}"
         + " AND metalake_id = #{oldTopicMeta.metalakeId}"
@@ -54,14 +55,16 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + " AND audit_info = #{oldTopicMeta.auditInfo}"
         + " AND current_version = #{oldTopicMeta.currentVersion}"
         + " AND last_version = #{oldTopicMeta.lastVersion}"
-        + " AND deleted_at = 0";
+        + " AND deleted_at = 0"
+        + " AND deletion_id IS NULL";
   }
 
   @Override
   public String softDeleteTopicMetasByTopicId(Long topicId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE topic_id = #{topicId} AND deleted_at = 0";
   }
 
@@ -69,7 +72,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
   public String softDeleteTopicMetasByCatalogId(Long catalogId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -77,7 +81,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
   public String softDeleteTopicMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -86,7 +91,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
     return "<script>"
         + "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -101,7 +107,7 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " (topic_id, topic_name, metalake_id, catalog_id, schema_id,"
         + " comment, properties, audit_info, current_version, last_version,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES ("
         + " #{topicMeta.topicId},"
         + " #{topicMeta.topicName},"
@@ -113,7 +119,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + " #{topicMeta.auditInfo},"
         + " #{topicMeta.currentVersion},"
         + " #{topicMeta.lastVersion},"
-        + " #{topicMeta.deletedAt}"
+        + " #{topicMeta.deletedAt},"
+        + " #{topicMeta.deletionId}"
         + " )"
         + " ON CONFLICT (topic_id) DO UPDATE SET"
         + " topic_name = #{topicMeta.topicName},"
@@ -125,7 +132,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + " audit_info = #{topicMeta.auditInfo},"
         + " current_version = #{topicMeta.currentVersion},"
         + " last_version = #{topicMeta.lastVersion},"
-        + " deleted_at = #{topicMeta.deletedAt}";
+        + " deleted_at = #{topicMeta.deletedAt},"
+        + " deletion_id = #{topicMeta.deletionId}";
   }
 
   @Override
@@ -135,6 +143,8 @@ public class TopicMetaPostgreSQLProvider extends TopicMetaBaseSQLProvider {
         + TABLE_NAME
         + " WHERE topic_id IN (SELECT topic_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at != 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at != 0 AND deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL";
   }
 }

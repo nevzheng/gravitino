@@ -170,4 +170,26 @@ public class TestRelationalGarbageCollector {
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.MODEL_VERSION), anyLong());
   }
+
+  @Test
+  void testTopicFailureStopsDependentHardDeletesForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.TOPIC), anyLong()))
+        .thenThrow(new IllegalStateException("topic deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TOPIC), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.TABLE_STATISTIC), anyLong());
+  }
 }
