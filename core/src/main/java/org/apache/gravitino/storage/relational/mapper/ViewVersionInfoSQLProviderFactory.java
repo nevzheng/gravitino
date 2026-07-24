@@ -19,6 +19,7 @@
 package org.apache.gravitino.storage.relational.mapper;
 
 import com.google.common.collect.ImmutableMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.storage.relational.JDBCBackend.JDBCBackendType;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewVersionInfoBaseSQLProvider;
@@ -72,6 +73,11 @@ public class ViewVersionInfoSQLProviderFactory {
 
   public static String softDeleteViewVersionsBySchemaId(@Param("schemaId") Long schemaId) {
     return getProvider().softDeleteViewVersionsBySchemaId(schemaId);
+  }
+
+  /** Returns SQL that soft-deletes live view versions under the specified schema IDs. */
+  public static String softDeleteViewVersionsBySchemaIds(@Param("schemaIds") List<Long> schemaIds) {
+    return getProvider().softDeleteViewVersionsBySchemaIds(schemaIds);
   }
 
   public static String softDeleteViewVersionsByCatalogId(@Param("catalogId") Long catalogId) {

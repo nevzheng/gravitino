@@ -20,6 +20,7 @@
 package org.apache.gravitino.storage.relational.mapper;
 
 import com.google.common.collect.ImmutableMap;
+import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.storage.relational.JDBCBackend.JDBCBackendType;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
@@ -63,6 +64,22 @@ public class TableVersionSQLProviderFactory {
   public static String softDeleteTableVersionByTableIdAndVersion(
       @Param("tableId") Long tableId, @Param("version") Long version) {
     return getProvider().softDeleteTableVersionByTableIdAndVersion(tableId, version);
+  }
+
+  /** Returns SQL that soft-deletes live table versions under the specified schema IDs. */
+  public static String softDeleteTableVersionsBySchemaIds(
+      @Param("schemaIds") List<Long> schemaIds) {
+    return getProvider().softDeleteTableVersionsBySchemaIds(schemaIds);
+  }
+
+  /** Returns SQL that soft-deletes live table versions under the specified catalog. */
+  public static String softDeleteTableVersionsByCatalogId(@Param("catalogId") Long catalogId) {
+    return getProvider().softDeleteTableVersionsByCatalogId(catalogId);
+  }
+
+  /** Returns SQL that soft-deletes live table versions under the specified metalake. */
+  public static String softDeleteTableVersionsByMetalakeId(@Param("metalakeId") Long metalakeId) {
+    return getProvider().softDeleteTableVersionsByMetalakeId(metalakeId);
   }
 
   public static String deleteTableVersionByLegacyTimeline(

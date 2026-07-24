@@ -54,9 +54,11 @@ import org.apache.gravitino.storage.relational.mapper.SecurableObjectMapper;
 import org.apache.gravitino.storage.relational.mapper.StatisticMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TableColumnMapper;
 import org.apache.gravitino.storage.relational.mapper.TableMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.TableVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.TagMetadataObjectRelMapper;
 import org.apache.gravitino.storage.relational.mapper.TopicMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.ViewMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.ViewVersionInfoMapper;
 import org.apache.gravitino.storage.relational.po.CatalogPO;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.apache.gravitino.storage.relational.utils.ExceptionUtils;
@@ -289,6 +291,10 @@ public class CatalogMetaService {
                   mapper -> mapper.softDeleteTableMetasByCatalogId(catalogId)),
           () ->
               SessionUtils.doWithoutCommit(
+                  TableVersionMapper.class,
+                  mapper -> mapper.softDeleteTableVersionsByCatalogId(catalogId)),
+          () ->
+              SessionUtils.doWithoutCommit(
                   TableColumnMapper.class,
                   mapper -> mapper.softDeleteColumnsByCatalogId(catalogId)),
           () ->
@@ -345,6 +351,10 @@ public class CatalogMetaService {
           () ->
               SessionUtils.doWithoutCommit(
                   ViewMetaMapper.class, mapper -> mapper.softDeleteViewMetasByCatalogId(catalogId)),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  ViewVersionInfoMapper.class,
+                  mapper -> mapper.softDeleteViewVersionsByCatalogId(catalogId)),
           // Only one CATALOG DROP record is written here; the cache layer performs prefix
           // eviction on '<metalake>.<catalog>.*', covering all descendants automatically.
           // Writing per-child DROP rows would multiply changelog volume without benefit.

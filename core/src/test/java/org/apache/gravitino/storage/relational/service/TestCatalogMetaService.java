@@ -303,6 +303,64 @@ public class TestCatalogMetaService extends TestJDBCBackend {
     assertEquals(0, countActiveTagRelForMetadataObject(function.id(), "FUNCTION"));
   }
 
+  @TestTemplate
+  public void testDeleteCatalogCascadeRemovesTableAndViewVersions() throws IOException {
+    CatalogEntity catalog =
+        createCatalog(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofCatalog(metalakeName),
+            "catalog_with_view",
+            auditInfo);
+    backend.insert(catalog, false);
+    SchemaEntity schema =
+        createSchemaEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofSchema(metalakeName, catalog.name()),
+            "schema_with_view",
+            AUDIT_INFO);
+    backend.insert(schema, false);
+    ViewEntity view =
+        createViewEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofView(metalakeName, catalog.name(), schema.name()),
+            "view_to_cascade");
+    ViewMetaService.getInstance().insertView(view, false);
+    TableEntity table =
+        createAndInsertTableEntity(
+            NamespaceUtil.ofTable(metalakeName, catalog.name(), schema.name()), "table_to_cascade");
+    backend.update(
+        view.nameIdentifier(),
+        Entity.EntityType.VIEW,
+        ignored -> createViewEntity(view.id(), view.namespace(), view.name()));
+    backend.update(
+        table.nameIdentifier(),
+        Entity.EntityType.TABLE,
+        ignored -> createTableEntity(table.id(), table.namespace(), table.name(), AUDIT_INFO));
+    long historicalDeletedAt = 1L;
+    assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "view_version_info", "view_id", view.id(), historicalDeletedAt));
+    assertEquals(
+        1,
+        rewriteHistoricalVersionDeletedAt(
+            "table_version_info", "table_id", table.id(), historicalDeletedAt));
+    assertEquals(1, countActiveViewVersions(view.id()));
+    assertEquals(1, countActiveTableVersions(table.id()));
+
+    assertTrue(CatalogMetaService.getInstance().deleteCatalog(catalog.nameIdentifier(), true));
+
+    assertEquals(0, countActiveViewVersions(view.id()));
+    assertEquals(0, countActiveTableVersions(table.id()));
+    assertEquals(
+        1,
+        countVersionsWithDeletedAt("view_version_info", "view_id", view.id(), historicalDeletedAt));
+    assertEquals(
+        1,
+        countVersionsWithDeletedAt(
+            "table_version_info", "table_id", table.id(), historicalDeletedAt));
+  }
+
   private void associateTag(TagEntity tag, NameIdentifier ident, Entity.EntityType type)
       throws IOException {
     TagMetaService.getInstance()

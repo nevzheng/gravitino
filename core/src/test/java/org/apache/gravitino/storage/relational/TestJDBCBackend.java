@@ -311,6 +311,99 @@ public abstract class TestJDBCBackend {
     return versionDeletedTime;
   }
 
+  /** Returns the number of live version rows for the specified view. */
+  protected int countActiveViewVersions(Long viewId) {
+    try (SqlSession sqlSession =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = sqlSession.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                String.format(
+                    "SELECT count(*) FROM view_version_info"
+                        + " WHERE view_id = %d AND deleted_at = 0",
+                    viewId))) {
+      if (rs.next()) {
+        return rs.getInt(1);
+      }
+      throw new RuntimeException("No result for active view version count");
+    } catch (SQLException e) {
+      throw new RuntimeException("SQL execution failed", e);
+    }
+  }
+
+  /** Returns the number of live version rows for the specified table. */
+  protected int countActiveTableVersions(Long tableId) {
+    try (SqlSession sqlSession =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = sqlSession.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                String.format(
+                    "SELECT count(*) FROM table_version_info"
+                        + " WHERE table_id = %d AND deleted_at = 0",
+                    tableId))) {
+      if (rs.next()) {
+        return rs.getInt(1);
+      }
+      throw new RuntimeException("No result for active table version count");
+    } catch (SQLException e) {
+      throw new RuntimeException("SQL execution failed", e);
+    }
+  }
+
+  /** Rewrites historical version rows to a deterministic timestamp for cascade assertions. */
+  protected int rewriteHistoricalVersionDeletedAt(
+      String tableName, String entityIdColumn, Long entityId, long deletedAt) {
+    try (SqlSession sqlSession =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = sqlSession.getConnection();
+        Statement statement = connection.createStatement()) {
+      long oldestVersion;
+      try (ResultSet rs =
+          statement.executeQuery(
+              String.format(
+                  "SELECT MIN(version) FROM %s WHERE %s = %d",
+                  tableName, entityIdColumn, entityId))) {
+        if (!rs.next()) {
+          throw new RuntimeException("No result for oldest version");
+        }
+        oldestVersion = rs.getLong(1);
+        if (rs.wasNull()) {
+          return 0;
+        }
+      }
+      return statement.executeUpdate(
+          String.format(
+              "UPDATE %s SET deleted_at = %d WHERE %s = %d AND version = %d",
+              tableName, deletedAt, entityIdColumn, entityId, oldestVersion));
+    } catch (SQLException e) {
+      throw new RuntimeException("SQL execution failed", e);
+    }
+  }
+
+  /** Counts version rows for an entity that retain the specified deletion timestamp. */
+  protected int countVersionsWithDeletedAt(
+      String tableName, String entityIdColumn, Long entityId, long deletedAt) {
+    try (SqlSession sqlSession =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = sqlSession.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet rs =
+            statement.executeQuery(
+                String.format(
+                    "SELECT count(*) FROM %s WHERE %s = %d AND deleted_at = %d",
+                    tableName, entityIdColumn, entityId, deletedAt))) {
+      if (rs.next()) {
+        return rs.getInt(1);
+      }
+      throw new RuntimeException("No result for version deletion timestamp count");
+    } catch (SQLException e) {
+      throw new RuntimeException("SQL execution failed", e);
+    }
+  }
+
   protected Integer countOwnerRel(Long metalakeId) {
     try (SqlSession sqlSession =
             SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
