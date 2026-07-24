@@ -30,7 +30,8 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
   public String softDeleteTagMetaByMetalakeAndTagName(String metalakeName, String tagName) {
     return "UPDATE "
         + TAG_TABLE_NAME
-        + " tm SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " tm SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE tm.metalake_id IN ("
         + " SELECT mm.metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -42,7 +43,8 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
   public String softDeleteTagMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + TAG_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -52,7 +54,7 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + TAG_TABLE_NAME
         + " (tag_id, tag_name,"
         + " metalake_id, tag_comment, properties, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{tagMeta.tagId},"
         + " #{tagMeta.tagName},"
@@ -62,7 +64,8 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + " #{tagMeta.auditInfo},"
         + " #{tagMeta.currentVersion},"
         + " #{tagMeta.lastVersion},"
-        + " #{tagMeta.deletedAt}"
+        + " #{tagMeta.deletedAt},"
+        + " #{tagMeta.deletionId}"
         + " )"
         + " ON CONFLICT(tag_id) DO UPDATE SET"
         + " tag_name = #{tagMeta.tagName},"
@@ -72,7 +75,8 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + " audit_info = #{tagMeta.auditInfo},"
         + " current_version = #{tagMeta.currentVersion},"
         + " last_version = #{tagMeta.lastVersion},"
-        + " deleted_at = #{tagMeta.deletedAt}";
+        + " deleted_at = #{tagMeta.deletedAt},"
+        + " deletion_id = #{tagMeta.deletionId}";
   }
 
   @Override
@@ -86,7 +90,8 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + " audit_info = #{newTagMeta.auditInfo},"
         + " current_version = #{newTagMeta.currentVersion},"
         + " last_version = #{newTagMeta.lastVersion},"
-        + " deleted_at = #{newTagMeta.deletedAt}"
+        + " deleted_at = #{newTagMeta.deletedAt},"
+        + " deletion_id = #{newTagMeta.deletionId}"
         + " WHERE tag_id = #{oldTagMeta.tagId}"
         + " AND metalake_id = #{oldTagMeta.metalakeId}"
         + " AND tag_name = #{oldTagMeta.tagName}"
@@ -106,7 +111,9 @@ public class TagMetaPostgreSQLProvider extends TagMetaBaseSQLProvider {
         + TAG_TABLE_NAME
         + " WHERE tag_id IN (SELECT tag_id FROM "
         + TAG_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

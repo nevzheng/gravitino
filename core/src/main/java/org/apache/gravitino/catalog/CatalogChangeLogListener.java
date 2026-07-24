@@ -25,6 +25,7 @@ import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.storage.relational.EntityChangeLogListener;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
+import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,6 +54,12 @@ public class CatalogChangeLogListener implements EntityChangeLogListener {
   public void onEntityChange(List<EntityChangeRecord> changes) {
     for (EntityChangeRecord change : changes) {
       try {
+        if (isMetalakeContainerChange(change)) {
+          // A metalake drop or restore may hide or revive every catalog wrapper below the root.
+          // The flattened change record cannot enumerate that tree, so clear all local wrappers.
+          catalogManager.getCatalogCache().invalidateAll();
+          continue;
+        }
         if (!isCatalogChange(change)) {
           continue;
         }
@@ -89,6 +96,13 @@ public class CatalogChangeLogListener implements EntityChangeLogListener {
       return false;
     }
     return EntityType.CATALOG.name().equals(change.getEntityType().toUpperCase(Locale.ROOT));
+  }
+
+  private boolean isMetalakeContainerChange(EntityChangeRecord change) {
+    return (change.getOperateType() == OperateType.DROP
+            || change.getOperateType() == OperateType.RESTORE)
+        && change.getEntityType() != null
+        && EntityType.METALAKE.name().equals(change.getEntityType().toUpperCase(Locale.ROOT));
   }
 
   private Optional<NameIdentifier> catalogIdentifier(EntityChangeRecord change) {

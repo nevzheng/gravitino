@@ -32,7 +32,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
   public String softDeleteUserRoleRelByUserId(Long userId) {
     return "UPDATE "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE user_id = #{userId} AND deleted_at = 0";
   }
 
@@ -41,7 +42,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
     return "<script>"
         + "UPDATE "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE user_id = #{userId} "
         + "<choose>"
         + "<when test='roleIds != null and roleIds.size() > 0'>"
@@ -63,7 +65,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
   public String softDeleteUserRoleRelByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE user_id IN (SELECT user_id FROM "
         + USER_TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0)"
@@ -74,7 +77,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
   public String softDeleteUserRoleRelByRoleId(Long roleId) {
     return "UPDATE "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -85,7 +89,7 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " (user_id, role_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='userRoleRels' item='item' separator=','>"
         + "(#{item.userId},"
@@ -93,7 +97,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
         + " #{item.auditInfo},"
         + " #{item.currentVersion},"
         + " #{item.lastVersion},"
-        + " #{item.deletedAt})"
+        + " #{item.deletedAt},"
+        + " #{item.deletionId})"
         + "</foreach>"
         + " ON CONFLICT (user_id, role_id, deleted_at) DO UPDATE SET"
         + " user_id = EXCLUDED.user_id,"
@@ -101,7 +106,8 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
         + " audit_info = EXCLUDED.audit_info,"
         + " current_version = EXCLUDED.current_version,"
         + " last_version = EXCLUDED.last_version,"
-        + " deleted_at = EXCLUDED.deleted_at"
+        + " deleted_at = EXCLUDED.deleted_at,"
+        + " deletion_id = EXCLUDED.deletion_id"
         + "</script>";
   }
 
@@ -112,7 +118,9 @@ public class UserRoleRelPostgreSQLProvider extends UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

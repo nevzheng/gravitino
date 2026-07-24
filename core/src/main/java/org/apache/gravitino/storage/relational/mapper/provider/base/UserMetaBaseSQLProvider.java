@@ -81,7 +81,8 @@ public class UserMetaBaseSQLProvider {
         + " enabled = #{newUserMeta.enabled},"
         + " current_version = #{newUserMeta.currentVersion},"
         + " last_version = #{newUserMeta.lastVersion},"
-        + " deleted_at = #{newUserMeta.deletedAt}"
+        + " deleted_at = #{newUserMeta.deletedAt},"
+        + " deletion_id = #{newUserMeta.deletionId}"
         + " WHERE external_id = #{oldUserMeta.externalId}"
         + " AND metalake_id = #{oldUserMeta.metalakeId}"
         + " AND audit_info = #{oldUserMeta.auditInfo}"
@@ -94,7 +95,7 @@ public class UserMetaBaseSQLProvider {
     return "INSERT INTO "
         + USER_TABLE_NAME
         + " (user_id, user_name, metalake_id, external_id, enabled,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{userMeta.userId},"
         + " #{userMeta.userName},"
@@ -104,7 +105,8 @@ public class UserMetaBaseSQLProvider {
         + " #{userMeta.auditInfo},"
         + " #{userMeta.currentVersion},"
         + " #{userMeta.lastVersion},"
-        + " #{userMeta.deletedAt}"
+        + " #{userMeta.deletedAt},"
+        + " #{userMeta.deletionId}"
         + " )";
   }
 
@@ -112,7 +114,7 @@ public class UserMetaBaseSQLProvider {
     return "INSERT INTO "
         + USER_TABLE_NAME
         + " (user_id, user_name, metalake_id, external_id, enabled,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{userMeta.userId},"
         + " #{userMeta.userName},"
@@ -122,7 +124,8 @@ public class UserMetaBaseSQLProvider {
         + " #{userMeta.auditInfo},"
         + " #{userMeta.currentVersion},"
         + " #{userMeta.lastVersion},"
-        + " #{userMeta.deletedAt}"
+        + " #{userMeta.deletedAt},"
+        + " #{userMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " user_name = #{userMeta.userName},"
@@ -132,7 +135,8 @@ public class UserMetaBaseSQLProvider {
         + " enabled = #{userMeta.enabled},"
         + " current_version = #{userMeta.currentVersion},"
         + " last_version = #{userMeta.lastVersion},"
-        + " deleted_at = #{userMeta.deletedAt}";
+        + " deleted_at = #{userMeta.deletedAt},"
+        + " deletion_id = #{userMeta.deletionId}";
   }
 
   public String softDeleteUserMetaByUserId(@Param("userId") Long userId) {
@@ -140,6 +144,7 @@ public class UserMetaBaseSQLProvider {
         + USER_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE user_id = #{userId} AND deleted_at = 0";
   }
 
@@ -148,6 +153,7 @@ public class UserMetaBaseSQLProvider {
         + USER_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -162,7 +168,8 @@ public class UserMetaBaseSQLProvider {
         + " enabled = #{newUserMeta.enabled},"
         + " current_version = #{newUserMeta.currentVersion},"
         + " last_version = #{newUserMeta.lastVersion},"
-        + " deleted_at = #{newUserMeta.deletedAt}"
+        + " deleted_at = #{newUserMeta.deletedAt},"
+        + " deletion_id = #{newUserMeta.deletionId}"
         + " WHERE user_id = #{oldUserMeta.userId}"
         + " AND user_name = #{oldUserMeta.userName}"
         + " AND metalake_id = #{oldUserMeta.metalakeId}"
@@ -234,7 +241,8 @@ public class UserMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + USER_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String touchUserUpdatedAt(@Param("userId") long userId) {

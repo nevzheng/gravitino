@@ -32,7 +32,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " (user_id, role_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='userRoleRels' item='item' separator=','>"
         + "(#{item.userId},"
@@ -40,7 +40,8 @@ public class UserRoleRelBaseSQLProvider {
         + " #{item.auditInfo},"
         + " #{item.currentVersion},"
         + " #{item.lastVersion},"
-        + " #{item.deletedAt})"
+        + " #{item.deletedAt},"
+        + " #{item.deletionId})"
         + "</foreach>"
         + "</script>";
   }
@@ -52,7 +53,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " (user_id, role_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='userRoleRels' item='item' separator=','>"
         + "(#{item.userId},"
@@ -60,7 +61,8 @@ public class UserRoleRelBaseSQLProvider {
         + " #{item.auditInfo},"
         + " #{item.currentVersion},"
         + " #{item.lastVersion},"
-        + " #{item.deletedAt})"
+        + " #{item.deletedAt},"
+        + " #{item.deletionId})"
         + "</foreach>"
         + " ON DUPLICATE KEY UPDATE"
         + " user_id = VALUES(user_id),"
@@ -68,7 +70,8 @@ public class UserRoleRelBaseSQLProvider {
         + " audit_info = VALUES(audit_info),"
         + " current_version = VALUES(current_version),"
         + " last_version = VALUES(last_version),"
-        + " deleted_at = VALUES(deleted_at)"
+        + " deleted_at = VALUES(deleted_at),"
+        + " deletion_id = VALUES(deletion_id)"
         + "</script>";
   }
 
@@ -77,6 +80,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE user_id = #{userId} AND deleted_at = 0";
   }
 
@@ -87,6 +91,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE user_id = #{userId} "
         + "<choose>"
         + "<when test='roleIds != null and roleIds.size() > 0'>"
@@ -109,6 +114,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE user_id IN (SELECT user_id FROM "
         + USER_TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0)"
@@ -120,6 +126,7 @@ public class UserRoleRelBaseSQLProvider {
         + USER_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -127,6 +134,7 @@ public class UserRoleRelBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + USER_ROLE_RELATION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 }

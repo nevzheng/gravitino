@@ -31,9 +31,10 @@ public class PolicyVersionBaseSQLProvider {
       @Param("policyVersion") PolicyVersionPO policyVersion) {
     return "INSERT INTO "
         + POLICY_VERSION_TABLE_NAME
-        + " (metalake_id, policy_id, version, policy_comment, enabled, content, deleted_at)"
+        + " (metalake_id, policy_id, version, policy_comment, enabled, content, deleted_at, deletion_id)"
         + " VALUES (#{policyVersion.metalakeId}, #{policyVersion.policyId}, #{policyVersion.version}, #{policyVersion.policyComment},"
-        + " #{policyVersion.enabled}, #{policyVersion.content}, #{policyVersion.deletedAt})"
+        + " #{policyVersion.enabled}, #{policyVersion.content}, #{policyVersion.deletedAt},"
+        + " #{policyVersion.deletionId})"
         + " ON DUPLICATE KEY UPDATE"
         + " metalake_id = #{policyVersion.metalakeId},"
         + " policy_id = #{policyVersion.policyId},"
@@ -41,16 +42,17 @@ public class PolicyVersionBaseSQLProvider {
         + " policy_comment = #{policyVersion.policyComment},"
         + " enabled = #{policyVersion.enabled},"
         + " content = #{policyVersion.content},"
-        + " deleted_at = #{policyVersion.deletedAt}";
+        + " deleted_at = #{policyVersion.deletedAt},"
+        + " deletion_id = #{policyVersion.deletionId}";
   }
 
   public String insertPolicyVersion(@Param("policyVersion") PolicyVersionPO policyVersion) {
     return "INSERT INTO "
         + POLICY_VERSION_TABLE_NAME
-        + " (metalake_id, policy_id, version, policy_comment, enabled, content, deleted_at)"
+        + " (metalake_id, policy_id, version, policy_comment, enabled, content, deleted_at, deletion_id)"
         + " VALUES (#{policyVersion.metalakeId}, #{policyVersion.policyId}, #{policyVersion.version},"
         + " #{policyVersion.policyComment}, #{policyVersion.enabled}, #{policyVersion.content},"
-        + " #{policyVersion.deletedAt})";
+        + " #{policyVersion.deletedAt}, #{policyVersion.deletionId})";
   }
 
   public String softDeletePolicyVersionByMetalakeAndPolicyName(
@@ -59,6 +61,7 @@ public class PolicyVersionBaseSQLProvider {
         + POLICY_VERSION_TABLE_NAME
         + " pv SET pv.deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", pv.deletion_id = NULL"
         + " WHERE pv.metalake_id IN ("
         + " SELECT mm.metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -78,7 +81,8 @@ public class PolicyVersionBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + POLICY_VERSION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String selectPolicyVersionsByRetentionCount(
@@ -99,6 +103,7 @@ public class PolicyVersionBaseSQLProvider {
         + POLICY_VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE policy_id = #{policyId} AND version <= #{versionRetentionLine} AND deleted_at = 0"
         + " LIMIT #{limit}";
   }
@@ -108,6 +113,7 @@ public class PolicyVersionBaseSQLProvider {
         + POLICY_VERSION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 }

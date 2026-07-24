@@ -26,88 +26,89 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.cache.EntityCache;
-import org.apache.gravitino.meta.CatalogEntity;
-import org.apache.gravitino.storage.relational.po.CatalogPO;
+import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
-import org.apache.gravitino.storage.relational.service.CatalogMetaService;
-import org.apache.gravitino.storage.relational.service.EntityIdService;
+import org.apache.gravitino.storage.relational.po.MetalakePO;
+import org.apache.gravitino.storage.relational.service.MetalakeMetaService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Adapts relational catalog-tree metadata to the shared recoverable-deletion protocol. */
-final class CatalogRecoveryAdapter implements RecoverableEntityAdapter<CatalogEntity> {
+/** Adapts relational metalake-tree metadata to the shared recoverable-deletion protocol. */
+final class MetalakeRecoveryAdapter implements RecoverableEntityAdapter<BaseMetalake> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(CatalogRecoveryAdapter.class);
+  private static final Logger LOG = LoggerFactory.getLogger(MetalakeRecoveryAdapter.class);
 
   @Nullable private final EntityCache entityCache;
 
-  CatalogRecoveryAdapter(@Nullable EntityCache entityCache) {
+  MetalakeRecoveryAdapter(@Nullable EntityCache entityCache) {
     this.entityCache = entityCache;
   }
 
   @Override
   public Entity.EntityType entityType() {
-    return Entity.EntityType.CATALOG;
+    return Entity.EntityType.METALAKE;
   }
 
   @Override
   public RecoveryEntityType recoveryType() {
-    return RecoveryEntityType.CATALOG;
+    return RecoveryEntityType.METALAKE;
   }
 
   @Override
   public List<RecoveryMetadata.DeletedSnapshot> listDeleted(Namespace namespace) {
-    RecoveryMetadata.ParentIdentity parent = resolveLiveParent(namespace);
-    return CatalogMetaService.getInstance().listDeletedCatalogsByNamespace(namespace).stream()
-        .map(catalog -> deletedSnapshot(catalog, parent))
+    return MetalakeMetaService.getInstance().listDeletedMetalakes().stream()
+        .map(MetalakeRecoveryAdapter::deletedSnapshot)
         .collect(Collectors.toList());
   }
 
   @Override
   public RecoveryMetadata.ParentIdentity resolveLiveParent(Namespace namespace) {
-    long metalakeId =
-        EntityIdService.getEntityId(
-            NameIdentifier.of(namespace.level(0)), Entity.EntityType.METALAKE);
-    return new RecoveryMetadata.ParentIdentity(metalakeId, null, metalakeId);
+    throw new UnsupportedOperationException("Metalakes are root resources without a live parent");
+  }
+
+  @Override
+  public RecoveryMetadata.ParentIdentity resolveCurrentParent(
+      Namespace namespace, @Nullable String parentScope, EntityDeletionPO deletion) {
+    return new RecoveryMetadata.ParentIdentity(deletion.getEntityId(), null, null);
   }
 
   @Override
   public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
       Namespace namespace, @Nullable Long parentId) {
-    return CatalogMetaService.getInstance().listCatalogsByNamespace(namespace).stream()
-        .map(catalog -> new RecoveryMetadata.LiveIdentity(catalog.id(), parentId, catalog.name()))
+    return MetalakeMetaService.getInstance().listMetalakes().stream()
+        .map(metalake -> new RecoveryMetadata.LiveIdentity(metalake.id(), null, metalake.name()))
         .collect(Collectors.toList());
   }
 
   @Override
   public List<RecoveryMetadata.LiveIdentity> listLiveByIds(List<Long> ids) {
-    return CatalogMetaService.getInstance().listLiveCatalogsByIds(ids).stream()
+    return MetalakeMetaService.getInstance().listLiveMetalakesByIds(ids).stream()
         .map(
-            catalog ->
+            metalake ->
                 new RecoveryMetadata.LiveIdentity(
-                    catalog.getCatalogId(), catalog.getMetalakeId(), catalog.getCatalogName()))
+                    metalake.getMetalakeId(), null, metalake.getMetalakeName()))
         .collect(Collectors.toList());
   }
 
   @Override
-  public long id(CatalogEntity entity) {
+  public long id(BaseMetalake entity) {
     return entity.id();
   }
 
   @Override
-  public CatalogEntity loadLive(NameIdentifier identifier) {
-    return CatalogMetaService.getInstance().getCatalogByIdentifier(identifier);
+  public BaseMetalake loadLive(NameIdentifier identifier) {
+    return MetalakeMetaService.getInstance().getMetalakeByIdentifier(identifier);
   }
 
   @Override
-  public CatalogEntity restoreAtomically(
+  public BaseMetalake restoreAtomically(
       NameIdentifier identifier,
       EntityDeletionPO deletion,
       long restoredAt,
       String acceptedEtag,
       long effectiveExpiresAt) {
-    return CatalogMetaService.getInstance()
-        .restoreCatalog(identifier, deletion, restoredAt, acceptedEtag, effectiveExpiresAt);
+    return MetalakeMetaService.getInstance()
+        .restoreMetalake(identifier, deletion, restoredAt, acceptedEtag, effectiveExpiresAt);
   }
 
   @Override
@@ -119,19 +120,23 @@ final class CatalogRecoveryAdapter implements RecoverableEntityAdapter<CatalogEn
       entityCache.clear();
     } catch (RuntimeException e) {
       LOG.warn(
-          "Catalog tree {} was restored, but the local entity cache could not be cleared",
+          "Metalake tree {} was restored, but the local entity cache could not be cleared",
           identifier,
           e);
     }
   }
 
-  private static RecoveryMetadata.DeletedSnapshot deletedSnapshot(
-      CatalogPO catalog, RecoveryMetadata.ParentIdentity parent) {
+  @Override
+  public boolean rootScoped() {
+    return true;
+  }
+
+  private static RecoveryMetadata.DeletedSnapshot deletedSnapshot(MetalakePO metalake) {
     return new RecoveryMetadata.DeletedSnapshot(
-        catalog.getCatalogId(),
-        catalog.getCatalogName(),
-        parent,
-        catalog.getDeletedAt(),
-        catalog.getCurrentVersion());
+        metalake.getMetalakeId(),
+        metalake.getMetalakeName(),
+        new RecoveryMetadata.ParentIdentity(metalake.getMetalakeId(), null, null),
+        metalake.getDeletedAt(),
+        metalake.getCurrentVersion());
   }
 }

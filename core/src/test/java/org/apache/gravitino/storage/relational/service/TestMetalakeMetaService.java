@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -33,6 +34,7 @@ import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.TestTemplate;
@@ -121,6 +123,27 @@ public class TestMetalakeMetaService extends TestJDBCBackend {
       backend.hardDeleteLegacyData(entityType, Instant.now().toEpochMilli() + 1000);
     }
     assertFalse(legacyRecordExistsInDB(metalake.id(), Entity.EntityType.METALAKE));
+  }
+
+  @TestTemplate
+  public void testBackendDeleteUsesConfiguredMetalakeRetention() throws Exception {
+    long configuredRetentionMs = 12_345L;
+    long priorRetentionMs = (long) FieldUtils.readField(backend, "deletionRetentionMs", true);
+    BaseMetalake metalake = createAndInsertMakeLake(METALAKE_NAME);
+    try {
+      FieldUtils.writeField(backend, "deletionRetentionMs", configuredRetentionMs, true);
+      Assertions.assertTrue(
+          backend.delete(metalake.nameIdentifier(), Entity.EntityType.METALAKE, true));
+
+      EntityDeletionPO deletion =
+          EntityDeletionService.getInstance()
+              .list(Entity.EntityType.METALAKE, null, metalake.name(), metalake.id(), null)
+              .get(0);
+      Assertions.assertEquals(
+          configuredRetentionMs, deletion.getExpiresAt() - deletion.getDeletedAt());
+    } finally {
+      FieldUtils.writeField(backend, "deletionRetentionMs", priorRetentionMs, true);
+    }
   }
 
   @TestTemplate

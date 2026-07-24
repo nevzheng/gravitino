@@ -55,6 +55,8 @@ public class TestRestoreChangeLogListener {
 
   private static final Map<Entity.EntityType, NameIdentifier> RECOVERABLE_IDENTIFIERS =
       Map.of(
+          Entity.EntityType.METALAKE,
+          NameIdentifier.of("metalake"),
           Entity.EntityType.CATALOG,
           CATALOG,
           Entity.EntityType.SCHEMA,
@@ -87,6 +89,7 @@ public class TestRestoreChangeLogListener {
     for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
       verify(cache).invalidateRelationEntry(TABLE, Entity.EntityType.TABLE, relationType);
     }
+    verify(cache).clear();
     verifyNoMoreInteractions(cache);
   }
 
@@ -106,10 +109,12 @@ public class TestRestoreChangeLogListener {
 
     listener.onEntityChange(changes);
 
-    verify(cache, times(2)).clear();
+    verify(cache, times(3)).clear();
     RECOVERABLE_IDENTIFIERS.forEach(
         (entityType, identifier) -> {
-          if (entityType == Entity.EntityType.CATALOG || entityType == Entity.EntityType.SCHEMA) {
+          if (entityType == Entity.EntityType.METALAKE
+              || entityType == Entity.EntityType.CATALOG
+              || entityType == Entity.EntityType.SCHEMA) {
             return;
           }
           verify(cache).invalidate(identifier, entityType);

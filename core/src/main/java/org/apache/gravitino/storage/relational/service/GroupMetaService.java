@@ -181,6 +181,7 @@ public class GroupMetaService {
           POConverters.initializeGroupRoleRelsPOWithVersion(groupEntity, roleIds);
 
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
                   GroupMetaMapper.class,
@@ -215,8 +216,11 @@ public class GroupMetaService {
     AuthorizationUtils.checkGroup(identifier);
 
     Long groupId = EntityIdService.getEntityId(identifier, Entity.EntityType.GROUP);
+    Long metalakeId =
+        MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
 
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             SessionUtils.doWithoutCommit(
                 GroupMetaMapper.class, mapper -> mapper.softDeleteGroupMetaByGroupId(groupId)),
@@ -269,6 +273,7 @@ public class GroupMetaService {
     }
     try {
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
                   GroupMetaMapper.class,

@@ -1000,7 +1000,7 @@ class TestRoleMetaService extends TestJDBCBackend {
 
     // delete metalake
     Assertions.assertTrue(
-        MetalakeMetaService.getInstance().deleteMetalake(metalake.nameIdentifier(), true));
+        MetalakeMetaService.getInstance().deleteMetalake(metalake.nameIdentifier(), true, 0L));
 
     Assertions.assertThrows(
         NoSuchEntityException.class,
@@ -1020,24 +1020,22 @@ class TestRoleMetaService extends TestJDBCBackend {
     assertEquals(2, countUserRoleRels());
     assertEquals(2, countGroupRoleRels());
 
-    // hard delete after soft delete
+    // A recorded root generation is invisible to legacy per-type collectors.
     deletedCount =
         roleMetaService.deleteRoleMetasByLegacyTimeline(Instant.now().toEpochMilli() + 1000, 1);
-    assertEquals(3, deletedCount); // delete 1 role + 1 userRoleRel + 1 groupRoleRel
-    assertEquals(1, countRoles(metalake.id())); // 2 - 1
-    assertEquals(1, countUserRoleRels()); // 2 - 1
-    assertEquals(1, countGroupRoleRels()); // 2 - 1
+    assertEquals(0, deletedCount);
+    assertEquals(2, countRoles(metalake.id()));
+    assertEquals(2, countUserRoleRels());
+    assertEquals(2, countGroupRoleRels());
 
-    deletedCount =
-        roleMetaService.deleteRoleMetasByLegacyTimeline(Instant.now().toEpochMilli() + 1000, 1);
-    assertEquals(3, deletedCount);
+    // The root receipt owns permanent deletion of the entire exact aggregate.
+    assertEquals(
+        1,
+        MetalakeMetaService.getInstance()
+            .purgeExpiredMetalakeDeletions(Instant.now().toEpochMilli() + 1000, 1));
     assertEquals(0, countRoles(metalake.id()));
     assertEquals(0, countUserRoleRels());
     assertEquals(0, countGroupRoleRels());
-
-    deletedCount =
-        roleMetaService.deleteRoleMetasByLegacyTimeline(Instant.now().toEpochMilli() + 1000, 1);
-    assertEquals(0, deletedCount); // no more to delete
   }
 
   private Integer countRoles(Long metalakeId) {

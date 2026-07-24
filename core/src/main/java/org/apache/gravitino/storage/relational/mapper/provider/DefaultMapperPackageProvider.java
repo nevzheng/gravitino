@@ -35,6 +35,7 @@ import org.apache.gravitino.storage.relational.mapper.GroupRoleRelMapper;
 import org.apache.gravitino.storage.relational.mapper.JobMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.JobTemplateMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.MetalakeMetaMapper;
+import org.apache.gravitino.storage.relational.mapper.MetalakeRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelVersionAliasRelMapper;
@@ -83,6 +84,7 @@ public class DefaultMapperPackageProvider implements MapperPackageProvider {
         JobMetaMapper.class,
         JobTemplateMetaMapper.class,
         MetalakeMetaMapper.class,
+        MetalakeRecoveryMapper.class,
         ModelMetaMapper.class,
         ModelRecoveryMapper.class,
         ModelVersionAliasRelMapper.class,

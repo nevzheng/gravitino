@@ -19,20 +19,27 @@
 package org.apache.gravitino.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableMap;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.MetalakeDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.MetalakeCreateRequest;
 import org.apache.gravitino.dto.requests.MetalakeUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.MetalakeListResponse;
@@ -140,6 +147,61 @@ public class TestGravitinoAdminClient extends TestBase {
     Throwable excep2 =
         Assertions.assertThrows(RESTException.class, () -> client.loadMetalake(id.name()));
     Assertions.assertTrue(excep2.getMessage().contains("Error code: " + HttpStatus.SC_CONFLICT));
+  }
+
+  @Test
+  public void testRecoverableMetalakeMetadata() throws JsonProcessingException {
+    String name = "deleted-metalake";
+    String id = "984273";
+    String collectionPath = "/api/metalakes";
+    String itemPath = collectionPath + "/" + name;
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", name, "id", id);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", id);
+    DeletedEntityDTO generation = createDeletedGeneration(name, id, RecoveryEntityType.METALAKE);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed = client.listDeletedMetalakes(name, id);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(id, listed[0].id());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = client.loadDeletedMetalake(name, id);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    MetalakeDTO restoredMetalake =
+        MetalakeDTO.builder()
+            .withName(name)
+            .withComment("restored metadata")
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        new MetalakeResponse(restoredMetalake),
+        HttpStatus.SC_OK);
+    GravitinoMetalake restored = client.restoreMetalake(name, loaded);
+    Assertions.assertEquals(name, restored.name());
+
+    DeletedEntityDTO wrongType = createDeletedGeneration(name, id, RecoveryEntityType.CATALOG);
+    Assertions.assertThrows(
+        IllegalArgumentException.class, () -> client.restoreMetalake(name, wrongType));
   }
 
   @Test
@@ -315,5 +377,23 @@ public class TestGravitinoAdminClient extends TestBase {
                 metaLake.testConnection(
                     "catalog", Catalog.Type.RELATIONAL, "hive", "comment", Collections.emptyMap()));
     Assertions.assertTrue(exception.getMessage().contains("connection failed"));
+  }
+
+  private static DeletedEntityDTO createDeletedGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 }

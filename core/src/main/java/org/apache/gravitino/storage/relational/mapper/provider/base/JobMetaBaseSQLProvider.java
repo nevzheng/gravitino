@@ -32,7 +32,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " (job_run_id, job_template_id, metalake_id,"
         + " job_execution_id, job_run_status, job_finished_at, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobMeta.jobRunId},"
         + " (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
@@ -41,7 +41,7 @@ public class JobMetaBaseSQLProvider {
         + " #{jobMeta.metalakeId}, #{jobMeta.jobExecutionId},"
         + " #{jobMeta.jobRunStatus}, #{jobMeta.jobFinishedAt}, #{jobMeta.auditInfo},"
         + " #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
-        + " #{jobMeta.deletedAt})";
+        + " #{jobMeta.deletedAt}, #{jobMeta.deletionId})";
   }
 
   public String insertJobMetaOnDuplicateKeyUpdate(@Param("jobMeta") JobPO jobPO) {
@@ -49,7 +49,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " (job_run_id, job_template_id, metalake_id,"
         + " job_execution_id, job_run_status, job_finished_at, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobMeta.jobRunId},"
         + " (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
@@ -58,7 +58,7 @@ public class JobMetaBaseSQLProvider {
         + " #{jobMeta.metalakeId}, #{jobMeta.jobExecutionId},"
         + " #{jobMeta.jobRunStatus}, #{jobMeta.jobFinishedAt}, #{jobMeta.auditInfo},"
         + " #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
-        + " #{jobMeta.deletedAt})"
+        + " #{jobMeta.deletedAt}, #{jobMeta.deletionId})"
         + " ON DUPLICATE KEY UPDATE"
         + " job_template_id = (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
@@ -71,7 +71,8 @@ public class JobMetaBaseSQLProvider {
         + " audit_info = #{jobMeta.auditInfo},"
         + " current_version = #{jobMeta.currentVersion},"
         + " last_version = #{jobMeta.lastVersion},"
-        + " deleted_at = #{jobMeta.deletedAt}";
+        + " deleted_at = #{jobMeta.deletedAt},"
+        + " deletion_id = #{jobMeta.deletionId}";
   }
 
   public String listJobPOsByMetalake(@Param("metalakeName") String metalakeName) {
@@ -141,6 +142,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = ("
         + " SELECT metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -157,6 +159,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -165,6 +168,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE job_run_id = #{jobRunId} AND deleted_at = 0";
   }
 
@@ -173,6 +177,7 @@ public class JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE job_finished_at < #{legacyTimeline} AND job_finished_at > 0 AND deleted_at = 0";
   }
 
@@ -180,7 +185,8 @@ public class JobMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + JobMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit}";
   }
 
   public String batchSelectJobByRunIds(

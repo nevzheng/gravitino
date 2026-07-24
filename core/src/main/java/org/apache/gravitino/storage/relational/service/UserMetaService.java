@@ -141,6 +141,7 @@ public class UserMetaService {
           POConverters.initializeUserRoleRelsPOWithVersion(userEntity, roleIds);
 
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
                   UserMetaMapper.class,
@@ -175,8 +176,11 @@ public class UserMetaService {
     AuthorizationUtils.checkUser(identifier);
 
     Long userId = EntityIdService.getEntityId(identifier, Entity.EntityType.USER);
+    Long metalakeId =
+        MetalakeMetaService.getInstance().getMetalakeIdByName(identifier.namespace().level(0));
 
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             SessionUtils.doWithoutCommit(
                 UserMetaMapper.class, mapper -> mapper.softDeleteUserMetaByUserId(userId)),
@@ -226,6 +230,7 @@ public class UserMetaService {
 
     try {
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
                   UserMetaMapper.class,
@@ -370,6 +375,7 @@ public class UserMetaService {
 
     try {
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(oldUserPO.getMetalakeId()),
           () ->
               SessionUtils.doWithoutCommit(
                   UserMetaMapper.class,

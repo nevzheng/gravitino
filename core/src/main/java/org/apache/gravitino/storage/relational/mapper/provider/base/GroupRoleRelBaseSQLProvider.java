@@ -33,7 +33,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " (group_id, role_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='groupRoleRels' item='item' separator=','>"
         + "(#{item.groupId},"
@@ -41,7 +41,8 @@ public class GroupRoleRelBaseSQLProvider {
         + " #{item.auditInfo},"
         + " #{item.currentVersion},"
         + " #{item.lastVersion},"
-        + " #{item.deletedAt})"
+        + " #{item.deletedAt},"
+        + " #{item.deletionId})"
         + "</foreach>"
         + "</script>";
   }
@@ -53,7 +54,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " (group_id, role_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='groupRoleRels' item='item' separator=','>"
         + "(#{item.groupId},"
@@ -61,7 +62,8 @@ public class GroupRoleRelBaseSQLProvider {
         + " #{item.auditInfo},"
         + " #{item.currentVersion},"
         + " #{item.lastVersion},"
-        + " #{item.deletedAt})"
+        + " #{item.deletedAt},"
+        + " #{item.deletionId})"
         + "</foreach>"
         + " ON DUPLICATE KEY UPDATE"
         + " group_id = VALUES(group_id),"
@@ -69,7 +71,8 @@ public class GroupRoleRelBaseSQLProvider {
         + " audit_info = VALUES(audit_info),"
         + " current_version = VALUES(current_version),"
         + " last_version = VALUES(last_version),"
-        + " deleted_at = VALUES(deleted_at)"
+        + " deleted_at = VALUES(deleted_at),"
+        + " deletion_id = VALUES(deletion_id)"
         + "</script>";
   }
 
@@ -78,6 +81,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE group_id = #{groupId} AND deleted_at = 0";
   }
 
@@ -88,6 +92,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE group_id = #{groupId} "
         + "<choose>"
         + "<when test='roleIds != null and roleIds.size() > 0'>"
@@ -110,6 +115,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE group_id IN (SELECT group_id FROM "
         + GROUP_TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0)"
@@ -121,6 +127,7 @@ public class GroupRoleRelBaseSQLProvider {
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -128,6 +135,7 @@ public class GroupRoleRelBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 }

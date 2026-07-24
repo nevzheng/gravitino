@@ -50,6 +50,7 @@ public class JobPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public JobPO() {
     // Default constructor for JPA
@@ -66,7 +67,8 @@ public class JobPO {
       String auditInfo,
       Long currentVersion,
       Long lastVersion,
-      Long deletedAt) {
+      Long deletedAt,
+      String deletionId) {
     Preconditions.checkArgument(jobRunId != null, "jobRunId cannot be null");
     Preconditions.checkArgument(
         StringUtils.isNotBlank(jobTemplateName), "jobTemplateName cannot be blank");
@@ -91,6 +93,7 @@ public class JobPO {
     this.currentVersion = currentVersion;
     this.lastVersion = lastVersion;
     this.deletedAt = deletedAt;
+    this.deletionId = deletionId;
   }
 
   public static class JobPOBuilder {
@@ -120,6 +123,7 @@ public class JobPO {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize job entity", e);

@@ -78,7 +78,8 @@ final class TopicRecoveryAdapter implements RecoverableEntityAdapter<TopicEntity
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return TopicMetaService.getInstance().listLiveTopicPOsByNamespace(namespace).stream()
         .map(TopicRecoveryAdapter::liveIdentity)
         .collect(Collectors.toList());

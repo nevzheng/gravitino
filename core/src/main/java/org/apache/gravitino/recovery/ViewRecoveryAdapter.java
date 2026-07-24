@@ -78,7 +78,8 @@ final class ViewRecoveryAdapter implements RecoverableEntityAdapter<ViewEntity> 
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return ViewMetaService.getInstance().listLiveViewPOsByNamespace(namespace).stream()
         .map(ViewRecoveryAdapter::liveIdentity)
         .collect(Collectors.toList());

@@ -32,6 +32,7 @@ public class PolicyPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
   private PolicyVersionPO policyVersionPO;
 
   public static Builder builder() {
@@ -55,7 +56,8 @@ public class PolicyPO {
         && Objects.equal(currentVersion, policyPO.currentVersion)
         && Objects.equal(lastVersion, policyPO.lastVersion)
         && Objects.equal(policyVersionPO, policyPO.policyVersionPO)
-        && Objects.equal(deletedAt, policyPO.deletedAt);
+        && Objects.equal(deletedAt, policyPO.deletedAt)
+        && Objects.equal(deletionId, policyPO.deletionId);
   }
 
   @Override
@@ -69,7 +71,8 @@ public class PolicyPO {
         currentVersion,
         lastVersion,
         policyVersionPO,
-        deletedAt);
+        deletedAt,
+        deletionId);
   }
 
   public static class Builder {
@@ -81,6 +84,7 @@ public class PolicyPO {
     private Long currentVersion;
     private Long lastVersion;
     private Long deletedAt;
+    private String deletionId;
     private PolicyVersionPO policyVersionPO;
 
     public Builder withPolicyId(Long policyId) {
@@ -123,6 +127,12 @@ public class PolicyPO {
       return this;
     }
 
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      this.deletionId = deletionId;
+      return this;
+    }
+
     public Builder withPolicyVersionPO(PolicyVersionPO policyVersionPO) {
       this.policyVersionPO = policyVersionPO;
       return this;
@@ -144,6 +154,7 @@ public class PolicyPO {
       policyPO.currentVersion = currentVersion;
       policyPO.lastVersion = lastVersion;
       policyPO.deletedAt = deletedAt;
+      policyPO.deletionId = deletionId;
       policyPO.policyVersionPO = policyVersionPO;
       return policyPO;
     }

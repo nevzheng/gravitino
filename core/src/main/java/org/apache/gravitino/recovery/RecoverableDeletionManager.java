@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
@@ -66,6 +67,7 @@ public class RecoverableDeletionManager {
 
   private final long retentionMs;
   private final Clock clock;
+  private final RecoverableEntityAdapter<BaseMetalake> metalakeAdapter;
   private final RecoverableEntityAdapter<CatalogEntity> catalogAdapter;
   private final RecoverableEntityAdapter<SchemaEntity> schemaAdapter;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
@@ -102,6 +104,7 @@ public class RecoverableDeletionManager {
       long retentionMs, Clock clock, @Nullable EntityCache entityCache) {
     this.retentionMs = retentionMs;
     this.clock = clock;
+    this.metalakeAdapter = new MetalakeRecoveryAdapter(entityCache);
     this.catalogAdapter = new CatalogRecoveryAdapter(entityCache);
     this.schemaAdapter = new SchemaRecoveryAdapter(entityCache);
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
@@ -110,6 +113,44 @@ public class RecoverableDeletionManager {
     this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
+  }
+
+  /**
+   * Lists independently deleted metalake roots.
+   *
+   * @param name optional exact metalake name
+   * @param id optional exact immutable metalake identifier
+   * @return matching deleted metalake generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedMetalakes(@Nullable String name, @Nullable Long id) {
+    return listDeleted(metalakeAdapter, Namespace.empty(), name, id);
+  }
+
+  /**
+   * Loads one exact deleted metalake root representation.
+   *
+   * @param name original metalake name
+   * @param id immutable metalake identifier
+   * @return selected metalake deletion generation
+   */
+  public DeletedEntityDTO getDeletedMetalake(String name, long id) {
+    return getDeleted(metalakeAdapter, Namespace.empty(), name, id);
+  }
+
+  /**
+   * Restores one exact metalake metadata-tree deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores Gravitino metadata only. All descendants carrying the exact root
+   * deletion generation are restored atomically; no connector or external authorization system is
+   * invoked.
+   *
+   * @param name original metalake name
+   * @param id immutable metalake identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-metalake read
+   * @return restored root metalake, or the already-restored root for an idempotent replay
+   */
+  public BaseMetalake restoreDeletedMetalake(String name, long id, String etag) {
+    return restoreDeleted(metalakeAdapter, Namespace.empty(), name, id, etag);
   }
 
   /**
@@ -486,7 +527,7 @@ public class RecoverableDeletionManager {
       return List.of();
     }
 
-    long parentId = allTombstones.get(0).parent().parentId();
+    Long parentId = allTombstones.get(0).parent().parentId();
     List<EntityDeletionPO> deletionRecords =
         EntityDeletionService.getInstance().list(adapter.entityType(), parentId, null, null, null);
     Map<GenerationKey, EntityDeletionPO> deletionRecordByGeneration = new HashMap<>();
@@ -571,15 +612,28 @@ public class RecoverableDeletionManager {
       long id,
       String etag) {
     NameIdentifier identifier = NameIdentifier.of(namespace, name);
+    if (adapter.rootScoped()) {
+      return TreeLockUtils.doWithRootTreeLock(
+          LockType.WRITE,
+          () -> restoreAndInvalidate(adapter, namespace, parentScope, name, id, etag, identifier));
+    }
     return TreeLockUtils.doWithTreeLock(
         identifier,
         LockType.WRITE,
-        () -> {
-          E restored =
-              restoreDeletedLocked(adapter, namespace, parentScope, name, id, etag, identifier);
-          adapter.invalidate(identifier);
-          return restored;
-        });
+        () -> restoreAndInvalidate(adapter, namespace, parentScope, name, id, etag, identifier));
+  }
+
+  private <E> E restoreAndInvalidate(
+      RecoverableEntityAdapter<E> adapter,
+      Namespace namespace,
+      @Nullable String parentScope,
+      String name,
+      long id,
+      String etag,
+      NameIdentifier identifier) {
+    E restored = restoreDeletedLocked(adapter, namespace, parentScope, name, id, etag, identifier);
+    adapter.invalidate(identifier);
+    return restored;
   }
 
   private <E> E restoreDeletedLocked(
@@ -762,7 +816,7 @@ public class RecoverableDeletionManager {
       EntityDeletionPO deletion) {
     RecoveryMetadata.ParentIdentity parent;
     try {
-      parent = adapter.resolveLiveParent(namespace, parentScope);
+      parent = adapter.resolveCurrentParent(namespace, parentScope, deletion);
     } catch (NoSuchEntityException e) {
       throw new RecoveryConflictException(
           e,
@@ -784,7 +838,7 @@ public class RecoverableDeletionManager {
   private <E> boolean isLatestForName(
       RecoverableEntityAdapter<E> adapter,
       EntityDeletionService deletionService,
-      long parentId,
+      @Nullable Long parentId,
       String name,
       EntityDeletionPO observed) {
     List<EntityDeletionPO> generations =
@@ -825,14 +879,15 @@ public class RecoverableDeletionManager {
   private <E> void validateGloballyLiveIdentity(
       RecoverableEntityAdapter<E> adapter,
       @Nullable RecoveryMetadata.LiveIdentity live,
-      long parentId,
+      @Nullable Long parentId,
       String name,
       long id,
       boolean allowExactMatch) {
     if (live == null) {
       return;
     }
-    boolean exactMatch = live.id() == id && live.parentId() == parentId && live.name().equals(name);
+    boolean exactMatch =
+        live.id() == id && Objects.equals(live.parentId(), parentId) && live.name().equals(name);
     if (allowExactMatch && exactMatch) {
       return;
     }
@@ -959,6 +1014,8 @@ public class RecoverableDeletionManager {
       return "ENTITY_ID_REUSED";
     }
     if (!tombstone.name().equals(deletionRecord.getEntityName())
+        || !Objects.equals(tombstone.parent().metalakeId(), deletionRecord.getMetalakeId())
+        || !Objects.equals(tombstone.parent().catalogId(), deletionRecord.getCatalogId())
         || !Objects.equals(tombstone.parent().parentId(), deletionRecord.getParentId())
         || !Objects.equals(tombstone.version(), deletionRecord.getEntityVersion())) {
       return "STATE_CHANGED";

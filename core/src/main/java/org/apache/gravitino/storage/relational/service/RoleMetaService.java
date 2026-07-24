@@ -158,6 +158,8 @@ public class RoleMetaService {
       RolePO.Builder builder = RolePO.builder().withMetalakeId(metalakeId);
       RolePO rolePO = POConverters.initializeRolePOWithVersion(roleEntity, builder);
       List<SecurableObjectPO> securableObjectPOs = Lists.newArrayList();
+      List<Long> metalakeIds = Lists.newArrayList();
+      metalakeIds.add(metalakeId);
       List<Long> catalogIds = Lists.newArrayList();
       List<Long> schemaIds = Lists.newArrayList();
       for (SecurableObject object : roleEntity.securableObjects()) {
@@ -167,13 +169,14 @@ public class RoleMetaService {
         NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, object);
         Entity.EntityType entityType = MetadataObjectUtil.toEntityType(object.type());
         objectBuilder.withMetadataObjectId(EntityIdService.getEntityId(identifier, entityType));
+        metalakeIds.add(MetadataMutationLock.metalakeId(identifier, entityType));
         catalogIds.add(MetadataMutationLock.catalogId(identifier, entityType));
         schemaIds.add(MetadataMutationLock.schemaId(identifier, entityType));
         securableObjectPOs.add(objectBuilder.build());
       }
 
       SessionUtils.doMultipleWithCommit(
-          () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
+          () -> MetadataMutationLock.lockMetadataIds(metalakeIds, catalogIds, schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   SecurableObjectMapper.class,
@@ -239,6 +242,8 @@ public class RoleMetaService {
 
       List<SecurableObjectPO> insertSecurableObjectPOs =
           toSecurableObjectPOs(insertObjects, oldRoleEntity, metalake);
+      List<Long> metalakeIds = Lists.newArrayList();
+      metalakeIds.add(metalakeId);
       List<Long> catalogIds = Lists.newArrayList();
       List<Long> schemaIds = Lists.newArrayList();
       Sets.union(insertObjects, deleteObjects)
@@ -247,12 +252,13 @@ public class RoleMetaService {
                 NameIdentifier objectIdentifier =
                     MetadataObjectUtil.toEntityIdent(metalake, object);
                 Entity.EntityType objectType = MetadataObjectUtil.toEntityType(object.type());
+                metalakeIds.add(MetadataMutationLock.metalakeId(objectIdentifier, objectType));
                 catalogIds.add(MetadataMutationLock.catalogId(objectIdentifier, objectType));
                 schemaIds.add(MetadataMutationLock.schemaId(objectIdentifier, objectType));
               });
 
       SessionUtils.doMultipleWithCommit(
-          () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
+          () -> MetadataMutationLock.lockMetadataIds(metalakeIds, catalogIds, schemaIds),
           () ->
               SessionUtils.doWithoutCommit(
                   RoleMetaMapper.class,
@@ -328,6 +334,7 @@ public class RoleMetaService {
     Long roleId = getRoleIdByMetalakeIdAndName(metalakeId, identifier.name());
 
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             SessionUtils.doWithoutCommit(
                 RoleMetaMapper.class, mapper -> mapper.softDeleteRoleMetaByRoleId(roleId)),

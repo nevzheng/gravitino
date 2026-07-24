@@ -94,15 +94,18 @@ public class TagMetaService {
       TagPO.Builder builder = TagPO.builder().withMetalakeId(metalakeId);
       TagPO tagPO = POConverters.initializeTagPOWithVersion(tagEntity, builder);
 
-      SessionUtils.doWithCommit(
-          TagMetaMapper.class,
-          mapper -> {
-            if (overwritten) {
-              mapper.insertTagMetaOnDuplicateKeyUpdate(tagPO);
-            } else {
-              mapper.insertTagMeta(tagPO);
-            }
-          });
+      SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  TagMetaMapper.class,
+                  mapper -> {
+                    if (overwritten) {
+                      mapper.insertTagMetaOnDuplicateKeyUpdate(tagPO);
+                    } else {
+                      mapper.insertTagMeta(tagPO);
+                    }
+                  }));
     } catch (RuntimeException e) {
       ExceptionUtils.checkSQLException(e, Entity.EntityType.TAG, tagEntity.toString());
       throw e;
@@ -124,14 +127,20 @@ public class TagMetaService {
           updatedTagEntity.id(),
           oldTagEntity.id());
 
-      Integer result =
-          SessionUtils.doWithCommitAndFetchResult(
-              TagMetaMapper.class,
-              mapper ->
-                  mapper.updateTagMeta(
-                      POConverters.updateTagPOWithVersion(tagPO, updatedTagEntity), tagPO));
+      long metalakeId = MetalakeMetaService.getInstance().getMetalakeIdByName(metalakeName);
+      int[] result = new int[1];
+      SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+          () ->
+              result[0] =
+                  SessionUtils.getWithoutCommit(
+                      TagMetaMapper.class,
+                      mapper ->
+                          mapper.updateTagMeta(
+                              POConverters.updateTagPOWithVersion(tagPO, updatedTagEntity),
+                              tagPO)));
 
-      if (result == null || result == 0) {
+      if (result[0] == 0) {
         throw new IOException("Failed to update the entity: " + identifier);
       }
 
@@ -146,10 +155,12 @@ public class TagMetaService {
   @Monitored(metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME, baseMetricName = "deleteTag")
   public boolean deleteTag(NameIdentifier identifier) {
     String metalakeName = identifier.namespace().level(0);
+    long metalakeId = MetalakeMetaService.getInstance().getMetalakeIdByName(metalakeName);
     int[] tagDeletedCount = new int[] {0};
     int[] tagMetadataObjectRelDeletedCount = new int[] {0};
 
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             tagDeletedCount[0] =
                 SessionUtils.getWithoutCommit(
@@ -302,6 +313,7 @@ public class TagMetaService {
 
     try {
       Long metadataObjectId = EntityIdService.getEntityId(objectIdent, objectType);
+      Long metalakeId = MetadataMutationLock.metalakeId(objectIdent, objectType);
       Long catalogId = MetadataMutationLock.catalogId(objectIdent, objectType);
       Long schemaId = MetadataMutationLock.schemaId(objectIdent, objectType);
 
@@ -323,8 +335,10 @@ public class TagMetaService {
 
       SessionUtils.doMultipleWithCommit(
           () ->
-              MetadataMutationLock.lockCatalogAndSchemaIds(
-                  Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
+              MetadataMutationLock.lockMetadataIds(
+                  Collections.singletonList(metalakeId),
+                  Collections.singletonList(catalogId),
+                  Collections.singletonList(schemaId)),
           () -> {
             // Insert the tag metadata object relations.
             if (tagPOsToAdd.isEmpty()) {

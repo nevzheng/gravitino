@@ -190,8 +190,8 @@ public class TestCatalogMetaService extends TestJDBCBackend {
     // check legacy record after soft delete
     assertTrue(legacyRecordExistsInDB(catalog.id(), Entity.EntityType.CATALOG));
 
-    // meta data hard delete
-    backend.hardDeleteLegacyData(Entity.EntityType.CATALOG, Instant.now().toEpochMilli() + 3000);
+    // A metalake deletion owns the catalog tombstone, so aggregate GC must start at that root.
+    backend.hardDeleteLegacyData(Entity.EntityType.METALAKE, Instant.now().toEpochMilli() + 3000);
     assertFalse(legacyRecordExistsInDB(catalog.id(), Entity.EntityType.CATALOG));
   }
 

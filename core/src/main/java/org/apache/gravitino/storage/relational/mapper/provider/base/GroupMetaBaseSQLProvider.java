@@ -146,7 +146,7 @@ public class GroupMetaBaseSQLProvider {
     return "INSERT INTO "
         + GROUP_TABLE_NAME
         + " (group_id, group_name, metalake_id, external_id,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{groupMeta.groupId},"
         + " #{groupMeta.groupName},"
@@ -155,7 +155,8 @@ public class GroupMetaBaseSQLProvider {
         + " #{groupMeta.auditInfo},"
         + " #{groupMeta.currentVersion},"
         + " #{groupMeta.lastVersion},"
-        + " #{groupMeta.deletedAt}"
+        + " #{groupMeta.deletedAt},"
+        + " #{groupMeta.deletionId}"
         + " )";
   }
 
@@ -163,7 +164,7 @@ public class GroupMetaBaseSQLProvider {
     return "INSERT INTO "
         + GROUP_TABLE_NAME
         + " (group_id, group_name, metalake_id, external_id,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{groupMeta.groupId},"
         + " #{groupMeta.groupName},"
@@ -172,7 +173,8 @@ public class GroupMetaBaseSQLProvider {
         + " #{groupMeta.auditInfo},"
         + " #{groupMeta.currentVersion},"
         + " #{groupMeta.lastVersion},"
-        + " #{groupMeta.deletedAt}"
+        + " #{groupMeta.deletedAt},"
+        + " #{groupMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " group_name = #{groupMeta.groupName},"
@@ -181,7 +183,8 @@ public class GroupMetaBaseSQLProvider {
         + " external_id = #{groupMeta.externalId},"
         + " current_version = #{groupMeta.currentVersion},"
         + " last_version = #{groupMeta.lastVersion},"
-        + " deleted_at = #{groupMeta.deletedAt}";
+        + " deleted_at = #{groupMeta.deletedAt},"
+        + " deletion_id = #{groupMeta.deletionId}";
   }
 
   public String softDeleteGroupMetaByGroupId(@Param("groupId") Long groupId) {
@@ -189,6 +192,7 @@ public class GroupMetaBaseSQLProvider {
         + GROUP_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE group_id = #{groupId} AND deleted_at = 0";
   }
 
@@ -197,6 +201,7 @@ public class GroupMetaBaseSQLProvider {
         + GROUP_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -210,7 +215,8 @@ public class GroupMetaBaseSQLProvider {
         + " external_id = #{newGroupMeta.externalId},"
         + " current_version = #{newGroupMeta.currentVersion},"
         + " last_version = #{newGroupMeta.lastVersion},"
-        + " deleted_at = #{newGroupMeta.deletedAt}"
+        + " deleted_at = #{newGroupMeta.deletedAt},"
+        + " deletion_id = #{newGroupMeta.deletionId}"
         + " WHERE group_id = #{oldGroupMeta.groupId}"
         + " AND group_name = #{oldGroupMeta.groupName}"
         + " AND metalake_id = #{oldGroupMeta.metalakeId}"
@@ -239,7 +245,8 @@ public class GroupMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + GROUP_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String touchGroupUpdatedAt(@Param("groupId") long groupId) {

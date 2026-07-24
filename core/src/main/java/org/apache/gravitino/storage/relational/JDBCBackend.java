@@ -427,7 +427,8 @@ public class JDBCBackend implements RelationalBackend {
       throws IOException {
     switch (entityType) {
       case METALAKE:
-        return MetalakeMetaService.getInstance().deleteMetalake(ident, cascade);
+        return MetalakeMetaService.getInstance()
+            .deleteMetalake(ident, cascade, deletionRetentionMs);
       case CATALOG:
         return CatalogMetaService.getInstance().deleteCatalog(ident, cascade, deletionRetentionMs);
       case SCHEMA:
@@ -471,9 +472,25 @@ public class JDBCBackend implements RelationalBackend {
       throws IOException {
     switch (entityType) {
       case METALAKE:
-        return MetalakeMetaService.getInstance()
-            .deleteMetalakeMetasByLegacyTimeline(
-                legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        int recoverableMetalakeDeletionCount =
+            MetalakeMetaService.getInstance()
+                .purgeExpiredMetalakeDeletions(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (recoverableMetalakeDeletionCount > 0) {
+          return recoverableMetalakeDeletionCount;
+        }
+        int legacyMetalakeCount =
+            MetalakeMetaService.getInstance()
+                .deleteMetalakeMetasByLegacyTimeline(
+                    legacyTimeline, GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
+        if (legacyMetalakeCount > 0) {
+          return legacyMetalakeCount;
+        }
+        return EntityDeletionService.getInstance()
+            .deleteTerminalReceipts(
+                Entity.EntityType.METALAKE,
+                legacyTimeline,
+                GARBAGE_COLLECTOR_SINGLE_DELETION_LIMIT);
       case CATALOG:
         int recoverableCatalogDeletionCount =
             CatalogMetaService.getInstance()

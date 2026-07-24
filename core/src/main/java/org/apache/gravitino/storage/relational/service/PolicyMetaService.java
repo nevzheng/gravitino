@@ -101,6 +101,7 @@ public class PolicyMetaService {
 
       // insert both policy meta table and policy version table
       SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
           () ->
               SessionUtils.doWithoutCommit(
                   PolicyMetaMapper.class,
@@ -145,6 +146,7 @@ public class PolicyMetaService {
 
     Integer updateResult;
     try {
+      long metalakeId = MetalakeMetaService.getInstance().getMetalakeIdByName(metalakeName);
       boolean checkNeedUpdateVersion =
           POConverters.checkPolicyVersionNeedUpdate(
               oldPolicyPO.getPolicyVersionPO(), updatedPolicyEntity);
@@ -153,6 +155,7 @@ public class PolicyMetaService {
               oldPolicyPO, updatedPolicyEntity, checkNeedUpdateVersion);
       if (checkNeedUpdateVersion) {
         SessionUtils.doMultipleWithCommit(
+            () -> MetadataMutationLock.lockMetalakeId(metalakeId),
             () ->
                 SessionUtils.doWithoutCommit(
                     PolicyVersionMapper.class,
@@ -164,10 +167,15 @@ public class PolicyMetaService {
         // we set the updateResult to 1 to indicate that the update is successful
         updateResult = 1;
       } else {
-        updateResult =
-            SessionUtils.doWithCommitAndFetchResult(
-                PolicyMetaMapper.class,
-                mapper -> mapper.updatePolicyMeta(newPolicyPO, oldPolicyPO));
+        int[] result = new int[1];
+        SessionUtils.doMultipleWithCommit(
+            () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+            () ->
+                result[0] =
+                    SessionUtils.getWithoutCommit(
+                        PolicyMetaMapper.class,
+                        mapper -> mapper.updatePolicyMeta(newPolicyPO, oldPolicyPO)));
+        updateResult = result[0];
       }
     } catch (RuntimeException re) {
       ExceptionUtils.checkSQLException(
@@ -187,11 +195,13 @@ public class PolicyMetaService {
       baseMetricName = "deletePolicy")
   public boolean deletePolicy(NameIdentifier ident) {
     String metalakeName = ident.namespace().level(0);
+    long metalakeId = MetalakeMetaService.getInstance().getMetalakeIdByName(metalakeName);
     int[] policyMetaDeletedCount = new int[] {0};
     int[] policyVersionDeletedCount = new int[] {0};
 
     // We should delete meta and version info
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             policyMetaDeletedCount[0] =
                 SessionUtils.getWithoutCommit(
@@ -318,6 +328,7 @@ public class PolicyMetaService {
 
     try {
       Long metadataObjectId = EntityIdService.getEntityId(objectIdent, objectType);
+      Long metalakeId = MetadataMutationLock.metalakeId(objectIdent, objectType);
       Long catalogId = MetadataMutationLock.catalogId(objectIdent, objectType);
       Long schemaId = MetadataMutationLock.schemaId(objectIdent, objectType);
 
@@ -339,8 +350,10 @@ public class PolicyMetaService {
 
       SessionUtils.doMultipleWithCommit(
           () ->
-              MetadataMutationLock.lockCatalogAndSchemaIds(
-                  Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
+              MetadataMutationLock.lockMetadataIds(
+                  Collections.singletonList(metalakeId),
+                  Collections.singletonList(catalogId),
+                  Collections.singletonList(schemaId)),
           () -> {
             // Insert the policy metadata object relations.
             if (policyPOsToAdd.isEmpty()) {

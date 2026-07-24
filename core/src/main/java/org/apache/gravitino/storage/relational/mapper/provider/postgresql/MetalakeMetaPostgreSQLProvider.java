@@ -29,7 +29,8 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
   public String softDeleteMetalakeMetaByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -38,7 +39,7 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
     return "INSERT INTO "
         + TABLE_NAME
         + " (metalake_id, metalake_name, metalake_comment, properties, audit_info,"
-        + " schema_version, current_version, last_version, deleted_at)"
+        + " schema_version, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{metalakeMeta.metalakeId},"
         + " #{metalakeMeta.metalakeName},"
@@ -48,7 +49,8 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
         + " #{metalakeMeta.schemaVersion},"
         + " #{metalakeMeta.currentVersion},"
         + " #{metalakeMeta.lastVersion},"
-        + " #{metalakeMeta.deletedAt}"
+        + " #{metalakeMeta.deletedAt},"
+        + " #{metalakeMeta.deletionId}"
         + " )"
         + " ON CONFLICT(metalake_id) DO UPDATE SET"
         + " metalake_name = #{metalakeMeta.metalakeName},"
@@ -58,7 +60,8 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
         + " schema_version = #{metalakeMeta.schemaVersion},"
         + " current_version = #{metalakeMeta.currentVersion},"
         + " last_version = #{metalakeMeta.lastVersion},"
-        + " deleted_at = #{metalakeMeta.deletedAt}";
+        + " deleted_at = #{metalakeMeta.deletedAt},"
+        + " deletion_id = #{metalakeMeta.deletionId}";
   }
 
   @Override
@@ -73,7 +76,8 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
         + " audit_info = #{newMetalakeMeta.auditInfo},"
         + " schema_version = #{newMetalakeMeta.schemaVersion},"
         + " current_version = #{newMetalakeMeta.currentVersion},"
-        + " last_version = #{newMetalakeMeta.lastVersion}"
+        + " last_version = #{newMetalakeMeta.lastVersion},"
+        + " deletion_id = #{newMetalakeMeta.deletionId}"
         + " WHERE metalake_id = #{oldMetalakeMeta.metalakeId}"
         + " AND metalake_name = #{oldMetalakeMeta.metalakeName}"
         + " AND (metalake_comment = #{oldMetalakeMeta.metalakeComment} "
@@ -94,7 +98,9 @@ public class MetalakeMetaPostgreSQLProvider extends MetalakeMetaBaseSQLProvider 
         + TABLE_NAME
         + " WHERE metalake_id IN (SELECT metalake_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

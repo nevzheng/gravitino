@@ -29,7 +29,8 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
   public String softDeleteRoleMetaByRoleId(@Param("roleId") Long roleId) {
     return "UPDATE "
         + ROLE_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -37,7 +38,8 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
   public String softDeleteRoleMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + ROLE_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -47,7 +49,7 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " (role_id, role_name,"
         + " metalake_id, properties,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{roleMeta.roleId},"
         + " #{roleMeta.roleName},"
@@ -56,7 +58,8 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
         + " #{roleMeta.auditInfo},"
         + " #{roleMeta.currentVersion},"
         + " #{roleMeta.lastVersion},"
-        + " #{roleMeta.deletedAt}"
+        + " #{roleMeta.deletedAt},"
+        + " #{roleMeta.deletionId}"
         + " ) ON CONFLICT (role_id) DO UPDATE SET"
         + " role_name = #{roleMeta.roleName},"
         + " metalake_id = #{roleMeta.metalakeId},"
@@ -64,7 +67,8 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
         + " audit_info = #{roleMeta.auditInfo},"
         + " current_version = #{roleMeta.currentVersion},"
         + " last_version = #{roleMeta.lastVersion},"
-        + " deleted_at = #{roleMeta.deletedAt}";
+        + " deleted_at = #{roleMeta.deletedAt},"
+        + " deletion_id = #{roleMeta.deletionId}";
   }
 
   @Override
@@ -74,7 +78,9 @@ public class RoleMetaPostgreSQLProvider extends RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " WHERE role_id IN (SELECT role_id FROM "
         + ROLE_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 

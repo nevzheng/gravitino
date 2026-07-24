@@ -31,7 +31,8 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
       String metalakeName, String policyName) {
     return "UPDATE "
         + POLICY_VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = (SELECT metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
         + " mm WHERE mm.metalake_name = #{metalakeName} AND mm.deleted_at = 0)"
@@ -47,7 +48,9 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
         + POLICY_VERSION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + POLICY_VERSION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
@@ -56,7 +59,8 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
       Long policyId, long versionRetentionLine, int limit) {
     return "UPDATE "
         + POLICY_VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE id IN (SELECT id FROM "
         + POLICY_VERSION_TABLE_NAME
         + " WHERE policy_id = #{policyId} AND version <= #{versionRetentionLine}"
@@ -67,7 +71,8 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
   public String softDeletePolicyVersionsByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + POLICY_VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -76,7 +81,7 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
     return "INSERT INTO "
         + POLICY_VERSION_TABLE_NAME
         + " (metalake_id, policy_id, version, policy_comment, enabled,"
-        + " content, deleted_at)"
+        + " content, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{policyVersion.metalakeId},"
         + " #{policyVersion.policyId},"
@@ -84,11 +89,13 @@ public class PolicyVersionPostgreSQLProvider extends PolicyVersionBaseSQLProvide
         + " #{policyVersion.policyComment},"
         + " #{policyVersion.enabled},"
         + " #{policyVersion.content},"
-        + " #{policyVersion.deletedAt})"
+        + " #{policyVersion.deletedAt},"
+        + " #{policyVersion.deletionId})"
         + " ON CONFLICT (policy_id, version, deleted_at) DO UPDATE SET"
         + " policy_comment = #{policyVersion.policyComment},"
         + " enabled = #{policyVersion.enabled},"
         + " content = #{policyVersion.content},"
-        + " deleted_at = #{policyVersion.deletedAt}";
+        + " deleted_at = #{policyVersion.deletedAt},"
+        + " deletion_id = #{policyVersion.deletionId}";
   }
 }

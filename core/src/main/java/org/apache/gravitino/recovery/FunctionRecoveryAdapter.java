@@ -78,7 +78,8 @@ final class FunctionRecoveryAdapter implements RecoverableEntityAdapter<Function
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return FunctionMetaService.getInstance().listLiveFunctionPOsByNamespace(namespace).stream()
         .map(FunctionRecoveryAdapter::liveIdentity)
         .collect(Collectors.toList());

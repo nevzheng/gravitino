@@ -29,7 +29,8 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
   public String softDeletePolicyByMetalakeAndPolicyName(String metalakeName, String policyName) {
     return "UPDATE "
         + POLICY_META_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = (SELECT metalake_id FROM "
         + " metalake_meta mm WHERE mm.metalake_name = #{metalakeName} AND mm.deleted_at = 0)"
         + " AND policy_name = #{policyName} AND deleted_at = 0";
@@ -39,7 +40,8 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
   public String softDeletePolicyMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + POLICY_META_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -49,7 +51,9 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
         + POLICY_META_TABLE_NAME
         + " WHERE policy_id IN (SELECT policy_id FROM "
         + POLICY_META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 
@@ -58,7 +62,7 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
     return "INSERT INTO "
         + POLICY_META_TABLE_NAME
         + " (policy_id, policy_name, policy_type, metalake_id,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{policyMeta.policyId},"
         + " #{policyMeta.policyName},"
@@ -67,7 +71,8 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
         + " #{policyMeta.auditInfo},"
         + " #{policyMeta.currentVersion},"
         + " #{policyMeta.lastVersion},"
-        + " #{policyMeta.deletedAt})"
+        + " #{policyMeta.deletedAt},"
+        + " #{policyMeta.deletionId})"
         + " ON CONFLICT (policy_id) DO UPDATE SET"
         + " policy_name = #{policyMeta.policyName},"
         + " policy_type = #{policyMeta.policyType},"
@@ -75,6 +80,7 @@ public class PolicyMetaPostgreSQLProvider extends PolicyMetaBaseSQLProvider {
         + " audit_info = #{policyMeta.auditInfo},"
         + " current_version = #{policyMeta.currentVersion},"
         + " last_version = #{policyMeta.lastVersion},"
-        + " deleted_at = #{policyMeta.deletedAt}";
+        + " deleted_at = #{policyMeta.deletedAt},"
+        + " deletion_id = #{policyMeta.deletionId}";
   }
 }

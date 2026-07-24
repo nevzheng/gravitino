@@ -32,7 +32,8 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
   public String softDeleteGroupMetaByGroupId(Long groupId) {
     return "UPDATE "
         + GROUP_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE group_id = #{groupId} AND deleted_at = 0";
   }
 
@@ -40,7 +41,8 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
   public String softDeleteGroupMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + GROUP_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -50,7 +52,7 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
         + GROUP_TABLE_NAME
         + " (group_id, group_name, metalake_id, external_id,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{groupMeta.groupId},"
         + " #{groupMeta.groupName},"
@@ -59,7 +61,8 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
         + " #{groupMeta.auditInfo},"
         + " #{groupMeta.currentVersion},"
         + " #{groupMeta.lastVersion},"
-        + " #{groupMeta.deletedAt}"
+        + " #{groupMeta.deletedAt},"
+        + " #{groupMeta.deletionId}"
         + " )"
         + " ON CONFLICT(group_id) DO UPDATE SET"
         + " group_name = #{groupMeta.groupName},"
@@ -68,7 +71,8 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
         + " audit_info = #{groupMeta.auditInfo},"
         + " current_version = #{groupMeta.currentVersion},"
         + " last_version = #{groupMeta.lastVersion},"
-        + " deleted_at = #{groupMeta.deletedAt}";
+        + " deleted_at = #{groupMeta.deletedAt},"
+        + " deletion_id = #{groupMeta.deletionId}";
   }
 
   @Override
@@ -142,7 +146,9 @@ public class GroupMetaPostgreSQLProvider extends GroupMetaBaseSQLProvider {
         + GROUP_TABLE_NAME
         + " WHERE group_id IN (SELECT group_id FROM "
         + GROUP_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 

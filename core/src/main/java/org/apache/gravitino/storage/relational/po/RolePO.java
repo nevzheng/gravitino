@@ -30,6 +30,7 @@ public class RolePO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getRoleId() {
     return roleId;
@@ -63,6 +64,11 @@ public class RolePO {
     return deletedAt;
   }
 
+  /** Returns the recoverable-deletion generation identifier. */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -79,7 +85,8 @@ public class RolePO {
         && Objects.equal(getAuditInfo(), tablePO.getAuditInfo())
         && Objects.equal(getCurrentVersion(), tablePO.getCurrentVersion())
         && Objects.equal(getLastVersion(), tablePO.getLastVersion())
-        && Objects.equal(getDeletedAt(), tablePO.getDeletedAt());
+        && Objects.equal(getDeletedAt(), tablePO.getDeletedAt())
+        && Objects.equal(getDeletionId(), tablePO.getDeletionId());
   }
 
   @Override
@@ -92,7 +99,8 @@ public class RolePO {
         getAuditInfo(),
         getCurrentVersion(),
         getLastVersion(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -139,6 +147,12 @@ public class RolePO {
 
     public Builder withDeletedAt(Long deletedAt) {
       rolePO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      rolePO.deletionId = deletionId;
       return this;
     }
 

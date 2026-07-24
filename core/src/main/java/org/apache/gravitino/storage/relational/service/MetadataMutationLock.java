@@ -19,6 +19,7 @@
 package org.apache.gravitino.storage.relational.service;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -27,13 +28,40 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.storage.relational.mapper.CatalogRecoveryMapper;
+import org.apache.gravitino.storage.relational.mapper.MetalakeRecoveryMapper;
 import org.apache.gravitino.storage.relational.mapper.SchemaRecoveryMapper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 
-/** Transactional catalog-then-schema fences shared by mutable metadata aggregates. */
+/** Transactional metalake-then-catalog-then-schema fences for mutable metadata aggregates. */
 final class MetadataMutationLock {
 
   private MetadataMutationLock() {}
+
+  /** Returns the live owning metalake ID for a metadata object, when one exists. */
+  @Nullable
+  static Long metalakeId(NameIdentifier identifier, Entity.EntityType entityType) {
+    switch (entityType) {
+      case METALAKE:
+        return EntityIdService.getEntityId(identifier, Entity.EntityType.METALAKE);
+      case CATALOG:
+      case SCHEMA:
+      case TABLE:
+      case FILESET:
+      case TOPIC:
+      case FUNCTION:
+      case MODEL:
+      case VIEW:
+      case COLUMN:
+        if (identifier.namespace().isEmpty()) {
+          throw new IllegalArgumentException(
+              "Metadata object does not contain a metalake path: " + identifier);
+        }
+        return EntityIdService.getEntityId(
+            NameIdentifier.of(identifier.namespace().level(0)), Entity.EntityType.METALAKE);
+      default:
+        return null;
+    }
+  }
 
   /** Returns the live owning catalog ID for an aggregate metadata object, when one exists. */
   @Nullable
@@ -92,11 +120,27 @@ final class MetadataMutationLock {
     return EntityIdService.getEntityId(schemaIdentifier, Entity.EntityType.SCHEMA);
   }
 
-  /** Locks live owning catalogs first, then live owning schemas, in deterministic ID order. */
-  static void lockCatalogAndSchemaIds(
-      Collection<Long> candidateCatalogIds, Collection<Long> candidateSchemaIds) {
+  /** Locks live metalakes, then catalogs, then schemas, in deterministic ID order. */
+  static void lockMetadataIds(
+      Collection<Long> candidateMetalakeIds,
+      Collection<Long> candidateCatalogIds,
+      Collection<Long> candidateSchemaIds) {
+    List<Long> metalakeIds = normalizedIds(candidateMetalakeIds);
     List<Long> catalogIds = normalizedIds(candidateCatalogIds);
     List<Long> schemaIds = normalizedIds(candidateSchemaIds);
+    if (!metalakeIds.isEmpty()) {
+      SessionUtils.doWithoutCommit(
+          MetalakeRecoveryMapper.class,
+          mapper -> {
+            for (Long metalakeId : metalakeIds) {
+              Long locked = mapper.lockLiveMetalake(metalakeId);
+              if (!Objects.equals(locked, metalakeId)) {
+                throw new TombstoneChangedException(
+                    "An owning metalake changed while metadata relations were being updated");
+              }
+            }
+          });
+    }
     if (!catalogIds.isEmpty()) {
       SessionUtils.doWithoutCommit(
           CatalogRecoveryMapper.class,
@@ -121,6 +165,12 @@ final class MetadataMutationLock {
             }
           });
     }
+  }
+
+  /** Locks one live metalake as the root fence for a metalake-scoped metadata mutation. */
+  static void lockMetalakeId(long metalakeId) {
+    lockMetadataIds(
+        Collections.singletonList(metalakeId), Collections.emptyList(), Collections.emptyList());
   }
 
   private static List<Long> normalizedIds(Collection<Long> candidateIds) {

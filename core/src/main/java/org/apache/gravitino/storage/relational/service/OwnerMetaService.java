@@ -165,8 +165,10 @@ public class OwnerMetaService {
             metalakeId, ownerType.name(), ownerId, entityType.name(), entityId);
     SessionUtils.doMultipleWithCommit(
         () ->
-            MetadataMutationLock.lockCatalogAndSchemaIds(
-                Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
+            MetadataMutationLock.lockMetadataIds(
+                Collections.singletonList(metalakeId),
+                Collections.singletonList(catalogId),
+                Collections.singletonList(schemaId)),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,
@@ -203,10 +205,12 @@ public class OwnerMetaService {
 
     List<OwnerRelForDeletion> deletions = new ArrayList<>(ownedObjects.size());
     List<OwnerRelPO> ownerRelPOs = new ArrayList<>(ownedObjects.size());
+    List<Long> metalakeIds = new ArrayList<>(ownedObjects.size());
     List<Long> catalogIds = new ArrayList<>(ownedObjects.size());
     List<Long> schemaIds = new ArrayList<>(ownedObjects.size());
     for (NameIdentifier entity : ownedObjects) {
       Long entityId = EntityIdService.getEntityId(entity, ownedObjectType);
+      metalakeIds.add(MetadataMutationLock.metalakeId(entity, ownedObjectType));
       catalogIds.add(MetadataMutationLock.catalogId(entity, ownedObjectType));
       schemaIds.add(MetadataMutationLock.schemaId(entity, ownedObjectType));
       deletions.add(
@@ -219,7 +223,7 @@ public class OwnerMetaService {
     }
 
     SessionUtils.doMultipleWithCommit(
-        () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
+        () -> MetadataMutationLock.lockMetadataIds(metalakeIds, catalogIds, schemaIds),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,

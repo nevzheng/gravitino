@@ -19,12 +19,18 @@
 package org.apache.gravitino;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.MetalakeInUseException;
 import org.apache.gravitino.exceptions.MetalakeNotInUseException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * Client interface for supporting metalakes. It includes methods for listing, loading, creating,
@@ -41,6 +47,22 @@ public interface SupportsMetalakes {
   Metalake[] listMetalakes();
 
   /**
+   * Lists retained deletion generations for metalakes.
+   *
+   * <p>The optional filters select an exact metalake name, immutable metalake ID, or both. Returned
+   * generations describe Gravitino metadata only.
+   *
+   * @param name An exact metalake-name filter, or {@code null} for every name.
+   * @param id An exact immutable metalake-ID filter, or {@code null} for every ID.
+   * @return The retained metalake deletion generations matching the filters.
+   * @throws IllegalArgumentException If a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable metalake deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedMetalakes(@Nullable String name, @Nullable String id) {
+    throw new UnsupportedOperationException("listDeletedMetalakes not supported.");
+  }
+
+  /**
    * Load a metalake by its name.
    *
    * @param name the name of the metalake.
@@ -48,6 +70,47 @@ public interface SupportsMetalakes {
    * @throws NoSuchMetalakeException If the metalake does not exist.
    */
   Metalake loadMetalake(String name) throws NoSuchMetalakeException;
+
+  /**
+   * Loads one exact retained deletion generation for a metalake.
+   *
+   * @param name The metalake name.
+   * @param id The immutable metalake ID.
+   * @return The exact retained metalake deletion generation.
+   * @throws IllegalArgumentException If the name or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws UnsupportedOperationException If recoverable metalake deletion is not supported.
+   */
+  default DeletedEntity loadDeletedMetalake(String name, String id)
+      throws TombstoneNotFoundException {
+    throw new UnsupportedOperationException("loadDeletedMetalake not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino metalake metadata.
+   *
+   * <p>The operation restores the exact metadata tree captured by a cascaded metalake deletion. It
+   * does not validate or recreate downstream resources. A changed generation must be reread using
+   * the same name and immutable ID before retry; clients must never silently substitute another
+   * generation. An unknown transport outcome may replay the same generation, while a conflict or
+   * expiry is not retryable as-is.
+   *
+   * @param name The metalake name.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored metalake metadata.
+   * @throws IllegalArgumentException If the name or generation binding is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If a recovery precondition is missing.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable metalake deletion is not supported.
+   */
+  default Metalake restoreMetalake(String name, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException {
+    throw new UnsupportedOperationException("restoreMetalake not supported.");
+  }
 
   /**
    * Check if a metalake exists.

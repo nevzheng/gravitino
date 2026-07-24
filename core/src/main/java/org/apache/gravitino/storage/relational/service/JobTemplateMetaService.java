@@ -91,15 +91,18 @@ public class JobTemplateMetaService {
       JobTemplatePO jobTemplatePO =
           JobTemplatePO.initializeJobTemplatePO(jobTemplateEntity, builder);
 
-      SessionUtils.doWithCommit(
-          JobTemplateMetaMapper.class,
-          mapper -> {
-            if (overwrite) {
-              mapper.insertJobTemplateMetaOnDuplicateKeyUpdate(jobTemplatePO);
-            } else {
-              mapper.insertJobTemplateMeta(jobTemplatePO);
-            }
-          });
+      SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  JobTemplateMetaMapper.class,
+                  mapper -> {
+                    if (overwrite) {
+                      mapper.insertJobTemplateMetaOnDuplicateKeyUpdate(jobTemplatePO);
+                    } else {
+                      mapper.insertJobTemplateMeta(jobTemplatePO);
+                    }
+                  }));
     } catch (RuntimeException e) {
       ExceptionUtils.checkSQLException(e, Entity.EntityType.JOB_TEMPLATE, jobTemplateEntity.name());
       throw e;
@@ -112,9 +115,12 @@ public class JobTemplateMetaService {
   public boolean deleteJobTemplate(NameIdentifier jobTemplateIdent) {
     String metalakeName = jobTemplateIdent.namespace().level(0);
     String jobTemplateName = jobTemplateIdent.name();
+    long metalakeId =
+        EntityIdService.getEntityId(NameIdentifier.of(metalakeName), Entity.EntityType.METALAKE);
 
     AtomicInteger result = new AtomicInteger(0);
     SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
         () ->
             SessionUtils.doWithoutCommit(
                 JobMetaMapper.class,
@@ -160,28 +166,31 @@ public class JobTemplateMetaService {
     JobTemplatePO newJobTemplatePO =
         JobTemplatePO.updateJobTemplatePO(oldJobTemplatePO, newJobTemplateEntity, newBuilder);
 
-    Integer result;
+    int[] result = new int[1];
     try {
-      result =
-          SessionUtils.doWithCommitAndFetchResult(
-              JobTemplateMetaMapper.class,
-              mapper -> mapper.updateJobTemplateMeta(newJobTemplatePO, oldJobTemplatePO));
+      SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(oldJobTemplatePO.metalakeId()),
+          () ->
+              result[0] =
+                  SessionUtils.getWithoutCommit(
+                      JobTemplateMetaMapper.class,
+                      mapper -> mapper.updateJobTemplateMeta(newJobTemplatePO, oldJobTemplatePO)));
     } catch (RuntimeException e) {
       ExceptionUtils.checkSQLException(
           e, Entity.EntityType.JOB_TEMPLATE, oldJobTemplateEntity.name());
       throw e;
     }
 
-    if (result == null || result == 0) {
+    if (result[0] == 0) {
       throw new NoSuchEntityException(
           NoSuchEntityException.NO_SUCH_ENTITY_MESSAGE,
           Entity.EntityType.JOB_TEMPLATE.name().toLowerCase(Locale.ROOT),
           oldJobTemplateEntity.name());
-    } else if (result > 1) {
+    } else if (result[0] > 1) {
       throw new IOException(
           String.format(
               "Failed to update job template: %s, because more than one rows are updated: %d",
-              oldJobTemplateEntity.name(), result));
+              oldJobTemplateEntity.name(), result[0]));
     } else {
       return newJobTemplateEntity;
     }

@@ -28,19 +28,30 @@ import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetMetaB
 import org.apache.gravitino.storage.relational.mapper.provider.base.FilesetVersionBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.FunctionMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.FunctionVersionMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.GroupMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.GroupRoleRelBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.JobMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.JobTemplateMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.MetalakeMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ModelMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ModelVersionAliasRelBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ModelVersionMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.OwnerMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.PolicyMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.PolicyMetadataObjectRelBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.PolicyVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.RoleMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.SchemaMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.SecurableObjectBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.StatisticBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableColumnBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TableVersionBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.TagMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TagMetadataObjectRelBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.TopicMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.UserMetaBaseSQLProvider;
+import org.apache.gravitino.storage.relational.mapper.provider.base.UserRoleRelBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewMetaBaseSQLProvider;
 import org.apache.gravitino.storage.relational.mapper.provider.base.ViewVersionInfoBaseSQLProvider;
 import org.junit.jupiter.api.Test;
@@ -50,6 +61,17 @@ class TestPostgreSQLLegacyDeleteProviders {
   private static final List<Class<?>> RECOVERABLE_AGGREGATE_BASE_PROVIDER_CLASSES =
       List.of(
           CatalogMetaBaseSQLProvider.class,
+          MetalakeMetaBaseSQLProvider.class,
+          UserMetaBaseSQLProvider.class,
+          UserRoleRelBaseSQLProvider.class,
+          GroupMetaBaseSQLProvider.class,
+          GroupRoleRelBaseSQLProvider.class,
+          RoleMetaBaseSQLProvider.class,
+          TagMetaBaseSQLProvider.class,
+          PolicyMetaBaseSQLProvider.class,
+          PolicyVersionBaseSQLProvider.class,
+          JobTemplateMetaBaseSQLProvider.class,
+          JobMetaBaseSQLProvider.class,
           OwnerMetaBaseSQLProvider.class,
           PolicyMetadataObjectRelBaseSQLProvider.class,
           SchemaMetaBaseSQLProvider.class,
@@ -73,6 +95,17 @@ class TestPostgreSQLLegacyDeleteProviders {
   private static final List<Class<?>> RECOVERABLE_AGGREGATE_POSTGRESQL_PROVIDER_CLASSES =
       List.of(
           CatalogMetaPostgreSQLProvider.class,
+          MetalakeMetaPostgreSQLProvider.class,
+          UserMetaPostgreSQLProvider.class,
+          UserRoleRelPostgreSQLProvider.class,
+          GroupMetaPostgreSQLProvider.class,
+          GroupRoleRelPostgreSQLProvider.class,
+          RoleMetaPostgreSQLProvider.class,
+          TagMetaPostgreSQLProvider.class,
+          PolicyMetaPostgreSQLProvider.class,
+          PolicyVersionPostgreSQLProvider.class,
+          JobTemplateMetaPostgreSQLProvider.class,
+          JobMetaPostgreSQLProvider.class,
           OwnerMetaPostgreSQLProvider.class,
           PolicyMetadataObjectRelPostgreSQLProvider.class,
           SchemaMetaPostgreSQLProvider.class,

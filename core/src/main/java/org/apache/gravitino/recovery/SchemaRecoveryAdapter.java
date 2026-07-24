@@ -95,13 +95,14 @@ final class SchemaRecoveryAdapter implements RecoverableEntityAdapter<SchemaEnti
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return listLiveInParent(namespace, parentId, null);
   }
 
   @Override
   public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
-      Namespace namespace, long parentId, @Nullable String parentScope) {
+      Namespace namespace, @Nullable Long parentId, @Nullable String parentScope) {
     return SchemaMetaService.getInstance().listLiveSchemasByParent(namespace, parentScope).stream()
         .map(
             schema ->
@@ -173,7 +174,8 @@ final class SchemaRecoveryAdapter implements RecoverableEntityAdapter<SchemaEnti
     }
   }
 
-  private static RecoveryMetadata.DeletedSnapshot deletedSnapshot(SchemaPO schema, long parentId) {
+  private static RecoveryMetadata.DeletedSnapshot deletedSnapshot(
+      SchemaPO schema, @Nullable Long parentId) {
     return new RecoveryMetadata.DeletedSnapshot(
         schema.getSchemaId(),
         schema.getSchemaName(),

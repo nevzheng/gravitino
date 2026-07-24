@@ -30,7 +30,8 @@ public class GroupRoleRelPostgreSQLProvider extends GroupRoleRelBaseSQLProvider 
   public String softDeleteGroupRoleRelByGroupId(Long groupId) {
     return "UPDATE "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE group_id = #{groupId} AND deleted_at = 0";
   }
 
@@ -39,7 +40,8 @@ public class GroupRoleRelPostgreSQLProvider extends GroupRoleRelBaseSQLProvider 
     return "<script>"
         + "UPDATE "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE group_id = #{groupId} "
         + "<choose>"
         + "<when test='roleIds != null and roleIds.size() > 0'>"
@@ -61,7 +63,8 @@ public class GroupRoleRelPostgreSQLProvider extends GroupRoleRelBaseSQLProvider 
   public String softDeleteGroupRoleRelByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE group_id IN (SELECT group_id FROM "
         + GROUP_TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0)"
@@ -72,7 +75,8 @@ public class GroupRoleRelPostgreSQLProvider extends GroupRoleRelBaseSQLProvider 
   public String softDeleteGroupRoleRelByRoleId(@Param("roleId") Long roleId) {
     return "UPDATE "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -83,7 +87,9 @@ public class GroupRoleRelPostgreSQLProvider extends GroupRoleRelBaseSQLProvider 
         + GROUP_ROLE_RELATION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + GROUP_ROLE_RELATION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

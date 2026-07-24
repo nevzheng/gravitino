@@ -27,6 +27,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.core.JsonParseException;
@@ -42,6 +45,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -49,27 +53,41 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.MetalakeDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.MetalakeCreateRequest;
+import org.apache.gravitino.dto.requests.MetalakeSetRequest;
 import org.apache.gravitino.dto.requests.MetalakeUpdateRequest;
 import org.apache.gravitino.dto.requests.MetalakeUpdatesRequest;
+import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.MetalakeListResponse;
 import org.apache.gravitino.dto.responses.MetalakeResponse;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metalake.MetalakeManager;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.web.mapper.JsonMappingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonParseExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonProcessingExceptionMapper;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
@@ -89,6 +107,8 @@ public class TestMetalakeOperations extends BaseOperationsTest {
   }
 
   private MetalakeManager metalakeManager = mock(MetalakeManager.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   @BeforeAll
   public static void setup() throws IllegalAccessException {
@@ -118,6 +138,7 @@ public class TestMetalakeOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(metalakeManager).to(MetalakeDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -328,6 +349,185 @@ public class TestMetalakeOperations extends BaseOperationsTest {
   }
 
   @Test
+  public void testDeletedMetalakeDiscoveryAndExactRead() {
+    String etag = deletionEtag("metalake-deletion", 'a');
+    DeletedEntityDTO deletedMetalake = deletedMetalake("metalake1", "101", etag);
+    when(recoverableDeletionManager.listDeletedMetalakes("metalake1", 101L))
+        .thenReturn(List.of(deletedMetalake));
+    when(recoverableDeletionManager.getDeletedMetalake("metalake1", 101L))
+        .thenReturn(deletedMetalake);
+
+    Response listResponse =
+        target("/metalakes")
+            .queryParam("include", "deleted")
+            .queryParam("name", "metalake1")
+            .queryParam("id", "101")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedMetalake},
+        listResponse.readEntity(DeletedEntityListResponse.class).getDeletedEntities());
+
+    Response itemResponse =
+        target("/metalakes/metalake1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "101")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    Assertions.assertEquals(
+        deletedMetalake, itemResponse.readEntity(DeletedEntityResponse.class).getDeletedEntity());
+    verify(recoverableDeletionManager).listDeletedMetalakes("metalake1", 101L);
+    verify(recoverableDeletionManager).getDeletedMetalake("metalake1", 101L);
+    verifyNoInteractions(metalakeManager);
+  }
+
+  @Test
+  public void testRestoreDeletedMetalakeAndReplayUsesNormalSafeView() {
+    String etag = deletionEtag("metalake-deletion", 'b');
+    BaseMetalake rawRestored =
+        metalake("metalake1", ImmutableMap.of("raw-only-secret", "must-not-be-returned"));
+    BaseMetalake safeLoaded =
+        metalake("metalake1", ImmutableMap.of("safe-visible-property", "visible"));
+    when(recoverableDeletionManager.restoreDeletedMetalake("metalake1", 101L, etag))
+        .thenReturn(rawRestored);
+    when(metalakeManager.loadMetalake(any())).thenReturn(safeLoaded);
+
+    Response response = patchRestoreMetalake("101", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    MetalakeDTO metalake = response.readEntity(MetalakeResponse.class).getMetalake();
+    Assertions.assertEquals("metalake1", metalake.name());
+    Assertions.assertEquals(
+        ImmutableMap.of("safe-visible-property", "visible"), metalake.properties());
+    Assertions.assertFalse(metalake.properties().containsKey("raw-only-secret"));
+
+    Response replay = patchRestoreMetalake("101", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replay.getStatus());
+    Assertions.assertEquals(
+        "metalake1", replay.readEntity(MetalakeResponse.class).getMetalake().name());
+    verify(recoverableDeletionManager, times(2)).restoreDeletedMetalake("metalake1", 101L, etag);
+    verify(metalakeManager, times(2)).loadMetalake(any());
+  }
+
+  @Test
+  public void testDeletedMetalakeQueryAndRestoreValidation() {
+    Response invalidInclude =
+        target("/metalakes")
+            .queryParam("include", "all")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidInclude.getStatus());
+
+    Response liveId =
+        target("/metalakes")
+            .queryParam("id", "101")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveId.getStatus());
+
+    Response liveItemId =
+        target("/metalakes/metalake1")
+            .queryParam("id", "101")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveItemId.getStatus());
+
+    Response missingItemId =
+        target("/metalakes/metalake1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response missingIfMatch = patchRestoreMetalake("101", null);
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch = patchRestoreMetalake("101", "W/\"metalake-etag\"");
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response unsupportedMediaType =
+        patchRestoreMetalake("101", "\"metalake-etag\"", MediaType.TEXT_PLAIN_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), unsupportedMediaType.getStatus());
+
+    Response invalidBody =
+        target("/metalakes/metalake1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "101")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"metalake-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, metalakeManager);
+  }
+
+  @Test
+  public void testRestoreDeletedMetalakeMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedMetalake("metalake1", 101L, "stale");
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedMetalake("metalake1", 101L, "expired");
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedMetalake("metalake1", 101L, "name-occupied");
+
+    Response stale = patchRestoreMetalake("101", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestoreMetalake("101", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    Response conflict = patchRestoreMetalake("101", "\"name-occupied\"");
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+    ErrorResponse conflictBody = conflict.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictBody.getCode());
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictBody.getReason());
+    verifyNoInteractions(metalakeManager);
+  }
+
+  @Test
+  public void testExactDeletedMetalakeReadRequiresMatchingPathAndId() {
+    doThrow(new TombstoneNotFoundException("metalake tombstone not found"))
+        .when(recoverableDeletionManager)
+        .getDeletedMetalake("metalake1", 101L);
+
+    Response response =
+        target("/metalakes/metalake1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "101")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+
+    Assertions.assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.NOT_FOUND_CODE, response.readEntity(ErrorResponse.class).getCode());
+    verifyNoInteractions(metalakeManager);
+  }
+
+  @Test
   public void testAlterMetalake() {
     String metalakeName = "test";
     Long id = 1L;
@@ -404,6 +604,23 @@ public class TestMetalakeOperations extends BaseOperationsTest {
   }
 
   @Test
+  public void testSetMetalakeKeepsApplicationJsonPatch() {
+    Response response =
+        target("/metalakes/metalake1")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .method(
+                "PATCH",
+                Entity.entity(new MetalakeSetRequest(true), MediaType.APPLICATION_JSON_TYPE));
+
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    Assertions.assertEquals(0, response.readEntity(BaseResponse.class).getCode());
+    verify(metalakeManager).enableMetalake(any());
+    verifyNoInteractions(recoverableDeletionManager);
+  }
+
+  @Test
   public void testDropMetalake() {
     when(metalakeManager.dropMetalake(any(), anyBoolean())).thenReturn(true);
     Response resp =
@@ -476,5 +693,64 @@ public class TestMetalakeOperations extends BaseOperationsTest {
     Assertions.assertEquals(ErrorConstants.ILLEGAL_ARGUMENTS_CODE, errorResp2.getCode());
     Assertions.assertEquals(IllegalArgumentException.class.getSimpleName(), errorResp2.getType());
     Assertions.assertTrue(errorResp2.getMessage().contains("Malformed json request"));
+  }
+
+  private Response patchRestoreMetalake(String id, String ifMatch) {
+    return patchRestoreMetalake(id, ifMatch, MediaType.valueOf("application/merge-patch+json"));
+  }
+
+  private Response patchRestoreMetalake(String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target("/metalakes/metalake1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    Entity<?> requestEntity =
+        MediaType.TEXT_PLAIN_TYPE.equals(requestMediaType)
+            ? Entity.entity("{\"deleted\":false}", requestMediaType)
+            : Entity.entity(new EntityRestoreRequest(false), requestMediaType);
+    return request.method("PATCH", requestEntity);
+  }
+
+  private static DeletedEntityDTO deletedMetalake(String name, String id, String etag) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("metalake-deletion")
+        .withName(name)
+        .withType(RecoveryEntityType.METALAKE)
+        .withDeletedAt(1_784_800_000_000L)
+        .withExpiresAt(1_785_404_800_000L)
+        .withDeletedBy("alice")
+        .withEtag(etag)
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
+  }
+
+  private static String deletionEtag(String deletionId, char digestCharacter) {
+    return "deletion-"
+        + deletionId
+        + "-representation-"
+        + String.valueOf(digestCharacter).repeat(64);
+  }
+
+  private static BaseMetalake metalake(String name, ImmutableMap<String, String> properties) {
+    return BaseMetalake.builder()
+        .withId(101L)
+        .withName(name)
+        .withComment("restored metadata tree")
+        .withProperties(properties)
+        .withAuditInfo(
+            AuditInfo.builder()
+                .withCreator("alice")
+                .withCreateTime(Instant.ofEpochMilli(1_784_000_000_000L))
+                .build())
+        .withVersion(SchemaVersion.V_0_1)
+        .build();
   }
 }

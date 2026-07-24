@@ -121,6 +121,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -151,6 +152,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -817,6 +819,7 @@ public class POConverters {
                 .withEnabled(newPolicy.enabled())
                 .withContent(JsonUtils.anyFieldMapper().writeValueAsString(newPolicy.content()))
                 .withDeletedAt(DEFAULT_DELETED_AT)
+                .withDeletionId(null)
                 .build();
       } else {
         currentVersion = oldPolicyPO.getCurrentVersion();
@@ -831,6 +834,7 @@ public class POConverters {
           .withCurrentVersion(currentVersion)
           .withLastVersion(lastVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .withPolicyVersionPO(newPolicyVersionPO)
           .build();
     } catch (JsonProcessingException e) {
@@ -965,6 +969,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -994,6 +999,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1195,6 +1201,7 @@ public class POConverters {
                 .withCurrentVersion(INIT_VERSION)
                 .withLastVersion(INIT_VERSION)
                 .withDeletedAt(DEFAULT_DELETED_AT)
+                .withDeletionId(null)
                 .build();
         userRoleRelPOs.add(roleRelPO);
       }
@@ -1222,6 +1229,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1247,6 +1255,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1275,6 +1284,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1302,6 +1312,7 @@ public class POConverters {
                 .withCurrentVersion(INIT_VERSION)
                 .withLastVersion(INIT_VERSION)
                 .withDeletedAt(DEFAULT_DELETED_AT)
+                .withDeletionId(null)
                 .build();
         groupRoleRelPOS.add(roleRelPO);
       }
@@ -1403,6 +1414,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1440,6 +1452,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1462,6 +1475,7 @@ public class POConverters {
           .withCurrentVersion(nextVersion)
           .withLastVersion(nextVersion)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .build();
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize json object:", e);
@@ -1529,6 +1543,7 @@ public class POConverters {
               .withEnabled(policyEntity.enabled())
               .withContent(content)
               .withDeletedAt(DEFAULT_DELETED_AT)
+              .withDeletionId(null)
               .build();
       return builder
           .withPolicyId(policyEntity.id())
@@ -1538,6 +1553,7 @@ public class POConverters {
           .withCurrentVersion(INIT_VERSION)
           .withLastVersion(INIT_VERSION)
           .withDeletedAt(DEFAULT_DELETED_AT)
+          .withDeletionId(null)
           .withPolicyVersionPO(policyVersionPO)
           .build();
     } catch (JsonProcessingException e) {

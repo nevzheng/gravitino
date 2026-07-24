@@ -78,7 +78,8 @@ final class FilesetRecoveryAdapter implements RecoverableEntityAdapter<FilesetEn
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return FilesetMetaService.getInstance().listLiveFilesetPOsByNamespace(namespace).stream()
         .map(FilesetRecoveryAdapter::liveIdentity)
         .collect(Collectors.toList());

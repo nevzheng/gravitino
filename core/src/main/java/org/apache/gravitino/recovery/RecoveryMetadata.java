@@ -28,9 +28,9 @@ final class RecoveryMetadata {
   static final class ParentIdentity {
     private final long metalakeId;
     @Nullable private final Long catalogId;
-    private final long parentId;
+    @Nullable private final Long parentId;
 
-    ParentIdentity(long metalakeId, @Nullable Long catalogId, long parentId) {
+    ParentIdentity(long metalakeId, @Nullable Long catalogId, @Nullable Long parentId) {
       this.metalakeId = metalakeId;
       this.catalogId = catalogId;
       this.parentId = parentId;
@@ -45,7 +45,8 @@ final class RecoveryMetadata {
       return catalogId;
     }
 
-    long parentId() {
+    @Nullable
+    Long parentId() {
       return parentId;
     }
   }
@@ -90,10 +91,10 @@ final class RecoveryMetadata {
 
   static final class LiveIdentity {
     private final long id;
-    private final long parentId;
+    @Nullable private final Long parentId;
     private final String name;
 
-    LiveIdentity(long id, long parentId, String name) {
+    LiveIdentity(long id, @Nullable Long parentId, String name) {
       this.id = id;
       this.parentId = parentId;
       this.name = name;
@@ -103,7 +104,8 @@ final class RecoveryMetadata {
       return id;
     }
 
-    long parentId() {
+    @Nullable
+    Long parentId() {
       return parentId;
     }
 

@@ -31,12 +31,12 @@ public class JobTemplateMetaBaseSQLProvider {
         + JobTemplateMetaMapper.TABLE_NAME
         + " (job_template_id, job_template_name, metalake_id,"
         + " job_template_comment, job_template_content, audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobTemplateMeta.jobTemplateId}, #{jobTemplateMeta.jobTemplateName},"
         + " #{jobTemplateMeta.metalakeId}, #{jobTemplateMeta.jobTemplateComment},"
         + " #{jobTemplateMeta.jobTemplateContent}, #{jobTemplateMeta.auditInfo},"
         + " #{jobTemplateMeta.currentVersion}, #{jobTemplateMeta.lastVersion},"
-        + " #{jobTemplateMeta.deletedAt})";
+        + " #{jobTemplateMeta.deletedAt}, #{jobTemplateMeta.deletionId})";
   }
 
   public String insertJobTemplateMetaOnDuplicateKeyUpdate(
@@ -45,12 +45,12 @@ public class JobTemplateMetaBaseSQLProvider {
         + JobTemplateMetaMapper.TABLE_NAME
         + " (job_template_id, job_template_name, metalake_id,"
         + " job_template_comment, job_template_content, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobTemplateMeta.jobTemplateId}, #{jobTemplateMeta.jobTemplateName},"
         + " #{jobTemplateMeta.metalakeId}, #{jobTemplateMeta.jobTemplateComment},"
         + " #{jobTemplateMeta.jobTemplateContent}, #{jobTemplateMeta.auditInfo},"
         + " #{jobTemplateMeta.currentVersion}, #{jobTemplateMeta.lastVersion},"
-        + " #{jobTemplateMeta.deletedAt})"
+        + " #{jobTemplateMeta.deletedAt}, #{jobTemplateMeta.deletionId})"
         + " ON DUPLICATE KEY UPDATE"
         + " job_template_name = #{jobTemplateMeta.jobTemplateName},"
         + " metalake_id = #{jobTemplateMeta.metalakeId},"
@@ -59,7 +59,8 @@ public class JobTemplateMetaBaseSQLProvider {
         + " audit_info = #{jobTemplateMeta.auditInfo},"
         + " current_version = #{jobTemplateMeta.currentVersion},"
         + " last_version = #{jobTemplateMeta.lastVersion},"
-        + " deleted_at = #{jobTemplateMeta.deletedAt}";
+        + " deleted_at = #{jobTemplateMeta.deletedAt},"
+        + " deletion_id = #{jobTemplateMeta.deletionId}";
   }
 
   public String listJobTemplatePOsByMetalake(@Param("metalakeName") String metalakeName) {
@@ -100,6 +101,7 @@ public class JobTemplateMetaBaseSQLProvider {
         + JobTemplateMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE job_template_name = #{jobTemplateName} AND metalake_id ="
         + " (SELECT metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -112,6 +114,7 @@ public class JobTemplateMetaBaseSQLProvider {
         + JobTemplateMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000.0"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -119,7 +122,8 @@ public class JobTemplateMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + JobTemplateMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit}";
   }
 
   public String updateJobTemplateMeta(
@@ -134,7 +138,8 @@ public class JobTemplateMetaBaseSQLProvider {
         + " audit_info = #{newJobTemplateMeta.auditInfo},"
         + " current_version = #{newJobTemplateMeta.currentVersion},"
         + " last_version = #{newJobTemplateMeta.lastVersion},"
-        + " deleted_at = #{newJobTemplateMeta.deletedAt}"
+        + " deleted_at = #{newJobTemplateMeta.deletedAt},"
+        + " deletion_id = #{newJobTemplateMeta.deletionId}"
         + " WHERE job_template_id = #{oldJobTemplateMeta.jobTemplateId}"
         + " AND job_template_name = #{oldJobTemplateMeta.jobTemplateName}"
         + " AND metalake_id = #{oldJobTemplateMeta.metalakeId}"

@@ -37,6 +37,7 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
 
   private static final Set<Entity.EntityType> RECOVERABLE_TYPES =
       Set.of(
+          Entity.EntityType.METALAKE,
           Entity.EntityType.CATALOG,
           Entity.EntityType.SCHEMA,
           Entity.EntityType.TABLE,
@@ -71,7 +72,9 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
       // A container restore represents its entire metadata tree, but EntityCache only contracts an
       // exact-entry invalidation. Clear the cache so custom implementations cannot retain stale
       // descendants or their relations.
-      if (entityType == Entity.EntityType.CATALOG || entityType == Entity.EntityType.SCHEMA) {
+      if (entityType == Entity.EntityType.METALAKE
+          || entityType == Entity.EntityType.CATALOG
+          || entityType == Entity.EntityType.SCHEMA) {
         clearCache(change);
         continue;
       }
@@ -119,6 +122,9 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
     NameIdentifier identifier = NameIdentifier.parse(change.getFullName());
     int expectedNamespaceLength;
     switch (entityType) {
+      case METALAKE:
+        expectedNamespaceLength = 0;
+        break;
       case CATALOG:
         expectedNamespaceLength = 1;
         break;
@@ -136,8 +142,11 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
               entityType.name().toLowerCase(Locale.ROOT),
               change.getFullName()));
     }
-    if (change.getMetalakeName() == null
-        || !change.getMetalakeName().equals(identifier.namespace().level(0))) {
+    String identifierMetalake =
+        entityType == Entity.EntityType.METALAKE
+            ? identifier.name()
+            : identifier.namespace().level(0);
+    if (change.getMetalakeName() == null || !change.getMetalakeName().equals(identifierMetalake)) {
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,

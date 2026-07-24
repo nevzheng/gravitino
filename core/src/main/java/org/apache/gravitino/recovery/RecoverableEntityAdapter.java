@@ -58,13 +58,30 @@ interface RecoverableEntityAdapter<E> {
     return resolveLiveParent(namespace);
   }
 
+  /**
+   * Resolves the immutable scope that must still identify this deletion at restore time.
+   *
+   * <p>Ordinary resources resolve a current live parent. Root resources can override this method to
+   * validate their self-scoped deletion without inventing a synthetic parent identifier.
+   */
+  default RecoveryMetadata.ParentIdentity resolveCurrentParent(
+      Namespace namespace, @Nullable String parentScope, EntityDeletionPO deletion) {
+    return resolveLiveParent(namespace, parentScope);
+  }
+
   /** Lists live identities under the immediate parent. */
-  List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId);
+  List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId);
 
   /** Lists live identities under an optional entity-specific parent scope. */
   default List<RecoveryMetadata.LiveIdentity> listLiveInParent(
-      Namespace namespace, long parentId, @Nullable String parentScope) {
+      Namespace namespace, @Nullable Long parentId, @Nullable String parentScope) {
     return listLiveInParent(namespace, parentId);
+  }
+
+  /** Returns whether restores must take the global metadata-root tree lock. */
+  default boolean rootScoped() {
+    return false;
   }
 
   /** Lists globally live identities for the specified immutable IDs. */

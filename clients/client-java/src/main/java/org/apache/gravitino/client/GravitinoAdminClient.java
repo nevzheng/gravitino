@@ -26,7 +26,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetalakeChange;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.SupportsMetalakes;
 import org.apache.gravitino.dto.requests.MetalakeCreateRequest;
 import org.apache.gravitino.dto.requests.MetalakeSetRequest;
@@ -40,6 +43,7 @@ import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.MetalakeInUseException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
+import org.apache.gravitino.rest.RESTUtils;
 
 /**
  * Apache Gravitino Client for the administrator to interact with the Gravitino API, allowing the
@@ -48,6 +52,8 @@ import org.apache.gravitino.exceptions.NonEmptyEntityException;
  * <p>Normal users should use {@link GravitinoClient} to connect with the Gravitino server.
  */
 public class GravitinoAdminClient extends GravitinoClientBase implements SupportsMetalakes {
+
+  private final RecoverableDeletionClient recoverableDeletionClient;
 
   /**
    * Constructs a new GravitinoClient with the given URI, authenticator and AuthDataProvider.
@@ -66,6 +72,7 @@ public class GravitinoAdminClient extends GravitinoClientBase implements Support
       Map<String, String> headers,
       Map<String, String> properties) {
     super(uri, authDataProvider, checkVersion, headers, properties);
+    this.recoverableDeletionClient = new RecoverableDeletionClient(restClient);
   }
 
   /**
@@ -86,6 +93,50 @@ public class GravitinoAdminClient extends GravitinoClientBase implements Support
     return Arrays.stream(resp.getMetalakes())
         .map(o -> DTOConverters.toMetaLake(o, restClient))
         .toArray(GravitinoMetalake[]::new);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedMetalakes(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            API_METALAKES_LIST_PATH, name, id, ErrorHandlers.metalakeErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.METALAKE, name, id));
+    return generations;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedMetalake(String name, String id) {
+    checkMetalakeName(name);
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            API_METALAKES_IDENTIFIER_PATH + RESTUtils.encodeString(name),
+            id,
+            ErrorHandlers.metalakeErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.METALAKE, name, id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public GravitinoMetalake restoreMetalake(String name, DeletedEntity generation) {
+    checkMetalakeName(name);
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.METALAKE, name, null);
+    MetalakeResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            API_METALAKES_IDENTIFIER_PATH + RESTUtils.encodeString(name),
+            generation,
+            MetalakeResponse.class,
+            ErrorHandlers.metalakeErrorHandler());
+    GravitinoMetalake restored = DTOConverters.toMetaLake(response.getMetalake(), restClient);
+    Preconditions.checkArgument(
+        name.equals(restored.name()), "Restored metalake name must match the requested name");
+    return restored;
   }
 
   /**

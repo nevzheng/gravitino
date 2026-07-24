@@ -78,7 +78,8 @@ final class ModelRecoveryAdapter implements RecoverableEntityAdapter<ModelEntity
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return ModelMetaService.getInstance().listLiveModelPOsByNamespace(namespace).stream()
         .map(ModelRecoveryAdapter::liveIdentity)
         .collect(Collectors.toList());

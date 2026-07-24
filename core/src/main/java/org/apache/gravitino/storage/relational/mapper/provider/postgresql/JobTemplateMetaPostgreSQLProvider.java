@@ -32,7 +32,8 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
       @Param("jobTemplateName") String jobTemplateName) {
     return "UPDATE "
         + JobTemplateMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id IN ("
         + " SELECT metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -44,7 +45,8 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
   public String softDeleteJobTemplateMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + JobTemplateMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -54,12 +56,12 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
     return "INSERT INTO "
         + JobTemplateMetaMapper.TABLE_NAME
         + " (job_template_id, job_template_name, metalake_id, job_template_comment,"
-        + " job_template_content, audit_info, current_version, last_version, deleted_at)"
+        + " job_template_content, audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobTemplateMeta.jobTemplateId}, #{jobTemplateMeta.jobTemplateName},"
         + " #{jobTemplateMeta.metalakeId}, #{jobTemplateMeta.jobTemplateComment},"
         + " #{jobTemplateMeta.jobTemplateContent}, #{jobTemplateMeta.auditInfo},"
         + " #{jobTemplateMeta.currentVersion}, #{jobTemplateMeta.lastVersion},"
-        + " #{jobTemplateMeta.deletedAt})"
+        + " #{jobTemplateMeta.deletedAt}, #{jobTemplateMeta.deletionId})"
         + " ON CONFLICT(job_template_id) DO UPDATE SET"
         + " job_template_name = #{jobTemplateMeta.jobTemplateName},"
         + " metalake_id = #{jobTemplateMeta.metalakeId},"
@@ -68,7 +70,8 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
         + " audit_info = #{jobTemplateMeta.auditInfo},"
         + " current_version = #{jobTemplateMeta.currentVersion},"
         + " last_version = #{jobTemplateMeta.lastVersion},"
-        + " deleted_at = #{jobTemplateMeta.deletedAt}";
+        + " deleted_at = #{jobTemplateMeta.deletedAt},"
+        + " deletion_id = #{jobTemplateMeta.deletionId}";
   }
 
   @Override
@@ -77,7 +80,9 @@ public class JobTemplateMetaPostgreSQLProvider extends JobTemplateMetaBaseSQLPro
         + JobTemplateMetaMapper.TABLE_NAME
         + " WHERE job_template_id IN (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

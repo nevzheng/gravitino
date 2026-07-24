@@ -33,7 +33,7 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " (job_run_id, job_template_id, metalake_id,"
         + " job_execution_id, job_run_status, job_finished_at, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " last_version, deleted_at, deletion_id)"
         + " VALUES (#{jobMeta.jobRunId},"
         + " (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
@@ -42,7 +42,7 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
         + " #{jobMeta.metalakeId}, #{jobMeta.jobExecutionId},"
         + " #{jobMeta.jobRunStatus}, #{jobMeta.jobFinishedAt}, #{jobMeta.auditInfo},"
         + " #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
-        + " #{jobMeta.deletedAt})"
+        + " #{jobMeta.deletedAt}, #{jobMeta.deletionId})"
         + " ON CONFLICT (job_run_id) DO UPDATE SET"
         + " job_template_id = (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
@@ -55,7 +55,8 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
         + " audit_info = #{jobMeta.auditInfo},"
         + " current_version = #{jobMeta.currentVersion},"
         + " last_version = #{jobMeta.lastVersion},"
-        + " deleted_at = #{jobMeta.deletedAt}";
+        + " deleted_at = #{jobMeta.deletedAt},"
+        + " deletion_id = #{jobMeta.deletionId}";
   }
 
   @Override
@@ -64,7 +65,8 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
       @Param("jobTemplateName") String jobTemplateName) {
     return "UPDATE "
         + JobMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id IN ("
         + " SELECT metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -80,14 +82,16 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
   public String softDeleteJobMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + JobMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
   public String softDeleteJobMetaByRunId(@Param("jobRunId") Long jobRunId) {
     return "UPDATE "
         + JobMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE job_run_id = #{jobRunId} AND deleted_at = 0";
   }
 
@@ -95,7 +99,8 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
   public String softDeleteJobMetasByLegacyTimeline(@Param("legacyTimeline") Long legacyTimeline) {
     return "UPDATE "
         + JobMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE job_finished_at < #{legacyTimeline} AND job_finished_at > 0 AND deleted_at = 0";
   }
 
@@ -106,7 +111,9 @@ public class JobMetaPostgreSQLProvider extends JobMetaBaseSQLProvider {
         + JobMetaMapper.TABLE_NAME
         + " WHERE job_run_id IN (SELECT job_run_id FROM "
         + JobMetaMapper.TABLE_NAME
-        + " WHERE deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at < #{legacyTimeline} AND deleted_at > 0 LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 }

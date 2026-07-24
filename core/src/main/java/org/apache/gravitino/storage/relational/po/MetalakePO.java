@@ -32,6 +32,7 @@ public class MetalakePO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getMetalakeId() {
     return metalakeId;
@@ -69,6 +70,11 @@ public class MetalakePO {
     return deletedAt;
   }
 
+  /** Returns the recoverable-deletion generation identifier. */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -86,7 +92,8 @@ public class MetalakePO {
         && Objects.equal(getSchemaVersion(), that.getSchemaVersion())
         && Objects.equal(getCurrentVersion(), that.getCurrentVersion())
         && Objects.equal(getLastVersion(), that.getLastVersion())
-        && Objects.equal(getDeletedAt(), that.getDeletedAt());
+        && Objects.equal(getDeletedAt(), that.getDeletedAt())
+        && Objects.equal(getDeletionId(), that.getDeletionId());
   }
 
   @Override
@@ -100,7 +107,8 @@ public class MetalakePO {
         getSchemaVersion(),
         getCurrentVersion(),
         getLastVersion(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -152,6 +160,12 @@ public class MetalakePO {
 
     public MetalakePO.Builder withDeletedAt(Long deletedAt) {
       metalakePO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public MetalakePO.Builder withDeletionId(String deletionId) {
+      metalakePO.deletionId = deletionId;
       return this;
     }
 

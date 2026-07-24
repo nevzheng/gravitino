@@ -77,10 +77,10 @@ public class PolicyMetaBaseSQLProvider {
     return "INSERT INTO "
         + POLICY_META_TABLE_NAME
         + " (policy_id, policy_name, policy_type, metalake_id,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES (#{policyMeta.policyId}, #{policyMeta.policyName}, #{policyMeta.policyType},"
         + " #{policyMeta.metalakeId}, #{policyMeta.auditInfo}, #{policyMeta.currentVersion},"
-        + " #{policyMeta.lastVersion}, #{policyMeta.deletedAt})"
+        + " #{policyMeta.lastVersion}, #{policyMeta.deletedAt}, #{policyMeta.deletionId})"
         + " ON DUPLICATE KEY UPDATE"
         + " policy_name = #{policyMeta.policyName},"
         + " policy_type = #{policyMeta.policyType},"
@@ -88,17 +88,18 @@ public class PolicyMetaBaseSQLProvider {
         + " audit_info = #{policyMeta.auditInfo},"
         + " current_version = #{policyMeta.currentVersion},"
         + " last_version = #{policyMeta.lastVersion},"
-        + " deleted_at = #{policyMeta.deletedAt}";
+        + " deleted_at = #{policyMeta.deletedAt},"
+        + " deletion_id = #{policyMeta.deletionId}";
   }
 
   public String insertPolicyMeta(@Param("policyMeta") PolicyPO policyPO) {
     return "INSERT INTO "
         + POLICY_META_TABLE_NAME
         + " (policy_id, policy_name, policy_type, metalake_id,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES (#{policyMeta.policyId}, #{policyMeta.policyName}, #{policyMeta.policyType},"
         + " #{policyMeta.metalakeId}, #{policyMeta.auditInfo}, #{policyMeta.currentVersion},"
-        + " #{policyMeta.lastVersion}, #{policyMeta.deletedAt})";
+        + " #{policyMeta.lastVersion}, #{policyMeta.deletedAt}, #{policyMeta.deletionId})";
   }
 
   public String selectPolicyMetaByMetalakeAndName(
@@ -133,7 +134,8 @@ public class PolicyMetaBaseSQLProvider {
         + " audit_info = #{newPolicyMeta.auditInfo},"
         + " current_version = #{newPolicyMeta.currentVersion},"
         + " last_version = #{newPolicyMeta.lastVersion},"
-        + " deleted_at = #{newPolicyMeta.deletedAt}"
+        + " deleted_at = #{newPolicyMeta.deletedAt},"
+        + " deletion_id = #{newPolicyMeta.deletionId}"
         + " WHERE policy_id = #{oldPolicyMeta.policyId}"
         + " AND policy_name = #{oldPolicyMeta.policyName}"
         + " AND policy_type = #{oldPolicyMeta.policyType}"
@@ -150,6 +152,7 @@ public class PolicyMetaBaseSQLProvider {
         + POLICY_META_TABLE_NAME
         + " pm SET pm.deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", pm.deletion_id = NULL"
         + " WHERE pm.metalake_id IN ("
         + " SELECT mm.metalake_id FROM "
         + MetalakeMetaMapper.TABLE_NAME
@@ -161,7 +164,8 @@ public class PolicyMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + POLICY_META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String softDeletePolicyMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
@@ -169,6 +173,7 @@ public class PolicyMetaBaseSQLProvider {
         + POLICY_META_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 

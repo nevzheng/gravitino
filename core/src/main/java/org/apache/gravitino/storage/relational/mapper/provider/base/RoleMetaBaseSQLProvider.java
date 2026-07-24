@@ -114,7 +114,7 @@ public class RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " (role_id, role_name,"
         + " metalake_id, properties,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{roleMeta.roleId},"
         + " #{roleMeta.roleName},"
@@ -123,7 +123,8 @@ public class RoleMetaBaseSQLProvider {
         + " #{roleMeta.auditInfo},"
         + " #{roleMeta.currentVersion},"
         + " #{roleMeta.lastVersion},"
-        + " #{roleMeta.deletedAt}"
+        + " #{roleMeta.deletedAt},"
+        + " #{roleMeta.deletionId}"
         + " )";
   }
 
@@ -132,7 +133,7 @@ public class RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " (role_id, role_name,"
         + " metalake_id, properties,"
-        + " audit_info, current_version, last_version, deleted_at)"
+        + " audit_info, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{roleMeta.roleId},"
         + " #{roleMeta.roleName},"
@@ -141,7 +142,8 @@ public class RoleMetaBaseSQLProvider {
         + " #{roleMeta.auditInfo},"
         + " #{roleMeta.currentVersion},"
         + " #{roleMeta.lastVersion},"
-        + " #{roleMeta.deletedAt}"
+        + " #{roleMeta.deletedAt},"
+        + " #{roleMeta.deletionId}"
         + " ) ON DUPLICATE KEY UPDATE"
         + " role_name = #{roleMeta.roleName},"
         + " metalake_id = #{roleMeta.metalakeId},"
@@ -149,7 +151,8 @@ public class RoleMetaBaseSQLProvider {
         + " audit_info = #{roleMeta.auditInfo},"
         + " current_version = #{roleMeta.currentVersion},"
         + " last_version = #{roleMeta.lastVersion},"
-        + " deleted_at = #{roleMeta.deletedAt}";
+        + " deleted_at = #{roleMeta.deletedAt},"
+        + " deletion_id = #{roleMeta.deletionId}";
   }
 
   public String updateRoleMeta(
@@ -162,7 +165,8 @@ public class RoleMetaBaseSQLProvider {
         + " audit_info = #{newRoleMeta.auditInfo},"
         + " current_version = #{newRoleMeta.currentVersion},"
         + " last_version = #{newRoleMeta.lastVersion},"
-        + " deleted_at = #{newRoleMeta.deletedAt}"
+        + " deleted_at = #{newRoleMeta.deletedAt},"
+        + " deletion_id = #{newRoleMeta.deletionId}"
         + " WHERE role_id = #{oldRoleMeta.roleId}"
         + " AND role_name = #{oldRoleMeta.roleName}"
         + " AND metalake_id = #{oldRoleMeta.metalakeId}"
@@ -176,6 +180,7 @@ public class RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE role_id = #{roleId} AND deleted_at = 0";
   }
 
@@ -184,6 +189,7 @@ public class RoleMetaBaseSQLProvider {
         + ROLE_TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -191,7 +197,8 @@ public class RoleMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + ROLE_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String touchRoleUpdatedAt(@Param("roleId") long roleId) {

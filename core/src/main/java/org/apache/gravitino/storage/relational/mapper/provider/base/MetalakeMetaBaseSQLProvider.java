@@ -31,7 +31,7 @@ public class MetalakeMetaBaseSQLProvider {
         + " metalake_comment as metalakeComment, properties,"
         + " audit_info as auditInfo, schema_version as schemaVersion,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE deleted_at = 0";
@@ -42,7 +42,7 @@ public class MetalakeMetaBaseSQLProvider {
         + " metalake_comment as metalakeComment, properties,"
         + " audit_info as auditInfo, schema_version as schemaVersion,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE metalake_name = #{metalakeName} AND deleted_at = 0";
@@ -53,7 +53,7 @@ public class MetalakeMetaBaseSQLProvider {
         + " metalake_comment as metalakeComment, properties,"
         + " audit_info as auditInfo, schema_version as schemaVersion,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
@@ -72,7 +72,7 @@ public class MetalakeMetaBaseSQLProvider {
         + " metalake_comment as metalakeComment, properties,"
         + " audit_info as auditInfo, schema_version as schemaVersion,"
         + " current_version as currentVersion, last_version as lastVersion,"
-        + " deleted_at as deletedAt"
+        + " deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE deleted_at = 0"
@@ -88,7 +88,7 @@ public class MetalakeMetaBaseSQLProvider {
     return "INSERT INTO "
         + TABLE_NAME
         + " (metalake_id, metalake_name, metalake_comment, properties, audit_info,"
-        + " schema_version, current_version, last_version, deleted_at)"
+        + " schema_version, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{metalakeMeta.metalakeId},"
         + " #{metalakeMeta.metalakeName},"
@@ -98,7 +98,8 @@ public class MetalakeMetaBaseSQLProvider {
         + " #{metalakeMeta.schemaVersion},"
         + " #{metalakeMeta.currentVersion},"
         + " #{metalakeMeta.lastVersion},"
-        + " #{metalakeMeta.deletedAt}"
+        + " #{metalakeMeta.deletedAt},"
+        + " #{metalakeMeta.deletionId}"
         + " )";
   }
 
@@ -107,7 +108,7 @@ public class MetalakeMetaBaseSQLProvider {
     return "INSERT INTO "
         + TABLE_NAME
         + " (metalake_id, metalake_name, metalake_comment, properties, audit_info,"
-        + " schema_version, current_version, last_version, deleted_at)"
+        + " schema_version, current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{metalakeMeta.metalakeId},"
         + " #{metalakeMeta.metalakeName},"
@@ -117,7 +118,8 @@ public class MetalakeMetaBaseSQLProvider {
         + " #{metalakeMeta.schemaVersion},"
         + " #{metalakeMeta.currentVersion},"
         + " #{metalakeMeta.lastVersion},"
-        + " #{metalakeMeta.deletedAt}"
+        + " #{metalakeMeta.deletedAt},"
+        + " #{metalakeMeta.deletionId}"
         + " )"
         + " ON DUPLICATE KEY UPDATE"
         + " metalake_name = #{metalakeMeta.metalakeName},"
@@ -127,7 +129,8 @@ public class MetalakeMetaBaseSQLProvider {
         + " schema_version = #{metalakeMeta.schemaVersion},"
         + " current_version = #{metalakeMeta.currentVersion},"
         + " last_version = #{metalakeMeta.lastVersion},"
-        + " deleted_at = #{metalakeMeta.deletedAt}";
+        + " deleted_at = #{metalakeMeta.deletedAt},"
+        + " deletion_id = #{metalakeMeta.deletionId}";
   }
 
   public String updateMetalakeMeta(
@@ -141,7 +144,8 @@ public class MetalakeMetaBaseSQLProvider {
         + " audit_info = #{newMetalakeMeta.auditInfo},"
         + " schema_version = #{newMetalakeMeta.schemaVersion},"
         + " current_version = #{newMetalakeMeta.currentVersion},"
-        + " last_version = #{newMetalakeMeta.lastVersion}"
+        + " last_version = #{newMetalakeMeta.lastVersion},"
+        + " deletion_id = #{newMetalakeMeta.deletionId}"
         + " WHERE metalake_id = #{oldMetalakeMeta.metalakeId}"
         + " AND metalake_name = #{oldMetalakeMeta.metalakeName}"
         + " AND (metalake_comment = #{oldMetalakeMeta.metalakeComment} "
@@ -159,6 +163,7 @@ public class MetalakeMetaBaseSQLProvider {
         + TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
         + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + ", deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -166,7 +171,8 @@ public class MetalakeMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String batchSelectMetalakeByName(@Param("metalakeNames") List<String> metalakeNames) {
@@ -174,7 +180,7 @@ public class MetalakeMetaBaseSQLProvider {
         + "SELECT metalake_id as metalakeId, metalake_name as metalakeName,"
         + " metalake_comment as metalakeComment, properties, audit_info as auditInfo,"
         + " schema_version as schemaVersion, current_version as currentVersion,"
-        + " last_version as lastVersion, deleted_at as deletedAt"
+        + " last_version as lastVersion, deleted_at as deletedAt, deletion_id as deletionId"
         + " FROM "
         + TABLE_NAME
         + " WHERE metalake_name IN ("

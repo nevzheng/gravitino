@@ -45,16 +45,24 @@ import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.file.Fileset;
+import org.apache.gravitino.job.JobHandle;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
+import org.apache.gravitino.meta.GroupEntity;
+import org.apache.gravitino.meta.JobEntity;
+import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.ModelVersionEntity;
+import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.meta.TopicEntity;
+import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -67,12 +75,19 @@ import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.EntityIdService;
 import org.apache.gravitino.storage.relational.service.FilesetMetaService;
 import org.apache.gravitino.storage.relational.service.FunctionMetaService;
+import org.apache.gravitino.storage.relational.service.GroupMetaService;
+import org.apache.gravitino.storage.relational.service.JobMetaService;
+import org.apache.gravitino.storage.relational.service.JobTemplateMetaService;
+import org.apache.gravitino.storage.relational.service.MetalakeMetaService;
 import org.apache.gravitino.storage.relational.service.ModelMetaService;
 import org.apache.gravitino.storage.relational.service.ModelVersionMetaService;
+import org.apache.gravitino.storage.relational.service.PolicyMetaService;
+import org.apache.gravitino.storage.relational.service.RoleMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
 import org.apache.gravitino.storage.relational.service.TagMetaService;
 import org.apache.gravitino.storage.relational.service.TopicMetaService;
+import org.apache.gravitino.storage.relational.service.UserMetaService;
 import org.apache.gravitino.storage.relational.service.ViewMetaService;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
@@ -624,6 +639,279 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         () ->
             manager.restoreDeletedTable(
                 namespace, changedParentTable.name(), changedParentTable.id(), changedParentEtag));
+  }
+
+  @TestTemplate
+  public void testMetalakeCascadeListsOnlyRootAndRestoresExactMetadataTree() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake(METALAKE);
+    CatalogEntity catalog = createAndInsertCatalog(METALAKE, CATALOG);
+    SchemaEntity schema = createAndInsertSchema(METALAKE, CATALOG, "metalake_tree_schema");
+    TableEntity table =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schema.name()), "metalake_tree_table");
+    TableMetaService.getInstance().insertTable(table, false);
+
+    TagEntity tag =
+        TagEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("metalake_tree_tag")
+            .withNamespace(NamespaceUtil.ofTag(METALAKE))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    TagMetaService.getInstance().insertTag(tag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            table.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            new NameIdentifier[] {tag.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy(METALAKE),
+            "metalake_tree_policy",
+            AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyMetaService.getInstance()
+        .associatePoliciesWithMetadataObject(
+            table.nameIdentifier(),
+            Entity.EntityType.TABLE,
+            new NameIdentifier[] {policy.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofRole(METALAKE),
+            "metalake_tree_role",
+            AUDIT_INFO,
+            CATALOG);
+    RoleMetaService.getInstance().insertRole(role, false);
+    UserEntity user =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofUser(METALAKE),
+            "metalake_tree_user",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    UserMetaService.getInstance().insertUser(user, false);
+    GroupEntity group =
+        createGroupEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofGroup(METALAKE),
+            "metalake_tree_group",
+            AUDIT_INFO,
+            List.of(role.name()),
+            List.of(role.id()));
+    GroupMetaService.getInstance().insertGroup(group, false);
+
+    JobTemplateEntity jobTemplate =
+        createAndInsertShellJobTemplateEntity(
+            "metalake_tree_job_template", "tree restore template", METALAKE);
+    JobEntity job =
+        JobEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withJobExecutionId(String.valueOf(RandomIdGenerator.INSTANCE.nextId()))
+            .withNamespace(NamespaceUtil.ofJob(METALAKE))
+            .withJobTemplateName(jobTemplate.name())
+            .withStatus(JobHandle.Status.QUEUED)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    JobMetaService.getInstance().insertJob(job, false);
+
+    TableEntity priorTombstone =
+        newTable(NamespaceUtil.ofTable(METALAKE, CATALOG, schema.name()), "prior_metalake_table");
+    TableMetaService.getInstance().insertTable(priorTombstone, false);
+    EntityDeletionPO priorDeletion =
+        deleteAndGetDeletionRecord(priorTombstone, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    Assertions.assertTrue(
+        MetalakeMetaService.getInstance()
+            .deleteMetalake(
+                metalake.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    List<DeletedEntityDTO> deletedMetalakes =
+        manager.listDeletedMetalakes(metalake.name(), metalake.id());
+    Assertions.assertEquals(1, deletedMetalakes.size());
+    DeletedEntityDTO deleted = deletedMetalakes.get(0);
+    Assertions.assertEquals(String.valueOf(metalake.id()), deleted.getId());
+    Assertions.assertEquals("metalake", deleted.getType().value());
+    Assertions.assertTrue(deleted.getLatestForName());
+    Assertions.assertTrue(deleted.getRestorable());
+
+    List<EntityDeletionPO> rootReceipts =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.METALAKE, null, metalake.name(), metalake.id(), null);
+    Assertions.assertEquals(1, rootReceipts.size());
+    Assertions.assertNull(rootReceipts.get(0).getParentId());
+    Assertions.assertEquals(metalake.id(), rootReceipts.get(0).getMetalakeId());
+    Assertions.assertTrue(
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.CATALOG, metalake.id(), catalog.name(), catalog.id(), null)
+            .isEmpty());
+
+    BaseMetalake restored =
+        manager.restoreDeletedMetalake(metalake.name(), metalake.id(), deleted.getEtag());
+    Assertions.assertEquals(metalake.id(), restored.id());
+    Assertions.assertTrue(backend.exists(metalake.nameIdentifier(), Entity.EntityType.METALAKE));
+    Assertions.assertTrue(backend.exists(catalog.nameIdentifier(), Entity.EntityType.CATALOG));
+    Assertions.assertTrue(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertTrue(backend.exists(table.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertEquals(
+        List.of(tag),
+        TagMetaService.getInstance()
+            .listTagsForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertEquals(
+        List.of(policy),
+        PolicyMetaService.getInstance()
+            .listPoliciesForMetadataObject(table.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertEquals(
+        role.id(), RoleMetaService.getInstance().getRoleByIdentifier(role.nameIdentifier()).id());
+    UserEntity restoredUser =
+        UserMetaService.getInstance().getUserByIdentifier(user.nameIdentifier());
+    Assertions.assertEquals(user.id(), restoredUser.id());
+    Assertions.assertEquals(List.of(role.id()), restoredUser.roleIds());
+    GroupEntity restoredGroup =
+        GroupMetaService.getInstance().getGroupByIdentifier(group.nameIdentifier());
+    Assertions.assertEquals(group.id(), restoredGroup.id());
+    Assertions.assertEquals(List.of(role.id()), restoredGroup.roleIds());
+    Assertions.assertEquals(
+        jobTemplate.id(),
+        JobTemplateMetaService.getInstance()
+            .getJobTemplateByIdentifier(jobTemplate.nameIdentifier())
+            .id());
+    Assertions.assertEquals(
+        job.id(), JobMetaService.getInstance().getJobByIdentifier(job.nameIdentifier()).id());
+    Assertions.assertFalse(
+        backend.exists(priorTombstone.nameIdentifier(), Entity.EntityType.TABLE));
+    EntityDeletionPO unchangedPrior =
+        EntityDeletionService.getInstance().get(priorDeletion.getDeletionId());
+    Assertions.assertNotNull(unchangedPrior);
+    Assertions.assertEquals(DeletionState.DELETED, unchangedPrior.getState());
+    Assertions.assertEquals(
+        metalake.id(),
+        manager.restoreDeletedMetalake(metalake.name(), metalake.id(), deleted.getEtag()).id());
+    Assertions.assertTrue(manager.listDeletedMetalakes(metalake.name(), metalake.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testMetalakeRestoreRejectsOlderGenerationAndNameOccupancy() throws Exception {
+    long requestedDeletedAt = Instant.now().toEpochMilli();
+    BaseMetalake first = createAndInsertMakeLake("repeated_metalake");
+    MetalakeMetaService.getInstance()
+        .deleteMetalake(first.nameIdentifier(), true, requestedDeletedAt, RETENTION_MS);
+    BaseMetalake second = createAndInsertMakeLake(first.name());
+    MetalakeMetaService.getInstance()
+        .deleteMetalake(second.nameIdentifier(), true, requestedDeletedAt, RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO firstDeletion = manager.getDeletedMetalake(first.name(), first.id());
+    DeletedEntityDTO secondDeletion = manager.getDeletedMetalake(second.name(), second.id());
+    Assertions.assertFalse(firstDeletion.getLatestForName());
+    Assertions.assertEquals("NOT_LATEST_TOMBSTONE", firstDeletion.getReason());
+    Assertions.assertTrue(secondDeletion.getLatestForName());
+    Assertions.assertTrue(secondDeletion.getDeletedAt() > firstDeletion.getDeletedAt());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NOT_LATEST_TOMBSTONE,
+        () -> manager.restoreDeletedMetalake(first.name(), first.id(), firstDeletion.getEtag()));
+
+    BaseMetalake replacement = createAndInsertMakeLake(second.name());
+    DeletedEntityDTO occupied = manager.getDeletedMetalake(second.name(), second.id());
+    Assertions.assertEquals("NAME_OCCUPIED", occupied.getReason());
+    assertRecoveryConflict(
+        RecoveryConflictReason.NAME_OCCUPIED,
+        () -> manager.restoreDeletedMetalake(second.name(), second.id(), secondDeletion.getEtag()));
+    Assertions.assertTrue(backend.exists(replacement.nameIdentifier(), Entity.EntityType.METALAKE));
+  }
+
+  @TestTemplate
+  public void testMetalakeRestoreRefusesIncompletePolicyAggregateWithoutPartialRevival()
+      throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("broken_metalake");
+    PolicyEntity policy =
+        createPolicy(
+            RandomIdGenerator.INSTANCE.nextId(),
+            NamespaceUtil.ofPolicy(metalake.name()),
+            "broken_policy",
+            AUDIT_INFO);
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    MetalakeMetaService.getInstance()
+        .deleteMetalake(
+            metalake.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedMetalake(metalake.name(), metalake.id());
+    updateDeletionRecord(
+        "DELETE FROM policy_version_info WHERE policy_id = ? AND deletion_id = ?",
+        policy.id(),
+        deleted.getDeletionId());
+
+    RecoveryConflictException conflict =
+        Assertions.assertThrows(
+            RecoveryConflictException.class,
+            () ->
+                manager.restoreDeletedMetalake(metalake.name(), metalake.id(), deleted.getEtag()));
+    Assertions.assertEquals(RecoveryConflictReason.INCOMPLETE_GENERATION, conflict.getReason());
+    Assertions.assertFalse(backend.exists(metalake.nameIdentifier(), Entity.EntityType.METALAKE));
+    Assertions.assertFalse(backend.exists(policy.nameIdentifier(), Entity.EntityType.POLICY));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testMetalakeRestoreRefusesContainerTreeWithMissingStampedParent() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("broken_container_metalake");
+    CatalogEntity catalog = createAndInsertCatalog(metalake.name(), "broken_container_catalog");
+    SchemaEntity schema =
+        createAndInsertSchema(metalake.name(), catalog.name(), "broken_container_schema");
+    MetalakeMetaService.getInstance()
+        .deleteMetalake(
+            metalake.nameIdentifier(), true, Instant.now().toEpochMilli(), RETENTION_MS);
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO deleted = manager.getDeletedMetalake(metalake.name(), metalake.id());
+    updateDeletionRecord(
+        "DELETE FROM catalog_meta WHERE catalog_id = ? AND deletion_id = ?",
+        catalog.id(),
+        deleted.getDeletionId());
+
+    RecoveryConflictException conflict =
+        Assertions.assertThrows(
+            RecoveryConflictException.class,
+            () ->
+                manager.restoreDeletedMetalake(metalake.name(), metalake.id(), deleted.getEtag()));
+    Assertions.assertEquals(RecoveryConflictReason.INCOMPLETE_GENERATION, conflict.getReason());
+    Assertions.assertFalse(backend.exists(metalake.nameIdentifier(), Entity.EntityType.METALAKE));
+    Assertions.assertFalse(backend.exists(schema.nameIdentifier(), Entity.EntityType.SCHEMA));
+    assertDeletionReceiptUnchanged(deleted.getDeletionId());
+  }
+
+  @TestTemplate
+  public void testExpiredMetalakeGenerationIsPurgedAsOneAggregate() throws Exception {
+    long deletedAt = Instant.now().toEpochMilli();
+    BaseMetalake metalake = createAndInsertMakeLake("purged_metalake");
+    CatalogEntity catalog = createAndInsertCatalog(metalake.name(), "purged_catalog");
+    SchemaEntity schema = createAndInsertSchema(metalake.name(), catalog.name(), "purged_schema");
+    TableEntity table =
+        newTable(
+            NamespaceUtil.ofTable(metalake.name(), catalog.name(), schema.name()), "purged_table");
+    TableMetaService.getInstance().insertTable(table, false);
+    MetalakeMetaService.getInstance()
+        .deleteMetalake(metalake.nameIdentifier(), true, deletedAt, 0L);
+    DeletedEntityDTO deletion =
+        new RecoverableDeletionManager(RETENTION_MS)
+            .getDeletedMetalake(metalake.name(), metalake.id());
+
+    Assertions.assertEquals(
+        1, MetalakeMetaService.getInstance().purgeExpiredMetalakeDeletions(deletedAt + 1L, 100));
+    Assertions.assertFalse(legacyRecordExistsInDB(metalake.id(), Entity.EntityType.METALAKE));
+    Assertions.assertFalse(legacyRecordExistsInDB(catalog.id(), Entity.EntityType.CATALOG));
+    Assertions.assertFalse(legacyRecordExistsInDB(schema.id(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(legacyRecordExistsInDB(table.id(), Entity.EntityType.TABLE));
+    EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deletion.getDeletionId());
+    Assertions.assertNotNull(receipt);
+    Assertions.assertEquals(DeletionState.PURGED, receipt.getState());
   }
 
   @TestTemplate

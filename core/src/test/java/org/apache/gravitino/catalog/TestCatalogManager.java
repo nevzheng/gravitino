@@ -826,6 +826,44 @@ public class TestCatalogManager {
   }
 
   @Test
+  void testMetalakeDropAndRestoreClearAllCatalogWrappers() throws Exception {
+    NameIdentifier first = NameIdentifier.of("metalake", "metalake_restore_first");
+    NameIdentifier second = NameIdentifier.of("metalake", "metalake_restore_second");
+    Map<String, String> props =
+        ImmutableMap.of(
+            "provider",
+            "test",
+            PROPERTY_KEY1,
+            "value1",
+            PROPERTY_KEY2,
+            "value2",
+            PROPERTY_KEY5_PREFIX + "1",
+            "value3");
+    catalogManager.createCatalog(first, Catalog.Type.RELATIONAL, provider, "comment", props);
+    catalogManager.createCatalog(second, Catalog.Type.RELATIONAL, provider, "comment", props);
+
+    new CatalogChangeLogListener(catalogManager)
+        .onEntityChange(
+            List.of(
+                new EntityChangeRecord(
+                    1L, "metalake", "METALAKE", "metalake", OperateType.DROP, 1L)));
+
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(first));
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(second));
+
+    catalogManager.loadCatalog(first);
+    catalogManager.loadCatalog(second);
+    new CatalogChangeLogListener(catalogManager)
+        .onEntityChange(
+            List.of(
+                new EntityChangeRecord(
+                    2L, "metalake", "METALAKE", "metalake", OperateType.RESTORE, 2L)));
+
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(first));
+    Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(second));
+  }
+
+  @Test
   void testCloseUnregistersCatalogChangeLogListener() {
     ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
     CatalogManager manager = new CatalogManager(config, store, new RandomIdGenerator());

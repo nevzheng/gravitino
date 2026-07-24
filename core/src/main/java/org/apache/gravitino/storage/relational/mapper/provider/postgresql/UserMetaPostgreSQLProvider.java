@@ -31,7 +31,8 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
   public String softDeleteUserMetaByUserId(Long userId) {
     return "UPDATE "
         + USER_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE user_id = #{userId} AND deleted_at = 0";
   }
 
@@ -39,7 +40,8 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
   public String softDeleteUserMetasByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + USER_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -49,7 +51,7 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
         + USER_TABLE_NAME
         + " (user_id, user_name, metalake_id, external_id, enabled,"
         + " audit_info,"
-        + " current_version, last_version, deleted_at)"
+        + " current_version, last_version, deleted_at, deletion_id)"
         + " VALUES ("
         + " #{userMeta.userId},"
         + " #{userMeta.userName},"
@@ -59,7 +61,8 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
         + " #{userMeta.auditInfo},"
         + " #{userMeta.currentVersion},"
         + " #{userMeta.lastVersion},"
-        + " #{userMeta.deletedAt}"
+        + " #{userMeta.deletedAt},"
+        + " #{userMeta.deletionId}"
         + " )"
         + " ON CONFLICT(user_id) DO UPDATE SET"
         + " user_name = #{userMeta.userName},"
@@ -69,7 +72,8 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
         + " audit_info = #{userMeta.auditInfo},"
         + " current_version = #{userMeta.currentVersion},"
         + " last_version = #{userMeta.lastVersion},"
-        + " deleted_at = #{userMeta.deletedAt}";
+        + " deleted_at = #{userMeta.deletedAt},"
+        + " deletion_id = #{userMeta.deletionId}";
   }
 
   @Override
@@ -107,7 +111,9 @@ public class UserMetaPostgreSQLProvider extends UserMetaBaseSQLProvider {
         + USER_TABLE_NAME
         + " WHERE user_id IN (SELECT user_id FROM "
         + USER_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " WHERE deletion_id IS NULL"
+        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL"
         + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
   }
 

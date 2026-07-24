@@ -111,15 +111,18 @@ public class JobMetaService {
       JobPO.JobPOBuilder builder = JobPO.builder().withMetalakeId(metalakeId);
       JobPO jobPO = JobPO.initializeJobPO(jobEntity, builder);
 
-      SessionUtils.doWithCommit(
-          JobMetaMapper.class,
-          mapper -> {
-            if (overwrite) {
-              mapper.insertJobMetaOnDuplicateKeyUpdate(jobPO);
-            } else {
-              mapper.insertJobMeta(jobPO);
-            }
-          });
+      SessionUtils.doMultipleWithCommit(
+          () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+          () ->
+              SessionUtils.doWithoutCommit(
+                  JobMetaMapper.class,
+                  mapper -> {
+                    if (overwrite) {
+                      mapper.insertJobMetaOnDuplicateKeyUpdate(jobPO);
+                    } else {
+                      mapper.insertJobMeta(jobPO);
+                    }
+                  }));
     } catch (RuntimeException e) {
       ExceptionUtils.checkSQLException(e, Entity.EntityType.JOB, jobEntity.id().toString());
     }
@@ -128,10 +131,17 @@ public class JobMetaService {
   @Monitored(metricsSource = GRAVITINO_RELATIONAL_STORE_METRIC_NAME, baseMetricName = "deleteJob")
   public boolean deleteJob(NameIdentifier jobIdent) {
     long jobRunIdLong = parseJobRunId(jobIdent.name());
-    int result =
-        SessionUtils.doWithCommitAndFetchResult(
-            JobMetaMapper.class, mapper -> mapper.softDeleteJobMetaByRunId(jobRunIdLong));
-    return result > 0;
+    long metalakeId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(jobIdent.namespace().level(0)), Entity.EntityType.METALAKE);
+    int[] result = new int[1];
+    SessionUtils.doMultipleWithCommit(
+        () -> MetadataMutationLock.lockMetalakeId(metalakeId),
+        () ->
+            result[0] =
+                SessionUtils.getWithoutCommit(
+                    JobMetaMapper.class, mapper -> mapper.softDeleteJobMetaByRunId(jobRunIdLong)));
+    return result[0] > 0;
   }
 
   @Monitored(

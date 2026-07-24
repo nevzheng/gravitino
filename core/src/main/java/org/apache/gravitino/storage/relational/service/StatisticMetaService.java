@@ -74,6 +74,7 @@ public class StatisticMetaService {
     }
 
     NamespacedEntityId namespacedEntityId = EntityIdService.getEntityIds(entity, type);
+    Long metalakeId = MetadataMutationLock.metalakeId(entity, type);
     Long catalogId = MetadataMutationLock.catalogId(entity, type);
     Long schemaId = MetadataMutationLock.schemaId(entity, type);
     List<StatisticPO> pos =
@@ -84,8 +85,10 @@ public class StatisticMetaService {
             NameIdentifierUtil.toMetadataObject(entity, type).type());
     SessionUtils.doMultipleWithCommit(
         () ->
-            MetadataMutationLock.lockCatalogAndSchemaIds(
-                Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
+            MetadataMutationLock.lockMetadataIds(
+                Collections.singletonList(metalakeId),
+                Collections.singletonList(catalogId),
+                Collections.singletonList(schemaId)),
         () ->
             SessionUtils.doWithoutCommit(
                 StatisticMetaMapper.class,
@@ -101,14 +104,17 @@ public class StatisticMetaService {
       return 0;
     }
     Long entityId = EntityIdService.getEntityId(identifier, type);
+    Long metalakeId = MetadataMutationLock.metalakeId(identifier, type);
     Long catalogId = MetadataMutationLock.catalogId(identifier, type);
     Long schemaId = MetadataMutationLock.schemaId(identifier, type);
 
     int[] deleted = new int[1];
     SessionUtils.doMultipleWithCommit(
         () ->
-            MetadataMutationLock.lockCatalogAndSchemaIds(
-                Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
+            MetadataMutationLock.lockMetadataIds(
+                Collections.singletonList(metalakeId),
+                Collections.singletonList(catalogId),
+                Collections.singletonList(schemaId)),
         () ->
             deleted[0] =
                 SessionUtils.getWithoutCommit(

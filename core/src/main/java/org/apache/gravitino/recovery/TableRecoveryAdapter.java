@@ -78,7 +78,8 @@ final class TableRecoveryAdapter implements RecoverableEntityAdapter<TableEntity
   }
 
   @Override
-  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(Namespace namespace, long parentId) {
+  public List<RecoveryMetadata.LiveIdentity> listLiveInParent(
+      Namespace namespace, @Nullable Long parentId) {
     return TableMetaService.getInstance().listTablesByNamespace(namespace).stream()
         .map(table -> new RecoveryMetadata.LiveIdentity(table.id(), parentId, table.name()))
         .collect(Collectors.toList());
