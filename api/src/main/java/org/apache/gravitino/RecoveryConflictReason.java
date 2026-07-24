@@ -40,7 +40,10 @@ public enum RecoveryConflictReason {
   PURGE_IN_PROGRESS,
 
   /** The tombstone predates complete deletion records and cannot be restored safely. */
-  LEGACY_TOMBSTONE;
+  LEGACY_TOMBSTONE,
+
+  /** The recorded deletion generation is incomplete or internally inconsistent. */
+  INCOMPLETE_GENERATION;
 
   /**
    * Parses a recovery conflict reason without making callers depend on enum case.

@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
@@ -59,6 +60,7 @@ public class RecoverableDeletionManager {
   private final long retentionMs;
   private final Clock clock;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
+  private final RecoverableEntityAdapter<PolicyEntity> policyAdapter;
 
   /**
    * Creates a recoverable-deletion manager using the system clock.
@@ -88,6 +90,7 @@ public class RecoverableDeletionManager {
     this.retentionMs = retentionMs;
     this.clock = clock;
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
+    this.policyAdapter = new PolicyRecoveryAdapter(entityCache);
   }
 
   /**
@@ -131,6 +134,49 @@ public class RecoverableDeletionManager {
    */
   public TableEntity restoreDeletedTable(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(tableAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists independently deleted policy generations under one live metalake.
+   *
+   * @param namespace policy namespace
+   * @param name optional exact policy name
+   * @param id optional exact immutable policy identifier
+   * @return matching deleted policy generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedPolicies(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(policyAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted policy representation.
+   *
+   * @param namespace policy namespace
+   * @param name original policy name
+   * @param id immutable policy identifier
+   * @return selected policy deletion generation
+   * @throws TombstoneNotFoundException if the exact tombstone does not exist under this path
+   */
+  public DeletedEntityDTO getDeletedPolicy(Namespace namespace, String name, long id) {
+    return getDeleted(policyAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact metadata-only policy deletion generation using an optimistic entity tag.
+   *
+   * <p>Only the policy base row and its live versions at deletion time are restored. Policy
+   * associations, ownership, grants, connectors, and external authorization systems are not
+   * mutated.
+   *
+   * @param namespace policy namespace
+   * @param name original policy name
+   * @param id immutable policy identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-policy read
+   * @return restored policy, or the already-restored policy for an idempotent replay
+   */
+  public PolicyEntity restoreDeletedPolicy(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(policyAdapter, namespace, name, id, etag);
   }
 
   private <E> List<DeletedEntityDTO> listDeleted(
@@ -724,6 +770,7 @@ public class RecoverableDeletionManager {
             canonicalField(deletionRecord == null ? null : deletionRecord.getExpiresAt()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getDeletedBy()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getEntityVersion()),
+            canonicalField(deletionRecord == null ? null : deletionRecord.getAffectedRowCount()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getState()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getRevision()),
             canonicalField(deletionRecord == null ? null : deletionRecord.getRestoredAt()),

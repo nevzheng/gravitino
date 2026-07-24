@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.MetadataObject;
@@ -55,6 +56,7 @@ import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -448,6 +450,64 @@ public class TestPolicyMetaService extends TestJDBCBackend {
                 policyMetaService.getPolicyByIdentifier(
                     NameIdentifierUtil.ofPolicy(METALAKE_NAME, "policy1")));
     assertEquals("No such policy entity: policy1", excep.getMessage());
+  }
+
+  @TestTemplate
+  public void testRestorePolicyPreservesLiveRelationsAndAllLiveVersions() throws Exception {
+    BaseMetalake metalake = createAndInsertMakeLake("recover_policy_metadata_only");
+    CatalogEntity catalog = createAndInsertCatalog(metalake.name(), "recover_policy_catalog");
+    Namespace namespace = NamespaceUtil.ofPolicy(metalake.name());
+    PolicyEntity policy =
+        createPolicy(RandomIdGenerator.INSTANCE.nextId(), namespace, "recover_policy", AUDIT_INFO);
+    PolicyMetaService policyMetaService = PolicyMetaService.getInstance();
+    policyMetaService.insertPolicy(policy, false);
+    policyMetaService.associatePoliciesWithMetadataObject(
+        catalog.nameIdentifier(),
+        Entity.EntityType.CATALOG,
+        new NameIdentifier[] {policy.nameIdentifier()},
+        new NameIdentifier[0]);
+
+    PolicyEntity policyV2 =
+        PolicyEntity.builder()
+            .withId(policy.id())
+            .withNamespace(policy.namespace())
+            .withName(policy.name())
+            .withPolicyType(policy.policyType())
+            .withComment("restored version")
+            .withEnabled(!policy.enabled())
+            .withContent(policy.content())
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    policyMetaService.updatePolicy(policy.nameIdentifier(), ignored -> policyV2);
+
+    Assertions.assertTrue(policyMetaService.deletePolicy(policy.nameIdentifier(), 600_000L));
+    EntityDeletionPO deletion =
+        EntityDeletionService.getInstance()
+            .list(Entity.EntityType.POLICY, metalake.id(), policy.name(), policy.id(), null)
+            .get(0);
+    Assertions.assertEquals(3L, deletion.getAffectedRowCount());
+    Assertions.assertEquals(1, countActivePolicyRel(policy.id()));
+    Assertions.assertTrue(
+        policyMetaService
+            .listPoliciesForMetadataObject(catalog.nameIdentifier(), Entity.EntityType.CATALOG)
+            .isEmpty());
+
+    PolicyEntity restored =
+        policyMetaService.restorePolicy(
+            policy.nameIdentifier(),
+            deletion,
+            Instant.now().toEpochMilli(),
+            "policy-recovery-test",
+            Long.MAX_VALUE);
+    Assertions.assertEquals(policyV2, restored);
+    Assertions.assertEquals(
+        DeletionState.RESTORED,
+        EntityDeletionService.getInstance().get(deletion.getDeletionId()).getState());
+    Assertions.assertEquals(1, countActivePolicyRel(policy.id()));
+    Assertions.assertEquals(
+        List.of(policyV2),
+        policyMetaService.listPoliciesForMetadataObject(
+            catalog.nameIdentifier(), Entity.EntityType.CATALOG));
   }
 
   @TestTemplate

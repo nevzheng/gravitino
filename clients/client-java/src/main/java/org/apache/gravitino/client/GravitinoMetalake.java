@@ -32,12 +32,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.SupportsCatalogs;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.Owner;
@@ -152,6 +155,7 @@ public class GravitinoMetalake extends MetalakeDTO
   private static final String BLANK_PLACEHOLDER = "";
 
   private final RESTClient restClient;
+  private final RecoverableDeletionClient recoverableDeletionClient;
   private final MetadataObjectRoleOperations metadataObjectRoleOperations;
 
   GravitinoMetalake(
@@ -162,6 +166,7 @@ public class GravitinoMetalake extends MetalakeDTO
       RESTClient restClient) {
     super(name, comment, properties, auditDTO);
     this.restClient = restClient;
+    this.recoverableDeletionClient = new RecoverableDeletionClient(restClient);
     this.metadataObjectRoleOperations =
         new MetadataObjectRoleOperations(
             name, MetadataObjects.of(null, name, MetadataObject.Type.METALAKE), restClient);
@@ -621,6 +626,23 @@ public class GravitinoMetalake extends MetalakeDTO
         .toArray(Policy[]::new);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedPolicies(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format(API_METALAKES_POLICIES_PATH, RESTUtils.encodeString(this.name())),
+            name,
+            id,
+            ErrorHandlers.policyErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.POLICY, name, id));
+    return generations;
+  }
+
   /**
    * Get a policy by its name under the current metalake.
    *
@@ -644,6 +666,44 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return new GenericPolicy(resp.getPolicy(), restClient, this.name());
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedPolicy(String name, String id) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(name), "policy name must not be null or empty");
+
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(API_METALAKES_POLICIES_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(name),
+            id,
+            ErrorHandlers.policyErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.POLICY, name, id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Policy restorePolicy(String name, DeletedEntity generation) {
+    Preconditions.checkArgument(
+        StringUtils.isNotBlank(name), "policy name must not be null or empty");
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.POLICY, name, null);
+
+    PolicyResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(API_METALAKES_POLICIES_PATH, RESTUtils.encodeString(this.name()))
+                + "/"
+                + RESTUtils.encodeString(name),
+            generation,
+            PolicyResponse.class,
+            ErrorHandlers.policyErrorHandler());
+    GenericPolicy restored = new GenericPolicy(response.getPolicy(), restClient, this.name());
+    Preconditions.checkArgument(
+        name.equals(restored.name()), "Restored policy name must match the requested policy name");
+    return restored;
   }
 
   /**

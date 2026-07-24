@@ -35,7 +35,8 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(RestoreChangeLogListener.class);
 
-  private static final Set<Entity.EntityType> RECOVERABLE_TYPES = Set.of(Entity.EntityType.TABLE);
+  private static final Set<Entity.EntityType> RECOVERABLE_TYPES =
+      Set.of(Entity.EntityType.TABLE, Entity.EntityType.POLICY);
 
   private final EntityCache cache;
 
@@ -56,6 +57,13 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
         identifier = restoredIdentifier(change, entityType);
       } catch (RuntimeException e) {
         clearCacheAfterInvalidRestore(change, e);
+        continue;
+      }
+
+      if (entityType == Entity.EntityType.POLICY) {
+        // Policy associations remain live during the metadata-only deletion. An exact cache
+        // invalidation cannot reliably invalidate their counterpart entries, so clear locally.
+        clearCache(change);
         continue;
       }
 
@@ -101,7 +109,8 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
     }
 
     NameIdentifier identifier = NameIdentifier.parse(change.getFullName());
-    if (identifier.namespace().length() != 3) {
+    int expectedNamespaceLength = entityType == Entity.EntityType.POLICY ? 1 : 3;
+    if (identifier.namespace().length() != expectedNamespaceLength) {
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,
@@ -128,6 +137,10 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
         change.getFullName(),
         change.getEntityType(),
         validationFailure);
+    clearCache(change);
+  }
+
+  private void clearCache(EntityChangeRecord change) {
     try {
       cache.clear();
     } catch (RuntimeException clearFailure) {

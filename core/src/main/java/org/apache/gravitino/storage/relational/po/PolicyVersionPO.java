@@ -32,6 +32,7 @@ public class PolicyVersionPO {
   private boolean enabled;
   private String content;
   private Long deletedAt;
+  private String deletionId;
 
   public static Builder builder() {
     return new Builder();
@@ -53,13 +54,14 @@ public class PolicyVersionPO {
         && Objects.equal(policyComment, that.policyComment)
         && Objects.equal(enabled, that.enabled)
         && Objects.equal(content, that.content)
-        && Objects.equal(deletedAt, that.deletedAt);
+        && Objects.equal(deletedAt, that.deletedAt)
+        && Objects.equal(deletionId, that.deletionId);
   }
 
   @Override
   public int hashCode() {
     return Objects.hashCode(
-        id, metalakeId, policyId, version, policyComment, enabled, content, deletedAt);
+        id, metalakeId, policyId, version, policyComment, enabled, content, deletedAt, deletionId);
   }
 
   public static class Builder {
@@ -71,6 +73,7 @@ public class PolicyVersionPO {
     private boolean enabled;
     private String content;
     private Long deletedAt;
+    private String deletionId;
 
     public Builder withId(Long id) {
       this.id = id;
@@ -112,6 +115,12 @@ public class PolicyVersionPO {
       return this;
     }
 
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      this.deletionId = deletionId;
+      return this;
+    }
+
     public PolicyVersionPO build() {
       validate();
       PolicyVersionPO policyVersionPO = new PolicyVersionPO();
@@ -123,6 +132,7 @@ public class PolicyVersionPO {
       policyVersionPO.enabled = this.enabled;
       policyVersionPO.content = this.content;
       policyVersionPO.deletedAt = this.deletedAt;
+      policyVersionPO.deletionId = this.deletionId;
       return policyVersionPO;
     }
 

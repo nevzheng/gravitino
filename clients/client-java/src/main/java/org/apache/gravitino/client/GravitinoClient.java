@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.SupportsCatalogs;
 import org.apache.gravitino.authorization.Group;
@@ -669,9 +671,27 @@ public class GravitinoClient extends GravitinoClientBase
     return getMetalake().listPolicyInfos();
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedPolicies(@Nullable String name, @Nullable String id) {
+    return getMetalake().listDeletedPolicies(name, id);
+  }
+
   @Override
   public Policy getPolicy(String name) throws NoSuchPolicyException {
     return getMetalake().getPolicy(name);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedPolicy(String name, String id) {
+    return getMetalake().loadDeletedPolicy(name, id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Policy restorePolicy(String name, DeletedEntity generation) {
+    return getMetalake().restorePolicy(name, generation);
   }
 
   @Override
