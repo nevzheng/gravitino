@@ -30,7 +30,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
   public String softDeleteFilesetVersionsByMetalakeId(Long metalakeId) {
     return "UPDATE "
         + VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -38,7 +39,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
   public String softDeleteFilesetVersionsByCatalogId(Long catalogId) {
     return "UPDATE "
         + VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -47,7 +49,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
     return "<script>"
         + "UPDATE "
         + VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -60,7 +63,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
   public String softDeleteFilesetVersionsByFilesetId(Long filesetId) {
     return "UPDATE "
         + VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE fileset_id = #{filesetId} AND deleted_at = 0";
   }
 
@@ -71,8 +75,10 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
         + VERSION_TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + VERSION_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 
   @Override
@@ -80,10 +86,13 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
       Long filesetId, long versionRetentionLine, int limit) {
     return "UPDATE "
         + VERSION_TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE id IN (SELECT id FROM "
         + VERSION_TABLE_NAME
-        + " WHERE fileset_id = #{filesetId} AND version <= #{versionRetentionLine} AND deleted_at = 0 LIMIT #{limit})";
+        + " WHERE fileset_id = #{filesetId} AND version <= #{versionRetentionLine}"
+        + " AND deleted_at = 0 LIMIT #{limit})"
+        + " AND deleted_at = 0 AND deletion_id IS NULL";
   }
 
   @Override
@@ -94,12 +103,13 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
         + VERSION_TABLE_NAME
         + " (metalake_id, catalog_id, schema_id, fileset_id,"
         + " version, fileset_comment, properties, storage_location_name, storage_location,"
-        + " deleted_at)"
+        + " deleted_at, deletion_id)"
         + " VALUES "
         + "<foreach collection='filesetVersions' item='version' separator=','>"
         + " (#{version.metalakeId}, #{version.catalogId}, #{version.schemaId}, #{version.filesetId},"
         + " #{version.version}, #{version.filesetComment}, #{version.properties},"
-        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt})"
+        + " #{version.locationName}, #{version.storageLocation}, #{version.deletedAt},"
+        + " #{version.deletionId})"
         + "</foreach>"
         + " ON CONFLICT(fileset_id, version, storage_location_name, deleted_at) DO UPDATE SET"
         + " metalake_id = EXCLUDED.metalake_id,"
@@ -111,7 +121,8 @@ public class FilesetVersionPostgreSQLProvider extends FilesetVersionBaseSQLProvi
         + " properties = EXCLUDED.properties,"
         + " storage_location_name = EXCLUDED.storage_location_name,"
         + " storage_location = EXCLUDED.storage_location,"
-        + " deleted_at = EXCLUDED.deleted_at"
+        + " deleted_at = EXCLUDED.deleted_at,"
+        + " deletion_id = EXCLUDED.deletion_id"
         + "</script>";
   }
 }

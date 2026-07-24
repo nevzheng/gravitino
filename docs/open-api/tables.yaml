@@ -484,6 +484,7 @@ components:
           enum:
             - table
             - function
+            - fileset
             - model
         deletedAt:
           type: integer

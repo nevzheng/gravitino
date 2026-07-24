@@ -30,11 +30,32 @@ paths:
         - fileset
       summary: List filesets
       operationId: listFilesets
+      description: |
+        Lists live filesets by default. `include=deleted` returns recoverable metadata-deletion
+        records and supports exact `name` and `id` filters. Deleted collection responses do not
+        carry an ETag; read an exact deleted fileset before restoring it. Deleted-fileset reads are
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/filesetNameFilter"
+        - $ref: "#/components/parameters/filesetIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: Live fileset identifiers or deleted metadata records
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted filesets in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -79,10 +100,35 @@ paths:
         - fileset
       summary: Get fileset
       operationId: loadFileset
-      description: Returns the specified fileset object
+      description: |
+        Returns the specified live fileset by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live parent path. The
+        deleted representation is metadata-only and carries a strong ETag for PATCH.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedFilesetId"
       responses:
         "200":
-          $ref: "#/components/responses/FilesetResponse"
+          description: A live fileset or one exact deleted-fileset generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-fileset read
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/FilesetResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted fileset
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The target fileset does not exist
           content:
@@ -98,6 +144,85 @@ paths:
                   $ref: "./schemas.yaml#/components/examples/NoSuchSchemaException"
                 NoSuchFilesetException:
                   $ref: "#/components/examples/NoSuchFilesetException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - fileset
+      summary: Restore a soft-deleted fileset
+      operationId: restoreFileset
+      description: |
+        Makes one exact soft-deleted fileset generation active again. The immutable `id`, path
+        name, and strong `If-Match` value bind PATCH to the exact representation returned by GET.
+
+        Restore is metadata-only for both managed and external filesets. It restores Gravitino's
+        fileset metadata and recorded relations, but does not contact a connector or filesystem,
+        validate a storage location, or recreate files or directories. Underlying data may be
+        missing or only partially present after restore. The same accepted ETag can be replayed
+        only while this generation remains latest and the exact fileset ID is live at its original
+        parent and name.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedFilesetInclude"
+        - $ref: "#/components/parameters/restoreFilesetId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/FilesetResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The token does not identify the requested fileset ID and name
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, or the tombstone predates complete deletion records.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -254,6 +379,72 @@ paths:
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 components:
+
+  parameters:
+    include:
+      name: include
+      in: query
+      description: Select live filesets or soft-deleted fileset records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    filesetNameFilter:
+      name: name
+      in: query
+      description: Exact fileset-name filter
+      required: false
+      schema:
+        type: string
+
+    filesetIdFilter:
+      name: id
+      in: query
+      description: Immutable fileset-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedFilesetId:
+      name: id
+      in: query
+      description: Immutable fileset ID required for an exact deleted-fileset read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreFilesetId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted fileset generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedFilesetInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted fileset targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag returned by the exact deleted-fileset GET
+      required: true
+      schema:
+        type: string
 
   schemas:
     Fileset:

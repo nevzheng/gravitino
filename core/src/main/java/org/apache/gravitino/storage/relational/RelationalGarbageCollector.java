@@ -48,6 +48,7 @@ public final class RelationalGarbageCollector implements Closeable {
               Comparator.comparingInt(
                   type ->
                       type == Entity.EntityType.TABLE
+                              || type == Entity.EntityType.FILESET
                               || type == Entity.EntityType.FUNCTION
                               || type == Entity.EntityType.MODEL
                           ? 0
@@ -107,6 +108,7 @@ public final class RelationalGarbageCollector implements Closeable {
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
           if (entityType == Entity.EntityType.TABLE
+              || entityType == Entity.EntityType.FILESET
               || entityType == Entity.EntityType.FUNCTION
               || entityType == Entity.EntityType.MODEL) {
             // Aggregate GC owns the recorded deletion purge. Continuing into shared relation

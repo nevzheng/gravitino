@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
@@ -61,6 +62,7 @@ public class RecoverableDeletionManager {
   private final long retentionMs;
   private final Clock clock;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
+  private final RecoverableEntityAdapter<FilesetEntity> filesetAdapter;
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
   private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
 
@@ -92,6 +94,7 @@ public class RecoverableDeletionManager {
     this.retentionMs = retentionMs;
     this.clock = clock;
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
+    this.filesetAdapter = new FilesetRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
   }
@@ -137,6 +140,48 @@ public class RecoverableDeletionManager {
    */
   public TableEntity restoreDeletedTable(Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(tableAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists deleted fileset generations under a live schema.
+   *
+   * @param namespace fileset namespace
+   * @param name optional exact fileset name
+   * @param id optional exact immutable fileset identifier
+   * @return matching deleted fileset generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedFilesets(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(filesetAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted fileset representation.
+   *
+   * @param namespace fileset namespace
+   * @param name original fileset name
+   * @param id immutable fileset identifier
+   * @return selected fileset deletion generation
+   */
+  public DeletedEntityDTO getDeletedFileset(Namespace namespace, String name, long id) {
+    return getDeleted(filesetAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact fileset metadata deletion generation using an optimistic entity tag.
+   *
+   * <p>This operation restores Gravitino metadata only. It never invokes a catalog connector or
+   * filesystem, including for managed filesets.
+   *
+   * @param namespace fileset namespace
+   * @param name original fileset name
+   * @param id immutable fileset identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-fileset read
+   * @return restored fileset, or the already-restored fileset for an idempotent replay
+   */
+  public FilesetEntity restoreDeletedFileset(
+      Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(filesetAdapter, namespace, name, id, etag);
   }
 
   /**

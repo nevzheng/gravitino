@@ -22,6 +22,8 @@ import static org.apache.gravitino.file.Fileset.LOCATION_NAME_UNKNOWN;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
+import javax.annotation.Nullable;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.annotation.Evolving;
@@ -29,6 +31,11 @@ import org.apache.gravitino.exceptions.FilesetAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchFilesetException;
 import org.apache.gravitino.exceptions.NoSuchLocationNameException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.file.FilesetChange.RenameFileset;
 
 /**
@@ -48,6 +55,31 @@ public interface FilesetCatalog {
   NameIdentifier[] listFilesets(Namespace namespace) throws NoSuchSchemaException;
 
   /**
+   * Lists retained deletion generations for filesets in a namespace.
+   *
+   * <p>The optional filters select an exact fileset name, immutable fileset ID, or both. A returned
+   * generation describes Gravitino metadata only; it does not assert that a storage location or any
+   * files still exist.
+   *
+   * <p>Implementations that support recoverable fileset deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param namespace A fileset namespace.
+   * @param name An exact fileset-name filter, or {@code null} to include every name.
+   * @param id An exact immutable fileset-ID filter, or {@code null} to include every ID.
+   * @return The retained fileset deletion generations matching the filters.
+   * @throws NoSuchSchemaException If the schema does not exist.
+   * @throws IllegalArgumentException If the namespace or a supplied filter is invalid.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable fileset
+   *     deletion.
+   */
+  default DeletedEntity[] listDeletedFilesets(
+      Namespace namespace, @Nullable String name, @Nullable String id)
+      throws NoSuchSchemaException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("listDeletedFilesets not supported.");
+  }
+
+  /**
    * Load fileset metadata by {@link NameIdentifier} from the catalog.
    *
    * @param ident A fileset identifier.
@@ -55,6 +87,68 @@ public interface FilesetCatalog {
    * @throws NoSuchFilesetException If the fileset does not exist.
    */
   Fileset loadFileset(NameIdentifier ident) throws NoSuchFilesetException;
+
+  /**
+   * Loads one exact retained deletion generation for a fileset.
+   *
+   * <p>The fileset name in {@code ident} and immutable {@code id} must identify the same deleted
+   * fileset. The returned generation supplies the strong optimistic precondition required by {@link
+   * #restoreFileset(NameIdentifier, DeletedEntity)}.
+   *
+   * <p>Implementations that support recoverable fileset deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A fileset identifier.
+   * @param id The immutable fileset ID.
+   * @return The exact retained fileset deletion generation.
+   * @throws NoSuchSchemaException If the parent schema does not exist.
+   * @throws IllegalArgumentException If the identifier or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested fileset path.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable fileset
+   *     deletion.
+   */
+  default DeletedEntity loadDeletedFileset(NameIdentifier ident, String id)
+      throws NoSuchSchemaException, TombstoneNotFoundException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("loadDeletedFileset not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino fileset metadata.
+   *
+   * <p>This operation is metadata-only. It neither validates nor recreates storage locations, and
+   * it does not restore files removed when a managed fileset was dropped. The generation must come
+   * from an exact deleted-fileset read and must match the identifier's name and resource type.
+   * Replaying a previously accepted generation is idempotent while the server can still prove that
+   * exact restore.
+   *
+   * <p>If a request fails with {@link TombstoneChangedException}, callers must read the same
+   * fileset path and immutable ID again before deciding whether to retry; clients must never
+   * silently substitute a different ID or generation. An unknown transport outcome may be replayed
+   * with the same generation. A recovery conflict or expired generation is not retryable as-is.
+   *
+   * <p>Implementations that support recoverable fileset deletion should override this method. The
+   * default implementation throws an {@link UnsupportedOperationException}.
+   *
+   * @param ident A fileset identifier.
+   * @param generation The exact retained deletion generation to restore.
+   * @return The restored fileset metadata.
+   * @throws IllegalArgumentException If the identifier, generation type, name, ID, or ETag is
+   *     invalid or inconsistent.
+   * @throws TombstoneNotFoundException If the retained generation does not exist under the
+   *     requested fileset path.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If the server requires a missing recovery precondition.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If the catalog does not support recoverable fileset
+   *     deletion.
+   */
+  default Fileset restoreFileset(NameIdentifier ident, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("restoreFileset not supported.");
+  }
 
   /**
    * Check if a fileset exists using an {@link NameIdentifier} from the catalog.

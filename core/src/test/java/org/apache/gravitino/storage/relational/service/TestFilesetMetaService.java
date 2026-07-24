@@ -25,10 +25,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -36,23 +39,53 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.Privileges;
+import org.apache.gravitino.authorization.SecurableObject;
+import org.apache.gravitino.authorization.SecurableObjects;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.integration.test.util.GravitinoITUtils;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.FilesetEntity;
+import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.meta.RoleEntity;
+import org.apache.gravitino.meta.StatisticEntity;
+import org.apache.gravitino.meta.TableStatisticEntity;
+import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.meta.UserEntity;
+import org.apache.gravitino.policy.Policy;
+import org.apache.gravitino.policy.PolicyContent;
+import org.apache.gravitino.policy.PolicyContents;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
+import org.apache.gravitino.stats.StatisticValues;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -71,7 +104,11 @@ public class TestFilesetMetaService extends TestJDBCBackend {
   public void prepare() throws IOException, IllegalAccessException {
     Config config = Mockito.mock(Config.class);
     Mockito.when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
+    Mockito.when(config.get(Configs.TREE_LOCK_MAX_NODE_IN_MEMORY)).thenReturn(100_000L);
+    Mockito.when(config.get(Configs.TREE_LOCK_MIN_NODE_IN_MEMORY)).thenReturn(1_000L);
+    Mockito.when(config.get(Configs.TREE_LOCK_CLEAN_INTERVAL)).thenReturn(36_000L);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     createAndInsertMakeLake(metalakeName);
     createAndInsertCatalog(metalakeName, catalogName);
     createAndInsertSchema(metalakeName, catalogName, schemaName);
@@ -308,6 +345,392 @@ public class TestFilesetMetaService extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testRestoreExactFilesetAggregatePreservesIndependentTombstones() throws IOException {
+    Namespace namespace = NamespaceUtil.ofFileset(metalakeName, catalogName, schemaName);
+    String filesetName = GravitinoITUtils.genRandomName("recoverable_fileset");
+    FilesetEntity fileset =
+        FilesetEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName(filesetName)
+            .withNamespace(namespace)
+            .withFilesetType(Fileset.Type.MANAGED)
+            .withStorageLocations(ImmutableMap.of(LOCATION_NAME_UNKNOWN, "/warehouse/v1"))
+            .withComment("version one")
+            .withProperties(ImmutableMap.of("version", "one"))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+
+    UserEntity owner =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            AuthorizationUtils.ofUserNamespace(metalakeName),
+            GravitinoITUtils.genRandomName("fileset_owner"),
+            AUDIT_INFO);
+    backend.insert(owner, false);
+    OwnerMetaService.getInstance()
+        .setOwner(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            owner.nameIdentifier(),
+            owner.type());
+
+    SecurableObject schemaObject =
+        SecurableObjects.ofSchema(
+            SecurableObjects.ofCatalog(
+                catalogName, Lists.newArrayList(Privileges.UseCatalog.allow())),
+            schemaName,
+            Lists.newArrayList(Privileges.UseSchema.allow()));
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            AuthorizationUtils.ofRoleNamespace(metalakeName),
+            GravitinoITUtils.genRandomName("fileset_role"),
+            AUDIT_INFO,
+            Lists.newArrayList(
+                SecurableObjects.ofFileset(
+                    schemaObject,
+                    fileset.name(),
+                    Lists.newArrayList(Privileges.ReadFileset.allow()))),
+            ImmutableMap.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+
+    TagEntity retainedTag = newTag("retained_fileset_tag");
+    TagEntity independentlyRemovedTag = newTag("removed_fileset_tag");
+    TagMetaService.getInstance().insertTag(retainedTag, false);
+    TagMetaService.getInstance().insertTag(independentlyRemovedTag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            new NameIdentifier[] {
+              retainedTag.nameIdentifier(), independentlyRemovedTag.nameIdentifier()
+            },
+            new NameIdentifier[0]);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            new NameIdentifier[0],
+            new NameIdentifier[] {independentlyRemovedTag.nameIdentifier()});
+
+    StatisticEntity statistic =
+        TableStatisticEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName(GravitinoITUtils.genRandomName("fileset_statistic"))
+            .withValue(StatisticValues.longValue(1L))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    StatisticMetaService.getInstance()
+        .batchInsertStatisticPOsOnDuplicateKeyUpdate(
+            ImmutableList.of(statistic), fileset.nameIdentifier(), Entity.EntityType.FILESET);
+
+    PolicyContent policyContent =
+        PolicyContents.custom(
+            ImmutableMap.of("rule", true), ImmutableSet.of(MetadataObject.Type.FILESET), null);
+    PolicyEntity policy =
+        PolicyEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName(GravitinoITUtils.genRandomName("fileset_policy"))
+            .withNamespace(NamespaceUtil.ofPolicy(metalakeName))
+            .withPolicyType(Policy.BuiltInType.CUSTOM)
+            .withContent(policyContent)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyMetaService.getInstance()
+        .associatePoliciesWithMetadataObject(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            new NameIdentifier[] {policy.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    FilesetEntity versionTwo =
+        FilesetEntity.builder()
+            .withId(fileset.id())
+            .withName(fileset.name())
+            .withNamespace(fileset.namespace())
+            .withFilesetType(fileset.filesetType())
+            .withStorageLocations(
+                ImmutableMap.of(LOCATION_NAME_UNKNOWN, "/warehouse/v2", "archive", "/archive/v2"))
+            .withComment("version two")
+            .withProperties(ImmutableMap.of("version", "two"))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    FilesetMetaService.getInstance().updateFileset(fileset.nameIdentifier(), ignored -> versionTwo);
+    FilesetEntity current =
+        FilesetEntity.builder()
+            .withId(fileset.id())
+            .withName(fileset.name())
+            .withNamespace(fileset.namespace())
+            .withFilesetType(fileset.filesetType())
+            .withStorageLocations(
+                ImmutableMap.of(LOCATION_NAME_UNKNOWN, "/warehouse/v3", "archive", "/archive/v3"))
+            .withComment("version three")
+            .withProperties(ImmutableMap.of("version", "three"))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    FilesetMetaService.getInstance().updateFileset(fileset.nameIdentifier(), ignored -> current);
+    FilesetMetaService.getInstance().deleteFilesetVersionsByRetentionCount(2L, 100);
+
+    long deletedAt = Instant.now().toEpochMilli();
+    Assertions.assertTrue(
+        FilesetMetaService.getInstance()
+            .deleteFileset(fileset.nameIdentifier(), deletedAt, 60_000L));
+    Assertions.assertEquals(
+        2,
+        countRows(
+            "SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?"
+                + " AND version = 3 AND deleted_at = ? AND deletion_id IS NOT NULL",
+            fileset.id(),
+            deletedAt));
+    Assertions.assertEquals(
+        2,
+        countRows(
+            "SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?"
+                + " AND version = 2 AND deleted_at = ? AND deletion_id IS NOT NULL",
+            fileset.id(),
+            deletedAt));
+    Assertions.assertEquals(
+        1,
+        countRows(
+            "SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?"
+                + " AND version = 1 AND deleted_at > 0 AND deletion_id IS NULL",
+            fileset.id()));
+    long schemaId =
+        EntityIdService.getEntityId(
+            NameIdentifier.of(namespace.levels()), Entity.EntityType.SCHEMA);
+    EntityDeletionPO deletion =
+        EntityDeletionService.getInstance()
+            .list(
+                Entity.EntityType.FILESET,
+                schemaId,
+                fileset.name(),
+                fileset.id(),
+                DeletionState.DELETED)
+            .get(0);
+    FilesetEntity restored =
+        FilesetMetaService.getInstance()
+            .restoreFileset(
+                fileset.nameIdentifier(),
+                deletion,
+                Instant.now().toEpochMilli(),
+                "fileset-restore-etag",
+                deletion.getExpiresAt());
+    Assertions.assertEquals(current, restored);
+    Assertions.assertEquals(2, restored.storageLocations().size());
+    Assertions.assertEquals(
+        1, countActiveRelation("owner_meta", "metadata_object_type", fileset.id()));
+    Assertions.assertEquals(
+        1, countActiveRelation("role_meta_securable_object", "type", fileset.id()));
+    Assertions.assertEquals(1, countActiveTagRelation(fileset.id(), retainedTag.id()));
+    Assertions.assertEquals(0, countActiveTagRelation(fileset.id(), independentlyRemovedTag.id()));
+    Assertions.assertEquals(
+        1, countActiveRelation("statistic_meta", "metadata_object_type", fileset.id()));
+    Assertions.assertEquals(
+        1, countActiveRelation("policy_relation_meta", "metadata_object_type", fileset.id()));
+    Assertions.assertEquals(
+        1,
+        countRows(
+            "SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?"
+                + " AND version = 1 AND deleted_at > 0 AND deletion_id IS NULL",
+            fileset.id()));
+    Assertions.assertEquals(
+        2,
+        countRows(
+            "SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?"
+                + " AND version = 2 AND deleted_at = 0 AND deletion_id IS NULL",
+            fileset.id()));
+    Assertions.assertEquals(
+        fileset.id(),
+        FilesetMetaService.getInstance()
+            .restoreFileset(
+                fileset.nameIdentifier(),
+                deletion,
+                Instant.now().toEpochMilli(),
+                "fileset-restore-etag",
+                deletion.getExpiresAt())
+            .id());
+  }
+
+  @TestTemplate
+  public void testFilesetNameCollisionLatestGenerationAndOverwriteGuard() throws IOException {
+    Namespace namespace = NamespaceUtil.ofFileset(metalakeName, catalogName, schemaName);
+    String name = GravitinoITUtils.genRandomName("repeated_fileset");
+    FilesetEntity original =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, name, AUDIT_INFO, "/original");
+    FilesetMetaService.getInstance().insertFileset(original, false);
+    Assertions.assertTrue(
+        FilesetMetaService.getInstance().deleteFileset(original.nameIdentifier()));
+    Assertions.assertThrows(
+        RecoveryConflictException.class,
+        () -> FilesetMetaService.getInstance().insertFileset(original, true));
+
+    RecoverableDeletionManager manager =
+        new RecoverableDeletionManager(Configs.DEFAULT_STORE_DELETE_AFTER_TIME);
+    FilesetEntity replacement =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(), namespace, name, AUDIT_INFO, "/replacement");
+    FilesetMetaService.getInstance().insertFileset(replacement, false);
+    DeletedEntityDTO occupied = manager.getDeletedFileset(namespace, name, original.id());
+    Assertions.assertEquals("NAME_OCCUPIED", occupied.getReason());
+    RecoveryConflictException occupiedFailure =
+        Assertions.assertThrows(
+            RecoveryConflictException.class,
+            () ->
+                manager.restoreDeletedFileset(namespace, name, original.id(), occupied.getEtag()));
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, occupiedFailure.getReason());
+
+    Assertions.assertTrue(
+        FilesetMetaService.getInstance().deleteFileset(replacement.nameIdentifier()));
+    DeletedEntityDTO oldGeneration = manager.getDeletedFileset(namespace, name, original.id());
+    Assertions.assertFalse(oldGeneration.getLatestForName());
+    Assertions.assertEquals("NOT_LATEST_TOMBSTONE", oldGeneration.getReason());
+    RecoveryConflictException latestFailure =
+        Assertions.assertThrows(
+            RecoveryConflictException.class,
+            () ->
+                manager.restoreDeletedFileset(
+                    namespace, name, original.id(), oldGeneration.getEtag()));
+    Assertions.assertEquals(RecoveryConflictReason.NOT_LATEST_TOMBSTONE, latestFailure.getReason());
+  }
+
+  @TestTemplate
+  public void testRecordedFilesetDeletionUsesExactPurge() throws IOException {
+    Namespace namespace = NamespaceUtil.ofFileset(metalakeName, catalogName, schemaName);
+    FilesetEntity fileset =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            namespace,
+            GravitinoITUtils.genRandomName("purged_fileset"),
+            AUDIT_INFO,
+            "/purged");
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+    TagEntity independentlyRemovedTag = newTag("purged_fileset_removed_tag");
+    TagMetaService.getInstance().insertTag(independentlyRemovedTag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            new NameIdentifier[] {independentlyRemovedTag.nameIdentifier()},
+            new NameIdentifier[0]);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            fileset.nameIdentifier(),
+            Entity.EntityType.FILESET,
+            new NameIdentifier[0],
+            new NameIdentifier[] {independentlyRemovedTag.nameIdentifier()});
+    long deletedAt = Instant.now().minusSeconds(60).toEpochMilli();
+    Assertions.assertTrue(
+        FilesetMetaService.getInstance().deleteFileset(fileset.nameIdentifier(), deletedAt, 0L));
+
+    Assertions.assertEquals(
+        0,
+        FilesetMetaService.getInstance()
+            .deleteFilesetAndVersionMetasByLegacyTimeline(Instant.now().toEpochMilli(), 100));
+    Assertions.assertTrue(legacyRecordExistsInDB(fileset.id(), Entity.EntityType.FILESET));
+    Assertions.assertEquals(
+        1, backend.hardDeleteLegacyData(Entity.EntityType.FILESET, Instant.now().toEpochMilli()));
+    Assertions.assertFalse(legacyRecordExistsInDB(fileset.id(), Entity.EntityType.FILESET));
+    Assertions.assertEquals(
+        0,
+        countRows("SELECT COUNT(*) FROM fileset_version_info WHERE fileset_id = ?", fileset.id()));
+    Assertions.assertEquals(
+        1,
+        countRows(
+            "SELECT COUNT(*) FROM tag_relation_meta WHERE metadata_object_id = ?"
+                + " AND tag_id = ? AND deleted_at > 0 AND deletion_id IS NULL",
+            fileset.id(),
+            independentlyRemovedTag.id()));
+  }
+
+  @TestTemplate
+  public void testConcurrentUpdatesDeriveFromLockedFilesetState() throws Exception {
+    Namespace namespace = NamespaceUtil.ofFileset(metalakeName, catalogName, schemaName);
+    FilesetEntity fileset =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            namespace,
+            GravitinoITUtils.genRandomName("serialized_fileset"),
+            AUDIT_INFO,
+            "/initial");
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+
+    CountDownLatch firstUpdaterEntered = new CountDownLatch(1);
+    CountDownLatch releaseFirstUpdater = new CountDownLatch(1);
+    CountDownLatch secondTaskStarted = new CountDownLatch(1);
+    CountDownLatch secondUpdaterEntered = new CountDownLatch(1);
+    AtomicReference<String> secondObservedComment = new AtomicReference<>();
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Function<FilesetEntity, FilesetEntity> firstUpdater =
+          oldFileset -> {
+            firstUpdaterEntered.countDown();
+            await(releaseFirstUpdater);
+            return copyWithComment(oldFileset, "first");
+          };
+      Future<FilesetEntity> first =
+          executor.submit(
+              () ->
+                  FilesetMetaService.getInstance()
+                      .updateFileset(fileset.nameIdentifier(), firstUpdater));
+      Assertions.assertTrue(firstUpdaterEntered.await(10, TimeUnit.SECONDS));
+
+      Function<FilesetEntity, FilesetEntity> secondUpdater =
+          oldFileset -> {
+            secondUpdaterEntered.countDown();
+            secondObservedComment.set(oldFileset.comment());
+            return copyWithComment(oldFileset, oldFileset.comment() + "-second");
+          };
+      Future<FilesetEntity> second =
+          executor.submit(
+              () -> {
+                secondTaskStarted.countDown();
+                return FilesetMetaService.getInstance()
+                    .updateFileset(fileset.nameIdentifier(), secondUpdater);
+              });
+      Assertions.assertTrue(secondTaskStarted.await(10, TimeUnit.SECONDS));
+      Assertions.assertFalse(
+          secondUpdaterEntered.await(500, TimeUnit.MILLISECONDS),
+          "The second updater must not derive state before acquiring the fileset lock");
+
+      releaseFirstUpdater.countDown();
+      Assertions.assertEquals("first", first.get(10, TimeUnit.SECONDS).comment());
+      Assertions.assertEquals("first-second", second.get(10, TimeUnit.SECONDS).comment());
+      Assertions.assertEquals("first", secondObservedComment.get());
+      Assertions.assertEquals(
+          "first-second",
+          FilesetMetaService.getInstance()
+              .getFilesetByIdentifier(fileset.nameIdentifier())
+              .comment());
+    } finally {
+      releaseFirstUpdater.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @TestTemplate
+  public void testInsertRejectsDeletedParentWithoutCreatingOrphan() throws IOException {
+    Namespace namespace = NamespaceUtil.ofFileset(metalakeName, catalogName, schemaName);
+    FilesetEntity fileset =
+        createFilesetEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            namespace,
+            GravitinoITUtils.genRandomName("orphan_fileset"),
+            AUDIT_INFO,
+            "/orphan");
+    Assertions.assertTrue(
+        SchemaMetaService.getInstance()
+            .deleteSchema(NameIdentifier.of(metalakeName, catalogName, schemaName), true));
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () -> FilesetMetaService.getInstance().insertFileset(fileset, false));
+    Assertions.assertEquals(
+        0, countRows("SELECT COUNT(*) FROM fileset_meta WHERE fileset_id = ?", fileset.id()));
+  }
+
+  @TestTemplate
   public void testDeleteFilesetVersionsByRetentionCount() throws IOException {
     String filesetName = GravitinoITUtils.genRandomName("tst_fs_fileset");
     FilesetEntity filesetEntity =
@@ -392,8 +815,7 @@ public class TestFilesetMetaService extends TestJDBCBackend {
   }
 
   @TestTemplate
-  public void testUpdateFilesetReturnsSuccessWhenVersionedMetaUpdateAffectsNoRows()
-      throws IOException {
+  public void testUpdateFilesetRollsBackNestedConflict() throws IOException {
     String filesetName = GravitinoITUtils.genRandomName("tst_fs_conflict");
     NameIdentifier filesetIdent =
         NameIdentifier.of(metalakeName, catalogName, schemaName, filesetName);
@@ -427,15 +849,15 @@ public class TestFilesetMetaService extends TestJDBCBackend {
                     .build())
             .build();
 
-    Exception exception =
+    TombstoneChangedException exception =
         Assertions.assertThrows(
-            IOException.class,
+            TombstoneChangedException.class,
             () ->
                 FilesetMetaService.getInstance()
                     .updateFileset(
                         filesetIdent,
                         e -> {
-                          // Simulate an optimistic locking conflict
+                          // Simulate a nested write that invalidates the outer optimistic update.
                           try {
                             backend.update(
                                 filesetIdent,
@@ -456,14 +878,84 @@ public class TestFilesetMetaService extends TestJDBCBackend {
                           return updatedFilesetEntity;
                         }));
     Assertions.assertTrue(
-        exception.getMessage().contains("Failed to update the entity: " + filesetIdent));
+        exception.getMessage().contains("Fileset changed while updating " + filesetIdent));
 
     FilesetEntity persistedEntity =
         FilesetMetaService.getInstance().getFilesetByIdentifier(filesetIdent);
-    Assertions.assertEquals(conflictingAuditInfo, persistedEntity.auditInfo());
+    Assertions.assertEquals(filesetEntity.auditInfo(), persistedEntity.auditInfo());
     Assertions.assertEquals("", persistedEntity.comment());
     Assertions.assertNull(persistedEntity.properties());
     Assertions.assertEquals("/tmp", persistedEntity.storageLocations().get(LOCATION_NAME_UNKNOWN));
+    Assertions.assertNotEquals(conflictingAuditInfo, persistedEntity.auditInfo());
     Assertions.assertNotEquals(updatedFilesetEntity, persistedEntity);
+  }
+
+  private TagEntity newTag(String prefix) {
+    return TagEntity.builder()
+        .withId(RandomIdGenerator.INSTANCE.nextId())
+        .withName(GravitinoITUtils.genRandomName(prefix))
+        .withNamespace(NamespaceUtil.ofTag(metalakeName))
+        .withAuditInfo(AUDIT_INFO)
+        .build();
+  }
+
+  private int countActiveRelation(String table, String typeColumn, long filesetId) {
+    String sql =
+        String.format(
+            "SELECT count(*) FROM %s WHERE metadata_object_id = ? AND %s = 'FILESET'"
+                + " AND deleted_at = 0",
+            table, typeColumn);
+    return countRows(sql, filesetId);
+  }
+
+  private int countActiveTagRelation(long filesetId, long tagId) {
+    return countRows(
+        "SELECT count(*) FROM tag_relation_meta WHERE metadata_object_id = ?"
+            + " AND metadata_object_type = 'FILESET' AND tag_id = ? AND deleted_at = 0",
+        filesetId,
+        tagId);
+  }
+
+  private int countRows(String sql, Object... parameters) {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      for (int index = 0; index < parameters.length; index++) {
+        statement.setObject(index + 1, parameters[index]);
+      }
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) {
+          return resultSet.getInt(1);
+        }
+        throw new IllegalStateException("Count query returned no row");
+      }
+    } catch (SQLException e) {
+      throw new RuntimeException("Failed to count fileset rows", e);
+    }
+  }
+
+  private FilesetEntity copyWithComment(FilesetEntity fileset, String comment) {
+    return FilesetEntity.builder()
+        .withId(fileset.id())
+        .withName(fileset.name())
+        .withNamespace(fileset.namespace())
+        .withFilesetType(fileset.filesetType())
+        .withStorageLocations(fileset.storageLocations())
+        .withComment(comment)
+        .withProperties(fileset.properties())
+        .withAuditInfo(fileset.auditInfo())
+        .build();
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(10, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out waiting for concurrent fileset update");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted while coordinating fileset update", e);
+    }
   }
 }

@@ -25,8 +25,12 @@ import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.file.Fileset.LOCATION_NAME_UNKNOWN;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
@@ -34,9 +38,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -45,6 +51,9 @@ import org.apache.gravitino.Audit;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.Version;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.audit.FilesetAuditConstants;
@@ -52,10 +61,14 @@ import org.apache.gravitino.audit.FilesetDataOperation;
 import org.apache.gravitino.audit.InternalClientType;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.file.FilesetDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.FilesetCreateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdateRequest;
 import org.apache.gravitino.dto.requests.FilesetUpdatesRequest;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -66,10 +79,18 @@ import org.apache.gravitino.exceptions.FilesetAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchFilesetException;
 import org.apache.gravitino.exceptions.NoSuchLocationNameException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.file.FilesetChange;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.FilesetEntity;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.utils.NamespaceUtil;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -91,6 +112,8 @@ public class TestFilesetOperations extends BaseOperationsTest {
   }
 
   private FilesetOperationDispatcher dispatcher = mock(FilesetOperationDispatcher.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private final String metalake = "metalake1";
 
@@ -126,6 +149,7 @@ public class TestFilesetOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(dispatcher).to(FilesetDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
@@ -184,6 +208,247 @@ public class TestFilesetOperations extends BaseOperationsTest {
     ErrorResponse errorResp2 = resp2.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp2.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp2.getType());
+  }
+
+  @Test
+  public void testDeletedFilesetReadAndIdempotentRestoreReplay() {
+    Namespace filesetNamespace = NamespaceUtil.ofFileset(metalake, catalog, schema);
+    String etag =
+        "deletion-fileset-1-representation-"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    DeletedEntityDTO deletedFileset =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("fileset-1")
+            .withName("fileset1")
+            .withType(RecoveryEntityType.FILESET)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(2L)
+            .withEtag(etag)
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedFilesets(
+            eq(filesetNamespace), eq("fileset1"), eq(984273L)))
+        .thenReturn(List.of(deletedFileset));
+    when(recoverableDeletionManager.getDeletedFileset(
+            eq(filesetNamespace), eq("fileset1"), eq(984273L)))
+        .thenReturn(deletedFileset);
+
+    Response listResponse =
+        target(filesetPath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("name", "fileset1")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    DeletedEntityListResponse listBody = listResponse.readEntity(DeletedEntityListResponse.class);
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedFileset}, listBody.getDeletedEntities());
+
+    Response itemResponse =
+        target(filesetPath(metalake, catalog, schema))
+            .path("fileset1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    Assertions.assertEquals(deletedFileset, itemBody.getDeletedEntity());
+
+    FilesetEntity restored =
+        FilesetEntity.builder()
+            .withId(984273L)
+            .withName("fileset1")
+            .withNamespace(filesetNamespace)
+            .withComment("restored metadata")
+            .withFilesetType(Fileset.Type.MANAGED)
+            .withStorageLocations(ImmutableMap.of(LOCATION_NAME_UNKNOWN, "s3://bucket/fileset1"))
+            .withProperties(ImmutableMap.of("key", "value"))
+            .withAuditInfo(
+                AuditInfo.builder()
+                    .withCreator("alice")
+                    .withCreateTime(Instant.ofEpochMilli(1_784_000_000_000L))
+                    .build())
+            .build();
+    when(recoverableDeletionManager.restoreDeletedFileset(
+            eq(filesetNamespace), eq("fileset1"), eq(984273L), eq(etag)))
+        .thenReturn(restored);
+
+    Response restoreResponse = patchRestoreFileset("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), restoreResponse.getStatus());
+    FilesetDTO restoredFileset = restoreResponse.readEntity(FilesetResponse.class).getFileset();
+    Assertions.assertEquals("fileset1", restoredFileset.name());
+    Assertions.assertEquals(Fileset.Type.MANAGED, restoredFileset.type());
+    Assertions.assertEquals(
+        ImmutableMap.of(LOCATION_NAME_UNKNOWN, "s3://bucket/fileset1"),
+        restoredFileset.storageLocations());
+
+    Response replayResponse = patchRestoreFileset("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replayResponse.getStatus());
+    Assertions.assertEquals(
+        "fileset1", replayResponse.readEntity(FilesetResponse.class).getFileset().name());
+    verify(recoverableDeletionManager, times(2))
+        .restoreDeletedFileset(filesetNamespace, "fileset1", 984273L, etag);
+    verifyNoInteractions(dispatcher);
+  }
+
+  @Test
+  public void testDeletedFilesetQueryValidationAndLiveFiltering() {
+    Response invalidId =
+        target(filesetPath(metalake, catalog, schema))
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(filesetPath(metalake, catalog, schema))
+            .path("fileset1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response invalidInclude =
+        target(filesetPath(metalake, catalog, schema))
+            .queryParam("include", "all")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidInclude.getStatus());
+
+    Response liveId =
+        target(filesetPath(metalake, catalog, schema))
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), liveId.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+
+    NameIdentifier fileset1 = NameIdentifier.of(metalake, catalog, schema, "fileset1");
+    NameIdentifier fileset2 = NameIdentifier.of(metalake, catalog, schema, "fileset2");
+    when(dispatcher.listFilesets(any())).thenReturn(new NameIdentifier[] {fileset1, fileset2});
+    Response filtered =
+        target(filesetPath(metalake, catalog, schema))
+            .queryParam("name", "fileset2")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), filtered.getStatus());
+    Assertions.assertArrayEquals(
+        new NameIdentifier[] {fileset2},
+        filtered.readEntity(EntityListResponse.class).identifiers());
+  }
+
+  @Test
+  public void testRestoreDeletedFilesetValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(filesetPath(metalake, catalog, schema))
+            .path("fileset1")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"fileset-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId =
+        patchRestoreFileset(
+            null, "\"fileset-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch =
+        patchRestoreFileset("984273", null, MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch =
+        patchRestoreFileset(
+            "984273", "W/\"fileset-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch =
+        patchRestoreFileset(
+            "984273",
+            "\"fileset-etag\", \"other-etag\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestoreFileset("984273", "\"fileset-etag\"", MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(filesetPath(metalake, catalog, schema))
+            .path("fileset1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"fileset-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, dispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedFilesetMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFileset(any(), eq("fileset1"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFileset(any(), eq("fileset1"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFileset(any(), eq("fileset1"), eq(984273L), eq("name-occupied"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.ENTITY_ID_REUSED, "reused"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFileset(any(), eq("fileset1"), eq(984273L), eq("id-reused"));
+    doThrow(
+            new RecoveryConflictException(
+                RecoveryConflictReason.NOT_LATEST_TOMBSTONE, "not latest"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedFileset(any(), eq("fileset1"), eq(984273L), eq("not-latest"));
+
+    Response stale = patchRestoreFileset("984273", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestoreFileset("984273", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    assertRecoveryConflict("name-occupied", RecoveryConflictReason.NAME_OCCUPIED);
+    assertRecoveryConflict("id-reused", RecoveryConflictReason.ENTITY_ID_REUSED);
+    assertRecoveryConflict("not-latest", RecoveryConflictReason.NOT_LATEST_TOMBSTONE);
+    verifyNoInteractions(dispatcher);
   }
 
   @Test
@@ -694,6 +959,34 @@ public class TestFilesetOperations extends BaseOperationsTest {
     Assertions.assertEquals(updatedFileset.comment(), filesetDTO.comment());
     Assertions.assertEquals(updatedFileset.type(), filesetDTO.type());
     Assertions.assertEquals(updatedFileset.properties(), filesetDTO.properties());
+  }
+
+  private void assertRecoveryConflict(String etag, RecoveryConflictReason reason) {
+    Response response = patchRestoreFileset("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), response.getStatus());
+    ErrorResponse body = response.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, body.getCode());
+    Assertions.assertEquals(reason, body.getReason());
+  }
+
+  private Response patchRestoreFileset(String id, String ifMatch) {
+    return patchRestoreFileset(id, ifMatch, MediaType.valueOf("application/merge-patch+json"));
+  }
+
+  private Response patchRestoreFileset(String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(filesetPath(metalake, catalog, schema))
+            .path("fileset1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
   }
 
   private static String filesetPath(String metalake, String catalog, String schema) {

@@ -43,7 +43,9 @@ import org.apache.gravitino.exceptions.RecoveryConflictException;
 import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
+import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -53,6 +55,7 @@ import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.EntityIdService;
+import org.apache.gravitino.storage.relational.service.FilesetMetaService;
 import org.apache.gravitino.storage.relational.service.ModelMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
@@ -191,6 +194,39 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         model.id(),
         manager.restoreDeletedModel(namespace, model.name(), model.id(), exact.getEtag()).id());
     Assertions.assertTrue(manager.listDeletedModels(namespace, model.name(), model.id()).isEmpty());
+  }
+
+  @TestTemplate
+  public void testManagedFilesetDiscoveryMetadataRestoreAndReplay() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofFileset(METALAKE, CATALOG, SCHEMA);
+    FilesetEntity fileset = newFileset(namespace, "managed_fileset");
+    FilesetMetaService.getInstance().insertFileset(fileset, false);
+    Assertions.assertTrue(
+        FilesetMetaService.getInstance().deleteFileset(fileset.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    DeletedEntityDTO exact = manager.getDeletedFileset(namespace, fileset.name(), fileset.id());
+    Assertions.assertEquals("fileset", exact.getType().value());
+    Assertions.assertTrue(exact.getLatestForName());
+    Assertions.assertTrue(exact.getRestorable());
+
+    FilesetEntity restored =
+        manager.restoreDeletedFileset(namespace, fileset.name(), fileset.id(), exact.getEtag());
+    Assertions.assertEquals(fileset, restored);
+    Assertions.assertEquals(Fileset.Type.MANAGED, restored.filesetType());
+    Assertions.assertEquals(
+        "/warehouse/managed_fileset",
+        restored.storageLocations().get(Fileset.LOCATION_NAME_UNKNOWN));
+    Assertions.assertEquals(
+        fileset.id(),
+        manager
+            .restoreDeletedFileset(namespace, fileset.name(), fileset.id(), exact.getEtag())
+            .id());
+    Assertions.assertTrue(
+        manager.listDeletedFilesets(namespace, fileset.name(), fileset.id()).isEmpty());
   }
 
   @TestTemplate
@@ -469,5 +505,18 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
 
   private TableEntity newTable(Namespace namespace, String name) {
     return createTableEntity(RandomIdGenerator.INSTANCE.nextId(), namespace, name, AUDIT_INFO);
+  }
+
+  private FilesetEntity newFileset(Namespace namespace, String name) {
+    return FilesetEntity.builder()
+        .withId(RandomIdGenerator.INSTANCE.nextId())
+        .withName(name)
+        .withNamespace(namespace)
+        .withFilesetType(Fileset.Type.MANAGED)
+        .withStorageLocations(Map.of(Fileset.LOCATION_NAME_UNKNOWN, "/warehouse/" + name))
+        .withComment("managed metadata")
+        .withProperties(Map.of("owner", "test"))
+        .withAuditInfo(AUDIT_INFO)
+        .build();
   }
 }
