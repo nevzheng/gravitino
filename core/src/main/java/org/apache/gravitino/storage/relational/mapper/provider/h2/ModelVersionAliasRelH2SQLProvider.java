@@ -30,7 +30,7 @@ public class ModelVersionAliasRelH2SQLProvider extends ModelVersionAliasRelBaseS
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND model_version = ("
         + " SELECT model_version FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME

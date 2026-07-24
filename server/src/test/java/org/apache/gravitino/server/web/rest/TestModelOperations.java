@@ -20,18 +20,25 @@ package org.apache.gravitino.server.web.rest;
 
 import static org.apache.gravitino.Configs.CACHE_ENABLED;
 import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.client.Entity;
+import javax.ws.rs.client.Invocation;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -40,8 +47,12 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryConflictReason;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.catalog.ModelDispatcher;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.model.ModelVersionDTO;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.ModelRegisterRequest;
 import org.apache.gravitino.dto.requests.ModelUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelUpdatesRequest;
@@ -49,6 +60,8 @@ import org.apache.gravitino.dto.requests.ModelVersionLinkRequest;
 import org.apache.gravitino.dto.requests.ModelVersionUpdateRequest;
 import org.apache.gravitino.dto.requests.ModelVersionUpdatesRequest;
 import org.apache.gravitino.dto.responses.BaseResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorConstants;
@@ -61,14 +74,20 @@ import org.apache.gravitino.dto.responses.ModelVersionUriResponse;
 import org.apache.gravitino.exceptions.ModelAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchModelException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.model.ModelVersionChange;
+import org.apache.gravitino.recovery.RecoverableDeletionManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -90,6 +109,8 @@ public class TestModelOperations extends BaseOperationsTest {
   }
 
   private ModelDispatcher modelDispatcher = mock(ModelDispatcher.class);
+  private RecoverableDeletionManager recoverableDeletionManager =
+      mock(RecoverableDeletionManager.class);
 
   private AuditInfo testAuditInfo =
       AuditInfo.builder().withCreator("user1").withCreateTime(Instant.now()).build();
@@ -128,6 +149,7 @@ public class TestModelOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(modelDispatcher).to(ModelDispatcher.class).ranked(2);
+            bind(recoverableDeletionManager).to(RecoverableDeletionManager.class).ranked(2);
             bindFactory(TestModelOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }
@@ -214,6 +236,205 @@ public class TestModelOperations extends BaseOperationsTest {
     ErrorResponse errorResp1 = resp6.readEntity(ErrorResponse.class);
     Assertions.assertEquals(ErrorConstants.INTERNAL_ERROR_CODE, errorResp1.getCode());
     Assertions.assertEquals(RuntimeException.class.getSimpleName(), errorResp1.getType());
+  }
+
+  @Test
+  public void testDeletedModelReadAndIdempotentRestoreReplay() {
+    String etag =
+        "deletion-model-1-representation-"
+            + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    DeletedEntityDTO deletedModel =
+        DeletedEntityDTO.builder()
+            .withId("984273")
+            .withDeletionId("model-1")
+            .withName("model1")
+            .withType(RecoveryEntityType.MODEL)
+            .withDeletedAt(1_784_800_000_000L)
+            .withExpiresAt(1_785_404_800_000L)
+            .withDeletedBy("alice")
+            .withVersion(2L)
+            .withEtag(etag)
+            .withLatestForName(true)
+            .withRestorable(true)
+            .build();
+    when(recoverableDeletionManager.listDeletedModels(any(), eq("model1"), eq(984273L)))
+        .thenReturn(List.of(deletedModel));
+    when(recoverableDeletionManager.getDeletedModel(any(), eq("model1"), eq(984273L)))
+        .thenReturn(deletedModel);
+
+    Response listResponse =
+        target(modelPath())
+            .queryParam("include", "deleted")
+            .queryParam("name", "model1")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+    DeletedEntityListResponse listBody = listResponse.readEntity(DeletedEntityListResponse.class);
+    Assertions.assertArrayEquals(
+        new DeletedEntityDTO[] {deletedModel}, listBody.getDeletedEntities());
+
+    Response itemResponse =
+        target(modelPath())
+            .path("model1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), itemResponse.getStatus());
+    Assertions.assertEquals('"' + etag + '"', itemResponse.getHeaderString("ETag"));
+    DeletedEntityResponse itemBody = itemResponse.readEntity(DeletedEntityResponse.class);
+    Assertions.assertEquals(deletedModel, itemBody.getDeletedEntity());
+
+    ModelEntity restored =
+        ModelEntity.builder()
+            .withId(984273L)
+            .withName("model1")
+            .withNamespace(modelNs)
+            .withLatestVersion(2)
+            .withProperties(properties)
+            .withAuditInfo(testAuditInfo)
+            .build();
+    when(recoverableDeletionManager.restoreDeletedModel(any(), eq("model1"), eq(984273L), eq(etag)))
+        .thenReturn(restored);
+
+    Response restoreResponse = patchRestoreModel("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), restoreResponse.getStatus());
+    Assertions.assertEquals(
+        "model1", restoreResponse.readEntity(ModelResponse.class).getModel().name());
+
+    Response replayResponse = patchRestoreModel("984273", '"' + etag + '"');
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), replayResponse.getStatus());
+    Assertions.assertEquals(
+        "model1", replayResponse.readEntity(ModelResponse.class).getModel().name());
+    verify(recoverableDeletionManager, times(2))
+        .restoreDeletedModel(any(), eq("model1"), eq(984273L), eq(etag));
+    verifyNoInteractions(modelDispatcher);
+  }
+
+  @Test
+  public void testDeletedModelQueryValidation() {
+    Response invalidId =
+        target(modelPath())
+            .queryParam("include", "deleted")
+            .queryParam("id", "not-a-number")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidId.getStatus());
+
+    Response missingItemId =
+        target(modelPath())
+            .path("model1")
+            .queryParam("include", "deleted")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingItemId.getStatus());
+
+    Response invalidInclude =
+        target(modelPath())
+            .queryParam("include", "all")
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .get();
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), invalidInclude.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, modelDispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedModelValidatesPatchAndPreconditions() {
+    Response missingInclude =
+        target(modelPath())
+            .path("model1")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"model-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(false), "application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), missingInclude.getStatus());
+
+    Response missingId =
+        patchRestoreModel(
+            null, "\"model-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), missingId.getStatus());
+
+    Response missingIfMatch =
+        patchRestoreModel("984273", null, MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(428, missingIfMatch.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.PRECONDITION_REQUIRED_CODE,
+        missingIfMatch.readEntity(ErrorResponse.class).getCode());
+
+    Response weakIfMatch =
+        patchRestoreModel(
+            "984273", "W/\"model-etag\"", MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), weakIfMatch.getStatus());
+
+    Response multipleIfMatch =
+        patchRestoreModel(
+            "984273",
+            "\"model-etag\", \"other-etag\"",
+            MediaType.valueOf("application/merge-patch+json"));
+    Assertions.assertEquals(
+        Response.Status.BAD_REQUEST.getStatusCode(), multipleIfMatch.getStatus());
+
+    Response wrongMediaType =
+        patchRestoreModel("984273", "\"model-etag\"", MediaType.APPLICATION_JSON_TYPE);
+    Assertions.assertEquals(
+        Response.Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode(), wrongMediaType.getStatus());
+
+    Response invalidBody =
+        target(modelPath())
+            .path("model1")
+            .queryParam("include", "deleted")
+            .queryParam("id", "984273")
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json")
+            .header("If-Match", "\"model-etag\"")
+            .method(
+                "PATCH",
+                Entity.entity(new EntityRestoreRequest(true), "application/merge-patch+json"));
+    Assertions.assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), invalidBody.getStatus());
+    verifyNoInteractions(recoverableDeletionManager, modelDispatcher);
+  }
+
+  @Test
+  public void testRestoreDeletedModelMapsRecoveryFailures() {
+    doThrow(new TombstoneChangedException("changed"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedModel(any(), eq("model1"), eq(984273L), eq("stale"));
+    doThrow(new TombstoneExpiredException("expired"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedModel(any(), eq("model1"), eq(984273L), eq("expired"));
+    doThrow(new RecoveryConflictException(RecoveryConflictReason.NAME_OCCUPIED, "occupied"))
+        .when(recoverableDeletionManager)
+        .restoreDeletedModel(any(), eq("model1"), eq(984273L), eq("conflict"));
+
+    Response stale = patchRestoreModel("984273", "\"stale\"");
+    Assertions.assertEquals(Response.Status.PRECONDITION_FAILED.getStatusCode(), stale.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_CHANGED_CODE, stale.readEntity(ErrorResponse.class).getCode());
+
+    Response expired = patchRestoreModel("984273", "\"expired\"");
+    Assertions.assertEquals(Response.Status.GONE.getStatusCode(), expired.getStatus());
+    Assertions.assertEquals(
+        ErrorConstants.TOMBSTONE_EXPIRED_CODE, expired.readEntity(ErrorResponse.class).getCode());
+
+    Response conflict = patchRestoreModel("984273", "\"conflict\"");
+    Assertions.assertEquals(Response.Status.CONFLICT.getStatusCode(), conflict.getStatus());
+    ErrorResponse conflictBody = conflict.readEntity(ErrorResponse.class);
+    Assertions.assertEquals(ErrorConstants.RECOVERY_CONFLICT_CODE, conflictBody.getCode());
+    Assertions.assertEquals(RecoveryConflictReason.NAME_OCCUPIED, conflictBody.getReason());
+    verifyNoInteractions(modelDispatcher);
   }
 
   @Test
@@ -1572,6 +1793,26 @@ public class TestModelOperations extends BaseOperationsTest {
 
   private String modelPath() {
     return "/metalakes/" + metalake + "/catalogs/" + catalog + "/schemas/" + schema + "/models";
+  }
+
+  private Response patchRestoreModel(String id, String ifMatch) {
+    return patchRestoreModel(id, ifMatch, MediaType.valueOf("application/merge-patch+json"));
+  }
+
+  private Response patchRestoreModel(String id, String ifMatch, MediaType requestMediaType) {
+    Invocation.Builder request =
+        target(modelPath())
+            .path("model1")
+            .queryParam("include", "deleted")
+            .queryParam("id", id)
+            .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+            .request(MediaType.APPLICATION_JSON_TYPE)
+            .accept("application/vnd.gravitino.v1+json");
+    if (ifMatch != null) {
+      request.header("If-Match", ifMatch);
+    }
+    return request.method(
+        "PATCH", Entity.entity(new EntityRestoreRequest(false), requestMediaType));
   }
 
   private Model mockModel(String modelName, String comment, int latestVersion) {

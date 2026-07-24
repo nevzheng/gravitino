@@ -124,7 +124,7 @@ public class ModelVersionMetaBaseSQLProvider {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " mvi SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE mvi.schema_id = #{schemaId} AND mvi.model_id = ("
         + " SELECT mm.model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -137,7 +137,7 @@ public class ModelVersionMetaBaseSQLProvider {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND version = #{modelVersion} AND deleted_at = 0";
   }
 
@@ -146,7 +146,7 @@ public class ModelVersionMetaBaseSQLProvider {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND version = ("
         + " SELECT model_version FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME
@@ -159,7 +159,7 @@ public class ModelVersionMetaBaseSQLProvider {
         + "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -172,7 +172,7 @@ public class ModelVersionMetaBaseSQLProvider {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -180,7 +180,7 @@ public class ModelVersionMetaBaseSQLProvider {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
         + " SET deleted_at = (UNIX_TIMESTAMP() * 1000.0)"
-        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000"
+        + " + EXTRACT(MICROSECOND FROM CURRENT_TIMESTAMP(3)) / 1000, deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -188,7 +188,8 @@ public class ModelVersionMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit}";
   }
 
   public String updateModelVersionMeta(

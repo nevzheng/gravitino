@@ -30,11 +30,34 @@ paths:
         - model
       summary: List models
       operationId: listModels
+      description: |
+        Lists live models by default. `include=deleted` returns recoverable metadata-deletion
+        records and supports exact `name` and `id` filters. Deleted collection responses do not
+        carry an ETag; read an exact deleted model before restoring it. Deleted-model reads are
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/modelNameFilter"
+        - $ref: "#/components/parameters/modelIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: |
+            Returns deleted metadata records when `include=deleted`; otherwise returns live model
+            identifiers.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted models in the schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -87,12 +110,37 @@ paths:
         - model
       summary: Get model
       operationId: getModel
-      description: Returns the specified model object
+      description: |
+        Returns the specified live model by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live parent path. The
+        deleted representation is metadata-only and carries a strong ETag for PATCH.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedModelId"
       responses:
         "200":
-          $ref: "#/components/responses/ModelResponse"
+          description: A live model or one exact deleted-model generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-model read
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/ModelResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted model
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The target fileset does not exist
+          description: Not Found - The target model does not exist
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -106,6 +154,84 @@ paths:
                   $ref: "./schemas.yaml#/components/examples/NoSuchSchemaException"
                 NoSuchModelException:
                   $ref: "#/components/examples/NoSuchModelException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - model
+      summary: Restore a soft-deleted model
+      operationId: restoreModel
+      description: |
+        Makes one exact soft-deleted model generation active again. The immutable `id`, path name,
+        and strong `If-Match` value bind PATCH to the exact representation returned by GET.
+
+        Restore is metadata-only. It restores the model base row, model-version URI and alias rows
+        that were live at model deletion time, and Gravitino owner, grant, tag, statistic, and
+        policy relations. It does not contact, validate, or recreate model artifacts in a
+        downstream system. The same accepted ETag can be replayed only while this generation
+        remains latest and the exact model ID is live at its original parent and name.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedModelInclude"
+        - $ref: "#/components/parameters/restoreModelId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/ModelResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The token does not identify the requested model ID and name
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, or the tombstone predates complete deletion records.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -442,6 +568,71 @@ paths:
 
 components:
   parameters:
+    include:
+      name: include
+      in: query
+      description: Select live models or soft-deleted model records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    modelNameFilter:
+      name: name
+      in: query
+      description: Exact model-name filter
+      required: false
+      schema:
+        type: string
+
+    modelIdFilter:
+      name: id
+      in: query
+      description: Immutable model-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedModelId:
+      name: id
+      in: query
+      description: Immutable model ID required for an exact deleted-model read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreModelId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted model generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedModelInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted model targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag returned by the exact deleted-model GET
+      required: true
+      schema:
+        type: string
+
     version:
       name: version
       in: path

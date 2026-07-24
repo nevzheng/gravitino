@@ -33,7 +33,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
       @Param("schemaId") Long schemaId, @Param("modelName") String modelName) {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " mvi SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " mvi SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE mvi.schema_id = #{schemaId} AND mvi.model_id = ("
         + " SELECT mm.model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -46,7 +47,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
       @Param("modelId") Long modelId, @Param("modelVersion") Integer modelVersion) {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND version = #{modelVersion} AND deleted_at = 0";
   }
 
@@ -55,7 +57,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
       @Param("modelId") Long modelId, @Param("alias") String alias) {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND version = ("
         + " SELECT model_version FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME
@@ -68,7 +71,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
     return "<script>"
         + "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -81,7 +85,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
   public String softDeleteModelVersionMetasByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -89,7 +94,8 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
   public String softDeleteModelVersionMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -100,8 +106,10 @@ public class ModelVersionMetaPostgreSQLProvider extends ModelVersionMetaBaseSQLP
         + ModelVersionMetaMapper.TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + ModelVersionMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

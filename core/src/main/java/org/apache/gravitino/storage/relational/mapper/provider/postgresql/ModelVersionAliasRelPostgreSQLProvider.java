@@ -31,7 +31,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
       @Param("schemaId") Long schemaId, @Param("modelName") String modelName) {
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " mvar SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " mvar SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE mvar.model_id = ("
         + " SELECT mm.model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -44,7 +45,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
       @Param("modelId") Long modelId, @Param("modelVersion") Integer modelVersion) {
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND model_version = #{modelVersion} AND deleted_at = 0";
   }
 
@@ -53,7 +55,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
       @Param("modelId") Long modelId, @Param("alias") String alias) {
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id = #{modelId} AND model_version = ("
         + " SELECT model_version FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME
@@ -67,7 +70,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
     return "<script>"
         + "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id IN ("
         + " SELECT model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -83,7 +87,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
   public String softDeleteModelVersionAliasRelsByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id IN ("
         + " SELECT model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -94,7 +99,8 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
   public String softDeleteModelVersionAliasRelsByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE model_id IN ("
         + " SELECT model_id FROM "
         + ModelMetaMapper.TABLE_NAME
@@ -108,7 +114,9 @@ public class ModelVersionAliasRelPostgreSQLProvider extends ModelVersionAliasRel
         + ModelVersionAliasRelMapper.TABLE_NAME
         + " WHERE id IN (SELECT id FROM "
         + ModelVersionAliasRelMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 }

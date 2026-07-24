@@ -47,6 +47,7 @@ import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.FunctionEntity;
+import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
@@ -61,6 +62,7 @@ public class RecoverableDeletionManager {
   private final Clock clock;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
   private final RecoverableEntityAdapter<FunctionEntity> functionAdapter;
+  private final RecoverableEntityAdapter<ModelEntity> modelAdapter;
 
   /**
    * Creates a recoverable-deletion manager using the system clock.
@@ -91,6 +93,7 @@ public class RecoverableDeletionManager {
     this.clock = clock;
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
+    this.modelAdapter = new ModelRecoveryAdapter(entityCache);
   }
 
   /**
@@ -174,6 +177,45 @@ public class RecoverableDeletionManager {
   public FunctionEntity restoreDeletedFunction(
       Namespace namespace, String name, long id, String etag) {
     return restoreDeleted(functionAdapter, namespace, name, id, etag);
+  }
+
+  /**
+   * Lists deleted model generations under a live schema.
+   *
+   * @param namespace model namespace
+   * @param name optional exact model name
+   * @param id optional exact immutable model identifier
+   * @return matching deleted model generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedModels(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(modelAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted model representation.
+   *
+   * @param namespace model namespace
+   * @param name original model name
+   * @param id immutable model identifier
+   * @return selected model deletion generation
+   * @throws TombstoneNotFoundException if the exact tombstone does not exist under this path
+   */
+  public DeletedEntityDTO getDeletedModel(Namespace namespace, String name, long id) {
+    return getDeleted(modelAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact model deletion generation using an optimistic entity tag.
+   *
+   * @param namespace model namespace
+   * @param name original model name
+   * @param id immutable model identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-model read
+   * @return restored model, or the already-restored model for an idempotent replay
+   */
+  public ModelEntity restoreDeletedModel(Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(modelAdapter, namespace, name, id, etag);
   }
 
   private <E> List<DeletedEntityDTO> listDeleted(

@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
@@ -43,6 +44,7 @@ import org.apache.gravitino.exceptions.TombstoneChangedException;
 import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
@@ -51,6 +53,7 @@ import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
 import org.apache.gravitino.storage.relational.service.EntityIdService;
+import org.apache.gravitino.storage.relational.service.ModelMetaService;
 import org.apache.gravitino.storage.relational.service.SchemaMetaService;
 import org.apache.gravitino.storage.relational.service.TableMetaService;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
@@ -149,6 +152,45 @@ public class TestRecoverableDeletionManager extends TestJDBCBackend {
         TombstoneNotFoundException.class,
         () -> manager.getDeletedTable(namespace, "wrong-name", recoverable.id()));
     Assertions.assertTrue(manager.listDeletedTables(namespace, "missing", null).isEmpty());
+  }
+
+  @TestTemplate
+  public void testModelDiscoveryExactReadRestoreAndReplay() throws Exception {
+    createAndInsertMakeLake(METALAKE);
+    createAndInsertCatalog(METALAKE, CATALOG);
+    createAndInsertSchema(METALAKE, CATALOG, SCHEMA);
+    Namespace namespace = NamespaceUtil.ofModel(METALAKE, CATALOG, SCHEMA);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            namespace,
+            "recommendation_model",
+            "recoverable model",
+            0,
+            Map.of("framework", "test"),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    Assertions.assertTrue(
+        ModelMetaService.getInstance().deleteModel(model.nameIdentifier(), RETENTION_MS));
+
+    RecoverableDeletionManager manager = new RecoverableDeletionManager(RETENTION_MS);
+    List<DeletedEntityDTO> discovered =
+        manager.listDeletedModels(namespace, model.name(), model.id());
+    Assertions.assertEquals(1, discovered.size());
+    DeletedEntityDTO exact = manager.getDeletedModel(namespace, model.name(), model.id());
+    Assertions.assertEquals(discovered.get(0).getEtag(), exact.getEtag());
+    Assertions.assertEquals(String.valueOf(model.id()), exact.getId());
+    Assertions.assertEquals("model", exact.getType().value());
+    Assertions.assertTrue(exact.getLatestForName());
+    Assertions.assertTrue(exact.getRestorable());
+
+    ModelEntity restored =
+        manager.restoreDeletedModel(namespace, model.name(), model.id(), exact.getEtag());
+    Assertions.assertEquals(model, restored);
+    Assertions.assertEquals(
+        model.id(),
+        manager.restoreDeletedModel(namespace, model.name(), model.id(), exact.getEtag()).id());
+    Assertions.assertTrue(manager.listDeletedModels(namespace, model.name(), model.id()).isEmpty());
   }
 
   @TestTemplate

@@ -21,24 +21,55 @@ package org.apache.gravitino.storage.relational.service;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import org.apache.gravitino.DeletionState;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
+import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.Privileges;
+import org.apache.gravitino.authorization.SecurableObject;
+import org.apache.gravitino.authorization.SecurableObjects;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.ModelEntity;
+import org.apache.gravitino.meta.ModelVersionEntity;
+import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.meta.RoleEntity;
+import org.apache.gravitino.meta.StatisticEntity;
+import org.apache.gravitino.meta.TableStatisticEntity;
+import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.meta.UserEntity;
+import org.apache.gravitino.model.ModelVersion;
+import org.apache.gravitino.policy.Policy;
+import org.apache.gravitino.policy.PolicyContent;
+import org.apache.gravitino.policy.PolicyContents;
+import org.apache.gravitino.stats.StatisticValues;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.ModelPO;
+import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.POConverters;
+import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.apache.ibatis.session.SqlSession;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.TestTemplate;
 
@@ -239,6 +270,279 @@ public class TestModelMetaService extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testRestoreExactModelDeletionGeneration() throws IOException {
+    createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            MODEL_NS,
+            "recoverable_model",
+            "model comment",
+            0,
+            ImmutableMap.of("key", "value"),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+
+    UserEntity owner =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            AuthorizationUtils.ofUserNamespace(METALAKE_NAME),
+            "model-owner",
+            AUDIT_INFO);
+    backend.insert(owner, false);
+    OwnerMetaService.getInstance()
+        .setOwner(model.nameIdentifier(), model.type(), owner.nameIdentifier(), owner.type());
+
+    SecurableObject schemaObject =
+        SecurableObjects.ofSchema(
+            SecurableObjects.ofCatalog(
+                CATALOG_NAME, Lists.newArrayList(Privileges.UseCatalog.allow())),
+            SCHEMA_NAME,
+            Lists.newArrayList(Privileges.UseSchema.allow()));
+    SecurableObject modelObject =
+        SecurableObjects.ofModel(
+            schemaObject, model.name(), Lists.newArrayList(Privileges.UseModel.allow()));
+    RoleEntity role =
+        createRoleEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            AuthorizationUtils.ofRoleNamespace(METALAKE_NAME),
+            "model-role",
+            AUDIT_INFO,
+            Lists.newArrayList(modelObject),
+            ImmutableMap.of());
+    RoleMetaService.getInstance().insertRole(role, false);
+
+    TagEntity retainedTag = newTag("retained-tag");
+    TagEntity independentlyRemovedTag = newTag("independently-removed-tag");
+    TagMetaService.getInstance().insertTag(retainedTag, false);
+    TagMetaService.getInstance().insertTag(independentlyRemovedTag, false);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            model.nameIdentifier(),
+            model.type(),
+            new NameIdentifier[] {
+              retainedTag.nameIdentifier(), independentlyRemovedTag.nameIdentifier()
+            },
+            new NameIdentifier[0]);
+    TagMetaService.getInstance()
+        .associateTagsWithMetadataObject(
+            model.nameIdentifier(),
+            model.type(),
+            new NameIdentifier[0],
+            new NameIdentifier[] {independentlyRemovedTag.nameIdentifier()});
+
+    StatisticEntity statistic =
+        TableStatisticEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("model-statistic")
+            .withValue(StatisticValues.longValue(1L))
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    StatisticMetaService.getInstance()
+        .batchInsertStatisticPOsOnDuplicateKeyUpdate(
+            ImmutableList.of(statistic), model.nameIdentifier(), model.type());
+
+    PolicyContent policyContent =
+        PolicyContents.custom(
+            ImmutableMap.of("rule", true), ImmutableSet.of(MetadataObject.Type.MODEL), null);
+    PolicyEntity policy =
+        PolicyEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName("model-policy")
+            .withNamespace(NamespaceUtil.ofPolicy(METALAKE_NAME))
+            .withPolicyType(Policy.BuiltInType.CUSTOM)
+            .withContent(policyContent)
+            .withAuditInfo(AUDIT_INFO)
+            .build();
+    PolicyMetaService.getInstance().insertPolicy(policy, false);
+    PolicyMetaService.getInstance()
+        .associatePoliciesWithMetadataObject(
+            model.nameIdentifier(),
+            model.type(),
+            new NameIdentifier[] {policy.nameIdentifier()},
+            new NameIdentifier[0]);
+
+    Assertions.assertEquals(
+        1, countActiveModelRelations("owner_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("role_meta_securable_object", "type", model.id()));
+    Assertions.assertEquals(1, countActiveTagRelation(model.id(), retainedTag.id()));
+    Assertions.assertEquals(0, countActiveTagRelation(model.id(), independentlyRemovedTag.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("statistic_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("policy_relation_meta", "metadata_object_type", model.id()));
+
+    ModelVersionEntity independentlyDeletedVersion =
+        createModelVersionEntity(
+            model.nameIdentifier(),
+            0,
+            ImmutableMap.of(ModelVersion.URI_NAME_UNKNOWN, "uri-0", "uri-0-copy", "uri-0-copy"),
+            ImmutableList.of("old-alias"),
+            "old version",
+            ImmutableMap.of(),
+            AUDIT_INFO);
+    ModelVersionMetaService.getInstance().insertModelVersion(independentlyDeletedVersion);
+    Assertions.assertTrue(
+        ModelVersionMetaService.getInstance()
+            .deleteModelVersion(
+                NameIdentifierUtil.ofModelVersion(
+                    METALAKE_NAME,
+                    CATALOG_NAME,
+                    SCHEMA_NAME,
+                    model.name(),
+                    Integer.toString(independentlyDeletedVersion.version()))));
+
+    ModelVersionEntity liveVersion =
+        createModelVersionEntity(
+            model.nameIdentifier(),
+            1,
+            ImmutableMap.of(ModelVersion.URI_NAME_UNKNOWN, "uri-1", "uri-1-copy", "uri-1-copy"),
+            ImmutableList.of("live-alias", "latest"),
+            "live version",
+            ImmutableMap.of("version", "one"),
+            AUDIT_INFO);
+    ModelVersionMetaService.getInstance().insertModelVersion(liveVersion);
+
+    long deletedAt = Instant.now().toEpochMilli();
+    Assertions.assertTrue(
+        ModelMetaService.getInstance().deleteModel(model.nameIdentifier(), deletedAt, 60_000L));
+    Assertions.assertEquals(
+        0, countActiveModelRelations("owner_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        0, countActiveModelRelations("role_meta_securable_object", "type", model.id()));
+    Assertions.assertEquals(0, countActiveTagRelation(model.id(), retainedTag.id()));
+    Assertions.assertEquals(0, countActiveTagRelation(model.id(), independentlyRemovedTag.id()));
+    Assertions.assertEquals(
+        0, countActiveModelRelations("statistic_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        0, countActiveModelRelations("policy_relation_meta", "metadata_object_type", model.id()));
+    long schemaId =
+        EntityIdService.getEntityId(NameIdentifier.of(MODEL_NS.levels()), Entity.EntityType.SCHEMA);
+    EntityDeletionPO deletion =
+        EntityDeletionService.getInstance()
+            .list(
+                Entity.EntityType.MODEL, schemaId, model.name(), model.id(), DeletionState.DELETED)
+            .get(0);
+
+    ModelEntity restored =
+        ModelMetaService.getInstance()
+            .restoreModel(
+                model.nameIdentifier(),
+                deletion,
+                Instant.now().toEpochMilli(),
+                "model-restore-etag",
+                deletion.getExpiresAt());
+    Assertions.assertEquals(model.id(), restored.id());
+    Assertions.assertEquals(2, restored.latestVersion());
+    Assertions.assertEquals(
+        1, countActiveModelRelations("owner_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("role_meta_securable_object", "type", model.id()));
+    Assertions.assertEquals(1, countActiveTagRelation(model.id(), retainedTag.id()));
+    Assertions.assertEquals(0, countActiveTagRelation(model.id(), independentlyRemovedTag.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("statistic_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        1, countActiveModelRelations("policy_relation_meta", "metadata_object_type", model.id()));
+    Assertions.assertEquals(
+        liveVersion,
+        ModelVersionMetaService.getInstance()
+            .getModelVersionByIdentifier(
+                NameIdentifierUtil.ofModelVersion(
+                    METALAKE_NAME,
+                    CATALOG_NAME,
+                    SCHEMA_NAME,
+                    model.name(),
+                    Integer.toString(liveVersion.version()))));
+    Assertions.assertEquals(
+        liveVersion,
+        ModelVersionMetaService.getInstance()
+            .getModelVersionByIdentifier(
+                NameIdentifierUtil.ofModelVersion(
+                    METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, model.name(), "live-alias")));
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () ->
+            ModelVersionMetaService.getInstance()
+                .getModelVersionByIdentifier(
+                    NameIdentifierUtil.ofModelVersion(
+                        METALAKE_NAME,
+                        CATALOG_NAME,
+                        SCHEMA_NAME,
+                        model.name(),
+                        Integer.toString(independentlyDeletedVersion.version()))));
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () ->
+            ModelVersionMetaService.getInstance()
+                .getModelVersionByIdentifier(
+                    NameIdentifierUtil.ofModelVersion(
+                        METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, model.name(), "old-alias")));
+
+    Assertions.assertEquals(
+        model.id(),
+        ModelMetaService.getInstance()
+            .restoreModel(
+                model.nameIdentifier(),
+                deletion,
+                Instant.now().toEpochMilli(),
+                "model-restore-etag",
+                deletion.getExpiresAt())
+            .id());
+  }
+
+  @TestTemplate
+  public void testOverwriteCannotResurrectRecordedModelDeletion() throws IOException {
+    createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            MODEL_NS,
+            "recoverable_model",
+            "model comment",
+            0,
+            ImmutableMap.of(),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    Assertions.assertTrue(ModelMetaService.getInstance().deleteModel(model.nameIdentifier()));
+
+    Assertions.assertThrows(
+        RecoveryConflictException.class,
+        () -> ModelMetaService.getInstance().insertModel(model, true));
+    Assertions.assertThrows(
+        NoSuchEntityException.class,
+        () -> ModelMetaService.getInstance().getModelByIdentifier(model.nameIdentifier()));
+  }
+
+  @TestTemplate
+  public void testRecordedModelDeletionUsesExactPurge() throws IOException {
+    createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
+    ModelEntity model =
+        createModelEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            MODEL_NS,
+            "purge_model",
+            "model comment",
+            0,
+            ImmutableMap.of(),
+            AUDIT_INFO);
+    ModelMetaService.getInstance().insertModel(model, false);
+    long deletedAt = Instant.now().minusSeconds(60).toEpochMilli();
+    Assertions.assertTrue(
+        ModelMetaService.getInstance().deleteModel(model.nameIdentifier(), deletedAt, 0L));
+
+    Assertions.assertEquals(
+        0,
+        ModelMetaService.getInstance()
+            .deleteModelMetasByLegacyTimeline(Instant.now().toEpochMilli(), 100));
+    Assertions.assertTrue(legacyRecordExistsInDB(model.id(), Entity.EntityType.MODEL));
+    Assertions.assertEquals(
+        1, backend.hardDeleteLegacyData(Entity.EntityType.MODEL, Instant.now().toEpochMilli()));
+    Assertions.assertFalse(legacyRecordExistsInDB(model.id(), Entity.EntityType.MODEL));
+  }
+
+  @TestTemplate
   void testInsertAndRenameModel() throws IOException {
     createParentEntities(METALAKE_NAME, CATALOG_NAME, SCHEMA_NAME, AUDIT_INFO);
     Map<String, String> properties = ImmutableMap.of("k1", "v1");
@@ -396,5 +700,69 @@ public class TestModelMetaService extends TestJDBCBackend {
         () ->
             ModelMetaService.getInstance()
                 .updateModel(NameIdentifier.of(MODEL_NS, "model3"), renameUpdater));
+  }
+
+  private ModelVersionEntity createModelVersionEntity(
+      NameIdentifier modelIdentifier,
+      Integer version,
+      Map<String, String> uris,
+      List<String> aliases,
+      String comment,
+      Map<String, String> properties,
+      AuditInfo auditInfo) {
+    return ModelVersionEntity.builder()
+        .withModelIdentifier(modelIdentifier)
+        .withVersion(version)
+        .withUris(uris)
+        .withAliases(aliases)
+        .withComment(comment)
+        .withProperties(properties)
+        .withAuditInfo(auditInfo)
+        .build();
+  }
+
+  private TagEntity newTag(String name) {
+    return TagEntity.builder()
+        .withId(RandomIdGenerator.INSTANCE.nextId())
+        .withName(name)
+        .withNamespace(NamespaceUtil.ofTag(METALAKE_NAME))
+        .withAuditInfo(AUDIT_INFO)
+        .build();
+  }
+
+  private int countActiveModelRelations(String table, String typeColumn, long modelId) {
+    String sql =
+        String.format(
+            "SELECT count(*) FROM %s WHERE metadata_object_id = ? AND %s = 'MODEL'"
+                + " AND deleted_at = 0",
+            table, typeColumn);
+    return countRows(sql, modelId);
+  }
+
+  private int countActiveTagRelation(long modelId, long tagId) {
+    return countRows(
+        "SELECT count(*) FROM tag_relation_meta WHERE metadata_object_id = ?"
+            + " AND metadata_object_type = 'MODEL' AND tag_id = ? AND deleted_at = 0",
+        modelId,
+        tagId);
+  }
+
+  private int countRows(String sql, Object... parameters) {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql)) {
+      for (int index = 0; index < parameters.length; index++) {
+        statement.setObject(index + 1, parameters[index]);
+      }
+      try (ResultSet resultSet = statement.executeQuery()) {
+        if (resultSet.next()) {
+          return resultSet.getInt(1);
+        }
+        throw new IllegalStateException("Count query returned no row");
+      }
+    } catch (SQLException e) {
+      throw new RuntimeException("Failed to count model relations", e);
+    }
   }
 }

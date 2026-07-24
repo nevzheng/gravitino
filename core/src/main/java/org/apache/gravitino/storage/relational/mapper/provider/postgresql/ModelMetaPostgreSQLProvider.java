@@ -53,7 +53,8 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
       @Param("schemaId") Long schemaId, @Param("modelName") String modelName) {
     return "UPDATE "
         + ModelMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id = #{schemaId} AND model_name = #{modelName} AND deleted_at = 0";
   }
 
@@ -61,7 +62,8 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
   public String softDeleteModelMetasByCatalogId(@Param("catalogId") Long catalogId) {
     return "UPDATE "
         + ModelMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE catalog_id = #{catalogId} AND deleted_at = 0";
   }
 
@@ -69,7 +71,8 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
   public String softDeleteModelMetasByMetalakeId(@Param("metalakeId") Long metalakeId) {
     return "UPDATE "
         + ModelMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE metalake_id = #{metalakeId} AND deleted_at = 0";
   }
 
@@ -78,7 +81,8 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
     return "<script>"
         + "UPDATE "
         + ModelMetaMapper.TABLE_NAME
-        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT)"
+        + " SET deleted_at = CAST(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000 AS BIGINT),"
+        + " deletion_id = NULL"
         + " WHERE schema_id IN ("
         + "<foreach collection='schemaIds' item='schemaId' separator=','>"
         + "#{schemaId}"
@@ -94,8 +98,10 @@ public class ModelMetaPostgreSQLProvider extends ModelMetaBaseSQLProvider {
         + ModelMetaMapper.TABLE_NAME
         + " WHERE model_id IN (SELECT model_id FROM "
         + ModelMetaMapper.TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
-        + " AND deleted_at > 0 AND deleted_at < #{legacyTimeline}";
+        + " WHERE deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline} LIMIT #{limit})"
+        + " AND deletion_id IS NULL AND deleted_at > 0"
+        + " AND deleted_at < #{legacyTimeline}";
   }
 
   @Override

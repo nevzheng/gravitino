@@ -26,10 +26,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
 import org.apache.gravitino.dto.requests.ModelRegisterRequest;
@@ -96,6 +99,26 @@ class GenericModelCatalog extends BaseSchemaCatalog implements ModelCatalog {
         .toArray(NameIdentifier[]::new);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedModels(
+      Namespace namespace, @Nullable String name, @Nullable String id) {
+    checkModelNamespace(namespace);
+    Namespace modelFullNamespace = modelFullNamespace(namespace);
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            formatModelRequestPath(modelFullNamespace),
+            name,
+            id,
+            ErrorHandlers.modelErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.MODEL, name, id));
+    return generations;
+  }
+
   @Override
   public Model getModel(NameIdentifier ident) throws NoSuchModelException {
     checkModelNameIdentifier(ident);
@@ -110,6 +133,39 @@ class GenericModelCatalog extends BaseSchemaCatalog implements ModelCatalog {
     resp.validate();
 
     return new GenericModel(resp.getModel(), restClient, modelFullNs);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedModel(NameIdentifier ident, String id) {
+    checkModelNameIdentifier(ident);
+    Namespace modelFullNamespace = modelFullNamespace(ident.namespace());
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            formatModelRequestPath(modelFullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            id,
+            ErrorHandlers.modelErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.MODEL, ident.name(), id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Model restoreModel(NameIdentifier ident, DeletedEntity generation) {
+    checkModelNameIdentifier(ident);
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.MODEL, ident.name(), null);
+    Namespace modelFullNamespace = modelFullNamespace(ident.namespace());
+    ModelResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            formatModelRequestPath(modelFullNamespace) + "/" + RESTUtils.encodeString(ident.name()),
+            generation,
+            ModelResponse.class,
+            ErrorHandlers.modelErrorHandler());
+    Preconditions.checkArgument(
+        ident.name().equals(response.getModel().name()),
+        "Restored model name must match the requested model name");
+    return new GenericModel(response.getModel(), restClient, modelFullNamespace);
   }
 
   @Override

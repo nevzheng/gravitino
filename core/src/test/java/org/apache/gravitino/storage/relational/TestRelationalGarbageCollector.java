@@ -22,6 +22,7 @@ import static org.apache.gravitino.Configs.STORE_DELETE_AFTER_TIME;
 import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.when;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 class TestRelationalGarbageCollector {
@@ -52,6 +54,31 @@ class TestRelationalGarbageCollector {
     verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.VIEW), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
+  }
+
+  @Test
+  void testModelFailureStopsDependentHardDeletesForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.MODEL), anyLong()))
+        .thenThrow(new IllegalStateException("model deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    InOrder aggregateOrder = inOrder(backend);
+    aggregateOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
+    aggregateOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.MODEL), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.FUNCTION), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.MODEL_VERSION), anyLong());
     verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.COLUMN), anyLong());
   }
 }

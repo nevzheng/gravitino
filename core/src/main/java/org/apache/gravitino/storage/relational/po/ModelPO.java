@@ -47,6 +47,8 @@ public class ModelPO {
 
   private Long deletedAt;
 
+  private String deletionId;
+
   private ModelPO() {}
 
   public static Builder builder() {
@@ -108,6 +110,12 @@ public class ModelPO {
 
     public Builder withDeletedAt(Long deletedAt) {
       modelPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /** Sets the recoverable-deletion generation identifier. */
+    public Builder withDeletionId(String deletionId) {
+      modelPO.deletionId = deletionId;
       return this;
     }
 
