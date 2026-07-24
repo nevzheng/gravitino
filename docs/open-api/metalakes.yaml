@@ -26,12 +26,34 @@ paths:
         - metalake
       summary: List metalakes
       operationId: listMetalakes
-      description: Returns a list of all metalakes.
+      description: |
+        Lists live metalakes by default. `include=deleted` lists independently recorded metalake
+        deletion generations without contacting any catalog connector or downstream system.
+        Optional `name` and `id` filters are exact and compose; an immutable ID selects at most one
+        current tombstone. Read one exact deleted metalake from the item URI before restoring it
+        because a collection has no single ETag. Deleted-metalake discovery is temporarily
+        restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/metalakeNameFilter"
+        - $ref: "#/components/parameters/metalakeIdFilter"
       responses:
         "200":
-          $ref: "#/components/responses/ListMetalakesResponse"
+          description: Live metalakes or deleted metalake metadata records
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/ListMetalakesResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted metalakes
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -78,12 +100,47 @@ paths:
         - metalake
       summary: Get metalake
       operationId: loadMetalake
-      description: Returns a metalake information by given metalake name
+      description: |
+        Returns the specified live metalake by default. With `include=deleted`, `id` is required and
+        the item name plus immutable ID select one exact metalake-root tombstone. A successful
+        deleted read returns the restore token in both the body's `etag` field and a strong HTTP
+        `ETag` header. The deleted read is metadata-only and temporarily restricted to service
+        administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedMetalakeId"
       responses:
         "200":
-          $ref: "#/components/responses/MetalakeResponse"
+          description: A live metalake or one exact deleted metalake metadata generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-metalake read and used by conditional PATCH
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/MetalakeResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          description: |
+            Bad Request - `include` is unsupported, `include=deleted` is missing `id`, the ID is
+            invalid, or `id` is supplied for a live read.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted metalake
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The metalake does not exist
+          description: |
+            Not Found - The live metalake does not exist, or the deleted ID and name do not
+            identify one metalake tombstone.
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -138,34 +195,113 @@ paths:
     patch:
       tags:
         - metalake
-      summary: set metalake in-use
+      summary: Set metalake in-use or restore soft-deleted metalake metadata
       operationId: setMetalake
-      description: Set a specified metalake in-use or not in-use
+      description: |
+        With `application/json`, preserves the existing operation that enables or disables a live
+        metalake.
+
+        With `application/merge-patch+json`, makes one exact soft-deleted Gravitino metalake
+        metadata generation active again. `include=deleted`, immutable `id`, and a strong
+        `If-Match` value bind the request to the exact representation returned by GET. Only the
+        most recent tombstone for that name can be restored. When the original metalake deletion
+        cascaded, the same transaction restores the exact Gravitino metadata tree recorded by that
+        deletion. If any member cannot be restored, the transaction rolls back without a partial
+        tree.
+
+        Restore is metadata-only. It does not call catalog connectors, recreate or validate
+        downstream objects, or reconcile downstream state. After the transaction, the response is
+        produced by the normal live metalake load so hidden properties remain hidden and defaults
+        are resolved exactly as for a normal GET. Replaying the same accepted ETag is idempotent
+        only while the same immutable metalake ID is live at its original path and that deletion
+        generation remains the latest one for the name. A stale precondition requires an exact
+        re-read; clients must not silently switch to a newer deletion generation. Restore is
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedMetalakeInclude"
+        - $ref: "#/components/parameters/restoreMetalakeId"
+        - $ref: "#/components/parameters/ifMatch"
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/MetalakeSetRequest"
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/BaseResponse"
-        "404":
-            description: Not Found - The metalake does not exist
-            content:
-              application/vnd.gravitino.v1+json:
-                schema:
-                  $ref: "./openapi.yaml#/components/schemas/ErrorModel"
-                examples:
-                  NoSuchMetalakeException:
-                    $ref: "#/components/examples/NoSuchMetalakeException"
-        "500":
-          description:
-            Internal server error. It is possible that the server
-            encountered a storage issue.
+          description: Metalake in-use state was set, or the selected metalake metadata was restored
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/BaseResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/responses/MetalakeResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+        "400":
+          description: |
+            Bad Request - The live set request is malformed; or, for restore,
+            `include=deleted` is missing, the ID is invalid, the patch is malformed, or `deleted`
+            is absent or not exactly `false`.
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller cannot perform the selected operation
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: |
+            Not Found - The live metalake does not exist, or the restore ID and name do not
+            identify one deleted metalake.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, purge is in
+            progress, the deletion record is incomplete, or one member of a cascade-deleted
+            metadata tree cannot be restored. No partial tree is committed; repair the conflict
+            before retrying.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected metalake tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: |
+            Unsupported Media Type - PATCH accepts application/json for set-in-use or
+            application/merge-patch+json for metadata restore.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing from a restore request
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
     delete:
       tags:
@@ -184,6 +320,85 @@ paths:
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 components:
+
+  parameters:
+    include:
+      name: include
+      in: query
+      description: Select live metalakes or soft-deleted metalake metadata records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    metalakeNameFilter:
+      name: name
+      in: query
+      description: |
+        Exact metalake-name filter. More than one deletion generation can have the same name. For
+        a deleted listing, `name` and `id` must both match when supplied together.
+      required: false
+      schema:
+        type: string
+
+    metalakeIdFilter:
+      name: id
+      in: query
+      description: |
+        Immutable metalake-ID filter selecting one exact deletion record. This filter is supported
+        only with `include=deleted`.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedMetalakeId:
+      name: id
+      in: query
+      description: |
+        Immutable metalake ID. This parameter is required with `include=deleted` and rejected for a
+        normal live-metalake read.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreMetalakeId:
+      name: id
+      in: query
+      description: |
+        Immutable ID of the soft-deleted metalake metadata generation to restore. Required for an
+        `application/merge-patch+json` request and omitted for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedMetalakeInclude:
+      name: include
+      in: query
+      description: |
+        Selects the exact deleted metalake metadata targeted by a conditional merge PATCH. Required
+        with `application/merge-patch+json` and omitted for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: |
+        Strong HTTP entity tag returned by an exact metalake GET with `include=deleted&id=...`.
+        Required for an `application/merge-patch+json` restore. Wildcards, weak tags, and lists of
+        tags are rejected. Omit this header for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
 
   schemas:
 

@@ -27,9 +27,19 @@ paths:
         - job
       summary: List job templates (names)
       operationId: listJobTemplates
-      description: Returns the list of job templates in the specified metalake
+      description: |
+        Returns live job templates in the specified metalake by default. The exact `name` filter
+        applies to live and deleted results. With `include=deleted`, returns independently deleted
+        job-template metadata generations and additionally supports the immutable `id` filter.
+        `details=true` is not supported with `include=deleted`.
+        Deleted-template discovery is metadata-only and temporarily restricted to service
+        administrators. Job runs are children of their template deletion generation and have no
+        independent recovery route.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/jobTemplateNameFilter"
+        - $ref: "#/components/parameters/jobTemplateIdFilter"
       responses:
         "200":
           description: Returns the list of job template objects if {details} is true, otherwise returns the list of job template names
@@ -39,6 +49,7 @@ paths:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
                   - $ref: "#/components/responses/JobTemplateListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 NameListResponse:
                   $ref: "#/components/examples/NameListResponse"
@@ -46,6 +57,12 @@ paths:
                   $ref: "#/components/examples/JobTemplateListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect deleted job templates
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified metalake does not exist
           content:
@@ -99,17 +116,39 @@ paths:
         - job
       summary: Get job template
       operationId: getJobTemplate
-      description: Returns the specified job template information in the specified metalake
+      description: |
+        Returns the specified live job template by default. With `include=deleted`, `id` is
+        required and the path name plus immutable ID select one exact tombstone under the live
+        metalake. The deleted representation is metadata-only, carries a strong ETag for
+        conditional PATCH, and is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedJobTemplateId"
       responses:
         "200":
-          description: Returns the job template object
+          description: A live job template or one exact deleted-template generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-job-template read
+              schema:
+                type: string
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "#/components/responses/JobTemplateResponse"
+                oneOf:
+                  - $ref: "#/components/responses/JobTemplateResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
               examples:
                 JobTemplateResponse:
                   $ref: "#/components/examples/JobTemplateResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted job template
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified job template does not exist in the specified metalake
           content:
@@ -124,11 +163,106 @@ paths:
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
+    patch:
+      tags:
+        - job
+      summary: Restore job-template metadata
+      operationId: restoreJobTemplate
+      description: |
+        Makes one exact soft-deleted job-template metadata generation active again.
+        `include=deleted`, immutable `id`, path name, and strong `If-Match` bind PATCH to the exact
+        representation returned by GET. Only the latest same-name generation is eligible, and
+        restore is temporarily restricted to service administrators.
+
+        Restore is metadata-only. The aggregate consists of the job-template root and terminal job
+        runs that were live and captured when the template was deleted. Runs are restored before
+        the template root and are never independent recovery targets. Finished runs tombstoned
+        earlier by autonomous cleanup have no template deletion token and are neither adopted nor
+        restored. The transaction verifies the exact affected-row count; a missing or mismatched
+        captured row requires manual metadata repair. A live run occupying a captured
+        `job_execution_id` fails with `EXTERNAL_ID_OCCUPIED`.
+
+        PATCH does not contact an executor, resubmit, poll, or cancel a job, recreate staging
+        files, or replay external authorization. Ownership, grants, and job metrics are outside the
+        standalone aggregate. Existing deletion continues to reject a template with active jobs.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedJobTemplateInclude"
+        - $ref: "#/components/parameters/restoreJobTemplateId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          description: Returns the restored job-template metadata object
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "#/components/responses/JobTemplateResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot restore deleted job templates
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The exact template tombstone or replay receipt does not exist
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name, ID, or captured job execution ID is occupied; a newer same-name
+            tombstone exists; the metalake changed; purge is in progress; the generation is
+            incomplete; or the tombstone predates complete deletion records. Incomplete
+            generations require manual metadata repair.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
     delete:
       tags:
         - job
       summary: Delete job template
       operationId: deleteJobTemplate
+      description: |
+        Deletes the job-template metadata and its terminal job-run metadata. The request is still
+        rejected when any associated job is active.
       responses:
         "200":
           $ref: "./openapi.yaml#/components/responses/DropResponse"
@@ -330,6 +464,64 @@ components:
       schema:
         type: boolean
         default: false
+    include:
+      name: include
+      in: query
+      description: Select live job templates or soft-deleted job-template recovery records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+    jobTemplateNameFilter:
+      name: name
+      in: query
+      description: Exact job-template-name filter for live or deleted results
+      required: false
+      schema:
+        type: string
+    jobTemplateIdFilter:
+      name: id
+      in: query
+      description: Immutable job-template-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+    deletedJobTemplateId:
+      name: id
+      in: query
+      description: Immutable job-template ID required for an exact deleted-template read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+    restoreDeletedJobTemplateInclude:
+      name: include
+      in: query
+      description: Required as `deleted` when PATCH restores a deleted job template
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+    restoreJobTemplateId:
+      name: id
+      in: query
+      description: Immutable job-template ID required when PATCH restores a deleted job template
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required when PATCH restores a deleted job template
+      required: true
+      schema:
+        type: string
     jobTemplate:
       name: jobTemplate
       in: path

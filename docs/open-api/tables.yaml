@@ -56,7 +56,7 @@ paths:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
-                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./openapi.yaml#/components/schemas/EntityListResponse"
                   - $ref: "#/components/schemas/DeletedEntityListResponse"
               examples:
                 TableListResponse:
@@ -488,6 +488,15 @@ components:
             - view
             - model
             - topic
+            - policy
+            - user
+            - group
+            - role
+            - job_template
+            - tag
+            - schema
+            - catalog
+            - metalake
         deletedAt:
           type: integer
           format: int64
@@ -574,9 +583,11 @@ components:
                 - NOT_LATEST_TOMBSTONE
                 - ENTITY_ID_REUSED
                 - NAME_OCCUPIED
+                - EXTERNAL_ID_OCCUPIED
                 - PARENT_CHANGED
                 - PURGE_IN_PROGRESS
                 - LEGACY_TOMBSTONE
+                - INCOMPLETE_GENERATION
 
     TableCreateRequest:
       type: object

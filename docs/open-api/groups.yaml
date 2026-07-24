@@ -28,17 +28,26 @@ paths:
         - access control
       summary: List groups (names)
       operationId: listGroups
+      description: |
+        Returns live groups by default. With `include=deleted`, returns independently deleted group
+        metadata generations under the live metalake, optionally filtered by exact name or
+        immutable ID. `details=true` is not supported with `include=deleted`. Deleted-group
+        discovery is metadata-only and temporarily restricted to service administrators.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/groupNameFilter"
+        - $ref: "#/components/parameters/groupIdFilter"
       responses:
         "200":
-          description: Returns the list of groups if {details} is true, otherwise returns the list of group name
+          description: Returns live group names/details or deleted-group recovery records
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "#/components/responses/GroupListResponse"
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 GroupListResponse:
                   $ref: "#/components/examples/GroupListResponse"
@@ -46,6 +55,12 @@ paths:
                   $ref: "#/components/examples/NameListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect deleted groups
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified metalake does not exist
           content:
@@ -105,17 +120,39 @@ paths:
         - access control
       summary: Get group
       operationId: getGroup
-      description: Returns the specified group information in the specified metalake
+      description: |
+        Returns the specified live group by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live metalake. The
+        deleted representation is metadata-only, carries a strong ETag for conditional PATCH, and
+        is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedGroupId"
       responses:
         "200":
-          description: Returns the group object
+          description: A live group or one exact deleted-group generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-group read
+              schema:
+                type: string
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "#/components/responses/GroupResponse"
-                examples:
-                  GroupResponse:
-                    $ref: "#/components/examples/GroupResponse"
+                oneOf:
+                  - $ref: "#/components/responses/GroupResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+              examples:
+                GroupResponse:
+                  $ref: "#/components/examples/GroupResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted group
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified group does not exist in the specified metalake
           content:
@@ -127,6 +164,92 @@ paths:
                   $ref: "./metalakes.yaml#/components/examples/NoSuchMetalakeException"
                 NoSuchGroupException:
                   $ref: "#/components/examples/NoSuchGroupException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - access control
+      summary: Restore group metadata
+      operationId: restoreGroup
+      description: |
+        Makes one exact soft-deleted group metadata generation active again. `include=deleted`, the
+        immutable `id`, path name, and strong `If-Match` bind PATCH to the exact representation
+        returned by GET. Only the latest same-name generation is eligible.
+
+        Restore is metadata-only. It restores the group root, its captured role memberships, and
+        captured ownership rows where the group is the owning principal. It does not inspect or
+        change an identity provider or other upstream identity source, and does not replay Ranger
+        or another external authorization system. A missing captured row requires manual repair.
+        Restore is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedGroupInclude"
+        - $ref: "#/components/parameters/restoreGroupId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          description: Returns the restored group metadata object
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "#/components/responses/GroupResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot restore deleted groups
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The exact group tombstone or replay receipt does not exist
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, the external ID is held by another live group
+            (`EXTERNAL_ID_OCCUPIED`), a newer same-name tombstone exists, the metalake changed,
+            purge is in progress, the generation is incomplete, or the tombstone predates complete
+            deletion records. Incomplete generations and occupied external IDs require deliberate
+            metadata repair or conflict resolution before retry.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -153,6 +276,71 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live groups or soft-deleted group recovery records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    groupNameFilter:
+      name: name
+      in: query
+      description: Exact group-name filter
+      required: false
+      schema:
+        type: string
+
+    groupIdFilter:
+      name: id
+      in: query
+      description: Immutable group-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedGroupId:
+      name: id
+      in: query
+      description: Immutable group ID required for an exact deleted-group read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedGroupInclude:
+      name: include
+      in: query
+      description: Required as `deleted` when PATCH restores a deleted group
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    restoreGroupId:
+      name: id
+      in: query
+      description: Immutable group ID required when PATCH restores a deleted group
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required when PATCH restores a deleted group
+      required: true
+      schema:
+        type: string
 
   schemas:
     Group:

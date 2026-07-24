@@ -29,13 +29,47 @@ paths:
         - schema
       summary: List schemas
       operationId: listSchemas
+      description: |
+        Lists live schemas by default while preserving the catalog's hierarchy semantics. With no
+        `parentSchema`, only direct children of the catalog root are returned. With
+        `parentSchema`, only that schema's direct children are returned.
+
+        `include=deleted` applies the same scope to metadata deletion records. The optional exact
+        `name` and `id` filters compose inside that scope and never widen it. `name` is the full
+        logical schema name, including the configured hierarchy separator (default `:`). A name
+        can match more than one deletion generation; an immutable ID selects at most one current
+        tombstone. Read one exact deleted schema from the item URI before restoring it because a
+        collection has no single ETag. Deleted-schema discovery is temporarily restricted to
+        service administrators. Only independently deleted schema roots are listed. Descendants
+        removed solely as members of an ancestor's cascade are not separate restore targets; they
+        return with that ancestor's tree.
       parameters:
         - $ref: "#/components/parameters/parentSchema"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/schemaNameFilter"
+        - $ref: "#/components/parameters/schemaIdFilter"
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/EntityListResponse"
+          description: Live schema identifiers or deleted schema-metadata records in one hierarchy scope
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/schemas/EntityListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
+              examples:
+                SchemaListResponse:
+                  $ref: "#/components/examples/SchemaListResponse"
+                DeletedEntityListResponse:
+                  $ref: "./tables.yaml#/components/examples/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted schemas in this catalog
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -79,12 +113,52 @@ paths:
         - schema
       summary: Get schema
       operationId: loadSchema
-      description: Returns the specified schema in the specified catalog and metalake
+      description: |
+        Returns the specified live schema by default. With `include=deleted`, `id` is required and
+        the full logical path name plus immutable ID select one exact independently recorded
+        schema-root tombstone. Nested names use the configured hierarchy separator; with the
+        default separator, `a:b` is passed as one path parameter. A successful deleted read returns
+        the restore token in both the body's `etag` field and a strong HTTP `ETag` header. Deleted
+        reads are temporarily restricted to service administrators.
+
+        A separator containing `/` inherits the existing live-schema route's encoded-slash
+        limitations; metadata recovery does not introduce a second route or alternate name
+        encoding.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedSchemaId"
       responses:
         "200":
-          $ref: "#/components/responses/SchemaResponse"
+          description: A live schema or one exact deleted-schema metadata generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-schema read and used by conditional PATCH
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/SchemaResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          description: |
+            Bad Request - `include` is unsupported, `include=deleted` is missing `id`, the ID is
+            invalid, or `id` is supplied for a live read.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The target schema does not exist
+          description: |
+            Not Found - The live schema does not exist, or the deleted ID and full logical path do
+            not identify one tombstone in this catalog.
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -96,6 +170,100 @@ paths:
                   $ref: "./catalogs.yaml#/components/examples/NoSuchCatalogException"
                 NoSuchSchemaException:
                   $ref: "#/components/examples/NoSuchSchemaException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - schema
+      summary: Restore soft-deleted schema metadata
+      operationId: restoreSchema
+      description: |
+        Makes one exact soft-deleted Gravitino schema-metadata generation active again. The
+        immutable `id`, full logical path name, and strong `If-Match` value bind PATCH to the exact
+        representation returned by GET. Only the most recent tombstone for that name can be
+        restored.
+
+        Restore is metadata-only and transactional. A non-cascade deletion restores only the
+        selected schema metadata. When the selected schema was deleted by cascade, the same
+        transaction restores the exact Gravitino metadata tree recorded by that deletion. If any
+        member cannot be restored, the transaction rolls back without a partial tree and the
+        conflict must be repaired before retrying. The operation does not call a catalog connector,
+        validate or recreate downstream schemas or nested objects, or reconcile downstream state.
+
+        Replaying the same accepted ETag is idempotent only while the same immutable schema ID is
+        live at its original logical path and that deletion generation remains the latest one for
+        the name. A stale precondition requires an exact re-read; clients must not silently switch
+        to a newer deletion generation.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedSchemaInclude"
+        - $ref: "#/components/parameters/restoreSchemaId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          $ref: "#/components/responses/SchemaResponse"
+        "400":
+          description: |
+            Bad Request - `include=deleted` is missing, the ID is invalid, the patch is malformed,
+            or `deleted` is absent or not exactly `false`.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller is not a service administrator
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The ID and logical path do not identify this deleted schema
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the original
+            parent is missing or replaced, purge is in progress, the deletion record is incomplete,
+            or one member of a cascade-deleted metadata tree cannot be restored. No partial tree is
+            committed; repair the conflict before retrying.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -143,11 +311,23 @@ paths:
         - schema
       summary: Drop schema
       operationId: dropSchema
+      description: |
+        Drops the schema. By default, a schema with nested schemas or contained objects is rejected
+        as non-empty. `cascade=true` drops the nested metadata tree. A later restore is governed by
+        the deletion generation recorded for this operation and remains metadata-only.
+      parameters:
+        - $ref: "#/components/parameters/cascade"
       responses:
         "200":
           $ref: "./openapi.yaml#/components/responses/DropResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "409":
+          description: Conflict - The schema is non-empty and cascade was not enabled
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -168,6 +348,91 @@ components:
       required: false
       schema:
         type: string
+
+    include:
+      name: include
+      in: query
+      description: Select live schemas or soft-deleted schema metadata records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    schemaNameFilter:
+      name: name
+      in: query
+      description: |
+        Exact full logical schema-name filter. The filter is applied only inside the hierarchy
+        scope selected by `parentSchema` and never broadens that scope.
+      required: false
+      schema:
+        type: string
+
+    schemaIdFilter:
+      name: id
+      in: query
+      description: |
+        Immutable schema-ID filter selecting one exact deletion record inside the hierarchy scope.
+        This filter is supported only with `include=deleted`.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedSchemaId:
+      name: id
+      in: query
+      description: |
+        Immutable schema ID. This parameter is required with `include=deleted` and rejected for a
+        normal live-schema read.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreSchemaId:
+      name: id
+      in: query
+      description: Immutable ID of the soft-deleted schema metadata generation to restore
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedSchemaInclude:
+      name: include
+      in: query
+      description: Selects the exact deleted schema metadata targeted by this conditional PATCH
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: |
+        Strong HTTP entity tag returned by an exact schema GET with `include=deleted&id=...`.
+        Wildcards, weak tags, and lists of tags are rejected.
+      required: true
+      schema:
+        type: string
+
+    cascade:
+      name: cascade
+      in: query
+      description: |
+        Whether to recursively drop nested schemas and contained metadata. A later metadata restore
+        of this schema restores the exact Gravitino metadata tree recorded by that cascade; it does
+        not restore or validate downstream objects.
+      required: false
+      schema:
+        type: boolean
+        default: false
 
   schemas:
 

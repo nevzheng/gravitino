@@ -27,24 +27,46 @@ paths:
         - catalog
       summary: List catalogs (names)
       operationId: listCatalogs
+      description: |
+        Lists live catalogs by default. `include=deleted` lists independently recorded catalog
+        deletion generations in this metalake without initializing or contacting any catalog
+        connector. Optional `name` and `id` filters are exact and compose; an immutable ID selects
+        at most one current tombstone. Read one exact deleted catalog from the item URI before
+        restoring it because a collection has no single ETag. Deleted-catalog discovery is
+        temporarily restricted to service administrators.
+
+        `details=true` is supported only for live catalogs and is rejected with
+        `include=deleted`.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/catalogNameFilter"
+        - $ref: "#/components/parameters/catalogIdFilter"
       responses:
         "200":
-          description: Returns the list of catalog objects if {details} is true, otherwise returns the list of catalog identifiers
+          description: Live catalog identifiers/details or deleted catalog metadata records
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/CatalogListResponse"
                   - $ref: "#/components/schemas/CatalogInfoListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 CatalogListResponse:
                   $ref: "#/components/examples/CatalogListResponse"
                 CatalogInfoListResponse:
                   $ref: "#/components/examples/CatalogInfoListResponse"
+                DeletedEntityListResponse:
+                  $ref: "./tables.yaml#/components/examples/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted catalogs in this metalake
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -154,12 +176,47 @@ paths:
         - catalog
       summary: Get catalog
       operationId: loadCatalog
-      description: Returns the specified catalog information in the specified metalake
+      description: |
+        Returns the specified live catalog by default. With `include=deleted`, `id` is required and
+        the item name plus immutable ID select one exact catalog-root tombstone in this metalake.
+        A successful deleted read returns the restore token in both the body's `etag` field and a
+        strong HTTP `ETag` header. The deleted read is metadata-only, does not initialize a catalog
+        connector, and is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedCatalogId"
       responses:
         "200":
-          $ref: "#/components/responses/CatalogResponse"
+          description: A live catalog or one exact deleted catalog metadata generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-catalog read and used by conditional PATCH
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/CatalogResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          description: |
+            Bad Request - `include` is unsupported, `include=deleted` is missing `id`, the ID is
+            invalid, or `id` is supplied for a live read.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted catalog
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The specified catalog does not exist in the specified metalake
+          description: |
+            Not Found - The live catalog does not exist, or the deleted ID and name do not identify
+            one catalog tombstone in this metalake.
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -212,19 +269,71 @@ paths:
     patch:
       tags:
         - catalog
-      summary: set catalog in-use
+      summary: Set catalog in-use or restore soft-deleted catalog metadata
       operationId: setCatalog
-      description: Set a specific catalog in-use or not in-use
+      description: |
+        With `application/json`, preserves the existing operation that enables or disables a live
+        catalog.
+
+        With `application/merge-patch+json`, makes one exact soft-deleted Gravitino catalog metadata
+        generation active again. `include=deleted`, immutable `id`, and a strong `If-Match` value
+        bind the request to the exact representation returned by GET. Only the most recent
+        tombstone for that name can be restored. When the original catalog deletion cascaded, the
+        same transaction restores the exact Gravitino metadata tree recorded by that deletion. If
+        any member cannot be restored, the transaction rolls back without a partial tree.
+
+        Restore is metadata-only. It does not initialize or call the catalog connector, validate or
+        recreate downstream schemas or objects, resolve provider defaults, or reconcile downstream
+        state. To avoid exposing raw stored connector credentials, the immediate restore response
+        returns an empty `properties` map. A later normal GET returns the catalog's usual
+        connector-filtered and resolved property view. Replaying the same accepted ETag is
+        idempotent only while the same immutable catalog ID is live at its original path and that
+        deletion generation remains the latest one for the name. A stale precondition requires an
+        exact re-read; clients must not silently switch to a newer deletion generation. Restore is
+        temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedCatalogInclude"
+        - $ref: "#/components/parameters/restoreCatalogId"
+        - $ref: "#/components/parameters/ifMatch"
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/CatalogSetRequest"
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/BaseResponse"
+          description: Catalog in-use state was set, or the selected catalog metadata was restored
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/BaseResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/responses/CatalogResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+        "400":
+          description: |
+            Bad Request - The live set request is malformed; or, for restore,
+            `include=deleted` is missing, the ID is invalid, the patch is malformed, or `deleted`
+            is absent or not exactly `false`.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "403":
+          description: Forbidden - The caller cannot perform the selected operation
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The metalake does not exist
+          description: |
+            Not Found - The live catalog/metalake does not exist, or the restore ID and name do not
+            identify one deleted catalog.
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -232,14 +341,44 @@ paths:
               examples:
                 NoSuchMetalakeException:
                   $ref: "#/components/examples/NoSuchCatalogException"
-        "500":
-          description:
-            Internal server error. It is possible that the server
-            encountered a storage issue.
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the original
+            metalake is missing or replaced, purge is in progress, the deletion record is
+            incomplete, or one member of a cascade-deleted metadata tree cannot be restored. No
+            partial tree is committed; repair the conflict before retrying.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected catalog tombstone expired or was permanently purged
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: |
+            Unsupported Media Type - PATCH accepts application/json for set-in-use or
+            application/merge-patch+json for metadata restore.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing from a restore request
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 
 
@@ -270,6 +409,84 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live catalogs or soft-deleted catalog metadata records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    catalogNameFilter:
+      name: name
+      in: query
+      description: |
+        Exact catalog-name filter. More than one deletion generation can have the same name. For a
+        deleted listing, `name` and `id` must both match when supplied together.
+      required: false
+      schema:
+        type: string
+
+    catalogIdFilter:
+      name: id
+      in: query
+      description: |
+        Immutable catalog-ID filter selecting one exact deletion record. This filter is supported
+        only with `include=deleted`.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedCatalogId:
+      name: id
+      in: query
+      description: |
+        Immutable catalog ID. This parameter is required with `include=deleted` and rejected for a
+        normal live-catalog read.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreCatalogId:
+      name: id
+      in: query
+      description: |
+        Immutable ID of the soft-deleted catalog metadata generation to restore. Required for an
+        `application/merge-patch+json` request and omitted for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedCatalogInclude:
+      name: include
+      in: query
+      description: |
+        Selects the exact deleted catalog metadata targeted by a conditional merge PATCH. Required
+        with `application/merge-patch+json` and omitted for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: |
+        Strong HTTP entity tag returned by an exact catalog GET with `include=deleted&id=...`.
+        Required for an `application/merge-patch+json` restore. Wildcards, weak tags, and lists of
+        tags are rejected. Omit this header for the existing set-in-use request.
+      required: false
+      schema:
+        type: string
 
   schemas:
 

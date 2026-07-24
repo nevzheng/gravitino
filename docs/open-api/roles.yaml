@@ -28,18 +28,35 @@ paths:
         - access control
       summary: List role names
       operationId: listRoles
+      description: |
+        Returns live role names by default. With `include=deleted`, returns independently deleted
+        role metadata generations under the live metalake, optionally filtered by exact name or
+        immutable ID. Deleted-role discovery is metadata-only and temporarily restricted to
+        service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/roleNameFilter"
+        - $ref: "#/components/parameters/roleIdFilter"
       responses:
         "200":
-          description: Returns the list of role  name
+          description: Returns live role names or deleted-role recovery records
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "./openapi.yaml#/components/schemas/NameListResponse"
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 NameListResponse:
                   $ref: "#/components/examples/NameListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect deleted roles
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified metalake does not exist
           content:
@@ -105,19 +122,41 @@ paths:
     get:
       tags:
         - access control
-      summary: Get Role
+      summary: Get role
       operationId: getRole
-      description: Returns the specified role information in the specified metalake
+      description: |
+        Returns the specified live role by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live metalake. The
+        deleted representation is metadata-only, carries a strong ETag for conditional PATCH, and
+        is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedRoleId"
       responses:
         "200":
-          description: Returns the role object
+          description: A live role or one exact deleted-role generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-role read
+              schema:
+                type: string
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "#/components/responses/RoleResponse"
-                examples:
-                  RoleResponse:
-                    $ref: "#/components/examples/RoleResponse"
+                oneOf:
+                  - $ref: "#/components/responses/RoleResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+              examples:
+                RoleResponse:
+                  $ref: "#/components/examples/RoleResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted role
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified role does not exist in the specified metalake
           content:
@@ -129,6 +168,90 @@ paths:
                   $ref: "./metalakes.yaml#/components/examples/NoSuchMetalakeException"
                 NoSuchRoleException:
                   $ref: "#/components/examples/NoSuchRoleException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - access control
+      summary: Restore role metadata
+      operationId: restoreRole
+      description: |
+        Makes one exact soft-deleted role metadata generation active again. `include=deleted`, the
+        immutable `id`, path name, and strong `If-Match` bind PATCH to the exact representation
+        returned by GET. Only the latest same-name generation is eligible.
+
+        Restore is metadata-only. It restores the role root, captured user and group memberships,
+        captured securable-object grants, and captured ownership rows for the role itself. It does
+        not inspect or change an identity provider or other upstream identity source, and does not
+        replay Ranger or another external authorization system. A missing captured row requires
+        manual repair. Restore is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedRoleInclude"
+        - $ref: "#/components/parameters/restoreRoleId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          description: Returns the restored role metadata object
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "#/components/responses/RoleResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot restore deleted roles
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The exact role tombstone or replay receipt does not exist
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the metalake
+            changed, purge is in progress, the generation is incomplete, or the tombstone predates
+            complete deletion records. Incomplete generations require manual metadata repair.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -407,6 +530,71 @@ components:
         "names": [ "user1", "user2" ]
       }
   parameters:
+    include:
+      name: include
+      in: query
+      description: Select live roles or soft-deleted role recovery records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    roleNameFilter:
+      name: name
+      in: query
+      description: Exact role-name filter
+      required: false
+      schema:
+        type: string
+
+    roleIdFilter:
+      name: id
+      in: query
+      description: Immutable role-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedRoleId:
+      name: id
+      in: query
+      description: Immutable role ID required for an exact deleted-role read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedRoleInclude:
+      name: include
+      in: query
+      description: Required as `deleted` when PATCH restores a deleted role
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    restoreRoleId:
+      name: id
+      in: query
+      description: Immutable role ID required when PATCH restores a deleted role
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required when PATCH restores a deleted role
+      required: true
+      schema:
+        type: string
+
     metadataObjectTypeOfRole:
       name: metadataObjectType
       in: path

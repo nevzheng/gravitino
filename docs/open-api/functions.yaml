@@ -50,7 +50,7 @@ paths:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
-                  - $ref: "./openapi.yaml#/components/responses/EntityListResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./openapi.yaml#/components/schemas/EntityListResponse"
                   - $ref: "#/components/schemas/FunctionListResponse"
                   - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:

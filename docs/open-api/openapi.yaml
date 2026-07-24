@@ -321,38 +321,26 @@ components:
           items:
             type: string
 
-  responses:
     EntityListResponse:
-      description: A list of entities
-      content:
-        application/vnd.gravitino.v1+json:
-          schema:
-            type: object
-            required:
-              - code
-              - identifiers
-            properties:
-              code:
-                type: integer
-                format: int32
-                description: Status code of the response
-                enum:
-                  - 0
-                example: 0
-              identifiers:
-                type: array
-                description: A list of NameIdentifier objects
-                items:
-                  $ref: "#/components/schemas/NameIdentifier"
-          examples:
-            CatalogListResponse:
-              $ref: "./catalogs.yaml#/components/examples/CatalogListResponse"
-            SchemaListResponse:
-              $ref: "./schemas.yaml#/components/examples/SchemaListResponse"
-            TableListResponse:
-              $ref: "./tables.yaml#/components/examples/TableListResponse"
+      type: object
+      required:
+        - code
+        - identifiers
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: Status code of the response
+          enum:
+            - 0
+          example: 0
+        identifiers:
+          type: array
+          description: A list of NameIdentifier objects
+          items:
+            $ref: "#/components/schemas/NameIdentifier"
 
-
+  responses:
     BadRequestErrorResponse:
       description:
         Indicates a bad request error. It could be caused by an unexpected request

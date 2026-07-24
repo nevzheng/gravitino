@@ -27,17 +27,27 @@ paths:
         - policy
       summary: List policies (names)
       operationId: listPolicies
+      description: |
+        Returns live policies by default. With `include=deleted`, returns independently deleted
+        policy generations under the live metalake. Deleted results are metadata-only recovery
+        records and may be narrowed by exact policy name or immutable ID. `details=true` is not
+        supported with `include=deleted`. Deleted-policy discovery is temporarily restricted to
+        service administrators.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/policyNameFilter"
+        - $ref: "#/components/parameters/policyIdFilter"
       responses:
         "200":
-          description: Returns the list of policy objects if {details} is true, otherwise returns the list of policy names
+          description: Returns live policy names/details or deleted-policy recovery records
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
                   - $ref: "#/components/schemas/PolicyListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 NameListResponse:
                   $ref: "#/components/examples/NameListResponse"
@@ -45,6 +55,12 @@ paths:
                   $ref: "#/components/examples/PolicyListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect deleted policies
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified metalake does not exist
           content:
@@ -103,17 +119,39 @@ paths:
         - policy
       summary: Get policy
       operationId: getPolicy
-      description: Returns the specified policy information in the specified metalake
+      description: |
+        Returns the specified live policy by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live metalake. The
+        deleted representation is metadata-only, carries a strong ETag for conditional PATCH, and
+        is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedPolicyId"
       responses:
         "200":
-          description: Returns the policy object
+          description: A live policy or one exact deleted-policy generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-policy read
+              schema:
+                type: string
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "#/components/schemas/PolicyResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/PolicyResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
               examples:
                 PolicyResponse:
                   $ref: "#/components/examples/PolicyResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted policy
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified policy does not exist in the specified metalake
           content:
@@ -166,17 +204,55 @@ paths:
     patch:
       tags:
         - policy
-      summary: Enable or disable a policy
+      summary: Enable, disable, or restore a policy
       operationId: setPolicy
-      description: Enable or disable a policy in the specified metalake
+      description: |
+        With `application/json`, enables or disables the live policy using `enable`; recovery query
+        selectors are rejected on this form. With `application/merge-patch+json`, makes one exact
+        soft-deleted policy generation active again using `{deleted: false}`. The immutable `id`,
+        path name, and strong `If-Match` value bind restore to the exact representation returned by
+        GET.
+
+        Restore is metadata-only. It restores the policy base and version metadata recorded for
+        the selected deletion generation. It does not contact, validate, or recreate anything in a
+        downstream system. Existing policy associations become visible again only when their
+        relation rows are still live. The same accepted ETag may be replayed only while this
+        generation remains latest and the exact policy ID is live at its original metalake and
+        name. Restore is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedPolicyInclude"
+        - $ref: "#/components/parameters/restorePolicyId"
+        - $ref: "#/components/parameters/ifMatch"
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/PolicySetRequest"
+            example:
+              enable: true
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/BaseResponse"
+          description: The live-policy state was changed or one deleted policy was restored
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/BaseResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/schemas/PolicyResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller lacks permission for this PATCH operation
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified policy does not exist in the specified metalake
           content:
@@ -188,6 +264,39 @@ paths:
                   $ref: "./metalakes.yaml#/components/examples/NoSuchMetalakeException"
                 NoSuchPolicyException:
                   $ref: "#/components/examples/NoSuchPolicyException"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied, a newer same-name tombstone exists, the parent
+            changed, purge is in progress, the generation is incomplete, or the tombstone predates
+            complete deletion records. Incomplete generations require manual metadata repair.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires a supported JSON patch media type
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing from a restore request
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -375,6 +484,71 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live policies or soft-deleted policy recovery records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    policyNameFilter:
+      name: name
+      in: query
+      description: Exact policy-name filter
+      required: false
+      schema:
+        type: string
+
+    policyIdFilter:
+      name: id
+      in: query
+      description: Immutable policy-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedPolicyId:
+      name: id
+      in: query
+      description: Immutable policy ID required for an exact deleted-policy read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedPolicyInclude:
+      name: include
+      in: query
+      description: Required as `deleted` when the PATCH restores a deleted policy
+      required: false
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    restorePolicyId:
+      name: id
+      in: query
+      description: Immutable policy ID required when the PATCH restores a deleted policy
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required when the PATCH restores a deleted policy
+      required: false
+      schema:
+        type: string
 
   schemas:
 
@@ -585,6 +759,8 @@ components:
 
     PolicySetRequest:
       type: object
+      required:
+        - enable
       properties:
         enable:
           type: boolean

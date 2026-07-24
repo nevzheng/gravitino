@@ -27,24 +27,46 @@ paths:
         - tag
       summary: List tags (names)
       operationId: listTags
+      description: |
+        Returns live tags in the specified metalake by default. The exact `name` filter applies to
+        live and deleted results. With `include=deleted`, returns independently deleted tag
+        metadata generations and additionally supports the immutable `id` filter. A filter
+        mismatch returns an empty collection. `details=true` is not supported with
+        `include=deleted`.
+
+        Deleted-tag discovery is metadata-only and temporarily restricted to service
+        administrators. Tag-to-metadata-object relations belong to their tag deletion generation
+        and have no independent recovery route.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/tagNameFilter"
+        - $ref: "#/components/parameters/tagIdFilter"
       responses:
         "200":
-          description: Returns the list of tag objects if {details} is true, otherwise returns the list of tag name
+          description: Returns live tag names/details or deleted-tag recovery records
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "./openapi.yaml#/components/schemas/NameListResponse"
                   - $ref: "#/components/responses/TagListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 NameListResponse:
                   $ref: "#/components/examples/NameListResponse"
                 TagListResponse:
                   $ref: "#/components/examples/TagListResponse"
+                DeletedEntityListResponse:
+                  $ref: "./tables.yaml#/components/examples/DeletedEntityListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect deleted tags
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified metalake does not exist
           content:
@@ -104,17 +126,39 @@ paths:
         - tag
       summary: Get tag
       operationId: getTag
-      description: Returns the specified tag information in the specified metalake
+      description: |
+        Returns the specified live tag by default. With `include=deleted`, `id` is required and
+        the path name plus immutable ID select one exact tombstone under the live metalake. The
+        deleted representation is metadata-only, carries a strong ETag for conditional PATCH, and
+        is temporarily restricted to service administrators.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedTagId"
       responses:
         "200":
-          description: Returns the tag object
+          description: A live tag or one exact deleted-tag generation
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-tag read
+              schema:
+                type: string
           content:
             application/vnd.gravitino.v1+json:
               schema:
-                $ref: "#/components/responses/TagResponse"
-                examples:
-                  TagResponse:
-                    $ref: "#/components/examples/TagResponse"
+                oneOf:
+                  - $ref: "#/components/responses/TagResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+              examples:
+                TagResponse:
+                  $ref: "#/components/examples/TagResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect this deleted tag
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified tag does not exist in the specified metalake
           content:
@@ -126,6 +170,98 @@ paths:
                   $ref: "./metalakes.yaml#/components/examples/NoSuchMetalakeException"
                 NoSuchTagException:
                   $ref: "#/components/examples/NoSuchTagException"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
+
+    patch:
+      tags:
+        - tag
+      summary: Restore tag metadata
+      operationId: restoreTag
+      description: |
+        Makes one exact soft-deleted tag metadata generation active again. `include=deleted`, the
+        immutable `id`, path name, and strong `If-Match` bind PATCH to the exact representation
+        returned by GET. Only the latest same-name generation is eligible, and restore is
+        temporarily restricted to service administrators.
+
+        Restore is metadata-only. The aggregate consists of the `tag_meta` root and every live
+        `tag_relation_meta` row captured when that standalone tag was deleted. Relations
+        transition before the tag root during delete, restore, and purge, and the transaction
+        verifies the exact affected-row count. A missing or mismatched captured relation fails
+        with `INCOMPLETE_GENERATION`, rolls back, and requires manual metadata repair.
+
+        The first deletion that changes an overlapping live relation owns it; a later tag or
+        metadata-object deletion never retags the tombstone. Either endpoint root may be restored
+        first. Normal joins keep the relation hidden until both roots are live. Prior independent
+        or null-token relation tombstones remain deleted. PATCH does not restore owners or grants,
+        contact a connector, or replay an external authorization system.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedTagInclude"
+        - $ref: "#/components/parameters/restoreTagId"
+        - $ref: "#/components/parameters/ifMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
+      responses:
+        "200":
+          description: Returns the restored tag metadata object
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "#/components/responses/TagResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot restore deleted tags
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "404":
+          description: Not Found - The exact tag tombstone or replay receipt does not exist
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "409":
+          description: |
+            Conflict - The name or ID is occupied; a newer same-name tombstone exists; the
+            metalake changed; purge is in progress; the generation is incomplete; or the
+            tombstone predates complete deletion records. `INCOMPLETE_GENERATION` means a
+            captured relation is missing or inconsistent and requires manual metadata repair.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected tombstone expired or was permanently purged
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - PATCH requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - If-Match is missing
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -348,6 +484,71 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live tags or soft-deleted tag recovery records
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    tagNameFilter:
+      name: name
+      in: query
+      description: Exact tag-name filter for live or deleted results
+      required: false
+      schema:
+        type: string
+
+    tagIdFilter:
+      name: id
+      in: query
+      description: Immutable tag-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedTagId:
+      name: id
+      in: query
+      description: Immutable tag ID required for an exact deleted-tag read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedTagInclude:
+      name: include
+      in: query
+      description: Required as `deleted` when PATCH restores a deleted tag
+      required: true
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    restoreTagId:
+      name: id
+      in: query
+      description: Immutable tag ID required when PATCH restores a deleted tag
+      required: true
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    ifMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required when PATCH restores a deleted tag
+      required: true
+      schema:
+        type: string
 
   schemas:
 
