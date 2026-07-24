@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS `metalake_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'metalake current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'metalake last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'metalake deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'metalake deletion generation identifier',
     PRIMARY KEY (`metalake_id`),
     UNIQUE KEY `uk_mn_del` (`metalake_name`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'metalake metadata';
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS `catalog_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'catalog current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'catalog last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'catalog deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'catalog deletion generation identifier',
     PRIMARY KEY (`catalog_id`),
     UNIQUE KEY `uk_mid_cn_del` (`metalake_id`, `catalog_name`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'catalog metadata';
@@ -58,6 +60,7 @@ CREATE TABLE IF NOT EXISTS `schema_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'schema current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'schema last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'schema deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'schema deletion generation identifier',
     PRIMARY KEY (`schema_id`),
     UNIQUE KEY `uk_cid_sn_del` (`catalog_id`, `schema_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`)
@@ -73,6 +76,7 @@ CREATE TABLE IF NOT EXISTS `table_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'table current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'table last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'table deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'table deletion generation identifier',
     PRIMARY KEY (`table_id`),
     UNIQUE KEY `uk_sid_tn_del` (`schema_id`, `table_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -96,6 +100,7 @@ CREATE TABLE IF NOT EXISTS `table_column_version_info` (
     `column_default_value` TEXT DEFAULT NULL COMMENT 'column default value',
     `column_op_type` TINYINT(1) NOT NULL COMMENT 'column operation type, 1 is create, 2 is update, 3 is delete',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'column deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'column deletion generation identifier',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'column audit info',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_tid_ver_cid_del` (`table_id`, `table_version`, `column_id`, `deleted_at`),
@@ -115,6 +120,7 @@ CREATE TABLE IF NOT EXISTS `fileset_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'fileset current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'fileset last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'fileset deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'fileset deletion generation identifier',
     PRIMARY KEY (`fileset_id`),
     UNIQUE KEY `uk_sid_fn_del` (`schema_id`, `fileset_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -133,6 +139,7 @@ CREATE TABLE IF NOT EXISTS `fileset_version_info` (
     `storage_location_name` VARCHAR(256) NOT NULL DEFAULT 'default' COMMENT 'fileset storage location name',
     `storage_location` MEDIUMTEXT NOT NULL COMMENT 'fileset storage location',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'fileset deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'fileset deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_fid_ver_sto_del` (`fileset_id`, `version`, `storage_location_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -152,6 +159,7 @@ CREATE TABLE IF NOT EXISTS `topic_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'topic current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'topic last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'topic deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'topic deletion generation identifier',
     PRIMARY KEY (`topic_id`),
     UNIQUE KEY `uk_sid_tn_del` (`schema_id`, `topic_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -168,6 +176,7 @@ CREATE TABLE IF NOT EXISTS `user_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'user current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'user last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'user deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'user deletion generation identifier',
     `updated_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'updated at',
     PRIMARY KEY (`user_id`),
     UNIQUE KEY `uk_mid_us_del` (`metalake_id`, `user_name`, `deleted_at`),
@@ -184,6 +193,7 @@ CREATE TABLE IF NOT EXISTS `role_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'role current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'role last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'role deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'role deletion generation identifier',
     `updated_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'updated at',
     PRIMARY KEY (`role_id`),
     UNIQUE KEY `uk_mid_rn_del` (`metalake_id`, `role_name`, `deleted_at`)
@@ -199,6 +209,7 @@ CREATE TABLE IF NOT EXISTS `role_meta_securable_object` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'securable object current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'securable object last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'securable object deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'securable object deletion generation identifier',
     PRIMARY KEY (`id`),
     KEY `idx_obj_rid` (`role_id`),
     KEY `idx_obj_eid` (`metadata_object_id`)
@@ -212,6 +223,7 @@ CREATE TABLE IF NOT EXISTS `user_role_rel` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'relation current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'relation last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'relation deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'user-role deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ui_ri_del` (`user_id`, `role_id`, `deleted_at`),
     KEY `idx_rid` (`role_id`)
@@ -226,6 +238,7 @@ CREATE TABLE IF NOT EXISTS `group_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'group current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'group last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'group deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'group deletion generation identifier',
     `updated_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'updated at',
     PRIMARY KEY (`group_id`),
     UNIQUE KEY `uk_mid_gr_del` (`metalake_id`, `group_name`, `deleted_at`),
@@ -241,6 +254,7 @@ CREATE TABLE IF NOT EXISTS `group_role_rel` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'relation current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'relation last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'relation deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'group-role deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_gi_ri_del` (`group_id`, `role_id`, `deleted_at`),
     KEY `idx_rid` (`group_id`)
@@ -290,6 +304,7 @@ CREATE TABLE IF NOT EXISTS `tag_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'tag current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'tag last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'tag deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'tag deletion generation identifier',
     PRIMARY KEY (`tag_id`),
     UNIQUE KEY `uk_mi_tn_del` (`metalake_id`, `tag_name`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'tag metadata';
@@ -303,6 +318,7 @@ CREATE TABLE IF NOT EXISTS `tag_relation_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'tag relation current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'tag relation last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'tag relation deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'tag relation deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ti_mi_mo_del` (`tag_id`, `metadata_object_id`, `metadata_object_type`, `deleted_at`),
     KEY `idx_tid` (`tag_id`),
@@ -320,6 +336,7 @@ CREATE TABLE IF NOT EXISTS `owner_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'owner relation current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'owner relation last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'owner relation deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'owner relation deletion generation identifier',
     `updated_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'updated at',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_ow_me_del` (`owner_id`, `metadata_object_id`, `metadata_object_type`,`deleted_at`),
@@ -339,6 +356,7 @@ CREATE TABLE IF NOT EXISTS `model_meta` (
     `model_latest_version` INT UNSIGNED DEFAULT 0 COMMENT 'model latest version',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'model audit info',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'model deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'model deletion generation identifier',
     PRIMARY KEY (`model_id`),
     UNIQUE KEY `uk_sid_mn_del` (`schema_id`, `model_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -358,6 +376,7 @@ CREATE TABLE IF NOT EXISTS `model_version_info` (
     `model_version_uri` TEXT NOT NULL COMMENT 'model storage uri',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'model version audit info',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'model version deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'model deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_mid_ver_uri_del` (`model_id`, `version`, `model_version_uri_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -371,6 +390,7 @@ CREATE TABLE IF NOT EXISTS `model_version_alias_rel` (
     `model_version` INT UNSIGNED NOT NULL COMMENT 'model version',
     `model_version_alias` VARCHAR(128) NOT NULL COMMENT 'model version alias',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'model version alias deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'model deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_mi_mva_del` (`model_id`, `model_version_alias`, `deleted_at`),
     KEY `idx_mva` (`model_version_alias`)
@@ -385,6 +405,7 @@ CREATE TABLE IF NOT EXISTS `policy_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'policy current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'policy last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'policy deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'policy deletion generation identifier',
     PRIMARY KEY (`policy_id`),
     UNIQUE KEY `uk_mi_pn_del` (`metalake_id`, `policy_name`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'policy metadata';
@@ -398,6 +419,7 @@ CREATE TABLE IF NOT EXISTS `policy_version_info` (
     `enabled` TINYINT(1) DEFAULT 1 COMMENT 'whether the policy is enabled, 0 is disabled, 1 is enabled',
     `content` MEDIUMTEXT DEFAULT NULL COMMENT 'policy content',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'policy deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'policy version deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_pod_ver_del` (`policy_id`, `version`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`)
@@ -412,6 +434,7 @@ CREATE TABLE IF NOT EXISTS `policy_relation_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'policy relation current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'policy relation last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'policy relation deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'policy relation deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_pi_mi_mo_del` (`policy_id`, `metadata_object_id`, `metadata_object_type`, `deleted_at`),
     KEY `idx_pid` (`policy_id`),
@@ -430,6 +453,7 @@ CREATE TABLE IF NOT EXISTS `statistic_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'statistic current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'statistic last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'statistic deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'statistic deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_si_mi_mo_del` (`statistic_name`, `metadata_object_id`, `deleted_at`),
     KEY `idx_stid` (`statistic_id`),
@@ -446,6 +470,7 @@ CREATE TABLE IF NOT EXISTS `job_template_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'job template current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'job template last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'job template deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'job template deletion generation identifier',
     PRIMARY KEY (`job_template_id`),
     UNIQUE KEY `uk_mid_jtn_del` (`metalake_id`, `job_template_name`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'job template metadata';
@@ -461,6 +486,7 @@ CREATE TABLE IF NOT EXISTS `job_run_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'job run current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'job run last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'job run deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'job run deletion generation identifier',
     PRIMARY KEY (`job_run_id`),
     UNIQUE KEY `uk_mid_jei_del` (`metalake_id`, `job_execution_id`, `deleted_at`),
     KEY `idx_job_template_id` (`job_template_id`),
@@ -478,6 +504,7 @@ CREATE TABLE IF NOT EXISTS `table_version_info` (
     `comment`   MEDIUMTEXT DEFAULT NULL COMMENT 'table comment',
     `version` BIGINT(20) UNSIGNED COMMENT 'table current version',
     `deleted_at`      BIGINT(20) UNSIGNED DEFAULT 0 COMMENT 'table deletion timestamp, 0 means not deleted',
+    `deletion_id`     VARCHAR(64) DEFAULT NULL COMMENT 'table deletion generation identifier',
     UNIQUE KEY `uk_table_id_version_deleted_at` (`table_id`, `version`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'table detail information including format, location, properties, partition, distribution, sort order, index and so on';
 
@@ -493,6 +520,7 @@ CREATE TABLE IF NOT EXISTS `function_meta` (
     `function_latest_version` INT UNSIGNED DEFAULT 1 COMMENT 'function latest version',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'function audit info',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'function deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'function deletion generation identifier',
     PRIMARY KEY (`function_id`),
     UNIQUE KEY `uk_sid_fn_del` (`schema_id`, `function_name`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -510,6 +538,7 @@ CREATE TABLE IF NOT EXISTS `function_version_info` (
     `definitions` MEDIUMTEXT NOT NULL COMMENT 'function definitions details',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'function version audit info',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'function version deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'function deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_fid_ver_del` (`function_id`, `version`, `deleted_at`),
     KEY `idx_mid` (`metalake_id`),
@@ -527,6 +556,7 @@ CREATE TABLE IF NOT EXISTS `view_meta` (
     `current_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'view current version',
     `last_version` INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'view last version',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'view deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'view deletion generation identifier',
     PRIMARY KEY (`view_id`),
     UNIQUE KEY `uk_sid_vn_del` (`schema_id`, `view_name`, `deleted_at`),
     KEY `idx_vemid` (`metalake_id`),
@@ -548,6 +578,7 @@ CREATE TABLE IF NOT EXISTS `view_version_info` (
     `representations` MEDIUMTEXT NOT NULL COMMENT 'view representations (JSON array)',
     `audit_info` MEDIUMTEXT NOT NULL COMMENT 'view version audit info',
     `deleted_at` BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 COMMENT 'view version deleted at',
+    `deletion_id` VARCHAR(64) DEFAULT NULL COMMENT 'view deletion generation identifier',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_vid_ver_del` (`view_id`, `version`, `deleted_at`),
     KEY `idx_vvmid` (`metalake_id`),
@@ -594,16 +625,40 @@ CREATE TABLE IF NOT EXISTS `job_metrics` (
     KEY `idx_job_metrics_identifier_metric_ts` (`job_identifier`(255), `metric_ts`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'optimizer job metrics';
 
+CREATE TABLE IF NOT EXISTS `entity_deletion` (
+  `deletion_id`      VARCHAR(64)     NOT NULL COMMENT 'immutable identifier for one deletion generation',
+  `entity_type`      VARCHAR(32)     NOT NULL COMMENT 'Gravitino entity type',
+  `entity_id`        BIGINT UNSIGNED NOT NULL COMMENT 'immutable identifier of the deleted entity',
+  `metalake_id`      BIGINT UNSIGNED NOT NULL COMMENT 'immutable identifier of the owning metalake',
+  `catalog_id`       BIGINT UNSIGNED NULL COMMENT 'immutable identifier of the owning catalog, when applicable',
+  `parent_id`        BIGINT UNSIGNED NULL COMMENT 'immutable identifier of the immediate parent, when applicable',
+  `entity_name`      VARCHAR(256)    NOT NULL COMMENT 'entity name at deletion time',
+  `deleted_at`       BIGINT          NOT NULL COMMENT 'deletion timestamp in milliseconds',
+  `expires_at`       BIGINT          NOT NULL COMMENT 'creation-time recoverability expiry snapshot in milliseconds',
+  `deleted_by`       VARCHAR(128)    NULL COMMENT 'principal that requested deletion',
+  `entity_version`   BIGINT          NULL COMMENT 'entity version captured at deletion time, when applicable',
+  `affected_row_count` BIGINT        NULL COMMENT 'number of metadata rows stamped by the deletion, when known',
+  `state`            VARCHAR(16)     NOT NULL COMMENT 'DELETED | RESTORING | RESTORED | PURGING | PURGED',
+  `revision`         BIGINT          NOT NULL DEFAULT 0 COMMENT 'optimistic state-machine revision',
+  `restored_at`      BIGINT          NULL COMMENT 'successful restore timestamp in milliseconds',
+  `restore_etag`     VARCHAR(256)    NULL COMMENT 'exact entity tag accepted by the successful restore',
+  `purged_at`        BIGINT          NULL COMMENT 'permanent purge timestamp in milliseconds',
+  PRIMARY KEY (`deletion_id`),
+  UNIQUE KEY `uk_ed_type_entity_time` (`entity_type`, `entity_id`, `deleted_at`),
+  KEY `idx_ed_parent_state_time` (`entity_type`, `parent_id`, `state`, `deleted_at`),
+  KEY `idx_ed_name_time` (`entity_type`, `parent_id`, `entity_name`, `deleted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'durable soft-deletion generations and restore receipts';
+
 CREATE TABLE IF NOT EXISTS `entity_change_log` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'auto increment id',
   `metalake_name` VARCHAR(128)    NOT NULL COMMENT 'metalake name',
   `entity_type`   VARCHAR(32)     NOT NULL COMMENT 'METALAKE | CATALOG | SCHEMA | TABLE | FILESET | TOPIC | MODEL | VIEW',
-  `entity_full_name` VARCHAR(512) NOT NULL COMMENT 'Dot-separated full name of the affected entity. For ALTER, stores the old name. For DROP, stores the entity name.',
-  `operate_type`  TINYINT UNSIGNED NOT NULL COMMENT 'Operate type code: 1=ALTER, 2=DROP, 3=INSERT. Codes are stable and never re-used.',
+  `entity_full_name` VARCHAR(512) NOT NULL COMMENT 'Dot-separated full name of the affected entity. For ALTER, stores the old name. For DROP and RESTORE, stores the entity name.',
+  `operate_type`  TINYINT UNSIGNED NOT NULL COMMENT 'Operate type code: 1=ALTER, 2=DROP, 3=INSERT (reserved), 4=RESTORE. Codes are stable and never re-used.',
   `created_at`    BIGINT          NOT NULL COMMENT 'timestamp of the change in millis',
   PRIMARY KEY (`id`),
   KEY `idx_ecl_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'Append-only log of entity structural changes for targeted metadataIdCache invalidation';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT 'Append-only log of entity structural changes for targeted local cache invalidation';
 
 CREATE TABLE IF NOT EXISTS `iceberg_cleanup_job` (
   `id`                BIGINT(20)    UNSIGNED NOT NULL COMMENT 'globally unique cleanup job id',
