@@ -27,17 +27,26 @@ paths:
         - catalog
       summary: List catalogs (names)
       operationId: listCatalogs
+      description: |
+        Lists live catalogs by default. `include=deleted` returns independently deleted catalog
+        trees as retained metadata-deletion records. A cascaded catalog restore revives the exact
+        recorded Gravitino metadata tree; it never contacts a catalog connector or downstream
+        system. An exact deleted item read is required before a conditional restore PATCH.
       parameters:
         - $ref: "#/components/parameters/details"
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/catalogNameFilter"
+        - $ref: "#/components/parameters/catalogIdFilter"
       responses:
         "200":
-          description: Returns the list of catalog objects if {details} is true, otherwise returns the list of catalog identifiers
+          description: Live catalog identifiers or details, or retained deleted catalog trees
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 oneOf:
                   - $ref: "#/components/schemas/CatalogListResponse"
                   - $ref: "#/components/schemas/CatalogInfoListResponse"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityListResponse"
               examples:
                 CatalogListResponse:
                   $ref: "#/components/examples/CatalogListResponse"
@@ -45,6 +54,12 @@ paths:
                   $ref: "#/components/examples/CatalogInfoListResponse"
         "400":
           $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot list deleted catalogs
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "5xx":
           $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
@@ -154,10 +169,36 @@ paths:
         - catalog
       summary: Get catalog
       operationId: loadCatalog
-      description: Returns the specified catalog information in the specified metalake
+      description: |
+        Returns the specified live catalog by default. With `include=deleted`, `id` is required
+        and the original `{catalog}` name plus immutable ID select one exact deleted catalog tree.
+        A deleted read returns the same optimistic restore token in the body and as a strong HTTP
+        `ETag` header.
+      parameters:
+        - $ref: "#/components/parameters/include"
+        - $ref: "#/components/parameters/deletedCatalogId"
       responses:
         "200":
-          $ref: "#/components/responses/CatalogResponse"
+          description: A live catalog or one exact deleted catalog tree
+          headers:
+            ETag:
+              description: Returned only for an exact deleted-catalog read; use as PATCH If-Match
+              schema:
+                type: string
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/responses/CatalogResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "./tables.yaml#/components/schemas/DeletedEntityResponse"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller cannot inspect the deleted catalog
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
           description: Not Found - The specified catalog does not exist in the specified metalake
           content:
@@ -212,19 +253,51 @@ paths:
     patch:
       tags:
         - catalog
-      summary: set catalog in-use
-      operationId: setCatalog
-      description: Set a specific catalog in-use or not in-use
+      summary: Set catalog in-use or restore a soft-deleted catalog tree
+      operationId: patchCatalog
+      description: |
+        `application/json` retains the existing `inUse` state update. A conditional restore uses
+        `application/merge-patch+json` with `include=deleted`, an immutable `id`, and the strong
+        `If-Match` value returned by an exact deleted GET.
+
+        Restore is metadata-only: it revives the exact catalog metadata tree captured by the
+        deletion generation, without recreating, querying, or reconciling downstream resources.
+        A stale precondition is retryable only after re-reading the same immutable ID and confirming
+        that the same deletion generation remains deleted, latest for its name, and restorable.
+        A client must never substitute a newer deletion generation automatically.
+      parameters:
+        - $ref: "#/components/parameters/restoreDeletedCatalogInclude"
+        - $ref: "#/components/parameters/restoreCatalogId"
+        - $ref: "#/components/parameters/restoreCatalogIfMatch"
       requestBody:
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/CatalogSetRequest"
+          application/merge-patch+json:
+            schema:
+              $ref: "./tables.yaml#/components/schemas/EntityRestoreRequest"
+            example:
+              deleted: false
       responses:
         "200":
-          $ref: "./openapi.yaml#/components/responses/BaseResponse"
+          description: The updated in-use state or restored catalog metadata
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                oneOf:
+                  - $ref: "./openapi.yaml#/components/responses/BaseResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+                  - $ref: "#/components/responses/CatalogResponse/content/application~1vnd.gravitino.v1%2Bjson/schema"
+        "400":
+          $ref: "./openapi.yaml#/components/responses/BadRequestErrorResponse"
+        "403":
+          description: Forbidden - The caller is not a service administrator for deleted catalog recovery
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
         "404":
-          description: Not Found - The metalake does not exist
+          description: Not Found - The metalake or the exact deleted catalog generation does not exist
           content:
             application/vnd.gravitino.v1+json:
               schema:
@@ -232,14 +305,41 @@ paths:
               examples:
                 NoSuchMetalakeException:
                   $ref: "#/components/examples/NoSuchCatalogException"
-        "500":
-          description:
-            Internal server error. It is possible that the server
-            encountered a storage issue.
+        "409":
+          description: |
+            Conflict - Recovery would change the meaning of the deletion generation, including a
+            live name or ID conflict, a newer tombstone, a replaced parent, a partially recorded
+            tree, purge in progress, or a legacy tombstone without a complete deletion record.
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./tables.yaml#/components/schemas/RecoveryConflictError"
+        "410":
+          description: Gone - The selected deleted catalog generation expired or was purged
           content:
             application/vnd.gravitino.v1+json:
               schema:
                 $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "412":
+          description: Precondition Failed - The exact deleted representation changed; re-read before retrying
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "415":
+          description: Unsupported Media Type - Restore requires application/merge-patch+json
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "428":
+          description: Precondition Required - Restore requires the strong If-Match header
+          content:
+            application/vnd.gravitino.v1+json:
+              schema:
+                $ref: "./openapi.yaml#/components/schemas/ErrorModel"
+        "5xx":
+          $ref: "./openapi.yaml#/components/responses/ServerErrorResponse"
 
 
 
@@ -270,6 +370,71 @@ components:
       schema:
         type: boolean
         default: false
+
+    include:
+      name: include
+      in: query
+      description: Select live catalogs or retained deleted catalog trees
+      required: false
+      schema:
+        type: string
+        default: non-deleted
+        enum:
+          - non-deleted
+          - deleted
+
+    catalogNameFilter:
+      name: name
+      in: query
+      description: Exact catalog-name filter; deleted listings can contain historical generations
+      required: false
+      schema:
+        type: string
+
+    catalogIdFilter:
+      name: id
+      in: query
+      description: Immutable catalog-ID filter, supported only with include=deleted
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    deletedCatalogId:
+      name: id
+      in: query
+      description: Immutable catalog ID required for an exact deleted-catalog read
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreDeletedCatalogInclude:
+      name: include
+      in: query
+      description: Required for the merge-patch restore variant; ignored by the in-use PATCH variant
+      required: false
+      schema:
+        type: string
+        enum:
+          - deleted
+
+    restoreCatalogId:
+      name: id
+      in: query
+      description: Immutable ID required for the merge-patch restore variant
+      required: false
+      schema:
+        type: string
+        pattern: "^[1-9][0-9]*$"
+
+    restoreCatalogIfMatch:
+      name: If-Match
+      in: header
+      description: Strong ETag required for the merge-patch restore variant
+      required: false
+      schema:
+        type: string
 
   schemas:
 

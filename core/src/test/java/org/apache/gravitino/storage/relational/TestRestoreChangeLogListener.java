@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
@@ -34,6 +35,7 @@ import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.cache.CaffeineEntityCache;
 import org.apache.gravitino.cache.EntityCache;
 import org.apache.gravitino.meta.AuditInfo;
+import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
@@ -44,6 +46,8 @@ import org.mockito.Mockito;
 
 public class TestRestoreChangeLogListener {
 
+  private static final NameIdentifier CATALOG = NameIdentifier.of("metalake", "catalog");
+
   private static final NameIdentifier SCHEMA = NameIdentifier.of("metalake", "catalog", "schema");
 
   private static final NameIdentifier TABLE =
@@ -51,6 +55,8 @@ public class TestRestoreChangeLogListener {
 
   private static final Map<Entity.EntityType, NameIdentifier> RECOVERABLE_IDENTIFIERS =
       Map.of(
+          Entity.EntityType.CATALOG,
+          CATALOG,
           Entity.EntityType.SCHEMA,
           SCHEMA,
           Entity.EntityType.TABLE,
@@ -75,7 +81,7 @@ public class TestRestoreChangeLogListener {
         List.of(
             change("metalake", "table", TABLE.toString(), OperateType.RESTORE),
             change("metalake", "TABLE", TABLE.toString(), OperateType.DROP),
-            change("metalake", "CATALOG", TABLE.toString(), OperateType.RESTORE)));
+            change("metalake", "METALAKE", TABLE.toString(), OperateType.RESTORE)));
 
     verify(cache).invalidate(TABLE, Entity.EntityType.TABLE);
     for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
@@ -100,10 +106,10 @@ public class TestRestoreChangeLogListener {
 
     listener.onEntityChange(changes);
 
+    verify(cache, times(2)).clear();
     RECOVERABLE_IDENTIFIERS.forEach(
         (entityType, identifier) -> {
-          if (entityType == Entity.EntityType.SCHEMA) {
-            verify(cache).clear();
+          if (entityType == Entity.EntityType.CATALOG || entityType == Entity.EntityType.SCHEMA) {
             return;
           }
           verify(cache).invalidate(identifier, entityType);
@@ -188,6 +194,55 @@ public class TestRestoreChangeLogListener {
     Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA));
     Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE));
     for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA, relationType));
+      Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE, relationType));
+    }
+  }
+
+  @Test
+  void testCatalogRestoreClearsCachedTreeAndRootRelations() {
+    CaffeineEntityCache cache = new CaffeineEntityCache(new Config(false) {});
+    CatalogEntity catalog =
+        CatalogEntity.builder()
+            .withId(1L)
+            .withNamespace(Namespace.of("metalake"))
+            .withName("catalog")
+            .withType(Catalog.Type.RELATIONAL)
+            .withProvider("test")
+            .withAuditInfo(AuditInfo.EMPTY)
+            .build();
+    SchemaEntity schema =
+        SchemaEntity.builder()
+            .withId(2L)
+            .withNamespace(Namespace.of("metalake", "catalog"))
+            .withName("schema")
+            .withAuditInfo(AuditInfo.EMPTY)
+            .build();
+    TableEntity table =
+        TableEntity.builder()
+            .withId(3L)
+            .withNamespace(Namespace.of("metalake", "catalog", "schema"))
+            .withName("table")
+            .withAuditInfo(AuditInfo.EMPTY)
+            .build();
+    cache.put(catalog);
+    cache.put(schema);
+    cache.put(table);
+    for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      cache.put(CATALOG, Entity.EntityType.CATALOG, relationType, List.<CatalogEntity>of());
+      cache.put(SCHEMA, Entity.EntityType.SCHEMA, relationType, List.<SchemaEntity>of());
+      cache.put(TABLE, Entity.EntityType.TABLE, relationType, List.<TableEntity>of());
+    }
+
+    new RestoreChangeLogListener(cache)
+        .onEntityChange(
+            List.of(change("metalake", "CATALOG", CATALOG.toString(), OperateType.RESTORE)));
+
+    Assertions.assertFalse(cache.contains(CATALOG, Entity.EntityType.CATALOG));
+    Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE));
+    for (SupportsRelationOperations.Type relationType : SupportsRelationOperations.Type.values()) {
+      Assertions.assertFalse(cache.contains(CATALOG, Entity.EntityType.CATALOG, relationType));
       Assertions.assertFalse(cache.contains(SCHEMA, Entity.EntityType.SCHEMA, relationType));
       Assertions.assertFalse(cache.contains(TABLE, Entity.EntityType.TABLE, relationType));
     }

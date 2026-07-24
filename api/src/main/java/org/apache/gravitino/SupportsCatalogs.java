@@ -19,6 +19,7 @@
 package org.apache.gravitino;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.CatalogInUseException;
@@ -26,6 +27,11 @@ import org.apache.gravitino.exceptions.CatalogNotInUseException;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
+import org.apache.gravitino.exceptions.PreconditionRequiredException;
+import org.apache.gravitino.exceptions.RecoveryConflictException;
+import org.apache.gravitino.exceptions.TombstoneChangedException;
+import org.apache.gravitino.exceptions.TombstoneExpiredException;
+import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 
 /**
  * Client interface for supporting catalogs. It includes methods for listing, loading, creating,
@@ -51,6 +57,20 @@ public interface SupportsCatalogs {
   Catalog[] listCatalogsInfo() throws NoSuchMetalakeException;
 
   /**
+   * Lists retained deletion generations for catalogs in this metalake.
+   *
+   * @param name An exact catalog-name filter, or {@code null} for every name.
+   * @param id An exact immutable catalog-ID filter, or {@code null} for every ID.
+   * @return The retained catalog deletion generations matching the filters.
+   * @throws NoSuchMetalakeException If the metalake does not exist.
+   * @throws IllegalArgumentException If a supplied filter is invalid.
+   * @throws UnsupportedOperationException If recoverable catalog deletion is not supported.
+   */
+  default DeletedEntity[] listDeletedCatalogs(@Nullable String name, @Nullable String id) {
+    throw new UnsupportedOperationException("listDeletedCatalogs not supported.");
+  }
+
+  /**
    * Load a catalog by its name.
    *
    * @param catalogName the name of the catalog.
@@ -58,6 +78,47 @@ public interface SupportsCatalogs {
    * @throws NoSuchCatalogException If the catalog does not exist.
    */
   Catalog loadCatalog(String catalogName) throws NoSuchCatalogException;
+
+  /**
+   * Loads one exact retained deletion generation for a catalog.
+   *
+   * @param catalogName The catalog name.
+   * @param id The immutable catalog ID.
+   * @return The exact retained catalog deletion generation.
+   * @throws IllegalArgumentException If the name or immutable ID is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws UnsupportedOperationException If recoverable catalog deletion is not supported.
+   */
+  default DeletedEntity loadDeletedCatalog(String catalogName, String id)
+      throws TombstoneNotFoundException {
+    throw new UnsupportedOperationException("loadDeletedCatalog not supported.");
+  }
+
+  /**
+   * Restores one exact retained deletion generation as active Gravitino catalog metadata.
+   *
+   * <p>The operation restores the exact metadata tree captured by a cascaded catalog deletion. It
+   * does not validate or recreate downstream resources. A changed generation must be reread using
+   * the same name and immutable ID before retry; clients must never silently substitute another
+   * generation. An unknown transport outcome may replay the same generation, while a conflict or
+   * expiry is not retryable as-is.
+   *
+   * @param catalogName The catalog name.
+   * @param generation The exact retained deletion generation and optimistic precondition.
+   * @return The restored catalog metadata.
+   * @throws IllegalArgumentException If the name or generation binding is invalid.
+   * @throws TombstoneNotFoundException If the retained generation does not exist.
+   * @throws TombstoneExpiredException If the retained generation has expired.
+   * @throws TombstoneChangedException If the generation changed after it was read.
+   * @throws PreconditionRequiredException If a recovery precondition is missing.
+   * @throws RecoveryConflictException If current metadata prevents recovery.
+   * @throws UnsupportedOperationException If recoverable catalog deletion is not supported.
+   */
+  default Catalog restoreCatalog(String catalogName, DeletedEntity generation)
+      throws TombstoneNotFoundException, TombstoneExpiredException, TombstoneChangedException,
+          PreconditionRequiredException, RecoveryConflictException {
+    throw new UnsupportedOperationException("restoreCatalog not supported.");
+  }
 
   /**
    * Check if a catalog exists.

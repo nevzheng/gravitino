@@ -32,16 +32,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.dto.AuditDTO;
 import org.apache.gravitino.dto.CatalogDTO;
+import org.apache.gravitino.dto.DeletedEntityDTO;
 import org.apache.gravitino.dto.MetalakeDTO;
 import org.apache.gravitino.dto.policy.PolicyContentDTO;
 import org.apache.gravitino.dto.policy.PolicyDTO;
 import org.apache.gravitino.dto.requests.CatalogCreateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdatesRequest;
+import org.apache.gravitino.dto.requests.EntityRestoreRequest;
 import org.apache.gravitino.dto.requests.MetalakeCreateRequest;
 import org.apache.gravitino.dto.requests.PolicyCreateRequest;
 import org.apache.gravitino.dto.requests.PolicyUpdateRequest;
@@ -51,6 +55,8 @@ import org.apache.gravitino.dto.requests.TagUpdateRequest;
 import org.apache.gravitino.dto.requests.TagUpdatesRequest;
 import org.apache.gravitino.dto.responses.CatalogListResponse;
 import org.apache.gravitino.dto.responses.CatalogResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityListResponse;
+import org.apache.gravitino.dto.responses.DeletedEntityResponse;
 import org.apache.gravitino.dto.responses.DropResponse;
 import org.apache.gravitino.dto.responses.EntityListResponse;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -261,6 +267,66 @@ public class TestGravitinoMetalake extends TestBase {
         Assertions.assertThrows(
             RESTException.class, () -> gravitinoClient.loadCatalog(catalogName));
     Assertions.assertTrue(ex2.getMessage().contains("Error code: " + HttpStatus.SC_CONFLICT));
+  }
+
+  @Test
+  public void testRecoverableCatalogMetadata() throws JsonProcessingException {
+    String catalogName = "deleted-catalog";
+    String id = "984273";
+    String collectionPath = "/api/metalakes/" + metalakeName + "/catalogs";
+    String itemPath = collectionPath + "/" + catalogName;
+    Map<String, String> listParameters =
+        ImmutableMap.of("include", "deleted", "name", catalogName, "id", id);
+    Map<String, String> exactParameters = ImmutableMap.of("include", "deleted", "id", id);
+    DeletedEntityDTO generation =
+        createDeletedGeneration(catalogName, id, RecoveryEntityType.CATALOG);
+
+    buildMockResource(
+        Method.GET,
+        collectionPath,
+        listParameters,
+        null,
+        new DeletedEntityListResponse(new DeletedEntityDTO[] {generation}),
+        HttpStatus.SC_OK);
+    DeletedEntity[] listed = gravitinoClient.listDeletedCatalogs(catalogName, id);
+    Assertions.assertEquals(1, listed.length);
+    Assertions.assertEquals(id, listed[0].id());
+
+    buildMockResource(
+        Method.GET,
+        itemPath,
+        exactParameters,
+        null,
+        new DeletedEntityResponse(generation),
+        HttpStatus.SC_OK);
+    DeletedEntity loaded = gravitinoClient.loadDeletedCatalog(catalogName, id);
+    Assertions.assertEquals(generation.etag(), loaded.etag());
+
+    CatalogDTO restoredCatalog =
+        CatalogDTO.builder()
+            .withName(catalogName)
+            .withComment("restored metadata")
+            .withType(Catalog.Type.RELATIONAL)
+            .withProvider(provider)
+            .withAudit(
+                AuditDTO.builder().withCreator("creator").withCreateTime(Instant.now()).build())
+            .build();
+    EntityRestoreRequest request = new EntityRestoreRequest(false);
+    buildMockResource(
+        Method.PATCH,
+        itemPath,
+        exactParameters,
+        request,
+        new CatalogResponse(restoredCatalog),
+        HttpStatus.SC_OK);
+    Catalog restored = gravitinoClient.restoreCatalog(catalogName, loaded);
+    Assertions.assertEquals(catalogName, restored.name());
+
+    DeletedEntityDTO wrongName =
+        createDeletedGeneration("another-catalog", id, RecoveryEntityType.CATALOG);
+    Assertions.assertThrows(
+        IllegalArgumentException.class,
+        () -> gravitinoClient.restoreCatalog(catalogName, wrongName));
   }
 
   @Test
@@ -1135,6 +1201,24 @@ public class TestGravitinoMetalake extends TestBase {
     Assertions.assertNotEquals(metalake1, metalake4);
     Assertions.assertNotEquals(metalake1, null);
     Assertions.assertNotEquals(metalake1, new Object());
+  }
+
+  private static DeletedEntityDTO createDeletedGeneration(
+      String name, String id, RecoveryEntityType type) {
+    return DeletedEntityDTO.builder()
+        .withId(id)
+        .withDeletionId("77192")
+        .withName(name)
+        .withType(type)
+        .withDeletedAt(1784800000000L)
+        .withExpiresAt(1785404800000L)
+        .withDeletedBy("alice")
+        .withVersion(17L)
+        .withEtag(
+            "deletion-77192-representation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        .withLatestForName(true)
+        .withRestorable(true)
+        .build();
   }
 
   static GravitinoMetalake createMetalake(GravitinoAdminClient client, String metalakeName)

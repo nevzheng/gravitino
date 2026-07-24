@@ -59,6 +59,10 @@ public class CatalogChangeLogListener implements EntityChangeLogListener {
 
         Optional<NameIdentifier> identOpt = catalogIdentifier(change);
         if (identOpt.isEmpty()) {
+          // Catalog names may contain the full-name delimiter, and the change log stores only the
+          // flattened text form. When an exact target cannot be proven, clear every wrapper rather
+          // than leave a restored, altered, or dropped catalog stale on this server.
+          catalogManager.getCatalogCache().invalidateAll();
           continue;
         }
         NameIdentifier ident = identOpt.get();

@@ -79,6 +79,28 @@ public class TestRelationalGarbageCollector {
   }
 
   @Test
+  void testCatalogFailureStopsEveryFollowingHardDeleteForCycle() throws Exception {
+    Config config = Mockito.mock(Config.class);
+    when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
+    when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
+
+    RelationalBackend backend = Mockito.mock(RelationalBackend.class);
+    when(backend.hardDeleteLegacyData(Mockito.any(), anyLong())).thenReturn(0);
+    when(backend.hardDeleteLegacyData(eq(Entity.EntityType.CATALOG), anyLong()))
+        .thenThrow(new IllegalStateException("catalog deletion purge failed"));
+
+    try (RelationalGarbageCollector garbageCollector =
+        new RelationalGarbageCollector(backend, config)) {
+      garbageCollector.collectAndClean();
+    }
+
+    verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.CATALOG), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.SCHEMA), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
+    verify(backend, never()).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());
+  }
+
+  @Test
   void testSchemaFailureStopsEveryFollowingHardDeleteForCycle() throws Exception {
     Config config = Mockito.mock(Config.class);
     when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
@@ -101,7 +123,7 @@ public class TestRelationalGarbageCollector {
   }
 
   @Test
-  void testSchemaHardDeleteRunsBeforeLeafAndLegacyCollectors() throws Exception {
+  void testCatalogAndSchemaHardDeleteRunBeforeLeafAndLegacyCollectors() throws Exception {
     Config config = Mockito.mock(Config.class);
     when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(600_000L);
     when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
@@ -115,6 +137,7 @@ public class TestRelationalGarbageCollector {
     }
 
     InOrder hardDeleteOrder = inOrder(backend);
+    hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.CATALOG), anyLong());
     hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.SCHEMA), anyLong());
     hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.TABLE), anyLong());
     hardDeleteOrder.verify(backend).hardDeleteLegacyData(eq(Entity.EntityType.METALAKE), anyLong());

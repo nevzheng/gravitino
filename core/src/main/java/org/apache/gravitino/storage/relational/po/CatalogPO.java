@@ -34,6 +34,7 @@ public class CatalogPO {
   private Long currentVersion;
   private Long lastVersion;
   private Long deletedAt;
+  private String deletionId;
 
   public Long getCatalogId() {
     return catalogId;
@@ -79,6 +80,13 @@ public class CatalogPO {
     return deletedAt;
   }
 
+  /**
+   * @return immutable identifier of the recoverable deletion generation, when deleted
+   */
+  public String getDeletionId() {
+    return deletionId;
+  }
+
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -98,7 +106,8 @@ public class CatalogPO {
         && Objects.equal(getAuditInfo(), catalogPO.getAuditInfo())
         && Objects.equal(getCurrentVersion(), catalogPO.getCurrentVersion())
         && Objects.equal(getLastVersion(), catalogPO.getLastVersion())
-        && Objects.equal(getDeletedAt(), catalogPO.getDeletedAt());
+        && Objects.equal(getDeletedAt(), catalogPO.getDeletedAt())
+        && Objects.equal(getDeletionId(), catalogPO.getDeletionId());
   }
 
   @Override
@@ -114,7 +123,8 @@ public class CatalogPO {
         getAuditInfo(),
         getCurrentVersion(),
         getLastVersion(),
-        getDeletedAt());
+        getDeletedAt(),
+        getDeletionId());
   }
 
   public static class Builder {
@@ -176,6 +186,17 @@ public class CatalogPO {
 
     public CatalogPO.Builder withDeletedAt(Long deletedAt) {
       catalogPO.deletedAt = deletedAt;
+      return this;
+    }
+
+    /**
+     * Sets the recoverable deletion generation identifier.
+     *
+     * @param deletionId immutable deletion generation identifier, or {@code null} for a live row
+     * @return this builder
+     */
+    public CatalogPO.Builder withDeletionId(String deletionId) {
+      catalogPO.deletionId = deletionId;
       return this;
     }
 

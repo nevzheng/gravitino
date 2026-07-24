@@ -49,16 +49,18 @@ public final class RelationalGarbageCollector implements Closeable {
           .sorted(
               Comparator.comparingInt(
                   type ->
-                      type == Entity.EntityType.SCHEMA
+                      type == Entity.EntityType.CATALOG
                           ? 0
-                          : type == Entity.EntityType.TABLE
-                                  || type == Entity.EntityType.FILESET
-                                  || type == Entity.EntityType.FUNCTION
-                                  || type == Entity.EntityType.MODEL
-                                  || type == Entity.EntityType.VIEW
-                                  || type == Entity.EntityType.TOPIC
+                          : type == Entity.EntityType.SCHEMA
                               ? 1
-                              : 2))
+                              : type == Entity.EntityType.TABLE
+                                      || type == Entity.EntityType.FILESET
+                                      || type == Entity.EntityType.FUNCTION
+                                      || type == Entity.EntityType.MODEL
+                                      || type == Entity.EntityType.VIEW
+                                      || type == Entity.EntityType.TOPIC
+                                  ? 2
+                                  : 3))
           .collect(
               Collectors.collectingAndThen(Collectors.toList(), Collections::unmodifiableList));
 
@@ -131,7 +133,8 @@ public final class RelationalGarbageCollector implements Closeable {
           }
         } catch (RuntimeException e) {
           LOG.error("Failed to physically delete type of " + entityType + "'s legacy data: ", e);
-          if (entityType == Entity.EntityType.SCHEMA
+          if (entityType == Entity.EntityType.CATALOG
+              || entityType == Entity.EntityType.SCHEMA
               || entityType == Entity.EntityType.TABLE
               || entityType == Entity.EntityType.FILESET
               || entityType == Entity.EntityType.FUNCTION

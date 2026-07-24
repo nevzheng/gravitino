@@ -157,13 +157,16 @@ public class OwnerMetaService {
 
     Long entityId = EntityIdService.getEntityId(entity, entityType);
     Long ownerId = EntityIdService.getEntityId(owner, ownerType);
-    Long schemaId = SchemaMutationLock.schemaId(entity, entityType);
+    Long catalogId = MetadataMutationLock.catalogId(entity, entityType);
+    Long schemaId = MetadataMutationLock.schemaId(entity, entityType);
 
     OwnerRelPO ownerRelPO =
         POConverters.initializeOwnerRelPOsWithVersion(
             metalakeId, ownerType.name(), ownerId, entityType.name(), entityId);
     SessionUtils.doMultipleWithCommit(
-        () -> SchemaMutationLock.lockSchemaIds(Collections.singletonList(schemaId)),
+        () ->
+            MetadataMutationLock.lockCatalogAndSchemaIds(
+                Collections.singletonList(catalogId), Collections.singletonList(schemaId)),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,
@@ -200,10 +203,12 @@ public class OwnerMetaService {
 
     List<OwnerRelForDeletion> deletions = new ArrayList<>(ownedObjects.size());
     List<OwnerRelPO> ownerRelPOs = new ArrayList<>(ownedObjects.size());
+    List<Long> catalogIds = new ArrayList<>(ownedObjects.size());
     List<Long> schemaIds = new ArrayList<>(ownedObjects.size());
     for (NameIdentifier entity : ownedObjects) {
       Long entityId = EntityIdService.getEntityId(entity, ownedObjectType);
-      schemaIds.add(SchemaMutationLock.schemaId(entity, ownedObjectType));
+      catalogIds.add(MetadataMutationLock.catalogId(entity, ownedObjectType));
+      schemaIds.add(MetadataMutationLock.schemaId(entity, ownedObjectType));
       deletions.add(
           new OwnerRelForDeletion(
               entityId,
@@ -214,7 +219,7 @@ public class OwnerMetaService {
     }
 
     SessionUtils.doMultipleWithCommit(
-        () -> SchemaMutationLock.lockSchemaIds(schemaIds),
+        () -> MetadataMutationLock.lockCatalogAndSchemaIds(catalogIds, schemaIds),
         () ->
             SessionUtils.doWithoutCommit(
                 OwnerMetaMapper.class,

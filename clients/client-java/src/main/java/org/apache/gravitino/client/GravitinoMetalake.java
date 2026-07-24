@@ -32,12 +32,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
+import org.apache.gravitino.DeletedEntity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.RecoveryEntityType;
 import org.apache.gravitino.SupportsCatalogs;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.Owner;
@@ -152,6 +155,7 @@ public class GravitinoMetalake extends MetalakeDTO
   private static final String BLANK_PLACEHOLDER = "";
 
   private final RESTClient restClient;
+  private final RecoverableDeletionClient recoverableDeletionClient;
   private final MetadataObjectRoleOperations metadataObjectRoleOperations;
 
   GravitinoMetalake(
@@ -162,6 +166,7 @@ public class GravitinoMetalake extends MetalakeDTO
       RESTClient restClient) {
     super(name, comment, properties, auditDTO);
     this.restClient = restClient;
+    this.recoverableDeletionClient = new RecoverableDeletionClient(restClient);
     this.metadataObjectRoleOperations =
         new MetadataObjectRoleOperations(
             name, MetadataObjects.of(null, name, MetadataObject.Type.METALAKE), restClient);
@@ -211,6 +216,23 @@ public class GravitinoMetalake extends MetalakeDTO
         .toArray(Catalog[]::new);
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity[] listDeletedCatalogs(@Nullable String name, @Nullable String id) {
+    DeletedEntity[] generations =
+        recoverableDeletionClient.listDeleted(
+            String.format("api/metalakes/%s/catalogs", RESTUtils.encodeString(this.name())),
+            name,
+            id,
+            ErrorHandlers.catalogErrorHandler());
+    Arrays.stream(generations)
+        .forEach(
+            generation ->
+                RecoverableDeletionClient.checkBinding(
+                    generation, RecoveryEntityType.CATALOG, name, id));
+    return generations;
+  }
+
   /**
    * Load the catalog with specified identifier.
    *
@@ -233,6 +255,42 @@ public class GravitinoMetalake extends MetalakeDTO
     resp.validate();
 
     return DTOConverters.toCatalog(this.name(), resp.getCatalog(), restClient);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public DeletedEntity loadDeletedCatalog(String catalogName, String id) {
+    DeletedEntity generation =
+        recoverableDeletionClient.loadDeleted(
+            String.format(
+                API_METALAKES_CATALOGS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(catalogName)),
+            id,
+            ErrorHandlers.catalogErrorHandler());
+    RecoverableDeletionClient.checkBinding(generation, RecoveryEntityType.CATALOG, catalogName, id);
+    return generation;
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public Catalog restoreCatalog(String catalogName, DeletedEntity generation) {
+    RecoverableDeletionClient.checkBinding(
+        generation, RecoveryEntityType.CATALOG, catalogName, null);
+    CatalogResponse response =
+        recoverableDeletionClient.restoreDeleted(
+            String.format(
+                API_METALAKES_CATALOGS_PATH,
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(catalogName)),
+            generation,
+            CatalogResponse.class,
+            ErrorHandlers.catalogErrorHandler());
+    Catalog restored = DTOConverters.toCatalog(this.name(), response.getCatalog(), restClient);
+    Preconditions.checkArgument(
+        catalogName.equals(restored.name()),
+        "Restored catalog name must match the requested catalog name");
+    return restored;
   }
 
   /**

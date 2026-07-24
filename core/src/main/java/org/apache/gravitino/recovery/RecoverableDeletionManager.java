@@ -46,6 +46,7 @@ import org.apache.gravitino.exceptions.TombstoneExpiredException;
 import org.apache.gravitino.exceptions.TombstoneNotFoundException;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
+import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.FunctionEntity;
 import org.apache.gravitino.meta.ModelEntity;
@@ -65,6 +66,7 @@ public class RecoverableDeletionManager {
 
   private final long retentionMs;
   private final Clock clock;
+  private final RecoverableEntityAdapter<CatalogEntity> catalogAdapter;
   private final RecoverableEntityAdapter<SchemaEntity> schemaAdapter;
   private final RecoverableEntityAdapter<TableEntity> tableAdapter;
   private final RecoverableEntityAdapter<ViewEntity> viewAdapter;
@@ -100,6 +102,7 @@ public class RecoverableDeletionManager {
       long retentionMs, Clock clock, @Nullable EntityCache entityCache) {
     this.retentionMs = retentionMs;
     this.clock = clock;
+    this.catalogAdapter = new CatalogRecoveryAdapter(entityCache);
     this.schemaAdapter = new SchemaRecoveryAdapter(entityCache);
     this.tableAdapter = new TableRecoveryAdapter(entityCache);
     this.viewAdapter = new ViewRecoveryAdapter(entityCache);
@@ -107,6 +110,49 @@ public class RecoverableDeletionManager {
     this.topicAdapter = new TopicRecoveryAdapter(entityCache);
     this.functionAdapter = new FunctionRecoveryAdapter(entityCache);
     this.modelAdapter = new ModelRecoveryAdapter(entityCache);
+  }
+
+  /**
+   * Lists independently deleted catalog roots under one live metalake.
+   *
+   * @param namespace metalake namespace
+   * @param name optional exact catalog name
+   * @param id optional exact immutable catalog identifier
+   * @return matching deleted catalog generations, newest first
+   */
+  public List<DeletedEntityDTO> listDeletedCatalogs(
+      Namespace namespace, @Nullable String name, @Nullable Long id) {
+    return listDeleted(catalogAdapter, namespace, name, id);
+  }
+
+  /**
+   * Loads one exact deleted catalog root representation.
+   *
+   * @param namespace metalake namespace
+   * @param name original catalog name
+   * @param id immutable catalog identifier
+   * @return selected catalog deletion generation
+   */
+  public DeletedEntityDTO getDeletedCatalog(Namespace namespace, String name, long id) {
+    return getDeleted(catalogAdapter, namespace, name, id);
+  }
+
+  /**
+   * Restores one exact catalog metadata-tree deletion generation using an optimistic entity tag.
+   *
+   * <p>The transaction restores Gravitino metadata only. All descendants carrying the exact root
+   * deletion generation are restored atomically; no connector or external authorization system is
+   * invoked.
+   *
+   * @param namespace metalake namespace
+   * @param name original catalog name
+   * @param id immutable catalog identifier
+   * @param etag unquoted strong entity-tag value observed from the exact deleted-catalog read
+   * @return restored root catalog, or the already-restored root for an idempotent replay
+   */
+  public CatalogEntity restoreDeletedCatalog(
+      Namespace namespace, String name, long id, String etag) {
+    return restoreDeleted(catalogAdapter, namespace, name, id, etag);
   }
 
   /**

@@ -37,6 +37,7 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
 
   private static final Set<Entity.EntityType> RECOVERABLE_TYPES =
       Set.of(
+          Entity.EntityType.CATALOG,
           Entity.EntityType.SCHEMA,
           Entity.EntityType.TABLE,
           Entity.EntityType.VIEW,
@@ -67,10 +68,10 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
         continue;
       }
 
-      // A schema restore represents its entire metadata tree, but EntityCache only contracts an
+      // A container restore represents its entire metadata tree, but EntityCache only contracts an
       // exact-entry invalidation. Clear the cache so custom implementations cannot retain stale
       // descendants or their relations.
-      if (entityType == Entity.EntityType.SCHEMA) {
+      if (entityType == Entity.EntityType.CATALOG || entityType == Entity.EntityType.SCHEMA) {
         clearCache(change);
         continue;
       }
@@ -116,7 +117,17 @@ final class RestoreChangeLogListener implements EntityChangeLogListener {
     }
 
     NameIdentifier identifier = NameIdentifier.parse(change.getFullName());
-    int expectedNamespaceLength = entityType == Entity.EntityType.SCHEMA ? 2 : 3;
+    int expectedNamespaceLength;
+    switch (entityType) {
+      case CATALOG:
+        expectedNamespaceLength = 1;
+        break;
+      case SCHEMA:
+        expectedNamespaceLength = 2;
+        break;
+      default:
+        expectedNamespaceLength = 3;
+    }
     if (identifier.namespace().length() != expectedNamespaceLength) {
       throw new IllegalArgumentException(
           String.format(
