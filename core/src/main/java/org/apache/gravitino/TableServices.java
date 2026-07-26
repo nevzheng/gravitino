@@ -38,6 +38,7 @@ import org.apache.gravitino.catalog.TableNormalizeDispatcher;
 import org.apache.gravitino.catalog.TableOperationDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.TableEventDispatcher;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.storage.IdGenerator;
 
 /** Package-private composition boundary for the authorization-independent table graph. */
@@ -54,6 +55,7 @@ final class TableServices {
       EntityStore entityStore,
       IdGenerator idGenerator,
       EventBus eventBus,
+      LockManager lockManager,
       SchemaDispatcher publicSchemaDispatcher,
       SchemaDispatcher internalSchemaDispatcher) {
     return new TableServices(
@@ -63,6 +65,7 @@ final class TableServices {
                 entityStore,
                 idGenerator,
                 eventBus,
+                lockManager,
                 publicSchemaDispatcher,
                 internalSchemaDispatcher));
   }
@@ -102,6 +105,7 @@ final class TableServices {
           @BindsInstance EntityStore entityStore,
           @BindsInstance IdGenerator idGenerator,
           @BindsInstance EventBus eventBus,
+          @BindsInstance LockManager lockManager,
           @BindsInstance @PublicTable SchemaDispatcher publicSchemaDispatcher,
           @BindsInstance @InternalTable SchemaDispatcher internalSchemaDispatcher);
     }
@@ -119,9 +123,10 @@ final class TableServices {
         CatalogManager catalogManager,
         EntityStore entityStore,
         IdGenerator idGenerator,
+        LockManager lockManager,
         @PublicTable SchemaDispatcher schemaDispatcher) {
       return new TableOperationDispatcher(
-          catalogManager, entityStore, idGenerator, () -> schemaDispatcher);
+          catalogManager, entityStore, idGenerator, () -> schemaDispatcher, lockManager);
     }
 
     @Provides
@@ -131,9 +136,10 @@ final class TableServices {
         CatalogManager catalogManager,
         EntityStore entityStore,
         IdGenerator idGenerator,
+        LockManager lockManager,
         @InternalTable SchemaDispatcher schemaDispatcher) {
       return new TableOperationDispatcher(
-          catalogManager, entityStore, idGenerator, () -> schemaDispatcher);
+          catalogManager, entityStore, idGenerator, () -> schemaDispatcher, lockManager);
     }
 
     @Provides

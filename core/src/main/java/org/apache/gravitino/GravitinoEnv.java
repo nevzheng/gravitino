@@ -699,6 +699,7 @@ public class GravitinoEnv {
             entityStore,
             idGenerator,
             eventBus,
+            lockManager,
             schemaDispatcher,
             internalSchemaDispatcher);
     this.internalTableDispatcher = tableServices.internalTableDispatcher();

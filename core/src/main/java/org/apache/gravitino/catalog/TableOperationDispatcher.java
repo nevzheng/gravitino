@@ -50,6 +50,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -75,6 +76,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   private static final Logger LOG = LoggerFactory.getLogger(TableOperationDispatcher.class);
 
   private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
+  private final LockManager lockManager;
 
   /**
    * Creates a new TableOperationDispatcher instance.
@@ -101,10 +103,34 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
       EntityStore store,
       IdGenerator idGenerator,
       Supplier<SchemaDispatcher> schemaDispatcherSupplier) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        schemaDispatcherSupplier,
+        GravitinoEnv.getInstance().lockManager());
+  }
+
+  /**
+   * Creates a new TableOperationDispatcher instance with explicit dependencies.
+   *
+   * @param catalogManager The CatalogManager instance to be used for table operations.
+   * @param store The EntityStore instance to be used for table operations.
+   * @param idGenerator The IdGenerator instance to be used for table operations.
+   * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
+   * @param lockManager The LockManager instance to coordinate table operations.
+   */
+  public TableOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
+      LockManager lockManager) {
     super(catalogManager, store, idGenerator);
     this.schemaDispatcherSupplier =
         Preconditions.checkNotNull(
             schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
+    this.lockManager = Preconditions.checkNotNull(lockManager, "lockManager must not be null");
   }
 
   /**
@@ -118,6 +144,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   @Override
   public NameIdentifier[] listTables(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -137,7 +164,8 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   @Override
   public Table loadTable(NameIdentifier ident) throws NoSuchTableException {
     EntityCombinedTable entityCombinedTable =
-        TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadTable(ident));
+        TreeLockUtils.doWithTreeLock(
+            lockManager, ident, LockType.READ, () -> internalLoadTable(ident));
 
     if (!entityCombinedTable.imported()) {
       // Load the schema to make sure the schema is imported.
@@ -148,14 +176,16 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
       // Import the table.
       try {
         entityCombinedTable =
-            TreeLockUtils.doWithTreeLock(schemaIdent, LockType.WRITE, () -> importTable(ident));
+            TreeLockUtils.doWithTreeLock(
+                lockManager, schemaIdent, LockType.WRITE, () -> importTable(ident));
       } catch (EntityAlreadyExistsException e) {
         // HA race: another Gravitino node concurrently imported this table. Reload from the
         // entity store to pick up the entity stored by the winning node.
         LOG.info(
             "Table {} was concurrently imported by another node; reloading from store.", ident);
         entityCombinedTable =
-            TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadTable(ident));
+            TreeLockUtils.doWithTreeLock(
+                lockManager, ident, LockType.READ, () -> internalLoadTable(ident));
         if (!entityCombinedTable.imported()) {
           throw new UnsupportedOperationException(
               "Table managed by multiple catalogs. This may cause unexpected issues such as privilege conflicts. "
@@ -208,6 +238,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     schemaDispatcher.loadSchema(schemaIdent);
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(ident.namespace().levels()),
         LockType.WRITE,
         () ->
@@ -260,6 +291,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     }
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         nameIdentifierForLock,
         nameIdentifierForLock.equals(ident) ? LockType.READ : LockType.WRITE,
         () -> {
@@ -359,6 +391,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   public boolean dropTable(NameIdentifier ident) {
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -415,6 +448,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -871,6 +905,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
 
     // Update the columns in the Gravitino store
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         tableIdent,
         LockType.WRITE,
         () ->

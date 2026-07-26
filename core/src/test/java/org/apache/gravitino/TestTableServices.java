@@ -35,6 +35,9 @@ import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.TableEventDispatcher;
+import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.lock.LockType;
+import org.apache.gravitino.lock.TreeLock;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.expressions.distributions.Distributions;
 import org.apache.gravitino.rel.expressions.sorts.SortOrder;
@@ -92,6 +95,20 @@ public class TestTableServices {
     verifyNoInteractions(fixture.entityStore, fixture.idGenerator);
   }
 
+  @Test
+  public void testRoutesBothTablePathsThroughTheBoundLockManager() throws Exception {
+    GraphFixture fixture = GraphFixture.create();
+    TreeLock treeLock = mock(TreeLock.class);
+    when(fixture.lockManager.createTreeLock(SCHEMA_IDENTIFIER)).thenReturn(treeLock);
+
+    fixture.services.tableDispatcher().listTables(TABLE_IDENTIFIER.namespace());
+    fixture.services.internalTableDispatcher().listTables(TABLE_IDENTIFIER.namespace());
+
+    verify(fixture.lockManager, times(2)).createTreeLock(SCHEMA_IDENTIFIER);
+    verify(treeLock, times(2)).lock(LockType.READ);
+    verify(treeLock, times(2)).unlock();
+  }
+
   private static void createTable(TableDispatcher dispatcher) {
     dispatcher.createTable(
         TABLE_IDENTIFIER,
@@ -109,6 +126,7 @@ public class TestTableServices {
     private final EntityStore entityStore;
     private final IdGenerator idGenerator;
     private final EventBus eventBus;
+    private final LockManager lockManager;
     private final SchemaDispatcher publicSchemaDispatcher;
     private final SchemaDispatcher internalSchemaDispatcher;
     private final TableServices services;
@@ -118,6 +136,7 @@ public class TestTableServices {
         EntityStore entityStore,
         IdGenerator idGenerator,
         EventBus eventBus,
+        LockManager lockManager,
         SchemaDispatcher publicSchemaDispatcher,
         SchemaDispatcher internalSchemaDispatcher,
         TableServices services) {
@@ -125,6 +144,7 @@ public class TestTableServices {
       this.entityStore = entityStore;
       this.idGenerator = idGenerator;
       this.eventBus = eventBus;
+      this.lockManager = lockManager;
       this.publicSchemaDispatcher = publicSchemaDispatcher;
       this.internalSchemaDispatcher = internalSchemaDispatcher;
       this.services = services;
@@ -138,6 +158,7 @@ public class TestTableServices {
       EntityStore entityStore = mock(EntityStore.class);
       IdGenerator idGenerator = mock(IdGenerator.class);
       EventBus eventBus = mock(EventBus.class);
+      LockManager lockManager = mock(LockManager.class);
       SchemaDispatcher publicSchemaDispatcher = mock(SchemaDispatcher.class);
       SchemaDispatcher internalSchemaDispatcher = mock(SchemaDispatcher.class);
       TableServices services =
@@ -146,6 +167,7 @@ public class TestTableServices {
               entityStore,
               idGenerator,
               eventBus,
+              lockManager,
               publicSchemaDispatcher,
               internalSchemaDispatcher);
       return new GraphFixture(
@@ -153,6 +175,7 @@ public class TestTableServices {
           entityStore,
           idGenerator,
           eventBus,
+          lockManager,
           publicSchemaDispatcher,
           internalSchemaDispatcher,
           services);

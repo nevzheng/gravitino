@@ -79,17 +79,17 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
 
   @BeforeAll
   public static void initialize() throws IOException, IllegalAccessException {
-    schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator);
-    tableOperationDispatcher =
-        new TableOperationDispatcher(
-            catalogManager, entityStore, idGenerator, () -> schemaOperationDispatcher);
-
     Config config = mock(Config.class);
     doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    LockManager lockManager = new LockManager(config);
+
+    schemaOperationDispatcher =
+        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator);
+    tableOperationDispatcher =
+        new TableOperationDispatcher(
+            catalogManager, entityStore, idGenerator, () -> schemaOperationDispatcher, lockManager);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
   }
@@ -266,6 +266,12 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
     Assertions.assertThrows(
         NullPointerException.class,
         () -> new TableOperationDispatcher(catalogManager, entityStore, idGenerator, null));
+
+    Assertions.assertThrows(
+        NullPointerException.class,
+        () ->
+            new TableOperationDispatcher(
+                catalogManager, entityStore, idGenerator, () -> schemaOperationDispatcher, null));
   }
 
   @Test
