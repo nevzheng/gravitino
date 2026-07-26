@@ -17,8 +17,8 @@
 
 package org.apache.gravitino.hook;
 
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -35,9 +35,19 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class PolicyHookDispatcher implements PolicyDispatcher {
 
   private final PolicyDispatcher dispatcher;
+  @Nullable private final OwnerDispatcher ownerDispatcher;
 
-  public PolicyHookDispatcher(PolicyDispatcher dispatcher) {
+  /**
+   * Creates a policy hook dispatcher.
+   *
+   * @param dispatcher the dispatcher to delegate policy operations to
+   * @param ownerDispatcher the dispatcher used to set policy ownership, or {@code null} when
+   *     authorization is disabled
+   */
+  public PolicyHookDispatcher(
+      PolicyDispatcher dispatcher, @Nullable OwnerDispatcher ownerDispatcher) {
     this.dispatcher = dispatcher;
+    this.ownerDispatcher = ownerDispatcher;
   }
 
   @Override
@@ -67,7 +77,6 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     PolicyEntity policy = dispatcher.createPolicy(metalake, name, type, comment, enabled, content);
 
     // Set the creator as the owner of the policy.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,

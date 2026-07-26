@@ -25,12 +25,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagDispatcher;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,23 +37,12 @@ public class TestTagHookDispatcher {
   private TagHookDispatcher hookDispatcher;
   private TagDispatcher mockDispatcher;
   private OwnerDispatcher mockOwnerDispatcher;
-  // Save the original ownerDispatcher before each test and restore it in tearDown so we do not
-  // leak null state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(TagDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
-    hookDispatcher = new TagHookDispatcher(mockDispatcher);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "ownerDispatcher", savedOwnerDispatcher, true);
+    hookDispatcher = new TagHookDispatcher(mockDispatcher, mockOwnerDispatcher);
   }
 
   @Test
@@ -75,6 +61,19 @@ public class TestTagHookDispatcher {
                 hookDispatcher.createTag(
                     "test_metalake", "test_tag", "comment", Collections.emptyMap()));
     Assertions.assertEquals("Set owner failed", thrown.getMessage());
+    verify(mockDispatcher).createTag(any(), any(), any(), any());
+  }
+
+  @Test
+  public void testCreateTagWithoutOwnerDispatcher() {
+    Tag mockTag = mock(Tag.class);
+    when(mockDispatcher.createTag(any(), any(), any(), any())).thenReturn(mockTag);
+
+    Tag tag =
+        new TagHookDispatcher(mockDispatcher, null)
+            .createTag("test_metalake", "test_tag", "comment", Collections.emptyMap());
+
+    Assertions.assertSame(mockTag, tag);
     verify(mockDispatcher).createTag(any(), any(), any(), any());
   }
 }

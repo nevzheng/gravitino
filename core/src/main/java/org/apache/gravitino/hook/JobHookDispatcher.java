@@ -22,8 +22,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.InUseException;
@@ -39,9 +39,19 @@ import org.apache.gravitino.utils.PrincipalUtils;
 
 public class JobHookDispatcher implements JobOperationDispatcher {
   private final JobOperationDispatcher jobOperationDispatcher;
+  @Nullable private final OwnerDispatcher ownerDispatcher;
 
-  public JobHookDispatcher(JobOperationDispatcher jobOperationDispatcher) {
+  /**
+   * Creates a job hook dispatcher.
+   *
+   * @param jobOperationDispatcher the dispatcher to delegate job operations to
+   * @param ownerDispatcher the dispatcher used to set job ownership, or {@code null} when
+   *     authorization is disabled
+   */
+  public JobHookDispatcher(
+      JobOperationDispatcher jobOperationDispatcher, @Nullable OwnerDispatcher ownerDispatcher) {
     this.jobOperationDispatcher = jobOperationDispatcher;
+    this.ownerDispatcher = ownerDispatcher;
   }
 
   @Override
@@ -55,9 +65,8 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     jobOperationDispatcher.registerJobTemplate(metalake, jobTemplateEntity);
 
     // Set the creator as the owner of the job template.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().ownerDispatcher();
-    if (ownerManager != null) {
-      ownerManager.setOwner(
+    if (ownerDispatcher != null) {
+      ownerDispatcher.setOwner(
           metalake,
           NameIdentifierUtil.toMetadataObject(
               jobTemplateEntity.nameIdentifier(), Entity.EntityType.JOB_TEMPLATE),
@@ -101,9 +110,8 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     JobEntity jobEntity = jobOperationDispatcher.runJob(metalake, jobTemplateName, jobConf);
 
     // Set the creator as the owner of the job.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().ownerDispatcher();
-    if (ownerManager != null) {
-      ownerManager.setOwner(
+    if (ownerDispatcher != null) {
+      ownerDispatcher.setOwner(
           metalake,
           NameIdentifierUtil.toMetadataObject(jobEntity.nameIdentifier(), Entity.EntityType.JOB),
           PrincipalUtils.getCurrentUserName(),

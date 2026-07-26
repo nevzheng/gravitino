@@ -808,17 +808,17 @@ public class GravitinoEnv {
     // Create and initialize Tag related modules
     TagManager tagManager = new TagManager(idGenerator, entityStore);
     TagEventDispatcher tagEventDispatcher = new TagEventDispatcher(eventBus, tagManager);
-    this.tagDispatcher = new TagHookDispatcher(tagEventDispatcher);
+    this.tagDispatcher = new TagHookDispatcher(tagEventDispatcher, ownerDispatcher);
 
     PolicyEventDispatcher policyEventDispatcher =
         new PolicyEventDispatcher(eventBus, new PolicyManager(idGenerator, entityStore));
-    this.policyDispatcher = new PolicyHookDispatcher(policyEventDispatcher);
+    this.policyDispatcher = new PolicyHookDispatcher(policyEventDispatcher, ownerDispatcher);
 
     JobManager jobManager = new JobManager(config, entityStore, idGenerator);
     JobTemplateValidationDispatcher validationDispatcher =
         new JobTemplateValidationDispatcher(jobManager);
     JobEventDispatcher jobEventDispatcher = new JobEventDispatcher(eventBus, validationDispatcher);
-    this.jobOperationDispatcher = new JobHookDispatcher(jobEventDispatcher);
+    this.jobOperationDispatcher = new JobHookDispatcher(jobEventDispatcher, ownerDispatcher);
 
     // Register built-in job template event listener to automatically register templates
     // when metalakes are created

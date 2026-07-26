@@ -18,8 +18,8 @@
 package org.apache.gravitino.hook;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -34,9 +34,18 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class TagHookDispatcher implements TagDispatcher {
 
   private final TagDispatcher dispatcher;
+  @Nullable private final OwnerDispatcher ownerDispatcher;
 
-  public TagHookDispatcher(TagDispatcher dispatcher) {
+  /**
+   * Creates a tag hook dispatcher.
+   *
+   * @param dispatcher the dispatcher to delegate tag operations to
+   * @param ownerDispatcher the dispatcher used to set tag ownership, or {@code null} when
+   *     authorization is disabled
+   */
+  public TagHookDispatcher(TagDispatcher dispatcher, @Nullable OwnerDispatcher ownerDispatcher) {
     this.dispatcher = dispatcher;
+    this.ownerDispatcher = ownerDispatcher;
   }
 
   @Override
@@ -60,7 +69,6 @@ public class TagHookDispatcher implements TagDispatcher {
     Tag tag = dispatcher.createTag(metalake, name, comment, properties);
 
     // Set the creator as the owner of the tag.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
