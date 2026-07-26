@@ -48,6 +48,7 @@ import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.GenericEntity;
 import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.relational.service.MetadataObjectService;
 import org.apache.gravitino.utils.MetadataObjectUtil;
@@ -67,6 +68,8 @@ public class TagManager implements TagDispatcher {
 
   private final LockManager lockManager;
 
+  private final MetadataObjectExistenceChecker metadataObjectExistenceChecker;
+
   private static final Set<MetadataObject.Type> SUPPORTED_METADATA_OBJECT_TYPES_FOR_TAGS =
       Sets.newHashSet(
           MetadataObject.Type.CATALOG,
@@ -85,11 +88,17 @@ public class TagManager implements TagDispatcher {
    * @param idGenerator the ID generator used to create tags
    * @param entityStore the store containing tags and their relations
    * @param lockManager the manager used to coordinate tag operations
+   * @param metadataObjectExistenceChecker checker for associated metadata objects
    */
-  public TagManager(IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
+  public TagManager(
+      IdGenerator idGenerator,
+      EntityStore entityStore,
+      LockManager lockManager,
+      MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
     this.lockManager = lockManager;
+    this.metadataObjectExistenceChecker = metadataObjectExistenceChecker;
   }
 
   public String[] listTags(String metalake) {
@@ -265,7 +274,7 @@ public class TagManager implements TagDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     return TreeLockUtils.doWithTreeLock(
         lockManager,
@@ -298,7 +307,7 @@ public class TagManager implements TagDispatcher {
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
     NameIdentifier tagIdent = NameIdentifierUtil.ofTag(metalake, name);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     return TreeLockUtils.doWithTreeLock(
         lockManager,
@@ -340,7 +349,7 @@ public class TagManager implements TagDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     // Remove all the tags that are both set to add and remove
     Set<String> tagsToAddSet = tagsToAdd == null ? Sets.newHashSet() : Sets.newHashSet(tagsToAdd);

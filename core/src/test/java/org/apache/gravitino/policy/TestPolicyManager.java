@@ -53,19 +53,15 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchPolicyException;
 import org.apache.gravitino.exceptions.NotFoundException;
@@ -82,7 +78,7 @@ import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.meta.TableEntity;
-import org.apache.gravitino.metalake.MetalakeDispatcher;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -100,10 +96,8 @@ public class TestPolicyManager {
   private static final String SCHEMA = "schema_for_policy_test";
   private static final String TABLE = "table_for_policy_test";
   private static final String COLUMN = "column_for_policy_test";
-  private static final MetalakeDispatcher metalakeDispatcher = mock(MetalakeDispatcher.class);
-  private static final CatalogDispatcher catalogDispatcher = mock(CatalogDispatcher.class);
-  private static final SchemaDispatcher schemaDispatcher = mock(SchemaDispatcher.class);
-  private static final TableDispatcher tableDispatcher = mock(TableDispatcher.class);
+  private static final MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+      mock(MetadataObjectExistenceChecker.class);
   private static final String JDBC_STORE_PATH =
       "/tmp/gravitino_jdbc_entityStore_" + UUID.randomUUID().toString().replace("-", "");
   private static final String DB_DIR = JDBC_STORE_PATH + "/testdb";
@@ -115,18 +109,14 @@ public class TestPolicyManager {
   private static PolicyManager policyManager;
 
   @BeforeAll
-  public static void setUp() throws IllegalAccessException, IOException {
+  public static void setUp() throws IOException {
     IdGenerator idGenerator = new RandomIdGenerator();
     Config config = mockConfig();
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
-    policyManager = new PolicyManager(idGenerator, entityStore, new LockManager(config));
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "metalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "schemaDispatcher", schemaDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", tableDispatcher, true);
+    policyManager =
+        new PolicyManager(
+            idGenerator, entityStore, new LockManager(config), metadataObjectExistenceChecker);
 
     AuditInfo audit = AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
     BaseMetalake metalake =
@@ -138,7 +128,6 @@ public class TestPolicyManager {
             .withAuditInfo(audit)
             .build();
     entityStore.put(metalake, false /* overwritten */);
-    when(metalakeDispatcher.metalakeExists(any())).thenReturn(true);
 
     CatalogEntity catalog =
         CatalogEntity.builder()
@@ -151,7 +140,6 @@ public class TestPolicyManager {
             .withAuditInfo(audit)
             .build();
     entityStore.put(catalog, false /* overwritten */);
-    when(catalogDispatcher.catalogExists(any())).thenReturn(true);
 
     SchemaEntity schema =
         SchemaEntity.builder()
@@ -162,7 +150,6 @@ public class TestPolicyManager {
             .withAuditInfo(audit)
             .build();
     entityStore.put(schema, false /* overwritten */);
-    when(schemaDispatcher.schemaExists(any())).thenReturn(true);
 
     ColumnEntity column =
         ColumnEntity.builder()
@@ -185,7 +172,30 @@ public class TestPolicyManager {
             .withAuditInfo(audit)
             .build();
     entityStore.put(table, false /* overwritten */);
-    when(tableDispatcher.tableExists(any())).thenReturn(true);
+  }
+
+  @Test
+  public void testUsesInjectedMetadataObjectExistenceChecker() {
+    MetadataObjectExistenceChecker injectedChecker = mock(MetadataObjectExistenceChecker.class);
+    LockManager injectedLockManager = mock(LockManager.class);
+    MetadataObject catalogObject =
+        NameIdentifierUtil.toMetadataObject(
+            NameIdentifierUtil.ofCatalog(METALAKE, CATALOG), Entity.EntityType.CATALOG);
+    NoSuchMetadataObjectException expected =
+        new NoSuchMetadataObjectException("Rejected by the injected checker");
+    Mockito.doThrow(expected).when(injectedChecker).check(METALAKE, catalogObject);
+    PolicyManager manager =
+        new PolicyManager(
+            new RandomIdGenerator(), entityStore, injectedLockManager, injectedChecker);
+
+    NoSuchMetadataObjectException actual =
+        Assertions.assertThrows(
+            NoSuchMetadataObjectException.class,
+            () -> manager.listPolicyInfosForMetadataObject(METALAKE, catalogObject));
+
+    Assertions.assertSame(expected, actual);
+    verify(injectedChecker).check(METALAKE, catalogObject);
+    Mockito.verifyNoInteractions(injectedLockManager);
   }
 
   @Test
@@ -194,7 +204,11 @@ public class TestPolicyManager {
     TreeLock treeLock = mock(TreeLock.class);
     when(injectedLockManager.createTreeLock(any())).thenReturn(treeLock);
     PolicyManager manager =
-        new PolicyManager(new RandomIdGenerator(), entityStore, injectedLockManager);
+        new PolicyManager(
+            new RandomIdGenerator(),
+            entityStore,
+            injectedLockManager,
+            metadataObjectExistenceChecker);
 
     manager.listPolicies(METALAKE);
 

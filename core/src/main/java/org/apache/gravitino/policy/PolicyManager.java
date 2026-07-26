@@ -45,6 +45,7 @@ import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.GenericEntity;
 import org.apache.gravitino.meta.PolicyEntity;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.relational.service.MetadataObjectService;
 import org.apache.gravitino.utils.MetadataObjectUtil;
@@ -69,6 +70,7 @@ public class PolicyManager implements PolicyDispatcher {
   private final IdGenerator idGenerator;
   private final EntityStore entityStore;
   private final LockManager lockManager;
+  private final MetadataObjectExistenceChecker metadataObjectExistenceChecker;
 
   /**
    * Creates a policy manager.
@@ -76,8 +78,13 @@ public class PolicyManager implements PolicyDispatcher {
    * @param idGenerator the ID generator used to create policies
    * @param entityStore the store containing policies and their relations
    * @param lockManager the manager used to coordinate policy operations
+   * @param metadataObjectExistenceChecker checker for associated metadata objects
    */
-  public PolicyManager(IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
+  public PolicyManager(
+      IdGenerator idGenerator,
+      EntityStore entityStore,
+      LockManager lockManager,
+      MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
     if (!(entityStore instanceof SupportsRelationOperations)) {
       String errorMsg =
           "PolicyManager cannot run with entity store that does not support policy operations, "
@@ -89,6 +96,7 @@ public class PolicyManager implements PolicyDispatcher {
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
     this.lockManager = lockManager;
+    this.metadataObjectExistenceChecker = metadataObjectExistenceChecker;
   }
 
   @Override
@@ -282,7 +290,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(
@@ -327,7 +335,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     // Remove all the policies that are both set to add and remove
     Set<String> policiesToAddSet =
@@ -396,7 +404,7 @@ public class PolicyManager implements PolicyDispatcher {
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
     NameIdentifier policyIdent = NameIdentifierUtil.ofPolicy(metalake, policyName);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    metadataObjectExistenceChecker.check(metalake, metadataObject);
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(

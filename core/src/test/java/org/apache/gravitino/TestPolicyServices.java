@@ -30,6 +30,7 @@ import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.storage.IdGenerator;
@@ -44,9 +45,17 @@ public class TestPolicyServices {
     EventBus eventBus = mock(EventBus.class);
     LockManager lockManager = mock(LockManager.class);
     OwnerDispatcher ownerDispatcher = mock(OwnerDispatcher.class);
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+        mock(MetadataObjectExistenceChecker.class);
 
     PolicyServices services =
-        PolicyServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
+        PolicyServices.create(
+            entityStore,
+            idGenerator,
+            eventBus,
+            lockManager,
+            metadataObjectExistenceChecker,
+            ownerDispatcher);
     PolicyDispatcher policyDispatcher = services.policyDispatcher();
 
     assertInstanceOf(PolicyHookDispatcher.class, policyDispatcher);
@@ -55,7 +64,14 @@ public class TestPolicyServices {
     assertSame(policyDispatcher, services.policyDispatcher());
     assertSame(services.policyManager(), services.policyManager());
     assertSame(services.policyEventDispatcher(), services.policyEventDispatcher());
-    verifyNoInteractions(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
+    assertSame(metadataObjectExistenceChecker, services.metadataObjectExistenceChecker());
+    verifyNoInteractions(
+        entityStore,
+        idGenerator,
+        eventBus,
+        lockManager,
+        metadataObjectExistenceChecker,
+        ownerDispatcher);
   }
 
   @Test
@@ -64,15 +80,20 @@ public class TestPolicyServices {
     IdGenerator idGenerator = mock(IdGenerator.class);
     EventBus eventBus = mock(EventBus.class);
     LockManager lockManager = mock(LockManager.class);
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+        mock(MetadataObjectExistenceChecker.class);
 
     PolicyServices first =
-        PolicyServices.create(entityStore, idGenerator, eventBus, lockManager, null);
+        PolicyServices.create(
+            entityStore, idGenerator, eventBus, lockManager, metadataObjectExistenceChecker, null);
     PolicyServices second =
-        PolicyServices.create(entityStore, idGenerator, eventBus, lockManager, null);
+        PolicyServices.create(
+            entityStore, idGenerator, eventBus, lockManager, metadataObjectExistenceChecker, null);
 
     assertNotSame(first.policyDispatcher(), second.policyDispatcher());
     assertNotSame(first.policyManager(), second.policyManager());
     assertNotSame(first.policyEventDispatcher(), second.policyEventDispatcher());
+    assertSame(first.metadataObjectExistenceChecker(), second.metadataObjectExistenceChecker());
   }
 
   private static EntityStore relationalEntityStore() {

@@ -29,9 +29,11 @@ import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.utils.MetadataObjectUtil;
 
 /** Package-private composition boundary for the policy service graph. */
 final class PolicyServices {
@@ -48,9 +50,33 @@ final class PolicyServices {
       EventBus eventBus,
       LockManager lockManager,
       @Nullable OwnerDispatcher ownerDispatcher) {
+    // Compatibility edge for GravitinoEnv. Remove after the composition root passes the explicit
+    // checker to the overload below.
+    return create(
+        entityStore,
+        idGenerator,
+        eventBus,
+        lockManager,
+        MetadataObjectUtil::checkMetadataObject,
+        ownerDispatcher);
+  }
+
+  static PolicyServices create(
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      EventBus eventBus,
+      LockManager lockManager,
+      MetadataObjectExistenceChecker metadataObjectExistenceChecker,
+      @Nullable OwnerDispatcher ownerDispatcher) {
     return new PolicyServices(
         DaggerPolicyServices_PolicyComponent.factory()
-            .create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher));
+            .create(
+                entityStore,
+                idGenerator,
+                eventBus,
+                lockManager,
+                metadataObjectExistenceChecker,
+                ownerDispatcher));
   }
 
   PolicyDispatcher policyDispatcher() {
@@ -65,6 +91,10 @@ final class PolicyServices {
     return component.policyEventDispatcher();
   }
 
+  MetadataObjectExistenceChecker metadataObjectExistenceChecker() {
+    return component.metadataObjectExistenceChecker();
+  }
+
   @Singleton
   @Component(modules = PolicyModule.class)
   interface PolicyComponent {
@@ -75,6 +105,8 @@ final class PolicyServices {
 
     PolicyEventDispatcher policyEventDispatcher();
 
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker();
+
     @Component.Factory
     interface Factory {
 
@@ -83,6 +115,7 @@ final class PolicyServices {
           @BindsInstance IdGenerator idGenerator,
           @BindsInstance EventBus eventBus,
           @BindsInstance LockManager lockManager,
+          @BindsInstance MetadataObjectExistenceChecker metadataObjectExistenceChecker,
           @BindsInstance @Nullable OwnerDispatcher ownerDispatcher);
     }
   }
@@ -95,8 +128,12 @@ final class PolicyServices {
     @Provides
     @Singleton
     static PolicyManager providePolicyManager(
-        IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
-      return new PolicyManager(idGenerator, entityStore, lockManager);
+        IdGenerator idGenerator,
+        EntityStore entityStore,
+        LockManager lockManager,
+        MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
+      return new PolicyManager(
+          idGenerator, entityStore, lockManager, metadataObjectExistenceChecker);
     }
 
     @Provides

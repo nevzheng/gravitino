@@ -28,6 +28,7 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.junit.jupiter.api.Test;
@@ -41,14 +42,29 @@ public class TestTagServices {
     EventBus eventBus = mock(EventBus.class);
     LockManager lockManager = mock(LockManager.class);
     OwnerDispatcher ownerDispatcher = mock(OwnerDispatcher.class);
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+        mock(MetadataObjectExistenceChecker.class);
 
     TagServices services =
-        TagServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
+        TagServices.create(
+            entityStore,
+            idGenerator,
+            eventBus,
+            lockManager,
+            metadataObjectExistenceChecker,
+            ownerDispatcher);
     TagDispatcher tagDispatcher = services.tagDispatcher();
 
     assertInstanceOf(TagHookDispatcher.class, tagDispatcher);
     assertSame(tagDispatcher, services.tagDispatcher());
-    verifyNoInteractions(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
+    assertSame(metadataObjectExistenceChecker, services.metadataObjectExistenceChecker());
+    verifyNoInteractions(
+        entityStore,
+        idGenerator,
+        eventBus,
+        lockManager,
+        metadataObjectExistenceChecker,
+        ownerDispatcher);
   }
 
   @Test
@@ -57,10 +73,17 @@ public class TestTagServices {
     IdGenerator idGenerator = mock(IdGenerator.class);
     EventBus eventBus = mock(EventBus.class);
     LockManager lockManager = mock(LockManager.class);
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+        mock(MetadataObjectExistenceChecker.class);
 
-    TagServices first = TagServices.create(entityStore, idGenerator, eventBus, lockManager, null);
-    TagServices second = TagServices.create(entityStore, idGenerator, eventBus, lockManager, null);
+    TagServices first =
+        TagServices.create(
+            entityStore, idGenerator, eventBus, lockManager, metadataObjectExistenceChecker, null);
+    TagServices second =
+        TagServices.create(
+            entityStore, idGenerator, eventBus, lockManager, metadataObjectExistenceChecker, null);
 
     assertNotSame(first.tagDispatcher(), second.tagDispatcher());
+    assertSame(first.metadataObjectExistenceChecker(), second.metadataObjectExistenceChecker());
   }
 }

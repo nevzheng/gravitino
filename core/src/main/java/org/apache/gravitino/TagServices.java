@@ -29,9 +29,11 @@ import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.TagEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.tag.TagManager;
+import org.apache.gravitino.utils.MetadataObjectUtil;
 
 /** Package-private composition boundary for the tag service graph. */
 final class TagServices {
@@ -48,13 +50,41 @@ final class TagServices {
       EventBus eventBus,
       LockManager lockManager,
       @Nullable OwnerDispatcher ownerDispatcher) {
+    // Compatibility edge for GravitinoEnv. Remove after the composition root passes the explicit
+    // checker to the overload below.
+    return create(
+        entityStore,
+        idGenerator,
+        eventBus,
+        lockManager,
+        MetadataObjectUtil::checkMetadataObject,
+        ownerDispatcher);
+  }
+
+  static TagServices create(
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      EventBus eventBus,
+      LockManager lockManager,
+      MetadataObjectExistenceChecker metadataObjectExistenceChecker,
+      @Nullable OwnerDispatcher ownerDispatcher) {
     return new TagServices(
         DaggerTagServices_TagComponent.factory()
-            .create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher));
+            .create(
+                entityStore,
+                idGenerator,
+                eventBus,
+                lockManager,
+                metadataObjectExistenceChecker,
+                ownerDispatcher));
   }
 
   TagDispatcher tagDispatcher() {
     return component.tagDispatcher();
+  }
+
+  MetadataObjectExistenceChecker metadataObjectExistenceChecker() {
+    return component.metadataObjectExistenceChecker();
   }
 
   @Singleton
@@ -62,6 +92,8 @@ final class TagServices {
   interface TagComponent {
 
     TagDispatcher tagDispatcher();
+
+    MetadataObjectExistenceChecker metadataObjectExistenceChecker();
 
     @Component.Factory
     interface Factory {
@@ -71,6 +103,7 @@ final class TagServices {
           @BindsInstance IdGenerator idGenerator,
           @BindsInstance EventBus eventBus,
           @BindsInstance LockManager lockManager,
+          @BindsInstance MetadataObjectExistenceChecker metadataObjectExistenceChecker,
           @BindsInstance @Nullable OwnerDispatcher ownerDispatcher);
     }
   }
@@ -83,8 +116,11 @@ final class TagServices {
     @Provides
     @Singleton
     static TagManager provideTagManager(
-        IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
-      return new TagManager(idGenerator, entityStore, lockManager);
+        IdGenerator idGenerator,
+        EntityStore entityStore,
+        LockManager lockManager,
+        MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
+      return new TagManager(idGenerator, entityStore, lockManager, metadataObjectExistenceChecker);
     }
 
     @Provides

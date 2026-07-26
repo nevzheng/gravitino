@@ -35,9 +35,7 @@ import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
 import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -51,21 +49,15 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.FunctionDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
-import org.apache.gravitino.catalog.ViewDispatcher;
+import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchTagException;
 import org.apache.gravitino.exceptions.NotFoundException;
@@ -88,7 +80,7 @@ import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.meta.ViewEntity;
-import org.apache.gravitino.metalake.MetalakeDispatcher;
+import org.apache.gravitino.metadata.MetadataObjectExistenceChecker;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.Representation;
 import org.apache.gravitino.rel.SQLRepresentation;
@@ -125,12 +117,8 @@ public class TestTagManager {
 
   private static final String FUNCTION = "function_for_tag_test";
 
-  private static final MetalakeDispatcher metalakeDispatcher = mock(MetalakeDispatcher.class);
-  private static final CatalogDispatcher catalogDispatcher = mock(CatalogDispatcher.class);
-  private static final SchemaDispatcher schemaDispatcher = mock(SchemaDispatcher.class);
-  private static final TableDispatcher tableDispatcher = mock(TableDispatcher.class);
-  private static final ViewDispatcher viewDispatcher = mock(ViewDispatcher.class);
-  private static final FunctionDispatcher functionDispatcher = mock(FunctionDispatcher.class);
+  private static final MetadataObjectExistenceChecker metadataObjectExistenceChecker =
+      mock(MetadataObjectExistenceChecker.class);
 
   private static EntityStore entityStore;
 
@@ -141,7 +129,7 @@ public class TestTagManager {
   private static TagManager tagManager;
 
   @BeforeAll
-  public static void setUp() throws IOException, IllegalAccessException {
+  public static void setUp() throws IOException {
     idGenerator = new RandomIdGenerator();
 
     File dbDir = new File(DB_DIR);
@@ -264,23 +252,8 @@ public class TestTagManager {
             .build();
     entityStore.put(function, false /* overwritten */);
 
-    tagManager = new TagManager(idGenerator, entityStore, lockManager);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "metalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "schemaDispatcher", schemaDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", tableDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "viewDispatcher", viewDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "functionDispatcher", functionDispatcher, true);
-
-    when(metalakeDispatcher.metalakeExists(any())).thenReturn(true);
-    when(catalogDispatcher.catalogExists(any())).thenReturn(true);
-    when(schemaDispatcher.schemaExists(any())).thenReturn(true);
-    when(tableDispatcher.tableExists(any())).thenReturn(true);
-    when(viewDispatcher.viewExists(any())).thenReturn(true);
-    when(functionDispatcher.functionExists(any())).thenReturn(true);
+    tagManager =
+        new TagManager(idGenerator, entityStore, lockManager, metadataObjectExistenceChecker);
   }
 
   @AfterAll
@@ -334,6 +307,29 @@ public class TestTagManager {
     tagManager.associateTagsForMetadataObject(METALAKE, functionObject, null, functionTags);
 
     Arrays.stream(tagManager.listTags(METALAKE)).forEach(n -> tagManager.deleteTag(METALAKE, n));
+  }
+
+  @Test
+  public void testUsesInjectedMetadataObjectExistenceChecker() {
+    MetadataObjectExistenceChecker injectedChecker = mock(MetadataObjectExistenceChecker.class);
+    LockManager injectedLockManager = mock(LockManager.class);
+    MetadataObject catalogObject =
+        NameIdentifierUtil.toMetadataObject(
+            NameIdentifierUtil.ofCatalog(METALAKE, CATALOG), Entity.EntityType.CATALOG);
+    NoSuchMetadataObjectException expected =
+        new NoSuchMetadataObjectException("Rejected by the injected checker");
+    Mockito.doThrow(expected).when(injectedChecker).check(METALAKE, catalogObject);
+    TagManager manager =
+        new TagManager(idGenerator, entityStore, injectedLockManager, injectedChecker);
+
+    NoSuchMetadataObjectException actual =
+        Assertions.assertThrows(
+            NoSuchMetadataObjectException.class,
+            () -> manager.listTagsInfoForMetadataObject(METALAKE, catalogObject));
+
+    Assertions.assertSame(expected, actual);
+    Mockito.verify(injectedChecker).check(METALAKE, catalogObject);
+    Mockito.verifyNoInteractions(injectedLockManager);
   }
 
   @Test
