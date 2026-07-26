@@ -42,7 +42,6 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
@@ -71,6 +70,7 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationMetada
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -83,12 +83,14 @@ public class JobOperations {
   private static final Logger LOG = LoggerFactory.getLogger(JobOperations.class);
 
   private final JobOperationDispatcher jobOperationDispatcher;
+  private final IdGenerator idGenerator;
 
   @Context HttpServletRequest httpRequest;
 
   @Inject
-  public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
+  public JobOperations(JobOperationDispatcher jobOperationDispatcher, IdGenerator idGenerator) {
     this.jobOperationDispatcher = jobOperationDispatcher;
+    this.idGenerator = idGenerator;
   }
 
   @GET
@@ -453,9 +455,9 @@ public class JobOperations {
     }
   }
 
-  private static JobTemplateEntity toEntity(String metalake, JobTemplateDTO jobTemplateDTO) {
+  private JobTemplateEntity toEntity(String metalake, JobTemplateDTO jobTemplateDTO) {
     return JobTemplateEntity.builder()
-        .withId(GravitinoEnv.getInstance().idGenerator().nextId())
+        .withId(idGenerator.nextId())
         .withName(jobTemplateDTO.name())
         .withNamespace(NamespaceUtil.ofJobTemplate(metalake))
         .withComment(jobTemplateDTO.comment())

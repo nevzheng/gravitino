@@ -32,19 +32,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 import org.aopalliance.intercept.ConstructorInterceptor;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.server.AuthorizationDenialFailureEvent;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -87,6 +88,18 @@ import org.slf4j.LoggerFactory;
  */
 public class GravitinoInterceptionService implements InterceptionService {
 
+  private final EventBus eventBus;
+
+  /**
+   * Creates an authorization interception service.
+   *
+   * @param eventBus event bus used to publish authorization-denial events
+   */
+  @Inject
+  public GravitinoInterceptionService(EventBus eventBus) {
+    this.eventBus = eventBus;
+  }
+
   @Override
   public Filter getDescriptorFilter() {
     return new ClassListFilter(
@@ -116,7 +129,7 @@ public class GravitinoInterceptionService implements InterceptionService {
 
   @Override
   public List<MethodInterceptor> getMethodInterceptors(Method method) {
-    return ImmutableList.of(new MetadataAuthorizationMethodInterceptor());
+    return ImmutableList.of(new MetadataAuthorizationMethodInterceptor(eventBus));
   }
 
   @Override
@@ -131,6 +144,12 @@ public class GravitinoInterceptionService implements InterceptionService {
   private static class MetadataAuthorizationMethodInterceptor implements MethodInterceptor {
     private static final Logger LOG =
         LoggerFactory.getLogger(MetadataAuthorizationMethodInterceptor.class);
+
+    private final EventBus eventBus;
+
+    private MetadataAuthorizationMethodInterceptor(EventBus eventBus) {
+      this.eventBus = eventBus;
+    }
 
     /**
      * Determine whether authorization is required and the rules via the authorization annotation ,
@@ -265,7 +284,7 @@ public class GravitinoInterceptionService implements InterceptionService {
       try {
         AuthorizationDenialFailureEvent event =
             new AuthorizationDenialFailureEvent(user, accessMetadataName, methodName, expression);
-        GravitinoEnv.getInstance().eventBus().dispatchEvent(event);
+        eventBus.dispatchEvent(event);
       } catch (Exception e) {
         LOG.error(
             "Failed to dispatch authorization denial event for user {} on operation {}",

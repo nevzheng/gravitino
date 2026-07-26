@@ -99,7 +99,7 @@ public class TestGravitinoInterceptionService {
           .thenAnswer(invocation -> null);
 
       GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+          new GravitinoInterceptionService(mock(EventBus.class));
       Class<TestOperations> testOperationsClass = TestOperations.class;
       Method[] methods = testOperationsClass.getMethods();
       Method testMethod = methods[0];
@@ -140,7 +140,7 @@ public class TestGravitinoInterceptionService {
           .thenThrow(new RuntimeException("Database connection failed"));
 
       GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+          new GravitinoInterceptionService(mock(EventBus.class));
       Class<TestOperations> testOperationsClass = TestOperations.class;
       Method[] methods = testOperationsClass.getMethods();
       Method testMethod = methods[0];
@@ -191,7 +191,7 @@ public class TestGravitinoInterceptionService {
           .thenThrow(new NoSuchMetalakeException("Metalake nonExistentMetalake does not exist"));
 
       GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+          new GravitinoInterceptionService(mock(EventBus.class));
       Class<TestOperations> testOperationsClass = TestOperations.class;
       Method[] methods = testOperationsClass.getMethods();
       Method testMethod = methods[0];
@@ -244,7 +244,7 @@ public class TestGravitinoInterceptionService {
           .thenAnswer(invocation -> null);
 
       GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+          new GravitinoInterceptionService(mock(EventBus.class));
       Class<TestOperationsWithEmptyExpression> testOperationsClass =
           TestOperationsWithEmptyExpression.class;
       Method[] methods = testOperationsClass.getMethods();
@@ -299,13 +299,12 @@ public class TestGravitinoInterceptionService {
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.entityStore()).thenReturn(mockStore);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
       metalakeManagerMocked
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = new GravitinoInterceptionService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 
@@ -340,8 +339,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
 
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
@@ -359,12 +357,9 @@ public class TestGravitinoInterceptionService {
                       ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenThrow(new ForbiddenException("User outsider is not a member"));
 
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = new GravitinoInterceptionService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 
@@ -396,8 +391,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
 
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
@@ -415,12 +409,9 @@ public class TestGravitinoInterceptionService {
                       ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenThrow(new NoSuchMetalakeException("Metalake gone does not exist"));
 
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       EventBus mockEventBus = mock(EventBus.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = new GravitinoInterceptionService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 

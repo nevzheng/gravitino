@@ -97,6 +97,7 @@ public class TestJobOperations extends JerseyTest {
   }
 
   private final JobOperationDispatcher jobOperationDispatcher = mock(JobOperationDispatcher.class);
+  private final IdGenerator idGenerator = new RandomIdGenerator();
 
   private final String metalake = "test_metalake";
 
@@ -120,6 +121,7 @@ public class TestJobOperations extends JerseyTest {
           @Override
           protected void configure() {
             bind(jobOperationDispatcher).to(JobOperationDispatcher.class).ranked(2);
+            bind(idGenerator).to(IdGenerator.class).ranked(2);
             bindFactory(TestJobOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }
@@ -134,9 +136,6 @@ public class TestJobOperations extends JerseyTest {
     doReturn(false).when(config).get(CACHE_ENABLED);
     doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-
-    IdGenerator idGenerator = new RandomIdGenerator();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "idGenerator", idGenerator, true);
   }
 
   @Test
