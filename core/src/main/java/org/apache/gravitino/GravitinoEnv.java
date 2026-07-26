@@ -61,7 +61,6 @@ import org.apache.gravitino.hook.FunctionHookDispatcher;
 import org.apache.gravitino.hook.JobHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
 import org.apache.gravitino.hook.ModelHookDispatcher;
-import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TopicHookDispatcher;
@@ -79,7 +78,6 @@ import org.apache.gravitino.listener.JobEventDispatcher;
 import org.apache.gravitino.listener.MetalakeEventDispatcher;
 import org.apache.gravitino.listener.ModelEventDispatcher;
 import org.apache.gravitino.listener.PartitionEventDispatcher;
-import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.SchemaEventDispatcher;
 import org.apache.gravitino.listener.StatisticEventDispatcher;
 import org.apache.gravitino.listener.TopicEventDispatcher;
@@ -91,7 +89,6 @@ import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
@@ -802,9 +799,9 @@ public class GravitinoEnv {
         TagServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher)
             .tagDispatcher();
 
-    PolicyEventDispatcher policyEventDispatcher =
-        new PolicyEventDispatcher(eventBus, new PolicyManager(idGenerator, entityStore));
-    this.policyDispatcher = new PolicyHookDispatcher(policyEventDispatcher, ownerDispatcher);
+    this.policyDispatcher =
+        PolicyServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher)
+            .policyDispatcher();
 
     JobManager jobManager = new JobManager(config, entityStore, idGenerator);
     JobTemplateValidationDispatcher validationDispatcher =

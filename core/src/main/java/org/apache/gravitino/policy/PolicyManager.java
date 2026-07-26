@@ -31,7 +31,6 @@ import java.util.Set;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -70,20 +69,6 @@ public class PolicyManager implements PolicyDispatcher {
   private final IdGenerator idGenerator;
   private final EntityStore entityStore;
   private final LockManager lockManager;
-
-  /**
-   * Creates a policy manager using the application environment's lock manager.
-   *
-   * <p>This compatibility seam exists only while {@link GravitinoEnv} still assembles policy
-   * services manually. New composition roots should use {@link #PolicyManager(IdGenerator,
-   * EntityStore, LockManager)} so the dependency is explicit.
-   *
-   * @param idGenerator the ID generator used to create policies
-   * @param entityStore the store containing policies and their relations
-   */
-  public PolicyManager(IdGenerator idGenerator, EntityStore entityStore) {
-    this(idGenerator, entityStore, GravitinoEnv.getInstance().lockManager());
-  }
 
   /**
    * Creates a policy manager.
