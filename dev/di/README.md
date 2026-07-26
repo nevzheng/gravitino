@@ -43,10 +43,20 @@ Run the tool's unit tests:
 python3 -m unittest discover -s dev/di -p 'test_*.py'
 ```
 
+Both commands are part of the required Gradle verification lifecycle. Run only this fast gate with:
+
+```shell
+./gradlew checkGravitinoEnvMigration
+```
+
+The Gradle tasks use `python3` by default. Set `-PdiMigrationPython=/path/to/python` when a different
+Python 3 executable is required.
+
 The checked-in baseline contains `migrated_packages`. Once a package and its descendants have been
 migrated, add its Java package name to that list. Check mode then requires both production and test
 sources in that package tree to contain no `GravitinoEnv.getInstance()` or
-`FieldUtils.readField/writeField` calls. A package can be evaluated before changing the baseline:
+`FieldUtils.readField/writeField` calls, or calls to the legacy `TreeLockUtils` overloads. A package
+can be evaluated before changing the baseline:
 
 ```shell
 python3 dev/di/gravitino_env_metrics.py check \
@@ -94,3 +104,22 @@ wrapper helpers, reflective calls, unusual generic type-argument expressions, an
 singleton references are outside its scope. This metric is a lexical floor for hidden lock-manager
 lookups, not proof that every hidden locator has been found. The scorecard supports code review; it
 does not replace behavior, instance-identity, or lifecycle tests.
+
+## Compatibility-bridge quarantine
+
+`LegacyRuntimeDependencies` is treated as a temporary compatibility bridge, not a general-purpose
+service locator. Check mode rejects every production qualified member use, method reference, or
+static import unless its stable `path#member` identifier appears in the baseline's optional
+`legacy_runtime_dependencies_allowed_callsites` list. Repeated identifiers preserve multiplicity,
+so adding a second use in an otherwise approved file still fails. For example:
+
+```json
+"legacy_runtime_dependencies_allowed_callsites": [
+  "core/src/main/java/org/apache/gravitino/hook/TagHookDispatcher.java#ownerDispatcher"
+]
+```
+
+The allowlist defaults to empty. Current production and test identifiers are available in the JSON
+report under `legacy_runtime_dependencies`; test callsites are visible but report-only. Removing an
+approved production use does not fail the gate; the stale allowlist entry should be deleted with
+that migration commit.

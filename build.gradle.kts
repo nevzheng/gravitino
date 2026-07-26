@@ -794,7 +794,38 @@ tasks.rat {
   setExcludes(exclusions)
 }
 
-tasks.check.get().dependsOn(tasks.rat)
+val diMigrationPython =
+  providers.gradleProperty("diMigrationPython").orElse("python3")
+
+val testGravitinoEnvMetrics by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Run unit tests for the GravitinoEnv migration metric scanner"
+  workingDir(rootDir)
+  commandLine(
+    diMigrationPython.get(),
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "dev/di",
+    "-p",
+    "test_*.py"
+  )
+}
+
+val checkGravitinoEnvMigration by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Check GravitinoEnv migration metrics against the committed baseline"
+  dependsOn(testGravitinoEnvMetrics)
+  workingDir(rootDir)
+  commandLine(
+    diMigrationPython.get(),
+    "dev/di/gravitino_env_metrics.py",
+    "check"
+  )
+}
+
+tasks.check.get().dependsOn(tasks.rat, checkGravitinoEnvMigration)
 
 tasks.cyclonedxBom {
   setIncludeConfigs(listOf("runtimeClasspath"))

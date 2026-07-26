@@ -26,6 +26,7 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 
@@ -49,6 +50,10 @@ FIELD_UTILS_PATTERN = re.compile(
 )
 TREE_LOCK_UTILS_CALL_PATTERN = re.compile(
     r"\bTreeLockUtils\s*\.\s*(doWithTreeLock|doWithRootTreeLock)\s*\("
+)
+LEGACY_RUNTIME_DEPENDENCIES_PATTERN = re.compile(
+    r"\bLegacyRuntimeDependencies\s*(?:\.\s*([A-Za-z_$][\w$]*)|"
+    r"::\s*([A-Za-z_$][\w$]*))"
 )
 PACKAGE_PATTERN = re.compile(r"(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;")
 CONSTRUCTOR_PATTERN = re.compile(
@@ -252,6 +257,15 @@ def find_tree_lock_utils_calls(code):
     return calls
 
 
+def find_legacy_runtime_dependencies_callsites(code, relative_path):
+    """Return stable path/member identifiers for compatibility-bridge usages."""
+    callsites = []
+    for match in LEGACY_RUNTIME_DEPENDENCIES_PATTERN.finditer(code):
+        member = match.group(1) or match.group(2)
+        callsites.append(f"{relative_path.as_posix()}#{member}")
+    return callsites
+
+
 def is_test_source(path):
     """Return whether a repository-relative path is under a conventional test source set."""
     normalized = "/" + path.as_posix() + "/"
@@ -359,8 +373,14 @@ def collect_metrics(root, migrated_packages=()):
     get_instance = empty_usage()
     field_utils = empty_usage()
     tree_lock_utils = empty_tree_lock_utils_metrics()
+    legacy_runtime_dependencies_callsites = {"production": [], "test": []}
     violations = {
-        package: {"get_instance_occurrences": 0, "field_utils_occurrences": 0, "files": set()}
+        package: {
+            "get_instance_occurrences": 0,
+            "field_utils_occurrences": 0,
+            "legacy_tree_lock_occurrences": 0,
+            "files": set(),
+        }
         for package in sorted(set(migrated_packages))
     }
 
@@ -374,6 +394,10 @@ def collect_metrics(root, migrated_packages=()):
         test_source = is_test_source(relative)
         record_usage(get_instance, textual_get_count, get_count, test_source)
         record_usage(field_utils, textual_field_utils_count, field_utils_count, test_source)
+        legacy_runtime_category = "test" if test_source else "production"
+        legacy_runtime_dependencies_callsites[legacy_runtime_category].extend(
+            find_legacy_runtime_dependencies_callsites(code, relative)
+        )
 
         tree_lock_counts = {}
         for method_name, argument_count in find_tree_lock_utils_calls(code):
@@ -384,6 +408,15 @@ def collect_metrics(root, migrated_packages=()):
             for segment in metric_path:
                 usage = usage[segment]
             record_code_usage(usage, count, test_source)
+        legacy_tree_lock_count = sum(
+            count
+            for metric_path, count in tree_lock_counts.items()
+            if metric_path
+            in {
+                ("do_with_tree_lock", "legacy_3_arg"),
+                ("do_with_root_tree_lock", "legacy_2_arg"),
+            }
+        )
 
         package_match = PACKAGE_PATTERN.search(code)
         package_name = package_match.group(1) if package_match else ""
@@ -391,7 +424,8 @@ def collect_metrics(root, migrated_packages=()):
             if package_matches(package_name, package):
                 violation["get_instance_occurrences"] += get_count
                 violation["field_utils_occurrences"] += field_utils_count
-                if get_count or field_utils_count:
+                violation["legacy_tree_lock_occurrences"] += legacy_tree_lock_count
+                if get_count or field_utils_count or legacy_tree_lock_count:
                     violation["files"].add(relative.as_posix())
 
     env_file = root / ENV_PATH
@@ -417,11 +451,20 @@ def collect_metrics(root, migrated_packages=()):
         "gravitino_env_get_instance": get_instance,
         "field_utils_read_write": field_utils,
         "tree_lock_utils": tree_lock_utils,
+        "legacy_runtime_dependencies": {
+            "production_callsites": sorted(
+                legacy_runtime_dependencies_callsites["production"]
+            ),
+            "test_callsites": sorted(legacy_runtime_dependencies_callsites["test"]),
+        },
         "migrated_package_violations": [
             {
                 "package": package,
                 "get_instance_occurrences": violation["get_instance_occurrences"],
                 "field_utils_occurrences": violation["field_utils_occurrences"],
+                "legacy_tree_lock_occurrences": violation[
+                    "legacy_tree_lock_occurrences"
+                ],
                 "files": sorted(violation["files"]),
             }
             for package, violation in violations.items()
@@ -437,7 +480,7 @@ def nested_value(mapping, dotted_path):
     return value
 
 
-def compare_metrics(current, baseline):
+def compare_metrics(current, baseline, allowed_legacy_runtime_callsites=()):
     """Return hard errors and informational warnings relative to a baseline."""
     errors = []
     warnings = []
@@ -453,14 +496,34 @@ def compare_metrics(current, baseline):
         if after > before:
             warnings.append(f"{dotted_path} increased from {before} to {after}")
 
+    unexpected_legacy_runtime_callsites = list(
+        (
+            Counter(
+                current["legacy_runtime_dependencies"]["production_callsites"]
+            )
+            - Counter(allowed_legacy_runtime_callsites)
+        ).elements()
+    )
+    if unexpected_legacy_runtime_callsites:
+        errors.append(
+            "LegacyRuntimeDependencies contains unapproved callsite(s): "
+            + ", ".join(sorted(unexpected_legacy_runtime_callsites))
+        )
+
     for violation in current["migrated_package_violations"]:
-        if violation["get_instance_occurrences"] or violation["field_utils_occurrences"]:
+        if (
+            violation["get_instance_occurrences"]
+            or violation["field_utils_occurrences"]
+            or violation["legacy_tree_lock_occurrences"]
+        ):
             errors.append(
                 "migrated package {package} contains {get_count} GravitinoEnv.getInstance "
-                "and {field_count} FieldUtils read/write occurrence(s) in: {files}".format(
+                "occurrence(s), {field_count} FieldUtils read/write occurrence(s), and "
+                "{tree_lock_count} legacy TreeLockUtils occurrence(s) in: {files}".format(
                     package=violation["package"],
                     get_count=violation["get_instance_occurrences"],
                     field_count=violation["field_utils_occurrences"],
+                    tree_lock_count=violation["legacy_tree_lock_occurrences"],
                     files=", ".join(violation["files"]),
                 )
             )
@@ -528,17 +591,25 @@ def text_report(metrics):
                 )
             )
 
+    lines.append("LegacyRuntimeDependencies compatibility-bridge callsites")
+    for category in ("production", "test"):
+        callsites = metrics["legacy_runtime_dependencies"][f"{category}_callsites"]
+        lines.append(f"  {category}: {len(callsites)}")
+        for callsite in callsites:
+            lines.append(f"    {callsite}")
+
     if metrics["migrated_package_violations"]:
         lines.append("Migrated package checks")
         for violation in metrics["migrated_package_violations"]:
             lines.append(
                 (
                     "  {package}: getInstance={get_count}, FieldUtils={field_count}, "
-                    "files={files}"
+                    "legacy TreeLockUtils={tree_lock_count}, files={files}"
                 ).format(
                     package=violation["package"],
                     get_count=violation["get_instance_occurrences"],
                     field_count=violation["field_utils_occurrences"],
+                    tree_lock_count=violation["legacy_tree_lock_occurrences"],
                     files=len(violation["files"]),
                 )
             )
@@ -551,6 +622,15 @@ def load_baseline(path):
         baseline = json.load(baseline_file)
     if baseline.get("schema_version") != 1 or "metrics" not in baseline:
         raise ValueError("baseline must use schema_version 1 and contain metrics")
+    allowed_callsites = baseline.get(
+        "legacy_runtime_dependencies_allowed_callsites", []
+    )
+    if not isinstance(allowed_callsites, list) or not all(
+        isinstance(callsite, str) for callsite in allowed_callsites
+    ):
+        raise ValueError(
+            "legacy_runtime_dependencies_allowed_callsites must be a list of strings"
+        )
     return baseline
 
 
@@ -596,7 +676,11 @@ def main(arguments=None):
         set(baseline.get("migrated_packages", [])) | set(args.migrated_package)
     )
     current = collect_metrics(args.root, migrated_packages)
-    errors, warnings = compare_metrics(current, baseline["metrics"])
+    errors, warnings = compare_metrics(
+        current,
+        baseline["metrics"],
+        baseline.get("legacy_runtime_dependencies_allowed_callsites", []),
+    )
     print(text_report(current))
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)

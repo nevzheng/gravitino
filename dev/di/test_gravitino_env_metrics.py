@@ -106,6 +106,31 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
             calls,
         )
 
+    def test_find_legacy_runtime_dependencies_callsites(self):
+        source = r'''
+          // LegacyRuntimeDependencies.eventBus();
+          String fake = "LegacyRuntimeDependencies::lockManager";
+          Object owner = LegacyRuntimeDependencies.ownerDispatcher();
+          Supplier<Object> lock = LegacyRuntimeDependencies::lockManager;
+          import static org.apache.gravitino.LegacyRuntimeDependencies.eventBus;
+        '''
+
+        callsites = metrics.find_legacy_runtime_dependencies_callsites(
+            metrics.strip_comments_and_literals(source),
+            Path("core/src/main/java/org/apache/gravitino/LegacyConstructor.java"),
+        )
+
+        self.assertEqual(
+            [
+                "core/src/main/java/org/apache/gravitino/LegacyConstructor.java"
+                "#ownerDispatcher",
+                "core/src/main/java/org/apache/gravitino/LegacyConstructor.java"
+                "#lockManager",
+                "core/src/main/java/org/apache/gravitino/LegacyConstructor.java#eventBus",
+            ],
+            callsites,
+        )
+
     def test_collect_metrics_groups_tree_lock_calls_by_source_and_signature(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -181,6 +206,7 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                 package org.apache.gravitino.tag;
                 class TagService {
                   Object env = GravitinoEnv.getInstance();
+                  Object value = TreeLockUtils.doWithTreeLock(identifier, type, executable);
                 }
                 """,
             )
@@ -192,6 +218,7 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                 class TestTagService {
                   Object env = GravitinoEnv.getInstance();
                   Object field = FieldUtils.readField(env, "tagDispatcher");
+                  Object value = TreeLockUtils.doWithRootTreeLock(type, executable);
                 }
                 """,
             )
@@ -221,6 +248,7 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
             violation = current["migrated_package_violations"][0]
             self.assertEqual(2, violation["get_instance_occurrences"])
             self.assertEqual(1, violation["field_utils_occurrences"])
+            self.assertEqual(2, violation["legacy_tree_lock_occurrences"])
             self.assertEqual(2, len(violation["files"]))
 
     def test_compare_metrics_separates_hard_and_informational_regressions(self):
@@ -244,6 +272,7 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                 "package": "org.apache.gravitino.tag",
                 "get_instance_occurrences": 1,
                 "field_utils_occurrences": 2,
+                "legacy_tree_lock_occurrences": 0,
                 "files": ["core/src/test/java/org/apache/gravitino/tag/TestTag.java"],
             }
         ]
@@ -253,6 +282,27 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
         self.assertEqual([], warnings)
         self.assertEqual(1, len(errors))
         self.assertIn("migrated package org.apache.gravitino.tag", errors[0])
+
+    def test_compare_metrics_rejects_migrated_package_legacy_tree_lock_without_growth(
+        self,
+    ):
+        baseline = self.metric_fixture()
+        current = self.metric_fixture()
+        current["migrated_package_violations"] = [
+            {
+                "package": "org.apache.gravitino.tag",
+                "get_instance_occurrences": 0,
+                "field_utils_occurrences": 0,
+                "legacy_tree_lock_occurrences": 2,
+                "files": ["core/src/main/java/org/apache/gravitino/tag/Tag.java"],
+            }
+        ]
+
+        errors, warnings = metrics.compare_metrics(current, baseline)
+
+        self.assertEqual([], warnings)
+        self.assertEqual(1, len(errors))
+        self.assertIn("2 legacy TreeLockUtils occurrence(s)", errors[0])
 
     def test_compare_metrics_rejects_legacy_tree_lock_growth(self):
         for field in ("occurrences", "files"):
@@ -271,6 +321,58 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                     f"tree_lock_utils.do_with_tree_lock.legacy_3_arg.test.{field}",
                     errors[0],
                 )
+
+    def test_compare_metrics_rejects_unapproved_legacy_runtime_callsite(self):
+        baseline = self.metric_fixture()
+        current = self.metric_fixture()
+        approved = (
+            "core/src/main/java/org/apache/gravitino/hook/TagHook.java#ownerDispatcher"
+        )
+        unapproved = "core/src/main/java/org/apache/gravitino/NewService.java#eventBus"
+        current["legacy_runtime_dependencies"]["production_callsites"] = [
+            approved,
+            unapproved,
+        ]
+
+        errors, warnings = metrics.compare_metrics(
+            current,
+            baseline,
+            [approved, "core/src/main/java/org/apache/gravitino/OldService.java#eventBus"],
+        )
+
+        self.assertEqual([], warnings)
+        self.assertEqual(1, len(errors))
+        self.assertIn(unapproved, errors[0])
+        self.assertNotIn("OldService", errors[0])
+
+    def test_compare_metrics_rejects_duplicate_legacy_runtime_callsite(self):
+        baseline = self.metric_fixture()
+        current = self.metric_fixture()
+        approved = (
+            "core/src/main/java/org/apache/gravitino/hook/TagHook.java#ownerDispatcher"
+        )
+        current["legacy_runtime_dependencies"]["production_callsites"] = [
+            approved,
+            approved,
+        ]
+
+        errors, warnings = metrics.compare_metrics(current, baseline, [approved])
+
+        self.assertEqual([], warnings)
+        self.assertEqual(1, len(errors))
+        self.assertIn(approved, errors[0])
+
+    def test_compare_metrics_reports_test_legacy_runtime_callsite_without_failing(self):
+        baseline = self.metric_fixture()
+        current = self.metric_fixture()
+        current["legacy_runtime_dependencies"]["test_callsites"] = [
+            "core/src/test/java/org/apache/gravitino/TestCompatibility.java#eventBus"
+        ]
+
+        errors, warnings = metrics.compare_metrics(current, baseline)
+
+        self.assertEqual([], errors)
+        self.assertEqual([], warnings)
 
     @staticmethod
     def write_java(root, relative_path, source):
@@ -343,6 +445,10 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                     ),
                 },
                 "unclassified": TestGravitinoEnvMetrics.code_usage_fixture(),
+            },
+            "legacy_runtime_dependencies": {
+                "production_callsites": [],
+                "test_callsites": [],
             },
             "migrated_package_violations": [],
         }
