@@ -47,8 +47,6 @@ import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.SchemaNormalizeDispatcher;
 import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
-import org.apache.gravitino.catalog.TableNormalizeDispatcher;
-import org.apache.gravitino.catalog.TableOperationDispatcher;
 import org.apache.gravitino.catalog.TopicDispatcher;
 import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
 import org.apache.gravitino.catalog.TopicOperationDispatcher;
@@ -84,7 +82,6 @@ import org.apache.gravitino.listener.PartitionEventDispatcher;
 import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.SchemaEventDispatcher;
 import org.apache.gravitino.listener.StatisticEventDispatcher;
-import org.apache.gravitino.listener.TableEventDispatcher;
 import org.apache.gravitino.listener.TopicEventDispatcher;
 import org.apache.gravitino.listener.ViewEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
@@ -696,19 +693,16 @@ public class GravitinoEnv {
         new SchemaEventDispatcher(eventBus, schemaNormalizeDispatcher);
     this.schemaDispatcher = new SchemaHookDispatcher(schemaEventDispatcher);
 
-    TableOperationDispatcher tableOperationDispatcher =
-        new TableOperationDispatcher(catalogManager, entityStore, idGenerator);
-    this.internalTableDispatcher = tableOperationDispatcher;
-    TableNormalizeDispatcher tableNormalizeDispatcher =
-        new TableNormalizeDispatcher(tableOperationDispatcher, catalogManager);
-    TableOperationDispatcher internalTableOperationDispatcher =
-        new TableOperationDispatcher(
-            catalogManager, entityStore, idGenerator, () -> internalSchemaDispatcher);
-    this.internalTableDispatcher =
-        new TableNormalizeDispatcher(internalTableOperationDispatcher, catalogManager);
-    TableEventDispatcher tableEventDispatcher =
-        new TableEventDispatcher(eventBus, tableNormalizeDispatcher);
-    this.tableDispatcher = new TableHookDispatcher(tableEventDispatcher);
+    TableServices tableServices =
+        TableServices.create(
+            catalogManager,
+            entityStore,
+            idGenerator,
+            eventBus,
+            schemaDispatcher,
+            internalSchemaDispatcher);
+    this.internalTableDispatcher = tableServices.internalTableDispatcher();
+    this.tableDispatcher = new TableHookDispatcher(tableServices.tableDispatcher());
 
     // TODO: We can install hooks when we need, we only supports ownership post hook,
     //  partition doesn't have ownership, so we don't need it now.
