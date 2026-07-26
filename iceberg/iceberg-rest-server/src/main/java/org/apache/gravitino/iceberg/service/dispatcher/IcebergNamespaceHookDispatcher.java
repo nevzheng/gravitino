@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
@@ -55,6 +56,7 @@ import org.apache.iceberg.rest.responses.UpdateNamespacePropertiesResponse;
  * underlying dispatcher but also executes some hook operations before or after the underlying
  * operations.
  */
+@IcebergHookGraph.AuxiliaryScope
 public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperationDispatcher {
 
   private final IcebergNamespaceOperationDispatcher dispatcher;
@@ -72,36 +74,29 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     this(
         dispatcher,
         IcebergRESTServerContext.getInstance().metalakeName(),
-        IcebergHookGraph.legacyAuxiliaryInputs());
+        IcebergHookGraph.legacyEnvironment().entityStore(),
+        IcebergHookGraph.legacyEnvironment().lockManager(),
+        IcebergHookGraph.legacyEnvironment().internalSchemaDispatcher(),
+        IcebergHookGraph.legacyEnvironment().internalTableDispatcher(),
+        IcebergHookGraph.legacyEnvironment().internalViewDispatcher(),
+        IcebergHookGraph.legacyEnvironment().internalOwnerDispatcher(),
+        HierarchicalSchemaUtil.schemaSeparator(),
+        new IcebergOrphanSchemaCleanup(
+            IcebergHookGraph.legacyEnvironment().entityStore(),
+            HierarchicalSchemaUtil.schemaSeparator()));
   }
 
-  private IcebergNamespaceHookDispatcher(
-      IcebergNamespaceOperationDispatcher dispatcher,
-      String metalake,
-      IcebergHookGraph.AuxiliaryInputs capabilities) {
-    this(
-        dispatcher,
-        metalake,
-        capabilities.entityStore,
-        capabilities.lockManager,
-        capabilities.schemaDispatcher,
-        capabilities.tableDispatcher,
-        capabilities.viewDispatcher,
-        capabilities.ownerDispatcher,
-        capabilities.schemaSeparator,
-        new IcebergOrphanSchemaCleanup(capabilities.entityStore, capabilities.schemaSeparator));
-  }
-
+  @Inject
   IcebergNamespaceHookDispatcher(
-      IcebergNamespaceOperationDispatcher dispatcher,
-      String metalake,
+      @IcebergHookGraph.EventLayer IcebergNamespaceOperationDispatcher dispatcher,
+      @IcebergHookGraph.Metalake String metalake,
       EntityStore entityStore,
       LockManager lockManager,
       SchemaDispatcher schemaDispatcher,
       TableDispatcher tableDispatcher,
       ViewDispatcher viewDispatcher,
       OwnerDispatcher ownerDispatcher,
-      String schemaSeparator,
+      @IcebergHookGraph.SchemaSeparator String schemaSeparator,
       IcebergOrphanSchemaCleanup orphanSchemaCleanup) {
     this.dispatcher = dispatcher;
     this.metalake = metalake;

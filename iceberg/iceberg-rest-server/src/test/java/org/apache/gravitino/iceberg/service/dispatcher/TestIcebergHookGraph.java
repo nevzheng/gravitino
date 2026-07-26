@@ -33,8 +33,7 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.AuxiliaryInputs;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.BaseInputs;
+import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.Dispatchers;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.IcebergListTableEvent;
 import org.apache.gravitino.listener.api.event.IcebergListTablePreEvent;
@@ -55,20 +54,16 @@ public class TestIcebergHookGraph {
   public void testBaseGraphOwnsStableEventDecorators() {
     EventBus eventBus = mock(EventBus.class);
 
-    IcebergHookGraph graph =
-        IcebergHookGraph.createBase(
-            baseInputs(
-                eventBus,
-                mock(IcebergNamespaceOperationDispatcher.class),
-                mock(IcebergTableOperationDispatcher.class),
-                mock(IcebergViewOperationDispatcher.class)));
+    Dispatchers graph =
+        baseGraph(
+            eventBus,
+            mock(IcebergNamespaceOperationDispatcher.class),
+            mock(IcebergTableOperationDispatcher.class),
+            mock(IcebergViewOperationDispatcher.class));
 
     assertInstanceOf(IcebergNamespaceEventDispatcher.class, graph.namespaceDispatcher());
     assertInstanceOf(IcebergTableEventDispatcher.class, graph.tableDispatcher());
     assertInstanceOf(IcebergViewEventDispatcher.class, graph.viewDispatcher());
-    assertSame(graph.namespaceEventDispatcher(), graph.namespaceDispatcher());
-    assertSame(graph.tableEventDispatcher(), graph.tableDispatcher());
-    assertSame(graph.viewEventDispatcher(), graph.viewDispatcher());
     assertSame(graph.tableDispatcher(), graph.tableDispatcher());
   }
 
@@ -76,25 +71,22 @@ public class TestIcebergHookGraph {
   public void testAuxiliaryGraphOrdersHookOutsideEventOutsideOperation() {
     EventBus eventBus = mock(EventBus.class);
     IcebergTableOperationDispatcher tableOperations = mock(IcebergTableOperationDispatcher.class);
-    BaseInputs baseInputs =
-        baseInputs(
-            eventBus,
-            mock(IcebergNamespaceOperationDispatcher.class),
-            tableOperations,
-            mock(IcebergViewOperationDispatcher.class));
+    IcebergNamespaceOperationDispatcher namespaceOperations =
+        mock(IcebergNamespaceOperationDispatcher.class);
+    IcebergViewOperationDispatcher viewOperations = mock(IcebergViewOperationDispatcher.class);
     IcebergRequestContext context = mock(IcebergRequestContext.class);
     Namespace namespace = Namespace.of("schema");
     ListTablesResponse response = ListTablesResponse.builder().build();
     when(context.catalogName()).thenReturn(CATALOG);
     when(tableOperations.listTable(context, namespace)).thenReturn(response);
 
-    IcebergHookGraph graph = IcebergHookGraph.createAuxiliary(baseInputs, auxiliaryInputs());
+    Dispatchers graph =
+        auxiliaryGraph(eventBus, namespaceOperations, tableOperations, viewOperations);
 
     assertInstanceOf(IcebergNamespaceHookDispatcher.class, graph.namespaceDispatcher());
     assertInstanceOf(IcebergTableHookDispatcher.class, graph.tableDispatcher());
     assertInstanceOf(IcebergViewHookDispatcher.class, graph.viewDispatcher());
-    assertInstanceOf(IcebergTableEventDispatcher.class, graph.tableEventDispatcher());
-    assertNotSame(graph.tableEventDispatcher(), graph.tableDispatcher());
+    assertSame(graph.tableDispatcher(), graph.tableDispatcher());
     assertSame(response, graph.tableDispatcher().listTable(context, namespace));
 
     InOrder order = inOrder(eventBus, tableOperations);
@@ -114,20 +106,18 @@ public class TestIcebergHookGraph {
     when(context.catalogName()).thenReturn(CATALOG);
     when(firstTable.listTable(context, namespace)).thenReturn(ListTablesResponse.builder().build());
 
-    IcebergHookGraph first =
-        IcebergHookGraph.createBase(
-            baseInputs(
-                firstEventBus,
-                mock(IcebergNamespaceOperationDispatcher.class),
-                firstTable,
-                mock(IcebergViewOperationDispatcher.class)));
-    IcebergHookGraph second =
-        IcebergHookGraph.createBase(
-            baseInputs(
-                secondEventBus,
-                mock(IcebergNamespaceOperationDispatcher.class),
-                secondTable,
-                mock(IcebergViewOperationDispatcher.class)));
+    Dispatchers first =
+        baseGraph(
+            firstEventBus,
+            mock(IcebergNamespaceOperationDispatcher.class),
+            firstTable,
+            mock(IcebergViewOperationDispatcher.class));
+    Dispatchers second =
+        baseGraph(
+            secondEventBus,
+            mock(IcebergNamespaceOperationDispatcher.class),
+            secondTable,
+            mock(IcebergViewOperationDispatcher.class));
 
     assertNotSame(first.tableDispatcher(), second.tableDispatcher());
     first.tableDispatcher().listTable(context, namespace);
@@ -136,17 +126,26 @@ public class TestIcebergHookGraph {
     verify(secondEventBus, never()).dispatchEvent(isA(IcebergListTablePreEvent.class));
   }
 
-  private static BaseInputs baseInputs(
+  private static Dispatchers baseGraph(
       EventBus eventBus,
       IcebergNamespaceOperationDispatcher namespaceOperations,
       IcebergTableOperationDispatcher tableOperations,
       IcebergViewOperationDispatcher viewOperations) {
-    return BaseInputs.create(
+    return IcebergHookGraph.createBase(
         namespaceOperations, tableOperations, viewOperations, eventBus, METALAKE);
   }
 
-  private static AuxiliaryInputs auxiliaryInputs() {
-    return AuxiliaryInputs.create(
+  private static Dispatchers auxiliaryGraph(
+      EventBus eventBus,
+      IcebergNamespaceOperationDispatcher namespaceOperations,
+      IcebergTableOperationDispatcher tableOperations,
+      IcebergViewOperationDispatcher viewOperations) {
+    return IcebergHookGraph.createAuxiliary(
+        namespaceOperations,
+        tableOperations,
+        viewOperations,
+        eventBus,
+        METALAKE,
         mock(EntityStore.class),
         mock(LockManager.class),
         mock(SchemaDispatcher.class),

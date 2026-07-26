@@ -38,8 +38,7 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupJobStore;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.AuxiliaryInputs;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.BaseInputs;
+import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.Dispatchers;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationExecutor;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationDispatcher;
@@ -155,28 +154,30 @@ public class RESTService implements GravitinoAuxiliaryService {
     IcebergViewOperationDispatcher icebergViewOperationDispatcher =
         new IcebergViewOperationExecutor(icebergCatalogWrapperManager);
 
-    BaseInputs baseInputs =
-        BaseInputs.create(
-            namespaceOperationDispatcher,
-            icebergTableOperationDispatcher,
-            icebergViewOperationDispatcher,
-            eventBus,
-            metalakeName);
-    IcebergHookGraph hookGraph;
+    Dispatchers hookGraph;
     if (authorizationContext.isAuthorizationEnabled()) {
       hookGraph =
           IcebergHookGraph.createAuxiliary(
-              baseInputs,
-              AuxiliaryInputs.create(
-                  environment.entityStore(),
-                  environment.lockManager(),
-                  environment.internalSchemaDispatcher(),
-                  environment.internalTableDispatcher(),
-                  environment.internalViewDispatcher(),
-                  environment.internalOwnerDispatcher(),
-                  environment.config().get(Configs.SCHEMA_SEPARATOR)));
+              namespaceOperationDispatcher,
+              icebergTableOperationDispatcher,
+              icebergViewOperationDispatcher,
+              eventBus,
+              metalakeName,
+              environment.entityStore(),
+              environment.lockManager(),
+              environment.internalSchemaDispatcher(),
+              environment.internalTableDispatcher(),
+              environment.internalViewDispatcher(),
+              environment.internalOwnerDispatcher(),
+              environment.config().get(Configs.SCHEMA_SEPARATOR));
     } else {
-      hookGraph = IcebergHookGraph.createBase(baseInputs);
+      hookGraph =
+          IcebergHookGraph.createBase(
+              namespaceOperationDispatcher,
+              icebergTableOperationDispatcher,
+              icebergViewOperationDispatcher,
+              eventBus,
+              metalakeName);
     }
     IcebergTableOperationDispatcher icebergTableDispatcher = hookGraph.tableDispatcher();
     IcebergViewOperationDispatcher icebergViewDispatcher = hookGraph.viewDispatcher();

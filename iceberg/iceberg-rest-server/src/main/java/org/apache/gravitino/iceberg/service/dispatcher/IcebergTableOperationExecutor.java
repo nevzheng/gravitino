@@ -65,11 +65,10 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
   public IcebergTableOperationExecutor(
       IcebergCatalogWrapperManager icebergCatalogWrapperManager,
       Optional<IcebergCleanupManager> cleanupManager) {
-    this(
-        icebergCatalogWrapperManager,
-        cleanupManager,
-        IcebergCleanupHelper.legacyCatalogManager(),
-        Optional.empty());
+    this.icebergCatalogWrapperManager = icebergCatalogWrapperManager;
+    this.cleanupManager = cleanupManager;
+    this.catalogManager = IcebergCleanupHelper.legacyCatalogManager();
+    this.metalakeName = Optional.empty();
   }
 
   /**
@@ -85,22 +84,10 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
       Optional<IcebergCleanupManager> cleanupManager,
       Optional<CatalogManager> catalogManager,
       String metalakeName) {
-    this(
-        icebergCatalogWrapperManager,
-        cleanupManager,
-        () -> catalogManager,
-        Optional.of(metalakeName));
-  }
-
-  private IcebergTableOperationExecutor(
-      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
-      Optional<IcebergCleanupManager> cleanupManager,
-      Supplier<Optional<CatalogManager>> catalogManager,
-      Optional<String> metalakeName) {
     this.icebergCatalogWrapperManager = icebergCatalogWrapperManager;
     this.cleanupManager = cleanupManager;
-    this.catalogManager = catalogManager;
-    this.metalakeName = metalakeName;
+    this.catalogManager = () -> catalogManager;
+    this.metalakeName = Optional.of(metalakeName);
   }
 
   @Override

@@ -19,6 +19,7 @@
 package org.apache.gravitino.iceberg.service.dispatcher;
 
 import java.io.IOException;
+import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
@@ -28,6 +29,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.ViewEntity;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.requests.CreateViewRequest;
@@ -47,6 +49,7 @@ import org.slf4j.LoggerFactory;
  * system. When a view is created or loaded through Iceberg REST, this dispatcher ensures that
  * Gravitino is aware of the view by calling {@link ViewDispatcher#loadView}.
  */
+@IcebergHookGraph.AuxiliaryScope
 public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergViewHookDispatcher.class);
@@ -64,33 +67,28 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
       IcebergViewOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       String metalake) {
-    this(dispatcher, namespaceDispatcher, metalake, IcebergHookGraph.legacyAuxiliaryInputs());
-  }
-
-  private IcebergViewHookDispatcher(
-      IcebergViewOperationDispatcher dispatcher,
-      IcebergNamespaceOperationDispatcher namespaceDispatcher,
-      String metalake,
-      IcebergHookGraph.AuxiliaryInputs capabilities) {
     this(
         dispatcher,
         namespaceDispatcher,
         metalake,
-        capabilities.entityStore,
-        capabilities.viewDispatcher,
-        capabilities.ownerDispatcher,
-        capabilities.schemaSeparator,
-        new IcebergOrphanSchemaCleanup(capabilities.entityStore, capabilities.schemaSeparator));
+        IcebergHookGraph.legacyEnvironment().entityStore(),
+        IcebergHookGraph.legacyEnvironment().internalViewDispatcher(),
+        IcebergHookGraph.legacyEnvironment().internalOwnerDispatcher(),
+        HierarchicalSchemaUtil.schemaSeparator(),
+        new IcebergOrphanSchemaCleanup(
+            IcebergHookGraph.legacyEnvironment().entityStore(),
+            HierarchicalSchemaUtil.schemaSeparator()));
   }
 
+  @Inject
   IcebergViewHookDispatcher(
-      IcebergViewOperationDispatcher dispatcher,
+      @IcebergHookGraph.EventLayer IcebergViewOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
-      String metalake,
+      @IcebergHookGraph.Metalake String metalake,
       EntityStore entityStore,
       ViewDispatcher viewDispatcher,
       OwnerDispatcher ownerDispatcher,
-      String schemaSeparator,
+      @IcebergHookGraph.SchemaSeparator String schemaSeparator,
       IcebergOrphanSchemaCleanup orphanSchemaCleanup) {
     this.dispatcher = dispatcher;
     this.namespaceDispatcher = namespaceDispatcher;

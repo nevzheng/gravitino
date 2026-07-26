@@ -21,6 +21,8 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 
 import java.util.List;
 import java.util.Optional;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.listener.EventBus;
@@ -60,16 +62,18 @@ import org.apache.iceberg.rest.responses.LoadViewResponse;
  * not only delegates view operations to the underlying dispatcher but also dispatches corresponding
  * events to an {@link EventBus}.
  */
+@Singleton
 public class IcebergViewEventDispatcher implements IcebergViewOperationDispatcher {
 
   private IcebergViewOperationDispatcher icebergViewOperationDispatcher;
   private EventBus eventBus;
   private String metalakeName;
 
+  @Inject
   public IcebergViewEventDispatcher(
       IcebergViewOperationDispatcher icebergViewOperationDispatcher,
       EventBus eventBus,
-      String metalakeName) {
+      @IcebergHookGraph.Metalake String metalakeName) {
     this.icebergViewOperationDispatcher = icebergViewOperationDispatcher;
     this.eventBus = eventBus;
     this.metalakeName = metalakeName;

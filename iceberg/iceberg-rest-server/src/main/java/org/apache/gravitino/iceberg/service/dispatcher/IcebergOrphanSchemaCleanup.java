@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.iceberg.service.dispatcher;
 
+import javax.inject.Inject;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
  * Shared best-effort cleanup of Gravitino schema entities that become orphaned when an Iceberg
  * table or view drop empties their backing namespaces.
  */
+@IcebergHookGraph.AuxiliaryScope
 final class IcebergOrphanSchemaCleanup {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergOrphanSchemaCleanup.class);
@@ -38,7 +40,9 @@ final class IcebergOrphanSchemaCleanup {
   private final EntityStore entityStore;
   private final String schemaSeparator;
 
-  IcebergOrphanSchemaCleanup(EntityStore entityStore, String schemaSeparator) {
+  @Inject
+  IcebergOrphanSchemaCleanup(
+      EntityStore entityStore, @IcebergHookGraph.SchemaSeparator String schemaSeparator) {
     this.entityStore = entityStore;
     this.schemaSeparator = schemaSeparator;
   }

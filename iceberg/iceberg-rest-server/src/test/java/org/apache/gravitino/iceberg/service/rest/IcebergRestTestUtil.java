@@ -41,7 +41,7 @@ import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.BaseInputs;
+import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.Dispatchers;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationExecutor;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationDispatcher;
@@ -160,14 +160,13 @@ public class IcebergRestTestUtil {
               Optional.of(mock(IcebergCleanupManager.class)),
               Optional.empty(),
               configProvider.getMetalakeName());
-      IcebergHookGraph hookGraph =
+      Dispatchers hookGraph =
           IcebergHookGraph.createBase(
-              BaseInputs.create(
-                  icebergNamespaceOperationExecutor,
-                  icebergTableOperationExecutor,
-                  icebergViewOperationExecutor,
-                  eventBus,
-                  configProvider.getMetalakeName()));
+              icebergNamespaceOperationExecutor,
+              icebergTableOperationExecutor,
+              icebergViewOperationExecutor,
+              eventBus,
+              configProvider.getMetalakeName());
 
       IcebergMetricsManager icebergMetricsManager = new IcebergMetricsManager(new IcebergConfig());
       resourceConfig.register(
