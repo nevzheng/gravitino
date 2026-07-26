@@ -26,6 +26,7 @@ import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.exceptions.GroupAlreadyExistsException;
@@ -63,8 +64,9 @@ public class AccessControlManager implements AccessControlDispatcher {
    * @param idGenerator the entity ID generator
    * @param config the runtime configuration
    */
+  @SuppressWarnings({"deprecation", "removal"})
   public AccessControlManager(EntityStore store, IdGenerator idGenerator, Config config) {
-    this(store, idGenerator, config, LegacyAuthorizationRuntime::lockManager);
+    this(store, idGenerator, config, LegacyRuntimeDependencies::lockManager);
   }
 
   /**

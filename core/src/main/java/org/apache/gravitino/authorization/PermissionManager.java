@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.exceptions.IllegalRoleException;
@@ -66,8 +67,9 @@ class PermissionManager {
   private final RoleManager roleManager;
   private final Supplier<LockManager> lockManagerSupplier;
 
+  @SuppressWarnings({"deprecation", "removal"})
   PermissionManager(EntityStore store, RoleManager roleManager) {
-    this(store, roleManager, LegacyAuthorizationRuntime::lockManager);
+    this(store, roleManager, LegacyRuntimeDependencies::lockManager);
   }
 
   PermissionManager(

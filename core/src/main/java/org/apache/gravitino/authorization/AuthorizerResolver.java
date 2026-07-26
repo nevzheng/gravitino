@@ -20,6 +20,7 @@ package org.apache.gravitino.authorization;
 
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 
 /** Resolves the active authorizer after its dynamic provider has completed initialization. */
 @FunctionalInterface
@@ -39,8 +40,9 @@ public interface AuthorizerResolver {
    *
    * @return the legacy authorizer resolver
    */
+  @SuppressWarnings({"deprecation", "removal"})
   static AuthorizerResolver legacyEnvironment() {
-    return LegacyAuthorizationRuntime::authorizer;
+    return LegacyRuntimeDependencies::gravitinoAuthorizer;
   }
 
   /**
@@ -48,7 +50,8 @@ public interface AuthorizerResolver {
    *
    * @return the legacy owner-dispatcher supplier
    */
+  @SuppressWarnings({"deprecation", "removal"})
   static Supplier<OwnerDispatcher> legacyOwnerDispatcher() {
-    return LegacyAuthorizationRuntime::ownerDispatcher;
+    return LegacyRuntimeDependencies::ownerDispatcher;
   }
 }

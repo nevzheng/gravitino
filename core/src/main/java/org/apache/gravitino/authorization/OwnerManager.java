@@ -30,6 +30,7 @@ import javax.annotation.Nullable;
 import lombok.Getter;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -63,8 +64,9 @@ public class OwnerManager implements OwnerDispatcher {
    *
    * @param store the entity store
    */
+  @SuppressWarnings({"deprecation", "removal"})
   public OwnerManager(EntityStore store) {
-    this(store, LegacyAuthorizationRuntime::lockManager, AuthorizerResolver.legacyEnvironment());
+    this(store, LegacyRuntimeDependencies::lockManager, AuthorizerResolver.legacyEnvironment());
   }
 
   /**

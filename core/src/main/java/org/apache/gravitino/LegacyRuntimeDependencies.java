@@ -19,6 +19,7 @@
 package org.apache.gravitino;
 
 import javax.annotation.Nullable;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.listener.EventBus;
@@ -42,6 +43,11 @@ public final class LegacyRuntimeDependencies {
   /** Returns the current owner dispatcher, or {@code null} when authorization is disabled. */
   public static @Nullable OwnerDispatcher ownerDispatcher() {
     return environment().ownerDispatcher();
+  }
+
+  /** Returns the current authorizer, or {@code null} when authorization is disabled. */
+  public static @Nullable GravitinoAuthorizer gravitinoAuthorizer() {
+    return environment().gravitinoAuthorizer();
   }
 
   /** Returns the current metadata lock manager. */

@@ -1,6 +1,11 @@
 {
   "description": "GravitinoEnv migration baseline after governance, with exact legacy constructor compatibility bridge callsites",
   "legacy_runtime_dependencies_allowed_callsites": [
+    "core/src/main/java/org/apache/gravitino/authorization/AccessControlManager.java#lockManager",
+    "core/src/main/java/org/apache/gravitino/authorization/AuthorizerResolver.java#gravitinoAuthorizer",
+    "core/src/main/java/org/apache/gravitino/authorization/AuthorizerResolver.java#ownerDispatcher",
+    "core/src/main/java/org/apache/gravitino/authorization/OwnerManager.java#lockManager",
+    "core/src/main/java/org/apache/gravitino/authorization/PermissionManager.java#lockManager",
     "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#lockManager",
     "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#lockManager",
     "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#schemaDispatcher",
