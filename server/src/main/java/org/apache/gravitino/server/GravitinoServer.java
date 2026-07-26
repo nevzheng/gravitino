@@ -38,6 +38,7 @@ import org.apache.gravitino.catalog.TopicDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.LifecycleCoordinator;
 import org.apache.gravitino.lineage.LineageConfig;
 import org.apache.gravitino.lineage.LineageDispatcher;
 import org.apache.gravitino.lineage.LineageService;
@@ -94,13 +95,37 @@ public class GravitinoServer extends ResourceConfig {
 
   private final LineageService lineageService;
 
+  private final GravitinoAuthorizerProvider authorizerProvider;
+
+  private final LifecycleCoordinator serverLifecycle;
+
   private final AtomicBoolean isStopped = new AtomicBoolean(false);
 
   public GravitinoServer(ServerConfig config, GravitinoEnv gravitinoEnv) {
+    this(
+        config,
+        gravitinoEnv,
+        new JettyServer(),
+        new LineageService(),
+        GravitinoAuthorizerProvider.getInstance());
+  }
+
+  GravitinoServer(
+      ServerConfig config,
+      GravitinoEnv gravitinoEnv,
+      JettyServer server,
+      LineageService lineageService,
+      GravitinoAuthorizerProvider authorizerProvider) {
     this.serverConfig = config;
-    this.server = new JettyServer();
+    this.server = server;
     this.gravitinoEnv = gravitinoEnv;
-    this.lineageService = new LineageService();
+    this.lineageService = lineageService;
+    this.authorizerProvider = authorizerProvider;
+    this.serverLifecycle =
+        LifecycleCoordinator.builder()
+            .add("Gravitino environment", gravitinoEnv::start, gravitinoEnv::shutdown)
+            .add("Jetty server", server::start, server::stop)
+            .build();
   }
 
   public void initialize() {
@@ -112,7 +137,7 @@ public class GravitinoServer extends ResourceConfig {
 
     ServerAuthenticator.getInstance().initialize(serverConfig);
 
-    GravitinoAuthorizerProvider.getInstance().initialize(serverConfig);
+    authorizerProvider.initialize(serverConfig);
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -201,8 +226,7 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void start() throws Exception {
-    gravitinoEnv.start();
-    server.start();
+    serverLifecycle.start();
   }
 
   public void join() {
@@ -210,11 +234,27 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void stop() throws IOException {
-    GravitinoAuthorizerProvider.getInstance().close();
-    server.stop();
-    gravitinoEnv.shutdown();
-    if (lineageService != null) {
+    Exception firstFailure = null;
+    try {
+      authorizerProvider.close();
+    } catch (Exception e) {
+      firstFailure = e;
+    }
+
+    try {
+      stopServerLifecycle();
+    } catch (Exception e) {
+      firstFailure = accumulateFailure(firstFailure, e);
+    }
+
+    try {
       lineageService.close();
+    } catch (Exception e) {
+      firstFailure = accumulateFailure(firstFailure, e);
+    }
+
+    if (firstFailure != null) {
+      rethrowStopFailure(firstFailure);
     }
   }
 
@@ -223,6 +263,34 @@ public class GravitinoServer extends ResourceConfig {
       return;
     }
     stop();
+  }
+
+  private void stopServerLifecycle() throws Exception {
+    if (serverLifecycle.state() == LifecycleCoordinator.State.NEW) {
+      // Preserve the existing stop-before-start behavior for initialized server resources.
+      server.stop();
+      gravitinoEnv.shutdown();
+      return;
+    }
+    serverLifecycle.close();
+  }
+
+  private static Exception accumulateFailure(Exception firstFailure, Exception nextFailure) {
+    if (firstFailure == null) {
+      return nextFailure;
+    }
+    firstFailure.addSuppressed(nextFailure);
+    return firstFailure;
+  }
+
+  private static void rethrowStopFailure(Exception failure) throws IOException {
+    if (failure instanceof IOException) {
+      throw (IOException) failure;
+    }
+    if (failure instanceof RuntimeException) {
+      throw (RuntimeException) failure;
+    }
+    throw new IOException("Failed to stop Gravitino Server", failure);
   }
 
   public static void main(String[] args) {
