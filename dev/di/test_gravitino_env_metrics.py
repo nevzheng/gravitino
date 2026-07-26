@@ -71,6 +71,94 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
         self.assertEqual(2, metrics.count_instance_field_declarations(code))
         self.assertEqual(3, len(metrics.CONSTRUCTOR_PATTERN.findall(code)))
 
+    def test_tree_lock_call_arity_balances_nested_calls_lambdas_and_arrays(self):
+        source = r'''
+          String fake = "TreeLockUtils.doWithTreeLock(identifier, type, executable)";
+          // TreeLockUtils.doWithRootTreeLock(type, executable);
+          TreeLockUtils.doWithTreeLock(
+              identifier,
+              type,
+              () -> nested(call(first, second), new int[] {1, 2}));
+          TreeLockUtils.doWithTreeLock(
+              lockManager,
+              identifier,
+              type,
+              (left, right) -> combine(left, new int[] {right, 2}));
+          TreeLockUtils.doWithRootTreeLock(type, Worker::run);
+          TreeLockUtils.doWithRootTreeLock(
+              lockManager,
+              type,
+              () -> {
+                consume(first, second);
+                return new String[] {"one", "two"};
+              });
+        '''
+
+        calls = metrics.find_tree_lock_utils_calls(metrics.strip_comments_and_literals(source))
+
+        self.assertEqual(
+            [
+                ("doWithTreeLock", 3),
+                ("doWithTreeLock", 4),
+                ("doWithRootTreeLock", 2),
+                ("doWithRootTreeLock", 3),
+            ],
+            calls,
+        )
+
+    def test_collect_metrics_groups_tree_lock_calls_by_source_and_signature(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write_java(
+                root,
+                "core/src/main/java/org/apache/gravitino/LockingService.java",
+                """
+                class LockingService {
+                  void run() {
+                    TreeLockUtils.doWithTreeLock(identifier, type, executable);
+                    TreeLockUtils.doWithRootTreeLock(lockManager, type, executable);
+                  }
+                }
+                """,
+            )
+            self.write_java(
+                root,
+                "core/src/test/java/org/apache/gravitino/TestLockingService.java",
+                """
+                class TestLockingService {
+                  void run() {
+                    TreeLockUtils.doWithTreeLock(lockManager, identifier, type, executable);
+                    TreeLockUtils.doWithRootTreeLock(type, executable);
+                    TreeLockUtils.doWithTreeLock(identifier, executable);
+                  }
+                }
+                """,
+            )
+
+            current = metrics.collect_metrics(root)["tree_lock_utils"]
+
+            self.assertEqual(
+                {"occurrences": 1, "files": 1},
+                current["do_with_tree_lock"]["legacy_3_arg"]["production"],
+            )
+            self.assertEqual(
+                {"occurrences": 1, "files": 1},
+                current["do_with_tree_lock"]["explicit_lock_manager_4_arg"]["test"],
+            )
+            self.assertEqual(
+                {"occurrences": 1, "files": 1},
+                current["do_with_root_tree_lock"]["legacy_2_arg"]["test"],
+            )
+            self.assertEqual(
+                {"occurrences": 1, "files": 1},
+                current["do_with_root_tree_lock"]["explicit_lock_manager_3_arg"][
+                    "production"
+                ],
+            )
+            self.assertEqual(
+                {"occurrences": 1, "files": 1}, current["unclassified"]["test"]
+            )
+
     def test_collect_metrics_groups_sources_and_checks_migrated_package(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -166,6 +254,24 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("migrated package org.apache.gravitino.tag", errors[0])
 
+    def test_compare_metrics_rejects_legacy_tree_lock_growth(self):
+        for field in ("occurrences", "files"):
+            with self.subTest(field=field):
+                baseline = self.metric_fixture()
+                current = self.metric_fixture()
+                current["tree_lock_utils"]["do_with_tree_lock"]["legacy_3_arg"][
+                    "test"
+                ][field] += 1
+
+                errors, warnings = metrics.compare_metrics(current, baseline)
+
+                self.assertEqual([], warnings)
+                self.assertEqual(1, len(errors))
+                self.assertIn(
+                    f"tree_lock_utils.do_with_tree_lock.legacy_3_arg.test.{field}",
+                    errors[0],
+                )
+
     @staticmethod
     def write_java(root, relative_path, source):
         """Write a Java fixture under a temporary repository root."""
@@ -223,7 +329,31 @@ class TestGravitinoEnvMetrics(unittest.TestCase):
                     "code_files": 1,
                 },
             },
+            "tree_lock_utils": {
+                "do_with_tree_lock": {
+                    "legacy_3_arg": TestGravitinoEnvMetrics.code_usage_fixture(),
+                    "explicit_lock_manager_4_arg": (
+                        TestGravitinoEnvMetrics.code_usage_fixture()
+                    ),
+                },
+                "do_with_root_tree_lock": {
+                    "legacy_2_arg": TestGravitinoEnvMetrics.code_usage_fixture(),
+                    "explicit_lock_manager_3_arg": (
+                        TestGravitinoEnvMetrics.code_usage_fixture()
+                    ),
+                },
+                "unclassified": TestGravitinoEnvMetrics.code_usage_fixture(),
+            },
             "migrated_package_violations": [],
+        }
+
+    @staticmethod
+    def code_usage_fixture():
+        """Create a complete minimal code-only grouped usage tree."""
+        return {
+            "all": {"occurrences": 2, "files": 2},
+            "production": {"occurrences": 1, "files": 1},
+            "test": {"occurrences": 1, "files": 1},
         }
 
 

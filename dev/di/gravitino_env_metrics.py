@@ -47,6 +47,9 @@ GET_INSTANCE_PATTERN = re.compile(r"\bGravitinoEnv\s*\.\s*getInstance\s*\(")
 FIELD_UTILS_PATTERN = re.compile(
     r"\bFieldUtils\s*\.\s*(?:readField|writeField)\s*\("
 )
+TREE_LOCK_UTILS_CALL_PATTERN = re.compile(
+    r"\bTreeLockUtils\s*\.\s*(doWithTreeLock|doWithRootTreeLock)\s*\("
+)
 PACKAGE_PATTERN = re.compile(r"(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;")
 CONSTRUCTOR_PATTERN = re.compile(
     r"\bnew\s+(?:[A-Za-z_$][\w$]*\s*\.\s*)*[A-Za-z_$][\w$]*"
@@ -61,6 +64,14 @@ HARD_RATCHETS = (
     "gravitino_env_get_instance.production.code_files",
     "gravitino_env_get_instance.test.code_occurrences",
     "gravitino_env_get_instance.test.code_files",
+    "tree_lock_utils.do_with_tree_lock.legacy_3_arg.production.occurrences",
+    "tree_lock_utils.do_with_tree_lock.legacy_3_arg.production.files",
+    "tree_lock_utils.do_with_tree_lock.legacy_3_arg.test.occurrences",
+    "tree_lock_utils.do_with_tree_lock.legacy_3_arg.test.files",
+    "tree_lock_utils.do_with_root_tree_lock.legacy_2_arg.production.occurrences",
+    "tree_lock_utils.do_with_root_tree_lock.legacy_2_arg.production.files",
+    "tree_lock_utils.do_with_root_tree_lock.legacy_2_arg.test.occurrences",
+    "tree_lock_utils.do_with_root_tree_lock.legacy_2_arg.test.files",
 )
 
 # These are useful trend indicators but are too syntactic or broad to reject an unrelated change.
@@ -207,6 +218,40 @@ def count_instance_field_declarations(class_source):
     return count
 
 
+def count_call_arguments(code, opening_parenthesis):
+    """Count top-level arguments in a stripped call, or return None if it is unbalanced."""
+    if opening_parenthesis >= len(code) or code[opening_parenthesis] != "(":
+        return None
+
+    closing_delimiters = {"(": ")", "[": "]", "{": "}"}
+    stack = [")"]
+    commas = 0
+    has_argument = False
+    for char in code[opening_parenthesis + 1 :]:
+        if char in closing_delimiters:
+            stack.append(closing_delimiters[char])
+            has_argument = True
+        elif char in ")]}":
+            if not stack or char != stack[-1]:
+                return None
+            stack.pop()
+            if not stack:
+                return commas + 1 if has_argument else 0
+        elif char == "," and len(stack) == 1:
+            commas += 1
+        elif not char.isspace():
+            has_argument = True
+    return None
+
+
+def find_tree_lock_utils_calls(code):
+    """Return qualified TreeLockUtils calls as method-name/argument-count pairs."""
+    calls = []
+    for match in TREE_LOCK_UTILS_CALL_PATTERN.finditer(code):
+        calls.append((match.group(1), count_call_arguments(code, match.end() - 1)))
+    return calls
+
+
 def is_test_source(path):
     """Return whether a repository-relative path is under a conventional test source set."""
     normalized = "/" + path.as_posix() + "/"
@@ -238,6 +283,30 @@ def empty_usage():
     }
 
 
+def empty_code_usage():
+    """Create an empty code-only occurrence/file count grouped by source kind."""
+    return {
+        "all": {"occurrences": 0, "files": 0},
+        "production": {"occurrences": 0, "files": 0},
+        "test": {"occurrences": 0, "files": 0},
+    }
+
+
+def empty_tree_lock_utils_metrics():
+    """Create metrics for legacy, explicit, and unclassified TreeLockUtils signatures."""
+    return {
+        "do_with_tree_lock": {
+            "legacy_3_arg": empty_code_usage(),
+            "explicit_lock_manager_4_arg": empty_code_usage(),
+        },
+        "do_with_root_tree_lock": {
+            "legacy_2_arg": empty_code_usage(),
+            "explicit_lock_manager_3_arg": empty_code_usage(),
+        },
+        "unclassified": empty_code_usage(),
+    }
+
+
 def record_usage(usage, textual_count, code_count, test_source):
     """Add one file's matches to a grouped usage count."""
     category = "test" if test_source else "production"
@@ -250,6 +319,35 @@ def record_usage(usage, textual_count, code_count, test_source):
             usage[key]["code_files"] += 1
 
 
+def record_code_usage(usage, code_count, test_source):
+    """Add one file's code-only matches to a grouped usage count."""
+    category = "test" if test_source else "production"
+    for key in ("all", category):
+        usage[key]["occurrences"] += code_count
+        if code_count:
+            usage[key]["files"] += 1
+
+
+def tree_lock_metric_path(method_name, argument_count):
+    """Classify a TreeLockUtils call by method and argument count."""
+    signatures = {
+        ("doWithTreeLock", 3): ("do_with_tree_lock", "legacy_3_arg"),
+        ("doWithTreeLock", 4): (
+            "do_with_tree_lock",
+            "explicit_lock_manager_4_arg",
+        ),
+        ("doWithRootTreeLock", 2): (
+            "do_with_root_tree_lock",
+            "legacy_2_arg",
+        ),
+        ("doWithRootTreeLock", 3): (
+            "do_with_root_tree_lock",
+            "explicit_lock_manager_3_arg",
+        ),
+    }
+    return signatures.get((method_name, argument_count), ("unclassified",))
+
+
 def package_matches(package_name, package_prefix):
     """Return whether a Java package is the prefix or one of its descendants."""
     return package_name == package_prefix or package_name.startswith(package_prefix + ".")
@@ -260,6 +358,7 @@ def collect_metrics(root, migrated_packages=()):
     root = Path(root).resolve()
     get_instance = empty_usage()
     field_utils = empty_usage()
+    tree_lock_utils = empty_tree_lock_utils_metrics()
     violations = {
         package: {"get_instance_occurrences": 0, "field_utils_occurrences": 0, "files": set()}
         for package in sorted(set(migrated_packages))
@@ -275,6 +374,16 @@ def collect_metrics(root, migrated_packages=()):
         test_source = is_test_source(relative)
         record_usage(get_instance, textual_get_count, get_count, test_source)
         record_usage(field_utils, textual_field_utils_count, field_utils_count, test_source)
+
+        tree_lock_counts = {}
+        for method_name, argument_count in find_tree_lock_utils_calls(code):
+            metric_path = tree_lock_metric_path(method_name, argument_count)
+            tree_lock_counts[metric_path] = tree_lock_counts.get(metric_path, 0) + 1
+        for metric_path, count in tree_lock_counts.items():
+            usage = tree_lock_utils
+            for segment in metric_path:
+                usage = usage[segment]
+            record_code_usage(usage, count, test_source)
 
         package_match = PACKAGE_PATTERN.search(code)
         package_name = package_match.group(1) if package_match else ""
@@ -307,6 +416,7 @@ def collect_metrics(root, migrated_packages=()):
         "gravitino_env": env_metrics,
         "gravitino_env_get_instance": get_instance,
         "field_utils_read_write": field_utils,
+        "tree_lock_utils": tree_lock_utils,
         "migrated_package_violations": [
             {
                 "package": package,
@@ -381,6 +491,40 @@ def text_report(metrics):
                     code_occurrences=usage["code_occurrences"],
                     files=usage["files"],
                     code_files=usage["code_files"],
+                )
+            )
+
+    lines.append("Qualified TreeLockUtils calls (classified by argument count)")
+    for label, metric_path in (
+        (
+            "doWithTreeLock legacy (3 args)",
+            ("do_with_tree_lock", "legacy_3_arg"),
+        ),
+        (
+            "doWithTreeLock explicit LockManager (4 args)",
+            ("do_with_tree_lock", "explicit_lock_manager_4_arg"),
+        ),
+        (
+            "doWithRootTreeLock legacy (2 args)",
+            ("do_with_root_tree_lock", "legacy_2_arg"),
+        ),
+        (
+            "doWithRootTreeLock explicit LockManager (3 args)",
+            ("do_with_root_tree_lock", "explicit_lock_manager_3_arg"),
+        ),
+        ("unclassified", ("unclassified",)),
+    ):
+        usage = metrics["tree_lock_utils"]
+        for segment in metric_path:
+            usage = usage[segment]
+        lines.append(f"  {label}")
+        for category in ("all", "production", "test"):
+            category_usage = usage[category]
+            lines.append(
+                "    {category}: {occurrences} occurrence(s), {files} file(s)".format(
+                    category=category,
+                    occurrences=category_usage["occurrences"],
+                    files=category_usage["files"],
                 )
             )
 

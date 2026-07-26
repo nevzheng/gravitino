@@ -59,10 +59,20 @@ The scorecard preserves raw textual counts so its numbers can be reproduced with
 It also reports code-only counts after removing comments and literals. For example, the initial 458
 textual `GravitinoEnv.getInstance()` occurrences include one comment, leaving 457 code occurrences.
 
+The scorecard also classifies qualified `TreeLockUtils` calls by method arity. The legacy overloads
+hide `GravitinoEnv.getInstance().lockManager()` behind three-argument `doWithTreeLock` and
+two-argument `doWithRootTreeLock` calls. Four-argument `doWithTreeLock` and three-argument
+`doWithRootTreeLock` calls make the `LockManager` dependency explicit. Counts and affected-file
+counts are split between production and test source sets. Calls with another arity, or with
+unbalanced delimiters, are reported as unclassified. The TreeLockUtils baseline was captured at the
+revision recorded in `metric_source_revisions`; the older metrics retain their original
+`source_revision` baseline.
+
 Check mode fails when either of these legacy patterns increases:
 
 - Non-static field declarations in `GravitinoEnv`.
 - Production or test code-only `GravitinoEnv.getInstance()` occurrences or affected-file counts.
+- Production or test code-only legacy `TreeLockUtils` occurrences or affected-file counts.
 - Any legacy occurrence in a package declared migrated.
 
 The following remain report-only because a lightweight lexical metric cannot reliably establish
@@ -77,6 +87,10 @@ report-only metrics to failures. A deliberate baseline update remains reviewable
 as the production change.
 
 The scanner removes comments and Java string, character, and text-block literals before matching.
-It is not a Java type resolver: imported aliases, reflective calls through other helper classes, and
-indirectly stored singleton references are outside its scope. The scorecard supports code review; it
+For TreeLockUtils calls, it balances parentheses, brackets, and braces so nested calls, array
+initializers, lambda parameter lists and bodies, and method references do not inflate the outer
+arity. It is not a Java parser or type resolver: static imports, unqualified calls, imported aliases,
+wrapper helpers, reflective calls, unusual generic type-argument expressions, and indirectly stored
+singleton references are outside its scope. This metric is a lexical floor for hidden lock-manager
+lookups, not proof that every hidden locator has been found. The scorecard supports code review; it
 does not replace behavior, instance-identity, or lifecycle tests.

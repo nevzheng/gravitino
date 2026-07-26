@@ -47,7 +47,86 @@
         "occurrences": 303
       }
     },
+    "tree_lock_utils": {
+      "do_with_root_tree_lock": {
+        "explicit_lock_manager_3_arg": {
+          "all": {
+            "files": 0,
+            "occurrences": 0
+          },
+          "production": {
+            "files": 0,
+            "occurrences": 0
+          },
+          "test": {
+            "files": 0,
+            "occurrences": 0
+          }
+        },
+        "legacy_2_arg": {
+          "all": {
+            "files": 1,
+            "occurrences": 5
+          },
+          "production": {
+            "files": 1,
+            "occurrences": 5
+          },
+          "test": {
+            "files": 0,
+            "occurrences": 0
+          }
+        }
+      },
+      "do_with_tree_lock": {
+        "explicit_lock_manager_4_arg": {
+          "all": {
+            "files": 4,
+            "occurrences": 33
+          },
+          "production": {
+            "files": 3,
+            "occurrences": 30
+          },
+          "test": {
+            "files": 1,
+            "occurrences": 3
+          }
+        },
+        "legacy_3_arg": {
+          "all": {
+            "files": 17,
+            "occurrences": 124
+          },
+          "production": {
+            "files": 17,
+            "occurrences": 124
+          },
+          "test": {
+            "files": 0,
+            "occurrences": 0
+          }
+        }
+      },
+      "unclassified": {
+        "all": {
+          "files": 0,
+          "occurrences": 0
+        },
+        "production": {
+          "files": 0,
+          "occurrences": 0
+        },
+        "test": {
+          "files": 0,
+          "occurrences": 0
+        }
+      }
+    },
     "migrated_package_violations": []
+  },
+  "metric_source_revisions": {
+    "tree_lock_utils": "b5bd49a7a779d22c6a56978a7257707cb3a7d78f"
   },
   "migrated_packages": [],
   "schema_version": 1,
