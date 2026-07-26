@@ -79,7 +79,11 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   private final LockManager lockManager;
 
   /**
-   * Creates a new TableOperationDispatcher instance.
+   * Creates a new TableOperationDispatcher using dependencies from the legacy application
+   * environment.
+   *
+   * <p>New composition roots should use the constructor that accepts both a schema dispatcher
+   * supplier and a lock manager.
    *
    * @param catalogManager The CatalogManager instance to be used for table operations.
    * @param store The EntityStore instance to be used for table operations.
@@ -87,11 +91,13 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    */
   public TableOperationDispatcher(
       CatalogManager catalogManager, EntityStore store, IdGenerator idGenerator) {
-    this(catalogManager, store, idGenerator, () -> GravitinoEnv.getInstance().schemaDispatcher());
+    this(catalogManager, store, idGenerator, legacyEnvironment());
   }
 
   /**
-   * Creates a new TableOperationDispatcher instance.
+   * Creates a new TableOperationDispatcher using the legacy application's lock manager.
+   *
+   * <p>New composition roots should pass the lock manager explicitly.
    *
    * @param catalogManager The CatalogManager instance to be used for table operations.
    * @param store The EntityStore instance to be used for table operations.
@@ -108,7 +114,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         store,
         idGenerator,
         schemaDispatcherSupplier,
-        GravitinoEnv.getInstance().lockManager());
+        legacyEnvironment().lockManager());
   }
 
   /**
@@ -131,6 +137,19 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         Preconditions.checkNotNull(
             schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
     this.lockManager = Preconditions.checkNotNull(lockManager, "lockManager must not be null");
+  }
+
+  private TableOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      GravitinoEnv environment) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        environment::schemaDispatcher,
+        environment.lockManager());
   }
 
   /**
@@ -939,5 +958,9 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
                                 .build()),
                 "UPDATE",
                 combinedTable.tableFromGravitino().id()));
+  }
+
+  private static GravitinoEnv legacyEnvironment() {
+    return GravitinoEnv.getInstance();
   }
 }
