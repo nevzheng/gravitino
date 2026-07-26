@@ -136,6 +136,8 @@ public class TestTagManager {
 
   private static IdGenerator idGenerator;
 
+  private static LockManager lockManager;
+
   private static TagManager tagManager;
 
   @BeforeAll
@@ -170,7 +172,7 @@ public class TestTagManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -262,7 +264,7 @@ public class TestTagManager {
             .build();
     entityStore.put(function, false /* overwritten */);
 
-    tagManager = new TagManager(idGenerator, entityStore);
+    tagManager = new TagManager(idGenerator, entityStore, lockManager);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "metalakeDispatcher", metalakeDispatcher, true);

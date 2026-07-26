@@ -804,7 +804,8 @@ public class GravitinoEnv {
 
     // Create and initialize Tag related modules
     this.tagDispatcher =
-        TagServices.create(entityStore, idGenerator, eventBus, ownerDispatcher).tagDispatcher();
+        TagServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher)
+            .tagDispatcher();
 
     PolicyEventDispatcher policyEventDispatcher =
         new PolicyEventDispatcher(eventBus, new PolicyManager(idGenerator, entityStore));

@@ -28,6 +28,7 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.TagEventDispatcher;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.tag.TagManager;
@@ -45,10 +46,11 @@ final class TagServices {
       EntityStore entityStore,
       IdGenerator idGenerator,
       EventBus eventBus,
+      LockManager lockManager,
       @Nullable OwnerDispatcher ownerDispatcher) {
     return new TagServices(
         DaggerTagServices_TagComponent.factory()
-            .create(entityStore, idGenerator, eventBus, ownerDispatcher));
+            .create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher));
   }
 
   TagDispatcher tagDispatcher() {
@@ -68,6 +70,7 @@ final class TagServices {
           @BindsInstance EntityStore entityStore,
           @BindsInstance IdGenerator idGenerator,
           @BindsInstance EventBus eventBus,
+          @BindsInstance LockManager lockManager,
           @BindsInstance @Nullable OwnerDispatcher ownerDispatcher);
     }
   }
@@ -79,8 +82,9 @@ final class TagServices {
 
     @Provides
     @Singleton
-    static TagManager provideTagManager(IdGenerator idGenerator, EntityStore entityStore) {
-      return new TagManager(idGenerator, entityStore);
+    static TagManager provideTagManager(
+        IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
+      return new TagManager(idGenerator, entityStore, lockManager);
     }
 
     @Provides

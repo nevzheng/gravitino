@@ -43,7 +43,29 @@ public class TreeLockUtils {
    */
   public static <R, E extends Exception> R doWithTreeLock(
       NameIdentifier identifier, LockType lockType, Executable<R, E> executable) throws E {
-    TreeLock lock = GravitinoEnv.getInstance().lockManager().createTreeLock(identifier);
+    return doWithTreeLock(
+        GravitinoEnv.getInstance().lockManager(), identifier, lockType, executable);
+  }
+
+  /**
+   * Execute the given executable with the given tree lock manager.
+   *
+   * @param lockManager The manager used to create the tree lock.
+   * @param identifier The identifier of resource path that the lock attempts to lock.
+   * @param lockType The type of lock to use.
+   * @param executable The executable to execute.
+   * @return The result of the executable.
+   * @param <R> The type of the result.
+   * @param <E> The type of the exception.
+   * @throws E If the executable throws an exception.
+   */
+  public static <R, E extends Exception> R doWithTreeLock(
+      LockManager lockManager,
+      NameIdentifier identifier,
+      LockType lockType,
+      Executable<R, E> executable)
+      throws E {
+    TreeLock lock = lockManager.createTreeLock(identifier);
     try {
       lock.lock(lockType);
       return executable.execute();

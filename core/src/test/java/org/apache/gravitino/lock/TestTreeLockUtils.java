@@ -22,14 +22,17 @@ package org.apache.gravitino.lock;
 import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
 import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 public class TestTreeLockUtils {
 
@@ -39,13 +42,41 @@ public class TestTreeLockUtils {
     doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    LockManager lockManager = new LockManager(config);
 
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of("test"),
         LockType.READ,
         () ->
             TreeLockUtils.doWithTreeLock(
-                NameIdentifier.of("test", "test1"), LockType.WRITE, () -> null));
+                lockManager, NameIdentifier.of("test", "test1"), LockType.WRITE, () -> null));
+  }
+
+  @Test
+  void testExplicitLockManagerUnlocksWhenExecutableFails() {
+    LockManager lockManager = mock(LockManager.class);
+    TreeLock treeLock = mock(TreeLock.class);
+    NameIdentifier identifier = NameIdentifier.of("test");
+    RuntimeException failure = new RuntimeException("test failure");
+    when(lockManager.createTreeLock(identifier)).thenReturn(treeLock);
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                TreeLockUtils.doWithTreeLock(
+                    lockManager,
+                    identifier,
+                    LockType.WRITE,
+                    () -> {
+                      throw failure;
+                    }));
+
+    assertSame(failure, thrown);
+    InOrder operations = inOrder(lockManager, treeLock);
+    operations.verify(lockManager).createTreeLock(identifier);
+    operations.verify(treeLock).lock(LockType.WRITE);
+    operations.verify(treeLock).unlock();
   }
 }

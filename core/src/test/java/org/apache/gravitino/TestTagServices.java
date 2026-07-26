@@ -27,6 +27,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.junit.jupiter.api.Test;
@@ -38,14 +39,16 @@ public class TestTagServices {
     EntityStore entityStore = mock(EntityStore.class);
     IdGenerator idGenerator = mock(IdGenerator.class);
     EventBus eventBus = mock(EventBus.class);
+    LockManager lockManager = mock(LockManager.class);
     OwnerDispatcher ownerDispatcher = mock(OwnerDispatcher.class);
 
-    TagServices services = TagServices.create(entityStore, idGenerator, eventBus, ownerDispatcher);
+    TagServices services =
+        TagServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
     TagDispatcher tagDispatcher = services.tagDispatcher();
 
     assertInstanceOf(TagHookDispatcher.class, tagDispatcher);
     assertSame(tagDispatcher, services.tagDispatcher());
-    verifyNoInteractions(entityStore, idGenerator, eventBus, ownerDispatcher);
+    verifyNoInteractions(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher);
   }
 
   @Test
@@ -53,9 +56,10 @@ public class TestTagServices {
     EntityStore entityStore = mock(EntityStore.class);
     IdGenerator idGenerator = mock(IdGenerator.class);
     EventBus eventBus = mock(EventBus.class);
+    LockManager lockManager = mock(LockManager.class);
 
-    TagServices first = TagServices.create(entityStore, idGenerator, eventBus, null);
-    TagServices second = TagServices.create(entityStore, idGenerator, eventBus, null);
+    TagServices first = TagServices.create(entityStore, idGenerator, eventBus, lockManager, null);
+    TagServices second = TagServices.create(entityStore, idGenerator, eventBus, lockManager, null);
 
     assertNotSame(first.tagDispatcher(), second.tagDispatcher());
   }
