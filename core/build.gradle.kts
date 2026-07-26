@@ -41,6 +41,7 @@ dependencies {
   implementation(libs.commons.lang3)
   implementation(libs.commons.collections4)
   implementation(libs.concurrent.trees)
+  implementation(libs.dagger)
   implementation(libs.guava)
   implementation(libs.h2db)
   implementation(libs.jackson.jaxrs.json.provider) // This is required by lance
@@ -64,6 +65,7 @@ dependencies {
   }
   implementation(libs.mybatis)
 
+  annotationProcessor(libs.dagger.compiler)
   annotationProcessor(libs.lombok)
 
   compileOnly(libs.lombok)

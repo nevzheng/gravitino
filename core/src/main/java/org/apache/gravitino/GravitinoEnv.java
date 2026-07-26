@@ -66,7 +66,6 @@ import org.apache.gravitino.hook.ModelHookDispatcher;
 import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
-import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.hook.TopicHookDispatcher;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
@@ -86,7 +85,6 @@ import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.SchemaEventDispatcher;
 import org.apache.gravitino.listener.StatisticEventDispatcher;
 import org.apache.gravitino.listener.TableEventDispatcher;
-import org.apache.gravitino.listener.TagEventDispatcher;
 import org.apache.gravitino.listener.TopicEventDispatcher;
 import org.apache.gravitino.listener.ViewEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
@@ -102,7 +100,6 @@ import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
-import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.utils.FileFetcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -806,9 +803,8 @@ public class GravitinoEnv {
     this.auxServiceManager.serviceInit(config);
 
     // Create and initialize Tag related modules
-    TagManager tagManager = new TagManager(idGenerator, entityStore);
-    TagEventDispatcher tagEventDispatcher = new TagEventDispatcher(eventBus, tagManager);
-    this.tagDispatcher = new TagHookDispatcher(tagEventDispatcher, ownerDispatcher);
+    this.tagDispatcher =
+        TagServices.create(entityStore, idGenerator, eventBus, ownerDispatcher).tagDispatcher();
 
     PolicyEventDispatcher policyEventDispatcher =
         new PolicyEventDispatcher(eventBus, new PolicyManager(idGenerator, entityStore));

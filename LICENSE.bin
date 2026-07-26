@@ -231,6 +231,7 @@
    Caffeine
    Dropwizard Hadoop Metrics
    GSON
+   Dagger
    Error Prone Annotations
    Failure Access
    Guava
@@ -350,6 +351,8 @@
    JSON Smart v2
    JSON Small and Fast Parser
    Prometheus instrumentation library for JVM applications
+   Jakarta Dependency Injection API
+   JSpecify
    JSR-330: Dependency Injection for Java
    Java JWT
    JSqlParser
