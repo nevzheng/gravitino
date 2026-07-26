@@ -1,5 +1,17 @@
 {
-  "description": "GravitinoEnv migration baseline after the consolidated governance milestone",
+  "description": "GravitinoEnv migration baseline after governance, with exact legacy constructor compatibility bridge callsites",
+  "legacy_runtime_dependencies_allowed_callsites": [
+    "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#lockManager",
+    "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#lockManager",
+    "core/src/main/java/org/apache/gravitino/catalog/TableOperationDispatcher.java#schemaDispatcher",
+    "core/src/main/java/org/apache/gravitino/hook/JobHookDispatcher.java#ownerDispatcher",
+    "core/src/main/java/org/apache/gravitino/hook/PolicyHookDispatcher.java#ownerDispatcher",
+    "core/src/main/java/org/apache/gravitino/hook/TagHookDispatcher.java#ownerDispatcher",
+    "core/src/main/java/org/apache/gravitino/policy/PolicyManager.java#lockManager",
+    "core/src/main/java/org/apache/gravitino/tag/TagManager.java#lockManager",
+    "server/src/main/java/org/apache/gravitino/server/web/filter/GravitinoInterceptionService.java#eventBus",
+    "server/src/main/java/org/apache/gravitino/server/web/rest/JobOperations.java#idGenerator"
+  ],
   "metrics": {
     "field_utils_read_write": {
       "all": {
