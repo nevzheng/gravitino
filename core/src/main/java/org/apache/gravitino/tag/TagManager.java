@@ -30,9 +30,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -78,9 +80,24 @@ public class TagManager implements TagDispatcher {
 
   private final EntityStore entityStore;
 
-  private final LockManager lockManager;
+  private final Supplier<LockManager> lockManagerSupplier;
 
   private final MetadataObjectExistenceChecker metadataObjectExistenceChecker;
+
+  /**
+   * Creates a tag manager using the legacy runtime dependencies.
+   *
+   * @param idGenerator the ID generator used to create tags
+   * @param entityStore the store containing tags and their relations
+   */
+  @SuppressWarnings({"deprecation", "removal"})
+  public TagManager(IdGenerator idGenerator, EntityStore entityStore) {
+    this(
+        idGenerator,
+        entityStore,
+        LegacyRuntimeDependencies::lockManager,
+        MetadataObjectUtil::checkMetadataObject);
+  }
 
   /**
    * Creates a tag manager.
@@ -95,9 +112,17 @@ public class TagManager implements TagDispatcher {
       EntityStore entityStore,
       LockManager lockManager,
       MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
+    this(idGenerator, entityStore, () -> lockManager, metadataObjectExistenceChecker);
+  }
+
+  private TagManager(
+      IdGenerator idGenerator,
+      EntityStore entityStore,
+      Supplier<LockManager> lockManagerSupplier,
+      MetadataObjectExistenceChecker metadataObjectExistenceChecker) {
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
-    this.lockManager = lockManager;
+    this.lockManagerSupplier = lockManagerSupplier;
     this.metadataObjectExistenceChecker = metadataObjectExistenceChecker;
   }
 
@@ -108,7 +133,7 @@ public class TagManager implements TagDispatcher {
   public Tag[] listTagsInfo(String metalake) {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifier.of(NamespaceUtil.ofTag(metalake).levels()),
         LockType.READ,
         () -> {
@@ -130,7 +155,7 @@ public class TagManager implements TagDispatcher {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifierUtil.ofTag(metalake, name),
         LockType.WRITE,
         () -> {
@@ -164,7 +189,7 @@ public class TagManager implements TagDispatcher {
   public Tag getTag(String metalake, String name) throws NoSuchTagException {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifierUtil.ofTag(metalake, name),
         LockType.READ,
         () -> {
@@ -185,7 +210,7 @@ public class TagManager implements TagDispatcher {
       throws NoSuchTagException, IllegalArgumentException {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifierUtil.ofTag(metalake, name),
         LockType.WRITE,
         () -> {
@@ -217,7 +242,7 @@ public class TagManager implements TagDispatcher {
   public boolean deleteTag(String metalake, String name) {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifierUtil.ofTag(metalake, name),
         LockType.WRITE,
         () -> {
@@ -236,7 +261,7 @@ public class TagManager implements TagDispatcher {
     NameIdentifier tagId = NameIdentifierUtil.ofTag(metalake, name);
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         tagId,
         LockType.READ,
         () -> {
@@ -277,7 +302,7 @@ public class TagManager implements TagDispatcher {
     metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         entityIdent,
         LockType.READ,
         () -> {
@@ -310,7 +335,7 @@ public class TagManager implements TagDispatcher {
     metadataObjectExistenceChecker.check(metalake, metadataObject);
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         entityIdent,
         LockType.READ,
         () -> {
@@ -369,12 +394,12 @@ public class TagManager implements TagDispatcher {
             .toArray(NameIdentifier[]::new);
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         entityIdent,
         LockType.READ,
         () ->
             TreeLockUtils.doWithTreeLock(
-                lockManager,
+                lockManagerSupplier.get(),
                 NameIdentifier.of(NamespaceUtil.ofTag(metalake).levels()),
                 LockType.WRITE,
                 () -> {

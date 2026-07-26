@@ -40,7 +40,7 @@ import java.util.stream.IntStream;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
@@ -76,7 +76,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   private static final Logger LOG = LoggerFactory.getLogger(TableOperationDispatcher.class);
 
   private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
-  private final LockManager lockManager;
+  private final Supplier<LockManager> lockManagerSupplier;
 
   /**
    * Creates a new TableOperationDispatcher using dependencies from the legacy application
@@ -89,9 +89,15 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    * @param store The EntityStore instance to be used for table operations.
    * @param idGenerator The IdGenerator instance to be used for table operations.
    */
+  @SuppressWarnings({"deprecation", "removal"})
   public TableOperationDispatcher(
       CatalogManager catalogManager, EntityStore store, IdGenerator idGenerator) {
-    this(catalogManager, store, idGenerator, legacyEnvironment());
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        LegacyRuntimeDependencies::schemaDispatcher,
+        LegacyRuntimeDependencies::lockManager);
   }
 
   /**
@@ -104,6 +110,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    * @param idGenerator The IdGenerator instance to be used for table operations.
    * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
    */
+  @SuppressWarnings({"deprecation", "removal"})
   public TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
@@ -114,7 +121,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         store,
         idGenerator,
         schemaDispatcherSupplier,
-        legacyEnvironment().lockManager());
+        LegacyRuntimeDependencies::lockManager);
   }
 
   /**
@@ -132,24 +139,26 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
       IdGenerator idGenerator,
       Supplier<SchemaDispatcher> schemaDispatcherSupplier,
       LockManager lockManager) {
-    super(catalogManager, store, idGenerator);
-    this.schemaDispatcherSupplier =
-        Preconditions.checkNotNull(
-            schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
-    this.lockManager = Preconditions.checkNotNull(lockManager, "lockManager must not be null");
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        schemaDispatcherSupplier,
+        fixedLockManagerSupplier(lockManager));
   }
 
   private TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
-      GravitinoEnv environment) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        environment::schemaDispatcher,
-        environment.lockManager());
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
+      Supplier<LockManager> lockManagerSupplier) {
+    super(catalogManager, store, idGenerator);
+    this.schemaDispatcherSupplier =
+        Preconditions.checkNotNull(
+            schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
+    this.lockManagerSupplier =
+        Preconditions.checkNotNull(lockManagerSupplier, "lockManagerSupplier must not be null");
   }
 
   /**
@@ -163,7 +172,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   @Override
   public NameIdentifier[] listTables(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -184,7 +193,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   public Table loadTable(NameIdentifier ident) throws NoSuchTableException {
     EntityCombinedTable entityCombinedTable =
         TreeLockUtils.doWithTreeLock(
-            lockManager, ident, LockType.READ, () -> internalLoadTable(ident));
+            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTable(ident));
 
     if (!entityCombinedTable.imported()) {
       // Load the schema to make sure the schema is imported.
@@ -196,7 +205,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
       try {
         entityCombinedTable =
             TreeLockUtils.doWithTreeLock(
-                lockManager, schemaIdent, LockType.WRITE, () -> importTable(ident));
+                lockManagerSupplier.get(), schemaIdent, LockType.WRITE, () -> importTable(ident));
       } catch (EntityAlreadyExistsException e) {
         // HA race: another Gravitino node concurrently imported this table. Reload from the
         // entity store to pick up the entity stored by the winning node.
@@ -204,7 +213,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
             "Table {} was concurrently imported by another node; reloading from store.", ident);
         entityCombinedTable =
             TreeLockUtils.doWithTreeLock(
-                lockManager, ident, LockType.READ, () -> internalLoadTable(ident));
+                lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTable(ident));
         if (!entityCombinedTable.imported()) {
           throw new UnsupportedOperationException(
               "Table managed by multiple catalogs. This may cause unexpected issues such as privilege conflicts. "
@@ -257,7 +266,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     schemaDispatcher.loadSchema(schemaIdent);
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         NameIdentifier.of(ident.namespace().levels()),
         LockType.WRITE,
         () ->
@@ -310,7 +319,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     }
 
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         nameIdentifierForLock,
         nameIdentifierForLock.equals(ident) ? LockType.READ : LockType.WRITE,
         () -> {
@@ -410,7 +419,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   public boolean dropTable(NameIdentifier ident) {
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -467,7 +476,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -924,7 +933,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
 
     // Update the columns in the Gravitino store
     return TreeLockUtils.doWithTreeLock(
-        lockManager,
+        lockManagerSupplier.get(),
         tableIdent,
         LockType.WRITE,
         () ->
@@ -960,7 +969,9 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
                 combinedTable.tableFromGravitino().id()));
   }
 
-  private static GravitinoEnv legacyEnvironment() {
-    return GravitinoEnv.getInstance();
+  private static Supplier<LockManager> fixedLockManagerSupplier(LockManager lockManager) {
+    LockManager checkedLockManager =
+        Preconditions.checkNotNull(lockManager, "lockManager must not be null");
+    return () -> checkedLockManager;
   }
 }

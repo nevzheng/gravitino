@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
@@ -42,6 +43,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
@@ -83,14 +85,35 @@ public class JobOperations {
   private static final Logger LOG = LoggerFactory.getLogger(JobOperations.class);
 
   private final JobOperationDispatcher jobOperationDispatcher;
-  private final IdGenerator idGenerator;
+  private final Supplier<IdGenerator> idGeneratorSupplier;
 
   @Context HttpServletRequest httpRequest;
 
+  /**
+   * Creates job REST operations using the legacy runtime ID generator lookup.
+   *
+   * @param jobOperationDispatcher dispatcher used for job operations
+   */
+  @SuppressWarnings({"deprecation", "removal"})
+  public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
+    this(jobOperationDispatcher, LegacyRuntimeDependencies::idGenerator);
+  }
+
+  /**
+   * Creates job REST operations.
+   *
+   * @param jobOperationDispatcher dispatcher used for job operations
+   * @param idGenerator ID generator used for job templates
+   */
   @Inject
   public JobOperations(JobOperationDispatcher jobOperationDispatcher, IdGenerator idGenerator) {
+    this(jobOperationDispatcher, () -> idGenerator);
+  }
+
+  private JobOperations(
+      JobOperationDispatcher jobOperationDispatcher, Supplier<IdGenerator> idGeneratorSupplier) {
     this.jobOperationDispatcher = jobOperationDispatcher;
-    this.idGenerator = idGenerator;
+    this.idGeneratorSupplier = idGeneratorSupplier;
   }
 
   @GET
@@ -457,7 +480,7 @@ public class JobOperations {
 
   private JobTemplateEntity toEntity(String metalake, JobTemplateDTO jobTemplateDTO) {
     return JobTemplateEntity.builder()
-        .withId(idGenerator.nextId())
+        .withId(idGeneratorSupplier.get().nextId())
         .withName(jobTemplateDTO.name())
         .withNamespace(NamespaceUtil.ofJobTemplate(metalake))
         .withComment(jobTemplateDTO.comment())

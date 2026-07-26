@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.InUseException;
@@ -39,7 +41,17 @@ import org.apache.gravitino.utils.PrincipalUtils;
 
 public class JobHookDispatcher implements JobOperationDispatcher {
   private final JobOperationDispatcher jobOperationDispatcher;
-  @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final Supplier<OwnerDispatcher> ownerDispatcherSupplier;
+
+  /**
+   * Creates a job hook dispatcher using the legacy runtime owner-dispatcher lookup.
+   *
+   * @param jobOperationDispatcher the dispatcher to delegate job operations to
+   */
+  @SuppressWarnings({"deprecation", "removal"})
+  public JobHookDispatcher(JobOperationDispatcher jobOperationDispatcher) {
+    this(jobOperationDispatcher, LegacyRuntimeDependencies::ownerDispatcher);
+  }
 
   /**
    * Creates a job hook dispatcher.
@@ -50,8 +62,14 @@ public class JobHookDispatcher implements JobOperationDispatcher {
    */
   public JobHookDispatcher(
       JobOperationDispatcher jobOperationDispatcher, @Nullable OwnerDispatcher ownerDispatcher) {
+    this(jobOperationDispatcher, () -> ownerDispatcher);
+  }
+
+  private JobHookDispatcher(
+      JobOperationDispatcher jobOperationDispatcher,
+      Supplier<OwnerDispatcher> ownerDispatcherSupplier) {
     this.jobOperationDispatcher = jobOperationDispatcher;
-    this.ownerDispatcher = ownerDispatcher;
+    this.ownerDispatcherSupplier = ownerDispatcherSupplier;
   }
 
   @Override
@@ -65,6 +83,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     jobOperationDispatcher.registerJobTemplate(metalake, jobTemplateEntity);
 
     // Set the creator as the owner of the job template.
+    OwnerDispatcher ownerDispatcher = ownerDispatcherSupplier.get();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
@@ -110,6 +129,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     JobEntity jobEntity = jobOperationDispatcher.runJob(metalake, jobTemplateName, jobConf);
 
     // Set the creator as the owner of the job.
+    OwnerDispatcher ownerDispatcher = ownerDispatcherSupplier.get();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,

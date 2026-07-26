@@ -17,8 +17,10 @@
 
 package org.apache.gravitino.hook;
 
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
+import org.apache.gravitino.LegacyRuntimeDependencies;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -35,7 +37,17 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class PolicyHookDispatcher implements PolicyDispatcher {
 
   private final PolicyDispatcher dispatcher;
-  @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final Supplier<OwnerDispatcher> ownerDispatcherSupplier;
+
+  /**
+   * Creates a policy hook dispatcher using the legacy runtime owner-dispatcher lookup.
+   *
+   * @param dispatcher the dispatcher to delegate policy operations to
+   */
+  @SuppressWarnings({"deprecation", "removal"})
+  public PolicyHookDispatcher(PolicyDispatcher dispatcher) {
+    this(dispatcher, LegacyRuntimeDependencies::ownerDispatcher);
+  }
 
   /**
    * Creates a policy hook dispatcher.
@@ -46,8 +58,13 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
    */
   public PolicyHookDispatcher(
       PolicyDispatcher dispatcher, @Nullable OwnerDispatcher ownerDispatcher) {
+    this(dispatcher, () -> ownerDispatcher);
+  }
+
+  private PolicyHookDispatcher(
+      PolicyDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcherSupplier) {
     this.dispatcher = dispatcher;
-    this.ownerDispatcher = ownerDispatcher;
+    this.ownerDispatcherSupplier = ownerDispatcherSupplier;
   }
 
   @Override
@@ -77,6 +94,7 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     PolicyEntity policy = dispatcher.createPolicy(metalake, name, type, comment, enabled, content);
 
     // Set the creator as the owner of the policy.
+    OwnerDispatcher ownerDispatcher = ownerDispatcherSupplier.get();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
