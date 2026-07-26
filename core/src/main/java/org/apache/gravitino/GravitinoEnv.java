@@ -58,23 +58,18 @@ import org.apache.gravitino.hook.AccessControlHookDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.FilesetHookDispatcher;
 import org.apache.gravitino.hook.FunctionHookDispatcher;
-import org.apache.gravitino.hook.JobHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
 import org.apache.gravitino.hook.ModelHookDispatcher;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TopicHookDispatcher;
-import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
-import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobOperationDispatcher;
-import org.apache.gravitino.job.JobTemplateValidationDispatcher;
 import org.apache.gravitino.listener.AccessControlEventDispatcher;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.listener.FilesetEventDispatcher;
 import org.apache.gravitino.listener.FunctionEventDispatcher;
-import org.apache.gravitino.listener.JobEventDispatcher;
 import org.apache.gravitino.listener.MetalakeEventDispatcher;
 import org.apache.gravitino.listener.ModelEventDispatcher;
 import org.apache.gravitino.listener.PartitionEventDispatcher;
@@ -794,25 +789,28 @@ public class GravitinoEnv {
     this.auxServiceManager = new AuxiliaryServiceManager();
     this.auxServiceManager.serviceInit(config);
 
-    // Create and initialize Tag related modules
-    this.tagDispatcher =
-        TagServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher)
-            .tagDispatcher();
-
-    this.policyDispatcher =
-        PolicyServices.create(entityStore, idGenerator, eventBus, lockManager, ownerDispatcher)
-            .policyDispatcher();
-
-    JobManager jobManager = new JobManager(config, entityStore, idGenerator);
-    JobTemplateValidationDispatcher validationDispatcher =
-        new JobTemplateValidationDispatcher(jobManager);
-    JobEventDispatcher jobEventDispatcher = new JobEventDispatcher(eventBus, validationDispatcher);
-    this.jobOperationDispatcher = new JobHookDispatcher(jobEventDispatcher, ownerDispatcher);
-
-    // Register built-in job template event listener to automatically register templates
-    // when metalakes are created
-    BuiltInJobTemplateEventListener builtInJobTemplateListener =
-        new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator);
-    eventListenerManager.addEventListener("builtin-job-template", builtInJobTemplateListener);
+    GovernanceServices governanceServices =
+        GovernanceServices.create(
+            config,
+            entityStore,
+            idGenerator,
+            eventBus,
+            lockManager,
+            metalakeDispatcher,
+            catalogDispatcher,
+            schemaDispatcher,
+            tableDispatcher,
+            filesetDispatcher,
+            topicDispatcher,
+            modelDispatcher,
+            functionDispatcher,
+            viewDispatcher,
+            accessControlDispatcher,
+            ownerDispatcher);
+    this.tagDispatcher = governanceServices.tagDispatcher();
+    this.policyDispatcher = governanceServices.policyDispatcher();
+    this.jobOperationDispatcher = governanceServices.jobOperationDispatcher();
+    eventListenerManager.addEventListener(
+        "builtin-job-template", governanceServices.builtInJobTemplateEventListener());
   }
 }
