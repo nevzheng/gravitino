@@ -20,12 +20,15 @@ package org.apache.gravitino.hook;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.AuthorizerResolver;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.Owner;
@@ -57,10 +60,46 @@ import org.slf4j.LoggerFactory;
 public class AccessControlHookDispatcher implements AccessControlDispatcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(AccessControlHookDispatcher.class);
-  private final AccessControlDispatcher dispatcher;
 
+  private final AccessControlDispatcher dispatcher;
+  private final Supplier<OwnerDispatcher> ownerDispatcherSupplier;
+  private final AuthorizerResolver authorizerResolver;
+
+  /**
+   * Creates a hook dispatcher backed by collaborators resolved from the legacy runtime environment.
+   *
+   * @param dispatcher the access-control dispatcher to decorate
+   */
   public AccessControlHookDispatcher(AccessControlDispatcher dispatcher) {
+    this(
+        dispatcher,
+        AuthorizerResolver.legacyOwnerDispatcher(),
+        AuthorizerResolver.legacyEnvironment());
+  }
+
+  /**
+   * Creates a hook dispatcher backed by explicit runtime collaborators.
+   *
+   * @param dispatcher the access-control dispatcher to decorate
+   * @param ownerDispatcher the dispatcher used to assign role ownership
+   * @param authorizerResolver the resolver for the dynamically initialized authorizer
+   */
+  public AccessControlHookDispatcher(
+      AccessControlDispatcher dispatcher,
+      @Nullable OwnerDispatcher ownerDispatcher,
+      AuthorizerResolver authorizerResolver) {
+    this(dispatcher, () -> ownerDispatcher, authorizerResolver);
+  }
+
+  private AccessControlHookDispatcher(
+      AccessControlDispatcher dispatcher,
+      Supplier<OwnerDispatcher> ownerDispatcherSupplier,
+      AuthorizerResolver authorizerResolver) {
     this.dispatcher = dispatcher;
+    this.ownerDispatcherSupplier =
+        Objects.requireNonNull(ownerDispatcherSupplier, "ownerDispatcherSupplier must not be null");
+    this.authorizerResolver =
+        Objects.requireNonNull(authorizerResolver, "authorizerResolver must not be null");
   }
 
   @Override
@@ -212,7 +251,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     Role createdRole = dispatcher.createRole(metalake, role, properties, securableObjects);
 
     // Set the creator as the owner of role.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
+    OwnerDispatcher ownerDispatcher = ownerDispatcherSupplier.get();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
@@ -288,9 +327,8 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
    * Invalidates both the role-side cache for each of {@code roles} and the user-side cache for
    * {@code user}. Used by grant/revoke flows that change the user→roles binding.
    */
-  private static void notifyUserRoleBindingChange(
-      String metalake, List<String> roles, String user) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+  private void notifyUserRoleBindingChange(String metalake, List<String> roles, String user) {
+    GravitinoAuthorizer gravitinoAuthorizer = authorizerResolver.resolve();
     if (gravitinoAuthorizer == null) {
       return;
     }
@@ -304,9 +342,8 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
    * Invalidates both the role-side cache for each of {@code roles} and the group-side cache for
    * {@code group}. Used by grant/revoke flows that change the group→roles binding.
    */
-  private static void notifyGroupRoleBindingChange(
-      String metalake, List<String> roles, String group) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+  private void notifyGroupRoleBindingChange(String metalake, List<String> roles, String group) {
+    GravitinoAuthorizer gravitinoAuthorizer = authorizerResolver.resolve();
     if (gravitinoAuthorizer == null) {
       return;
     }
@@ -316,15 +353,15 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     gravitinoAuthorizer.handleGroupRoleRelChange(metalake, group);
   }
 
-  private static void notifyRoleUserRelChange(String metalake, String role) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+  private void notifyRoleUserRelChange(String metalake, String role) {
+    GravitinoAuthorizer gravitinoAuthorizer = authorizerResolver.resolve();
     if (gravitinoAuthorizer != null) {
       gravitinoAuthorizer.handleRolePrivilegeChange(metalake, role);
     }
   }
 
-  private static void notifyRoleUserRelChange(Long role) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+  private void notifyRoleUserRelChange(Long role) {
+    GravitinoAuthorizer gravitinoAuthorizer = authorizerResolver.resolve();
     if (gravitinoAuthorizer != null) {
       gravitinoAuthorizer.handleRolePrivilegeChange(role);
     }

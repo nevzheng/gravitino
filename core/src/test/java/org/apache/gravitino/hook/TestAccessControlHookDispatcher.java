@@ -23,18 +23,17 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.authorization.Role;
 import org.apache.gravitino.authorization.User;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,28 +44,18 @@ public class TestAccessControlHookDispatcher {
   private AccessControlDispatcher mockDispatcher;
   private OwnerDispatcher mockOwnerDispatcher;
   private GravitinoAuthorizer mockAuthorizer;
-  // Save the original ownerDispatcher before each test and restore it in tearDown so we do not
-  // leak null state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
-  private GravitinoAuthorizer savedAuthorizer;
+  private AtomicReference<GravitinoAuthorizer> authorizerReference;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(AccessControlDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     mockAuthorizer = mock(GravitinoAuthorizer.class);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
-    savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", mockAuthorizer, true);
-    hookDispatcher = new AccessControlHookDispatcher(mockDispatcher);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "ownerDispatcher", savedOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", savedAuthorizer, true);
+    authorizerReference = new AtomicReference<>();
+    hookDispatcher =
+        new AccessControlHookDispatcher(
+            mockDispatcher, mockOwnerDispatcher, authorizerReference::get);
+    authorizerReference.set(mockAuthorizer);
   }
 
   @Test
@@ -100,6 +89,38 @@ public class TestAccessControlHookDispatcher {
 
     verify(mockAuthorizer).handleRolePrivilegeChange("test_metalake", "test_role");
     verify(mockAuthorizer).handleUserRoleRelChange("test_metalake", "test_user");
+  }
+
+  @Test
+  public void testResolvesAuthorizerAfterDispatcherConstruction() {
+    GravitinoAuthorizer lateAuthorizer = mock(GravitinoAuthorizer.class);
+    User mockUser = mock(User.class);
+    when(mockDispatcher.grantRolesToUser(
+            eq("test_metalake"), eq(Collections.singletonList("test_role")), eq("test_user")))
+        .thenReturn(mockUser);
+
+    authorizerReference.set(lateAuthorizer);
+    hookDispatcher.grantRolesToUser(
+        "test_metalake", Collections.singletonList("test_role"), "test_user");
+
+    verify(lateAuthorizer).handleRolePrivilegeChange("test_metalake", "test_role");
+    verify(lateAuthorizer).handleUserRoleRelChange("test_metalake", "test_user");
+  }
+
+  @Test
+  public void testSkipsNotificationWhenAuthorizationIsDisabled() {
+    User mockUser = mock(User.class);
+    when(mockDispatcher.grantRolesToUser(
+            eq("test_metalake"), eq(Collections.singletonList("test_role")), eq("test_user")))
+        .thenReturn(mockUser);
+    authorizerReference.set(null);
+
+    hookDispatcher.grantRolesToUser(
+        "test_metalake", Collections.singletonList("test_role"), "test_user");
+
+    verify(mockDispatcher)
+        .grantRolesToUser("test_metalake", Collections.singletonList("test_role"), "test_user");
+    verifyNoInteractions(mockAuthorizer);
   }
 
   @Test

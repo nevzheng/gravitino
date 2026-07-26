@@ -83,11 +83,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class TestAccessControlManager {
 
   private static AccessControlManager accessControlManager;
+  private static LockManager lockManager;
 
   private static EntityStore entityStore;
   private static CatalogManager catalogManager = mock(CatalogManager.class);
@@ -151,7 +153,7 @@ public class TestAccessControlManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = Mockito.spy(new LockManager(config));
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -183,7 +185,8 @@ public class TestAccessControlManager {
             .build();
     entityStore.put(anotherCatalogEntity, true);
 
-    accessControlManager = new AccessControlManager(entityStore, new RandomIdGenerator(), config);
+    accessControlManager =
+        new AccessControlManager(entityStore, new RandomIdGenerator(), config, lockManager);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "accessControlDispatcher", accessControlManager, true);
@@ -216,6 +219,22 @@ public class TestAccessControlManager {
     // Test with UserAlreadyExistsException
     Assertions.assertThrows(
         UserAlreadyExistsException.class, () -> accessControlManager.addUser(METALAKE, "testAdd"));
+  }
+
+  @Test
+  public void testPermissionManagerUsesSameInjectedLockManagerInOrder() {
+    String user = "testInjectedLockUser";
+    String role = "testInjectedLockRole";
+    accessControlManager.addUser(METALAKE, user);
+    accessControlManager.createRole(
+        METALAKE, role, Collections.emptyMap(), Collections.emptyList());
+    Mockito.clearInvocations(lockManager);
+
+    accessControlManager.grantRolesToUser(METALAKE, Collections.singletonList(role), user);
+
+    InOrder lockOrder = Mockito.inOrder(lockManager);
+    lockOrder.verify(lockManager).createTreeLock(AuthorizationUtils.ofUser(METALAKE, user));
+    lockOrder.verify(lockManager).createTreeLock(AuthorizationUtils.ofRole(METALAKE, role));
   }
 
   @Test

@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
@@ -94,6 +95,8 @@ public class TestOwnerManager {
 
   private static IdGenerator idGenerator;
   private static OwnerManager ownerManager;
+  private static LockManager lockManager;
+  private static AtomicReference<GravitinoAuthorizer> authorizerReference;
   private static CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
   private static AuthorizationPlugin authorizationPlugin = Mockito.mock(AuthorizationPlugin.class);
 
@@ -131,7 +134,7 @@ public class TestOwnerManager {
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = Mockito.spy(new LockManager(config));
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
@@ -171,7 +174,8 @@ public class TestOwnerManager {
             .build();
     entityStore.put(groupEntity, false /* overwritten*/);
 
-    ownerManager = new OwnerManager(entityStore);
+    authorizerReference = new AtomicReference<>();
+    ownerManager = new OwnerManager(entityStore, lockManager, authorizerReference::get);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(catalogManager.loadCatalog(any())).thenReturn(catalog);
     Mockito.when(catalogManager.listCatalogs(Mockito.any()))
@@ -256,7 +260,7 @@ public class TestOwnerManager {
 
   @Test
   @Order(4)
-  public void testInitialOwnerSetNotifiesAuthorizer() throws IllegalAccessException, IOException {
+  public void testInitialOwnerSetNotifiesLateAuthorizer() throws IOException {
     String catalogName = "catalog_initial_owner_notify";
     AuditInfo audit = AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
     CatalogEntity catalog =
@@ -271,8 +275,7 @@ public class TestOwnerManager {
     entityStore.put(catalog, false);
 
     GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-    GravitinoAuthorizer originalAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", authorizer, true);
+    authorizerReference.set(authorizer);
     try {
       MetadataObject catalogObject =
           MetadataObjects.of(Lists.newArrayList(catalogName), MetadataObject.Type.CATALOG);
@@ -286,8 +289,19 @@ public class TestOwnerManager {
               Mockito.eq(NameIdentifier.of(METALAKE, catalogName)),
               Mockito.eq(Entity.EntityType.CATALOG));
     } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "gravitinoAuthorizer", originalAuthorizer, true);
+      authorizerReference.set(null);
     }
+  }
+
+  @Test
+  @Order(5)
+  public void testUsesInjectedLockManagerForExactObjectIdentifier() {
+    MetadataObject metalakeObject =
+        MetadataObjects.of(Lists.newArrayList(METALAKE), MetadataObject.Type.METALAKE);
+    Mockito.clearInvocations(lockManager);
+
+    ownerManager.getOwner(METALAKE, metalakeObject);
+
+    Mockito.verify(lockManager).createTreeLock(NameIdentifier.of(METALAKE));
   }
 }

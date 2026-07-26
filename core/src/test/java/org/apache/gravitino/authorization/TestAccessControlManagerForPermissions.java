@@ -169,7 +169,12 @@ public class TestAccessControlManagerForPermissions {
     entityStore.put(grantedRoleEntity, true);
     entityStore.put(revokedRoleEntity, true);
 
-    accessControlManager = new AccessControlManager(entityStore, new RandomIdGenerator(), config);
+    config.set(TREE_LOCK_MAX_NODE_IN_MEMORY, 100000L);
+    config.set(TREE_LOCK_MIN_NODE_IN_MEMORY, 1000L);
+    config.set(TREE_LOCK_CLEAN_INTERVAL, 36000L);
+    LockManager lockManager = new LockManager(config);
+    accessControlManager =
+        new AccessControlManager(entityStore, new RandomIdGenerator(), config, lockManager);
 
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
     FieldUtils.writeField(
@@ -181,11 +186,6 @@ public class TestAccessControlManagerForPermissions {
         .thenReturn(new NameIdentifier[] {NameIdentifier.of("metalake", "catalog")});
     authorizationPlugin = Mockito.mock(AuthorizationPlugin.class);
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(authorizationPlugin);
-
-    config.set(TREE_LOCK_MAX_NODE_IN_MEMORY, 100000L);
-    config.set(TREE_LOCK_MIN_NODE_IN_MEMORY, 1000L);
-    config.set(TREE_LOCK_CLEAN_INTERVAL, 36000L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
   }
 
   @AfterAll

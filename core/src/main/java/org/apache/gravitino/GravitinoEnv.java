@@ -765,18 +765,18 @@ public class GravitinoEnv {
         new StatisticEventDispatcher(
             eventBus, new StatisticManager(entityStore, idGenerator, config));
 
-    // Create and initialize access control related modules
-    boolean enableAuthorization = config.get(Configs.ENABLE_AUTHORIZATION);
-    if (enableAuthorization) {
-      AccessControlManager accessControlManager =
-          new AccessControlManager(entityStore, idGenerator, config);
-      this.internalAccessControlDispatcher = accessControlManager;
-      AccessControlEventDispatcher accessControlEventDispatcher =
-          new AccessControlEventDispatcher(eventBus, accessControlManager);
-      this.accessControlDispatcher = new AccessControlHookDispatcher(accessControlEventDispatcher);
-      OwnerDispatcher ownerManager = new OwnerManager(entityStore);
+    if (config.get(Configs.ENABLE_AUTHORIZATION)) {
+      this.internalAccessControlDispatcher =
+          new AccessControlManager(entityStore, idGenerator, config, lockManager);
+      OwnerDispatcher ownerManager =
+          new OwnerManager(entityStore, lockManager, this::gravitinoAuthorizer);
       this.internalOwnerDispatcher = ownerManager;
       this.ownerDispatcher = new OwnerEventManager(eventBus, ownerManager);
+      this.accessControlDispatcher =
+          new AccessControlHookDispatcher(
+              new AccessControlEventDispatcher(eventBus, internalAccessControlDispatcher),
+              ownerDispatcher,
+              this::gravitinoAuthorizer);
       this.futureGrantManager = new FutureGrantManager(entityStore, ownerManager);
     } else {
       this.accessControlDispatcher = null;

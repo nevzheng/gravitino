@@ -22,19 +22,21 @@ import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import lombok.Getter;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NotFoundException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.GroupEntity;
@@ -51,9 +53,37 @@ import org.slf4j.LoggerFactory;
  */
 public class OwnerManager implements OwnerDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(OwnerManager.class);
-  @Getter private final EntityStore store;
 
+  @Getter private final EntityStore store;
+  private final Supplier<LockManager> lockManagerSupplier;
+  private final AuthorizerResolver authorizerResolver;
+
+  /**
+   * Creates an owner manager backed by collaborators resolved from the legacy runtime environment.
+   *
+   * @param store the entity store
+   */
   public OwnerManager(EntityStore store) {
+    this(store, LegacyAuthorizationRuntime::lockManager, AuthorizerResolver.legacyEnvironment());
+  }
+
+  /**
+   * Creates an owner manager backed by explicit runtime collaborators.
+   *
+   * @param store the entity store
+   * @param lockManager the lock manager shared by the runtime graph
+   * @param authorizerResolver the resolver for the dynamically initialized authorizer
+   */
+  public OwnerManager(
+      EntityStore store, LockManager lockManager, AuthorizerResolver authorizerResolver) {
+    this(store, () -> lockManager, authorizerResolver);
+    Objects.requireNonNull(lockManager, "lockManager must not be null");
+  }
+
+  private OwnerManager(
+      EntityStore store,
+      Supplier<LockManager> lockManagerSupplier,
+      AuthorizerResolver authorizerResolver) {
     if (store instanceof SupportsRelationOperations) {
       this.store = store;
     } else {
@@ -63,6 +93,10 @@ public class OwnerManager implements OwnerDispatcher {
       LOG.error(errorMsg);
       throw new RuntimeException(errorMsg);
     }
+    this.lockManagerSupplier =
+        Objects.requireNonNull(lockManagerSupplier, "lockManagerSupplier must not be null");
+    this.authorizerResolver =
+        Objects.requireNonNull(authorizerResolver, "authorizerResolver must not be null");
   }
 
   @Override
@@ -76,6 +110,7 @@ public class OwnerManager implements OwnerDispatcher {
       if (ownerType == Owner.Type.USER) {
         NameIdentifier ownerIdent = AuthorizationUtils.ofUser(metalake, ownerName);
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             ownerIdent,
             LockType.READ,
             () -> {
@@ -96,6 +131,7 @@ public class OwnerManager implements OwnerDispatcher {
       } else if (ownerType == Owner.Type.GROUP) {
         NameIdentifier ownerIdent = AuthorizationUtils.ofGroup(metalake, ownerName);
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             ownerIdent,
             LockType.READ,
             () -> {
@@ -184,6 +220,7 @@ public class OwnerManager implements OwnerDispatcher {
 
     try {
       TreeLockUtils.doWithTreeLock(
+          lockManagerSupplier.get(),
           ownerIdent,
           LockType.READ,
           () -> {
@@ -233,7 +270,7 @@ public class OwnerManager implements OwnerDispatcher {
 
   private void notifyOwnerChange(
       @Nullable Owner oldOwner, String metalake, MetadataObject metadataObject) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+    GravitinoAuthorizer gravitinoAuthorizer = authorizerResolver.resolve();
     if (gravitinoAuthorizer == null) {
       return;
     }
@@ -272,21 +309,17 @@ public class OwnerManager implements OwnerDispatcher {
   private Long getOwnerId(String metalake, Owner owner) throws IOException {
     if (owner.type() == Owner.Type.USER) {
       UserEntity userEntity =
-          GravitinoEnv.getInstance()
-              .entityStore()
-              .get(
-                  NameIdentifierUtil.ofUser(metalake, owner.name()),
-                  Entity.EntityType.USER,
-                  UserEntity.class);
+          store.get(
+              NameIdentifierUtil.ofUser(metalake, owner.name()),
+              Entity.EntityType.USER,
+              UserEntity.class);
       return userEntity.id();
     } else if (owner.type() == Owner.Type.GROUP) {
       GroupEntity groupEntity =
-          GravitinoEnv.getInstance()
-              .entityStore()
-              .get(
-                  NameIdentifierUtil.ofGroup(metalake, owner.name()),
-                  Entity.EntityType.GROUP,
-                  GroupEntity.class);
+          store.get(
+              NameIdentifierUtil.ofGroup(metalake, owner.name()),
+              Entity.EntityType.GROUP,
+              GroupEntity.class);
       return groupEntity.id();
     } else {
       throw new IllegalArgumentException("Unsupported owner type: " + owner.type());
@@ -300,6 +333,7 @@ public class OwnerManager implements OwnerDispatcher {
     try {
       List<? extends Entity> entities =
           TreeLockUtils.doWithTreeLock(
+              lockManagerSupplier.get(),
               ident,
               LockType.READ,
               () ->

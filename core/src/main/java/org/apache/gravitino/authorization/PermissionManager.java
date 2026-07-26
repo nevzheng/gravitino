@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
@@ -43,6 +44,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchGroupException;
 import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.NoSuchUserException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -62,10 +64,17 @@ class PermissionManager {
 
   private final EntityStore store;
   private final RoleManager roleManager;
+  private final Supplier<LockManager> lockManagerSupplier;
 
   PermissionManager(EntityStore store, RoleManager roleManager) {
+    this(store, roleManager, LegacyAuthorizationRuntime::lockManager);
+  }
+
+  PermissionManager(
+      EntityStore store, RoleManager roleManager, Supplier<LockManager> lockManagerSupplier) {
     this.store = store;
     this.roleManager = roleManager;
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   User grantRolesToUser(String metalake, List<String> roles, String user) {
@@ -73,6 +82,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToGrant = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToGrant.add(roleManager.getRole(metalake, role)));
@@ -164,6 +174,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToGrant = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToGrant.add(roleManager.getRole(metalake, role)));
@@ -254,6 +265,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToRevoke = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToRevoke.add(roleManager.getRole(metalake, role)));
@@ -344,6 +356,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToRevoke = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToRevoke.add(roleManager.getRole(metalake, role)));
