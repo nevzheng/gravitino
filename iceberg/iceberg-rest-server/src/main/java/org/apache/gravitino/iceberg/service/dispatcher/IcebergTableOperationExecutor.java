@@ -22,9 +22,11 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auth.AuthConstants;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.credential.CredentialPrivilege;
 import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
@@ -57,19 +59,60 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
 
   private final IcebergCatalogWrapperManager icebergCatalogWrapperManager;
   private final Optional<IcebergCleanupManager> cleanupManager;
+  private final Supplier<Optional<CatalogManager>> catalogManager;
+  private final Optional<String> metalakeName;
 
   public IcebergTableOperationExecutor(
       IcebergCatalogWrapperManager icebergCatalogWrapperManager,
       Optional<IcebergCleanupManager> cleanupManager) {
+    this(
+        icebergCatalogWrapperManager,
+        cleanupManager,
+        IcebergCleanupHelper.legacyCatalogManager(),
+        Optional.empty());
+  }
+
+  /**
+   * Creates a table executor with explicit cleanup capabilities.
+   *
+   * @param icebergCatalogWrapperManager Iceberg catalog wrapper manager
+   * @param cleanupManager optional asynchronous cleanup manager
+   * @param catalogManager catalog access required by asynchronous cleanup, empty in standalone mode
+   * @param metalakeName metalake containing the served catalogs
+   */
+  public IcebergTableOperationExecutor(
+      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
+      Optional<IcebergCleanupManager> cleanupManager,
+      Optional<CatalogManager> catalogManager,
+      String metalakeName) {
+    this(
+        icebergCatalogWrapperManager,
+        cleanupManager,
+        () -> catalogManager,
+        Optional.of(metalakeName));
+  }
+
+  private IcebergTableOperationExecutor(
+      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
+      Optional<IcebergCleanupManager> cleanupManager,
+      Supplier<Optional<CatalogManager>> catalogManager,
+      Optional<String> metalakeName) {
     this.icebergCatalogWrapperManager = icebergCatalogWrapperManager;
     this.cleanupManager = cleanupManager;
+    this.catalogManager = catalogManager;
+    this.metalakeName = metalakeName;
   }
 
   @Override
   public LoadTableResponse createTable(
       IcebergRequestContext context, Namespace namespace, CreateTableRequest createTableRequest) {
     IcebergCleanupHelper.rejectIfBeingPurged(
-        cleanupManager, context.catalogName(), namespace, createTableRequest.name());
+        cleanupManager,
+        catalogManager,
+        metalakeName,
+        context.catalogName(),
+        namespace,
+        createTableRequest.name());
 
     String authenticatedUser = context.userName();
     if (!AuthConstants.ANONYMOUS_USER.equals(authenticatedUser)) {
@@ -147,7 +190,8 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
           manager.addJob(
               new IcebergCleanupJob(
                   0L,
-                  IcebergCleanupHelper.catalogId(context.catalogName()),
+                  IcebergCleanupHelper.catalogId(
+                      catalogManager, metalakeName, context.catalogName()),
                   tableIdentifier.namespace().toString(),
                   tableIdentifier.name(),
                   metadata.metadataFileLocation(),

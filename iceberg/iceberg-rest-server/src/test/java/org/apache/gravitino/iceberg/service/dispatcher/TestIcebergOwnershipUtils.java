@@ -26,16 +26,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity.EntityType;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.Owner;
@@ -44,7 +39,6 @@ import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -61,20 +55,10 @@ public class TestIcebergOwnershipUtils {
   private static final String SEPARATOR = ":";
 
   private OwnerDispatcher mockOwnerDispatcher;
-  private Config previousConfig;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
-    Config mockConfig = mock(Config.class);
-    when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(SEPARATOR);
-    previousConfig = (Config) FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
   }
 
   @Test
@@ -85,7 +69,8 @@ public class TestIcebergOwnershipUtils {
     MetadataObject expectedMetadataObject =
         NameIdentifierUtil.toMetadataObject(expectedSchemaIdentifier, EntityType.SCHEMA);
 
-    IcebergOwnershipUtils.setSchemaOwner(METALAKE, CATALOG, namespace, USER, mockOwnerDispatcher);
+    IcebergOwnershipUtils.setSchemaOwner(
+        METALAKE, CATALOG, namespace, USER, mockOwnerDispatcher, SEPARATOR);
 
     verify(mockOwnerDispatcher, times(1))
         .setOwner(eq(METALAKE), eq(expectedMetadataObject), eq(USER), eq(Owner.Type.USER));
@@ -102,7 +87,7 @@ public class TestIcebergOwnershipUtils {
         NameIdentifierUtil.toMetadataObject(expectedTableIdentifier, EntityType.TABLE);
 
     IcebergOwnershipUtils.setTableOwner(
-        METALAKE, CATALOG, namespace, TABLE_NAME, USER, mockOwnerDispatcher);
+        METALAKE, CATALOG, namespace, TABLE_NAME, USER, mockOwnerDispatcher, SEPARATOR);
 
     verify(mockOwnerDispatcher, times(1))
         .setOwner(eq(METALAKE), eq(expectedMetadataObject), eq(USER), eq(Owner.Type.USER));
@@ -122,7 +107,7 @@ public class TestIcebergOwnershipUtils {
             EntityType.SCHEMA);
 
     IcebergOwnershipUtils.setSchemaOwners(
-        METALAKE, CATALOG, Arrays.asList(nsA, nsAB), USER, mockOwnerDispatcher);
+        METALAKE, CATALOG, Arrays.asList(nsA, nsAB), USER, mockOwnerDispatcher, SEPARATOR);
 
     List<MetadataObject> expected = Arrays.asList(objectA, objectAB);
     verify(mockOwnerDispatcher, times(1))
@@ -132,7 +117,7 @@ public class TestIcebergOwnershipUtils {
   @Test
   public void testSetSchemaOwnersWithEmptyCollectionIsNoOp() {
     IcebergOwnershipUtils.setSchemaOwners(
-        METALAKE, CATALOG, Collections.emptyList(), USER, mockOwnerDispatcher);
+        METALAKE, CATALOG, Collections.emptyList(), USER, mockOwnerDispatcher, SEPARATOR);
 
     verify(mockOwnerDispatcher, never()).setOwners(any(), any(), any(), any());
     verify(mockOwnerDispatcher, never()).setOwner(any(), any(), any(), any());
@@ -142,7 +127,12 @@ public class TestIcebergOwnershipUtils {
   public void testSetSchemaOwnersWithNullOwnerDispatcher() {
     try {
       IcebergOwnershipUtils.setSchemaOwners(
-          METALAKE, CATALOG, Collections.singletonList(Namespace.of(SCHEMA_NAME)), USER, null);
+          METALAKE,
+          CATALOG,
+          Collections.singletonList(Namespace.of(SCHEMA_NAME)),
+          USER,
+          null,
+          SEPARATOR);
     } catch (Exception e) {
       fail(
           "setSchemaOwners should handle null dispatcher gracefully, but threw: " + e.getMessage());
@@ -154,7 +144,7 @@ public class TestIcebergOwnershipUtils {
     Namespace namespace = Namespace.of(SCHEMA_NAME);
 
     try {
-      IcebergOwnershipUtils.setSchemaOwner(METALAKE, CATALOG, namespace, USER, null);
+      IcebergOwnershipUtils.setSchemaOwner(METALAKE, CATALOG, namespace, USER, null, SEPARATOR);
     } catch (Exception e) {
       fail("setSchemaOwner should handle null dispatcher gracefully, but threw: " + e.getMessage());
     }
@@ -165,7 +155,8 @@ public class TestIcebergOwnershipUtils {
     Namespace namespace = Namespace.of(SCHEMA_NAME);
 
     try {
-      IcebergOwnershipUtils.setTableOwner(METALAKE, CATALOG, namespace, TABLE_NAME, USER, null);
+      IcebergOwnershipUtils.setTableOwner(
+          METALAKE, CATALOG, namespace, TABLE_NAME, USER, null, SEPARATOR);
     } catch (Exception e) {
       fail("setTableOwner should handle null dispatcher gracefully, but threw: " + e.getMessage());
     }
@@ -182,7 +173,7 @@ public class TestIcebergOwnershipUtils {
         NameIdentifierUtil.toMetadataObject(expectedViewIdentifier, EntityType.VIEW);
 
     IcebergOwnershipUtils.setViewOwner(
-        METALAKE, CATALOG, namespace, VIEW_NAME, USER, mockOwnerDispatcher);
+        METALAKE, CATALOG, namespace, VIEW_NAME, USER, mockOwnerDispatcher, SEPARATOR);
 
     verify(mockOwnerDispatcher, times(1))
         .setOwner(eq(METALAKE), eq(expectedMetadataObject), eq(USER), eq(Owner.Type.USER));
@@ -193,7 +184,8 @@ public class TestIcebergOwnershipUtils {
     Namespace namespace = Namespace.of(SCHEMA_NAME);
 
     try {
-      IcebergOwnershipUtils.setViewOwner(METALAKE, CATALOG, namespace, VIEW_NAME, USER, null);
+      IcebergOwnershipUtils.setViewOwner(
+          METALAKE, CATALOG, namespace, VIEW_NAME, USER, null, SEPARATOR);
     } catch (Exception e) {
       fail("setViewOwner should handle null dispatcher gracefully, but threw: " + e.getMessage());
     }

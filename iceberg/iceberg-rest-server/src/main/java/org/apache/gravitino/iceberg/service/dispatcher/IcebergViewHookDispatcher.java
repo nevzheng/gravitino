@@ -118,7 +118,8 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
         namespace,
         createViewRequest.name(),
         context.userName(),
-        ownerDispatcher);
+        ownerDispatcher,
+        schemaSeparator);
 
     return response;
   }

@@ -145,7 +145,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // every newly-created namespace in this request gets an owner assigned.
     newlyOwned.add(leaf);
     IcebergOwnershipUtils.setSchemaOwners(
-        metalake, catalogName, newlyOwned, context.userName(), ownerDispatcher);
+        metalake, catalogName, newlyOwned, context.userName(), ownerDispatcher, schemaSeparator);
     return createNamespaceResponse;
   }
 
@@ -256,7 +256,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerTableRequest.name(),
         context.userName(),
-        ownerDispatcher);
+        ownerDispatcher,
+        schemaSeparator);
 
     return response;
   }
@@ -283,7 +284,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerViewRequest.name(),
         context.userName(),
-        ownerDispatcher);
+        ownerDispatcher,
+        schemaSeparator);
 
     return response;
   }

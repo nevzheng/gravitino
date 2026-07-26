@@ -249,7 +249,13 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
     // entity is registered. Surface the failure so the caller can react.
     importTableEntity(context.catalogName(), namespace, tableName);
     IcebergOwnershipUtils.setTableOwner(
-        metalake, context.catalogName(), namespace, tableName, context.userName(), ownerDispatcher);
+        metalake,
+        context.catalogName(),
+        namespace,
+        tableName,
+        context.userName(),
+        ownerDispatcher,
+        schemaSeparator);
   }
 
   private void importTableEntity(String catalogName, Namespace namespace, String tableName) {

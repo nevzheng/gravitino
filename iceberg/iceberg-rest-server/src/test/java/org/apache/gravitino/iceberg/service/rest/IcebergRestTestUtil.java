@@ -40,13 +40,12 @@ import org.apache.gravitino.iceberg.service.IcebergObjectMapperProvider;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceEventDispatcher;
+import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph;
+import org.apache.gravitino.iceberg.service.dispatcher.IcebergHookGraph.BaseInputs;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationExecutor;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableEventDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationExecutor;
-import org.apache.gravitino.iceberg.service.dispatcher.IcebergViewEventDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergViewOperationDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergViewOperationExecutor;
 import org.apache.gravitino.iceberg.service.extension.DummyCredentialProvider;
@@ -149,21 +148,26 @@ public class IcebergRestTestUtil {
 
       IcebergTableOperationExecutor icebergTableOperationExecutor =
           new IcebergTableOperationExecutor(
-              icebergCatalogWrapperManager, Optional.of(mock(IcebergCleanupManager.class)));
-      IcebergTableEventDispatcher icebergTableEventDispatcher =
-          new IcebergTableEventDispatcher(
-              icebergTableOperationExecutor, eventBus, configProvider.getMetalakeName());
+              icebergCatalogWrapperManager,
+              Optional.of(mock(IcebergCleanupManager.class)),
+              Optional.empty(),
+              configProvider.getMetalakeName());
       IcebergViewOperationExecutor icebergViewOperationExecutor =
           new IcebergViewOperationExecutor(icebergCatalogWrapperManager);
-      IcebergViewEventDispatcher icebergViewEventDispatcher =
-          new IcebergViewEventDispatcher(
-              icebergViewOperationExecutor, eventBus, configProvider.getMetalakeName());
       IcebergNamespaceOperationExecutor icebergNamespaceOperationExecutor =
           new IcebergNamespaceOperationExecutor(
-              icebergCatalogWrapperManager, Optional.of(mock(IcebergCleanupManager.class)));
-      IcebergNamespaceEventDispatcher icebergNamespaceEventDispatcher =
-          new IcebergNamespaceEventDispatcher(
-              icebergNamespaceOperationExecutor, eventBus, configProvider.getMetalakeName());
+              icebergCatalogWrapperManager,
+              Optional.of(mock(IcebergCleanupManager.class)),
+              Optional.empty(),
+              configProvider.getMetalakeName());
+      IcebergHookGraph hookGraph =
+          IcebergHookGraph.createBase(
+              BaseInputs.create(
+                  icebergNamespaceOperationExecutor,
+                  icebergTableOperationExecutor,
+                  icebergViewOperationExecutor,
+                  eventBus,
+                  configProvider.getMetalakeName()));
 
       IcebergMetricsManager icebergMetricsManager = new IcebergMetricsManager(new IcebergConfig());
       resourceConfig.register(
@@ -172,9 +176,9 @@ public class IcebergRestTestUtil {
             protected void configure() {
               bind(icebergCatalogWrapperManager).to(IcebergCatalogWrapperManager.class).ranked(2);
               bind(icebergMetricsManager).to(IcebergMetricsManager.class).ranked(2);
-              bind(icebergTableEventDispatcher).to(IcebergTableOperationDispatcher.class).ranked(2);
-              bind(icebergViewEventDispatcher).to(IcebergViewOperationDispatcher.class).ranked(2);
-              bind(icebergNamespaceEventDispatcher)
+              bind(hookGraph.tableDispatcher()).to(IcebergTableOperationDispatcher.class).ranked(2);
+              bind(hookGraph.viewDispatcher()).to(IcebergViewOperationDispatcher.class).ranked(2);
+              bind(hookGraph.namespaceDispatcher())
                   .to(IcebergNamespaceOperationDispatcher.class)
                   .ranked(2);
             }

@@ -22,7 +22,9 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.gravitino.auth.AuthConstants;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
@@ -48,12 +50,48 @@ public class IcebergNamespaceOperationExecutor implements IcebergNamespaceOperat
 
   private final IcebergCatalogWrapperManager icebergCatalogWrapperManager;
   private final Optional<IcebergCleanupManager> cleanupManager;
+  private final Supplier<Optional<CatalogManager>> catalogManager;
+  private final Optional<String> metalakeName;
 
   public IcebergNamespaceOperationExecutor(
       IcebergCatalogWrapperManager icebergCatalogWrapperManager,
       Optional<IcebergCleanupManager> cleanupManager) {
+    this(
+        icebergCatalogWrapperManager,
+        cleanupManager,
+        IcebergCleanupHelper.legacyCatalogManager(),
+        Optional.empty());
+  }
+
+  /**
+   * Creates a namespace executor with explicit cleanup capabilities.
+   *
+   * @param icebergCatalogWrapperManager Iceberg catalog wrapper manager
+   * @param cleanupManager optional asynchronous cleanup manager
+   * @param catalogManager catalog access required by asynchronous cleanup, empty in standalone mode
+   * @param metalakeName metalake containing the served catalogs
+   */
+  public IcebergNamespaceOperationExecutor(
+      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
+      Optional<IcebergCleanupManager> cleanupManager,
+      Optional<CatalogManager> catalogManager,
+      String metalakeName) {
+    this(
+        icebergCatalogWrapperManager,
+        cleanupManager,
+        () -> catalogManager,
+        Optional.of(metalakeName));
+  }
+
+  private IcebergNamespaceOperationExecutor(
+      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
+      Optional<IcebergCleanupManager> cleanupManager,
+      Supplier<Optional<CatalogManager>> catalogManager,
+      Optional<String> metalakeName) {
     this.icebergCatalogWrapperManager = icebergCatalogWrapperManager;
     this.cleanupManager = cleanupManager;
+    this.catalogManager = catalogManager;
+    this.metalakeName = metalakeName;
   }
 
   @Override
@@ -129,7 +167,12 @@ public class IcebergNamespaceOperationExecutor implements IcebergNamespaceOperat
       Namespace namespace,
       RegisterTableRequest registerTableRequest) {
     IcebergCleanupHelper.rejectIfBeingPurged(
-        cleanupManager, context.catalogName(), namespace, registerTableRequest.name());
+        cleanupManager,
+        catalogManager,
+        metalakeName,
+        context.catalogName(),
+        namespace,
+        registerTableRequest.name());
 
     return icebergCatalogWrapperManager
         .getCatalogWrapper(context.catalogName())

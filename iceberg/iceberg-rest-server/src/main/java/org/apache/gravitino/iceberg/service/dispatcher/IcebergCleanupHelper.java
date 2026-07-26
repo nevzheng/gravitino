@@ -20,8 +20,10 @@
 package org.apache.gravitino.iceberg.service.dispatcher;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.iceberg.catalog.Namespace;
@@ -40,10 +42,15 @@ final class IcebergCleanupHelper {
    * Returns the catalog entity id for {@code catalogName}. The catalog is already loaded for the
    * current request, so this reads its in-memory entity without an extra entity-store lookup.
    */
-  static long catalogId(String catalogName) {
-    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
-    return GravitinoEnv.getInstance()
-        .catalogManager()
+  static long catalogId(
+      Supplier<Optional<CatalogManager>> catalogManager,
+      Optional<String> metalakeName,
+      String catalogName) {
+    String metalake =
+        metalakeName.orElseGet(() -> IcebergRESTServerContext.getInstance().metalakeName());
+    return catalogManager
+        .get()
+        .orElseThrow(() -> new IllegalStateException("Catalog manager is unavailable"))
         .loadCatalogAndWrap(NameIdentifier.of(metalake, catalogName))
         .catalog()
         .entity()
@@ -58,6 +65,8 @@ final class IcebergCleanupHelper {
    */
   static void rejectIfBeingPurged(
       Optional<IcebergCleanupManager> cleanupManager,
+      Supplier<Optional<CatalogManager>> catalogManager,
+      Optional<String> metalakeName,
       String catalogName,
       Namespace namespace,
       String tableName) {
@@ -66,7 +75,7 @@ final class IcebergCleanupHelper {
     }
     long catalogId;
     try {
-      catalogId = catalogId(catalogName);
+      catalogId = catalogId(catalogManager, metalakeName, catalogName);
     } catch (RuntimeException e) {
       LOG.warn("No catalog id for {}; skipping purge check", catalogName, e);
       return;
@@ -75,5 +84,9 @@ final class IcebergCleanupHelper {
       throw new AlreadyExistsException(
           "Table %s.%s is being purged; retry after cleanup completes", namespace, tableName);
     }
+  }
+
+  static Supplier<Optional<CatalogManager>> legacyCatalogManager() {
+    return () -> Optional.ofNullable(GravitinoEnv.getInstance().catalogManager());
   }
 }

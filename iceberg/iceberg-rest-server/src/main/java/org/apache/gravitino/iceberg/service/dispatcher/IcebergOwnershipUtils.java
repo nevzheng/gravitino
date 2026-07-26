@@ -54,12 +54,28 @@ public class IcebergOwnershipUtils {
       Namespace namespace,
       String user,
       OwnerDispatcher ownerDispatcher) {
+    setSchemaOwner(
+        metalake,
+        catalogName,
+        namespace,
+        user,
+        ownerDispatcher,
+        HierarchicalSchemaUtil.schemaSeparator());
+  }
+
+  static void setSchemaOwner(
+      String metalake,
+      String catalogName,
+      Namespace namespace,
+      String user,
+      OwnerDispatcher ownerDispatcher,
+      String schemaSeparator) {
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
           NameIdentifierUtil.toMetadataObject(
               IcebergIdentifierUtils.toGravitinoSchemaIdentifier(
-                  metalake, catalogName, namespace, HierarchicalSchemaUtil.schemaSeparator()),
+                  metalake, catalogName, namespace, schemaSeparator),
               Entity.EntityType.SCHEMA),
           user,
           Owner.Type.USER);
@@ -83,16 +99,31 @@ public class IcebergOwnershipUtils {
       Collection<Namespace> namespaces,
       String user,
       OwnerDispatcher ownerDispatcher) {
+    setSchemaOwners(
+        metalake,
+        catalogName,
+        namespaces,
+        user,
+        ownerDispatcher,
+        HierarchicalSchemaUtil.schemaSeparator());
+  }
+
+  static void setSchemaOwners(
+      String metalake,
+      String catalogName,
+      Collection<Namespace> namespaces,
+      String user,
+      OwnerDispatcher ownerDispatcher,
+      String schemaSeparator) {
     if (ownerDispatcher == null || namespaces.isEmpty()) {
       return;
     }
-    String separator = HierarchicalSchemaUtil.schemaSeparator();
     List<MetadataObject> objects = new ArrayList<>(namespaces.size());
     for (Namespace namespace : namespaces) {
       objects.add(
           NameIdentifierUtil.toMetadataObject(
               IcebergIdentifierUtils.toGravitinoSchemaIdentifier(
-                  metalake, catalogName, namespace, separator),
+                  metalake, catalogName, namespace, schemaSeparator),
               Entity.EntityType.SCHEMA));
     }
     ownerDispatcher.setOwners(metalake, objects, user, Owner.Type.USER);
@@ -115,15 +146,30 @@ public class IcebergOwnershipUtils {
       String tableName,
       String user,
       OwnerDispatcher ownerDispatcher) {
+    setTableOwner(
+        metalake,
+        catalogName,
+        namespace,
+        tableName,
+        user,
+        ownerDispatcher,
+        HierarchicalSchemaUtil.schemaSeparator());
+  }
+
+  static void setTableOwner(
+      String metalake,
+      String catalogName,
+      Namespace namespace,
+      String tableName,
+      String user,
+      OwnerDispatcher ownerDispatcher,
+      String schemaSeparator) {
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
           NameIdentifierUtil.toMetadataObject(
               IcebergIdentifierUtils.toGravitinoTableIdentifier(
-                  metalake,
-                  catalogName,
-                  TableIdentifier.of(namespace, tableName),
-                  HierarchicalSchemaUtil.schemaSeparator()),
+                  metalake, catalogName, TableIdentifier.of(namespace, tableName), schemaSeparator),
               Entity.EntityType.TABLE),
           user,
           Owner.Type.USER);
@@ -147,15 +193,30 @@ public class IcebergOwnershipUtils {
       String viewName,
       String user,
       OwnerDispatcher ownerDispatcher) {
+    setViewOwner(
+        metalake,
+        catalogName,
+        namespace,
+        viewName,
+        user,
+        ownerDispatcher,
+        HierarchicalSchemaUtil.schemaSeparator());
+  }
+
+  static void setViewOwner(
+      String metalake,
+      String catalogName,
+      Namespace namespace,
+      String viewName,
+      String user,
+      OwnerDispatcher ownerDispatcher,
+      String schemaSeparator) {
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
           NameIdentifierUtil.toMetadataObject(
               IcebergIdentifierUtils.toGravitinoTableIdentifier(
-                  metalake,
-                  catalogName,
-                  TableIdentifier.of(namespace, viewName),
-                  HierarchicalSchemaUtil.schemaSeparator()),
+                  metalake, catalogName, TableIdentifier.of(namespace, viewName), schemaSeparator),
               Entity.EntityType.VIEW),
           user,
           Owner.Type.USER);

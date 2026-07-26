@@ -19,7 +19,6 @@
 package org.apache.gravitino.iceberg.service.dispatcher;
 
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
@@ -42,29 +41,6 @@ final class IcebergOrphanSchemaCleanup {
   IcebergOrphanSchemaCleanup(EntityStore entityStore, String schemaSeparator) {
     this.entityStore = entityStore;
     this.schemaSeparator = schemaSeparator;
-  }
-
-  /**
-   * Removes Gravitino schema entities whose backing Iceberg namespace no longer exists after a
-   * table or view drop.
-   *
-   * <p>Best-effort: the primary drop has already succeeded, so any failure here is logged and
-   * swallowed rather than propagated to the caller.
-   *
-   * @param metalake the metalake the catalog belongs to
-   * @param namespaceDispatcher dispatcher used to probe whether a namespace still exists in the
-   *     catalog
-   * @param context the Iceberg request context carrying the catalog name
-   * @param namespace the namespace of the dropped table or view
-   */
-  static void bestEffortCleanUp(
-      String metalake,
-      IcebergNamespaceOperationDispatcher namespaceDispatcher,
-      IcebergRequestContext context,
-      Namespace namespace) {
-    new IcebergOrphanSchemaCleanup(
-            GravitinoEnv.getInstance().entityStore(), HierarchicalSchemaUtil.schemaSeparator())
-        .cleanUp(metalake, namespaceDispatcher, context, namespace);
   }
 
   void cleanUp(

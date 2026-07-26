@@ -30,12 +30,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -55,7 +51,6 @@ import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
 import org.apache.iceberg.view.ImmutableViewVersion;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -79,14 +74,6 @@ public class TestIcebergViewHookDispatcher {
   private OwnerDispatcher mockOwnerDispatcher;
   private OwnerDispatcher mockInternalOwnerDispatcher;
   private IcebergRequestContext mockContext;
-  private GravitinoEnv gravitinoEnv;
-
-  private Config previousConfig;
-  private EntityStore previousEntityStore;
-  private ViewDispatcher previousViewDispatcher;
-  private ViewDispatcher previousInternalViewDispatcher;
-  private OwnerDispatcher previousOwnerDispatcher;
-  private OwnerDispatcher previousInternalOwnerDispatcher;
 
   @BeforeEach
   public void setUp() {
@@ -102,52 +89,16 @@ public class TestIcebergViewHookDispatcher {
     when(mockContext.catalogName()).thenReturn(CATALOG);
     when(mockContext.userName()).thenReturn(USER);
 
-    // Setup GravitinoEnv mock
-    gravitinoEnv = GravitinoEnv.getInstance();
-    try {
-      Config mockConfig = mock(Config.class);
-      when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
-      previousConfig = (Config) FieldUtils.readField(gravitinoEnv, "config", true);
-      previousEntityStore = (EntityStore) FieldUtils.readField(gravitinoEnv, "entityStore", true);
-      previousViewDispatcher =
-          (ViewDispatcher) FieldUtils.readField(gravitinoEnv, "viewDispatcher", true);
-      previousInternalViewDispatcher =
-          (ViewDispatcher) FieldUtils.readField(gravitinoEnv, "internalViewDispatcher", true);
-      previousOwnerDispatcher =
-          (OwnerDispatcher) FieldUtils.readField(gravitinoEnv, "ownerDispatcher", true);
-      previousInternalOwnerDispatcher =
-          (OwnerDispatcher) FieldUtils.readField(gravitinoEnv, "internalOwnerDispatcher", true);
-      FieldUtils.writeField(gravitinoEnv, "config", mockConfig, true);
-      FieldUtils.writeField(gravitinoEnv, "entityStore", mockEntityStore, true);
-      FieldUtils.writeField(gravitinoEnv, "viewDispatcher", mockViewDispatcher, true);
-      FieldUtils.writeField(
-          gravitinoEnv, "internalViewDispatcher", mockInternalViewDispatcher, true);
-      FieldUtils.writeField(gravitinoEnv, "ownerDispatcher", mockOwnerDispatcher, true);
-      FieldUtils.writeField(
-          gravitinoEnv, "internalOwnerDispatcher", mockInternalOwnerDispatcher, true);
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to setup test", e);
-    }
-
-    hookDispatcher = new IcebergViewHookDispatcher(mockExecutor, mockNamespaceDispatcher, METALAKE);
-  }
-
-  @AfterEach
-  public void tearDown() {
-    try {
-      // Restore GravitinoEnv to its prior state so this test doesn't leak singleton state
-      // into other tests that share the same JVM.
-      FieldUtils.writeField(gravitinoEnv, "config", previousConfig, true);
-      FieldUtils.writeField(gravitinoEnv, "entityStore", previousEntityStore, true);
-      FieldUtils.writeField(gravitinoEnv, "viewDispatcher", previousViewDispatcher, true);
-      FieldUtils.writeField(
-          gravitinoEnv, "internalViewDispatcher", previousInternalViewDispatcher, true);
-      FieldUtils.writeField(gravitinoEnv, "ownerDispatcher", previousOwnerDispatcher, true);
-      FieldUtils.writeField(
-          gravitinoEnv, "internalOwnerDispatcher", previousInternalOwnerDispatcher, true);
-    } catch (Exception e) {
-      // Ignore cleanup errors
-    }
+    hookDispatcher =
+        new IcebergViewHookDispatcher(
+            mockExecutor,
+            mockNamespaceDispatcher,
+            METALAKE,
+            mockEntityStore,
+            mockInternalViewDispatcher,
+            mockInternalOwnerDispatcher,
+            ":",
+            new IcebergOrphanSchemaCleanup(mockEntityStore, ":"));
   }
 
   @Test

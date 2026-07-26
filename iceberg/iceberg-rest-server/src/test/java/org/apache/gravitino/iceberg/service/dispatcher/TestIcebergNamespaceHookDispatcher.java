@@ -34,10 +34,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.Owner;
@@ -45,8 +43,6 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
-import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
-import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.TreeLock;
@@ -58,7 +54,6 @@ import org.apache.iceberg.rest.requests.RegisterViewRequest;
 import org.apache.iceberg.rest.responses.CreateNamespaceResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -84,19 +79,8 @@ public class TestIcebergNamespaceHookDispatcher {
   private LockManager mockLockManager;
   private IcebergRequestContext mockContext;
 
-  private OwnerDispatcher previousOwnerDispatcher;
-  private OwnerDispatcher previousInternalOwnerDispatcher;
-  private SchemaDispatcher previousSchemaDispatcher;
-  private SchemaDispatcher previousInternalSchemaDispatcher;
-  private TableDispatcher previousTableDispatcher;
-  private TableDispatcher previousInternalTableDispatcher;
-  private ViewDispatcher previousViewDispatcher;
-  private ViewDispatcher previousInternalViewDispatcher;
-  private EntityStore previousEntityStore;
-  private LockManager previousLockManager;
-
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(IcebergNamespaceOperationDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     mockInternalOwnerDispatcher = mock(OwnerDispatcher.class);
@@ -107,102 +91,26 @@ public class TestIcebergNamespaceHookDispatcher {
     mockViewDispatcher = mock(ViewDispatcher.class);
     mockInternalViewDispatcher = mock(ViewDispatcher.class);
 
-    previousOwnerDispatcher =
-        (OwnerDispatcher) FieldUtils.readField(GravitinoEnv.getInstance(), "ownerDispatcher", true);
-    previousInternalOwnerDispatcher =
-        (OwnerDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalOwnerDispatcher", true);
-    previousSchemaDispatcher =
-        (SchemaDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "schemaDispatcher", true);
-    previousInternalSchemaDispatcher =
-        (SchemaDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalSchemaDispatcher", true);
-    previousTableDispatcher =
-        (TableDispatcher) FieldUtils.readField(GravitinoEnv.getInstance(), "tableDispatcher", true);
-    previousInternalTableDispatcher =
-        (TableDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalTableDispatcher", true);
-    previousViewDispatcher =
-        (ViewDispatcher) FieldUtils.readField(GravitinoEnv.getInstance(), "viewDispatcher", true);
-    previousInternalViewDispatcher =
-        (ViewDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalViewDispatcher", true);
-    previousEntityStore =
-        (EntityStore) FieldUtils.readField(GravitinoEnv.getInstance(), "entityStore", true);
-    previousLockManager =
-        (LockManager) FieldUtils.readField(GravitinoEnv.getInstance(), "lockManager", true);
-
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockInternalOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "schemaDispatcher", mockSchemaDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", mockInternalSchemaDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", mockTableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", mockInternalTableDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "viewDispatcher", mockViewDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalViewDispatcher", mockInternalViewDispatcher, true);
-
     mockEntityStore = mock(EntityStore.class);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", mockEntityStore, true);
-
     mockLockManager = mock(LockManager.class);
     TreeLock mockTreeLock = mock(TreeLock.class);
     when(mockLockManager.createTreeLock(any())).thenReturn(mockTreeLock);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", mockLockManager, true);
-
-    IcebergConfigProvider mockConfigProvider = mock(IcebergConfigProvider.class);
-    when(mockConfigProvider.getMetalakeName()).thenReturn(TEST_METALAKE);
-    when(mockConfigProvider.getDefaultCatalogName()).thenReturn(TEST_CATALOG);
-    IcebergRESTServerContext.create(mockConfigProvider, false, false, true, null);
-
-    hookDispatcher = new IcebergNamespaceHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new IcebergNamespaceHookDispatcher(
+            mockDispatcher,
+            TEST_METALAKE,
+            mockEntityStore,
+            mockLockManager,
+            mockInternalSchemaDispatcher,
+            mockInternalTableDispatcher,
+            mockInternalViewDispatcher,
+            mockInternalOwnerDispatcher,
+            ":",
+            new IcebergOrphanSchemaCleanup(mockEntityStore, ":"));
 
     mockContext = mock(IcebergRequestContext.class);
     when(mockContext.catalogName()).thenReturn(TEST_CATALOG);
     when(mockContext.userName()).thenReturn(TEST_USER);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "ownerDispatcher", previousOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalOwnerDispatcher",
-        previousInternalOwnerDispatcher,
-        true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "schemaDispatcher", previousSchemaDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalSchemaDispatcher",
-        previousInternalSchemaDispatcher,
-        true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "tableDispatcher", previousTableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalTableDispatcher",
-        previousInternalTableDispatcher,
-        true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "viewDispatcher", previousViewDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalViewDispatcher", previousInternalViewDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", previousEntityStore, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", previousLockManager, true);
-
-    Class<?> holderClass =
-        Arrays.stream(IcebergRESTServerContext.class.getDeclaredClasses())
-            .filter(c -> c.getSimpleName().equals("InstanceHolder"))
-            .findFirst()
-            .orElseThrow(() -> new RuntimeException("InstanceHolder class not found"));
-    FieldUtils.writeStaticField(holderClass, "INSTANCE", null, true);
   }
 
   @Test
