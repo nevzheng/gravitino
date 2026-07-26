@@ -63,6 +63,7 @@ dependencies {
   implementation(libs.commons.dbcp2)
   implementation(libs.commons.lang3)
   implementation(libs.concurrent.trees)
+  implementation(libs.dagger)
   implementation(libs.guava)
   implementation(libs.jackson.annotations)
   implementation(libs.jackson.databind)
@@ -75,6 +76,7 @@ dependencies {
   implementation(libs.mybatis)
   implementation(libs.ognl)
 
+  annotationProcessor(libs.dagger.compiler)
   annotationProcessor(libs.lombok)
   compileOnly(libs.lombok)
 

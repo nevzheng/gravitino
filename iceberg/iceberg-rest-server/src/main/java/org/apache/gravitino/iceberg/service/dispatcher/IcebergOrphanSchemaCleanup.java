@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.iceberg.service.dispatcher;
 
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
@@ -35,7 +36,13 @@ final class IcebergOrphanSchemaCleanup {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergOrphanSchemaCleanup.class);
 
-  private IcebergOrphanSchemaCleanup() {}
+  private final EntityStore entityStore;
+  private final String schemaSeparator;
+
+  IcebergOrphanSchemaCleanup(EntityStore entityStore, String schemaSeparator) {
+    this.entityStore = entityStore;
+    this.schemaSeparator = schemaSeparator;
+  }
 
   /**
    * Removes Gravitino schema entities whose backing Iceberg namespace no longer exists after a
@@ -55,18 +62,28 @@ final class IcebergOrphanSchemaCleanup {
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       IcebergRequestContext context,
       Namespace namespace) {
+    new IcebergOrphanSchemaCleanup(
+            GravitinoEnv.getInstance().entityStore(), HierarchicalSchemaUtil.schemaSeparator())
+        .cleanUp(metalake, namespaceDispatcher, context, namespace);
+  }
+
+  void cleanUp(
+      String metalake,
+      IcebergNamespaceOperationDispatcher namespaceDispatcher,
+      IcebergRequestContext context,
+      Namespace namespace) {
     try {
-      String separator = HierarchicalSchemaUtil.schemaSeparator();
       SchemaEntityCleaner.deleteOrphanedSchemaEntities(
-          GravitinoEnv.getInstance().entityStore(),
+          entityStore,
           IcebergIdentifierUtils.toGravitinoSchemaIdentifier(
-              metalake, context.catalogName(), namespace, separator),
+              metalake, context.catalogName(), namespace, schemaSeparator),
           true,
           schemaIdent ->
               namespaceDispatcher.namespaceExists(
                   context,
                   Namespace.of(
-                      HierarchicalSchemaUtil.splitSchemaName(schemaIdent.name(), separator))));
+                      HierarchicalSchemaUtil.splitSchemaName(
+                          schemaIdent.name(), schemaSeparator))));
     } catch (RuntimeException e) {
       LOG.warn(
           "Failed to clean up orphaned Gravitino schema entities after the Iceberg backend operation "

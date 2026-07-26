@@ -56,7 +56,7 @@ public class IcebergHealthOperations {
   private static final String CHECK_HTTP_SERVER = "httpServer";
   private static final String CHECK_CATALOG_WRAPPER_MANAGER = "catalogWrapperManager";
 
-  @Inject private IcebergCatalogWrapperManager catalogWrapperManager;
+  @Inject IcebergCatalogWrapperManager catalogWrapperManager;
 
   /** Default constructor for Jersey auto-discovery. */
   public IcebergHealthOperations() {}
