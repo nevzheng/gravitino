@@ -23,13 +23,11 @@ import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.ViewEntity;
-import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.requests.CreateViewRequest;
@@ -57,27 +55,15 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
   private final IcebergViewOperationDispatcher dispatcher;
   private final IcebergNamespaceOperationDispatcher namespaceDispatcher;
   private final String metalake;
-  private final EntityStore entityStore;
-  private final ViewDispatcher viewDispatcher;
-  private final OwnerDispatcher ownerDispatcher;
-  private final String schemaSeparator;
+  private final IcebergHookDependencies dependencies;
   private final IcebergOrphanSchemaCleanup orphanSchemaCleanup;
 
+  @SuppressWarnings({"deprecation", "removal"})
   public IcebergViewHookDispatcher(
       IcebergViewOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       String metalake) {
-    this(
-        dispatcher,
-        namespaceDispatcher,
-        metalake,
-        IcebergHookGraph.legacyEnvironment().entityStore(),
-        IcebergHookGraph.legacyEnvironment().internalViewDispatcher(),
-        IcebergHookGraph.legacyEnvironment().internalOwnerDispatcher(),
-        HierarchicalSchemaUtil.schemaSeparator(),
-        new IcebergOrphanSchemaCleanup(
-            IcebergHookGraph.legacyEnvironment().entityStore(),
-            HierarchicalSchemaUtil.schemaSeparator()));
+    this(dispatcher, namespaceDispatcher, metalake, IcebergHookDependencies.legacy());
   }
 
   @Inject
@@ -85,19 +71,12 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
       @IcebergHookGraph.EventLayer IcebergViewOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       @IcebergHookGraph.Metalake String metalake,
-      EntityStore entityStore,
-      ViewDispatcher viewDispatcher,
-      OwnerDispatcher ownerDispatcher,
-      @IcebergHookGraph.SchemaSeparator String schemaSeparator,
-      IcebergOrphanSchemaCleanup orphanSchemaCleanup) {
+      IcebergHookDependencies dependencies) {
     this.dispatcher = dispatcher;
     this.namespaceDispatcher = namespaceDispatcher;
     this.metalake = metalake;
-    this.entityStore = entityStore;
-    this.viewDispatcher = viewDispatcher;
-    this.ownerDispatcher = ownerDispatcher;
-    this.schemaSeparator = schemaSeparator;
-    this.orphanSchemaCleanup = orphanSchemaCleanup;
+    this.dependencies = dependencies;
+    this.orphanSchemaCleanup = new IcebergOrphanSchemaCleanup(dependencies);
   }
 
   @Override
@@ -116,8 +95,8 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
         namespace,
         createViewRequest.name(),
         context.userName(),
-        ownerDispatcher,
-        schemaSeparator);
+        dependencies.ownerDispatcher(),
+        dependencies.schemaSeparator());
 
     return response;
   }
@@ -160,6 +139,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     dispatcher.renameView(context, renameViewRequest);
 
     // Update view in Gravitino entity store with new name
+    String schemaSeparator = dependencies.schemaSeparator();
     NameIdentifier sourceIdent =
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, context.catalogName(), renameViewRequest.source(), schemaSeparator);
@@ -168,6 +148,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
             metalake, context.catalogName(), renameViewRequest.destination(), schemaSeparator);
 
     try {
+      EntityStore entityStore = dependencies.entityStore();
       if (entityStore != null) {
         entityStore.update(
             sourceIdent,
@@ -221,11 +202,15 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
    * @param viewName The name of the view.
    */
   private void importView(String catalogName, Namespace namespace, String viewName) {
+    ViewDispatcher viewDispatcher = dependencies.viewDispatcher();
     if (viewDispatcher != null) {
       try {
         viewDispatcher.loadView(
             IcebergIdentifierUtils.toGravitinoTableIdentifier(
-                metalake, catalogName, TableIdentifier.of(namespace, viewName), schemaSeparator));
+                metalake,
+                catalogName,
+                TableIdentifier.of(namespace, viewName),
+                dependencies.schemaSeparator()));
         LOG.info(
             "Successfully imported view into Gravitino: {}.{}.{}.{}",
             metalake,
@@ -278,10 +263,11 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
 
   private void deleteViewEntity(String catalogName, TableIdentifier viewIdentifier) {
     try {
+      EntityStore entityStore = dependencies.entityStore();
       if (entityStore != null) {
         entityStore.delete(
             IcebergIdentifierUtils.toGravitinoTableIdentifier(
-                metalake, catalogName, viewIdentifier, schemaSeparator),
+                metalake, catalogName, viewIdentifier, dependencies.schemaSeparator()),
             Entity.EntityType.VIEW);
         LOG.info(
             "Successfully removed view from Gravitino entity store: {}.{}.{}.{}",

@@ -29,7 +29,6 @@ import javax.inject.Qualifier;
 import javax.inject.Scope;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -91,10 +90,6 @@ public final class IcebergHookGraph {
             viewDispatcher,
             ownerDispatcher,
             schemaSeparator);
-  }
-
-  static GravitinoEnv legacyEnvironment() {
-    return GravitinoEnv.getInstance();
   }
 
   private static BaseComponent baseComponent(

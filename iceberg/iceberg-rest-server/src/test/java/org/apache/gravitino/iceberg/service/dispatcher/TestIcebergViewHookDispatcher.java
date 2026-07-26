@@ -34,10 +34,13 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.catalog.SchemaDispatcher;
+import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.ViewEntity;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
@@ -94,11 +97,14 @@ public class TestIcebergViewHookDispatcher {
             mockExecutor,
             mockNamespaceDispatcher,
             METALAKE,
-            mockEntityStore,
-            mockInternalViewDispatcher,
-            mockInternalOwnerDispatcher,
-            ":",
-            new IcebergOrphanSchemaCleanup(mockEntityStore, ":"));
+            new IcebergHookDependencies(
+                mockEntityStore,
+                mock(LockManager.class),
+                mock(SchemaDispatcher.class),
+                mock(TableDispatcher.class),
+                mockInternalViewDispatcher,
+                mockInternalOwnerDispatcher,
+                ":"));
   }
 
   @Test

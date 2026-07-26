@@ -25,7 +25,6 @@ import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -33,7 +32,6 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TableEntity;
-import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.Namespace;
@@ -57,12 +55,10 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
   private final IcebergTableOperationDispatcher dispatcher;
   private final IcebergNamespaceOperationDispatcher namespaceDispatcher;
   private final String metalake;
-  private final EntityStore entityStore;
-  private final TableDispatcher tableDispatcher;
-  private final OwnerDispatcher ownerDispatcher;
-  private final String schemaSeparator;
+  private final IcebergHookDependencies dependencies;
   private final IcebergOrphanSchemaCleanup orphanSchemaCleanup;
 
+  @SuppressWarnings({"deprecation", "removal"})
   public IcebergTableHookDispatcher(
       IcebergTableOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher) {
@@ -70,13 +66,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
         dispatcher,
         namespaceDispatcher,
         IcebergRESTServerContext.getInstance().metalakeName(),
-        IcebergHookGraph.legacyEnvironment().entityStore(),
-        IcebergHookGraph.legacyEnvironment().internalTableDispatcher(),
-        IcebergHookGraph.legacyEnvironment().internalOwnerDispatcher(),
-        HierarchicalSchemaUtil.schemaSeparator(),
-        new IcebergOrphanSchemaCleanup(
-            IcebergHookGraph.legacyEnvironment().entityStore(),
-            HierarchicalSchemaUtil.schemaSeparator()));
+        IcebergHookDependencies.legacy());
   }
 
   @Inject
@@ -84,19 +74,12 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
       @IcebergHookGraph.EventLayer IcebergTableOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       @IcebergHookGraph.Metalake String metalake,
-      EntityStore entityStore,
-      TableDispatcher tableDispatcher,
-      OwnerDispatcher ownerDispatcher,
-      @IcebergHookGraph.SchemaSeparator String schemaSeparator,
-      IcebergOrphanSchemaCleanup orphanSchemaCleanup) {
+      IcebergHookDependencies dependencies) {
     this.dispatcher = dispatcher;
     this.namespaceDispatcher = namespaceDispatcher;
     this.metalake = metalake;
-    this.entityStore = entityStore;
-    this.tableDispatcher = tableDispatcher;
-    this.ownerDispatcher = ownerDispatcher;
-    this.schemaSeparator = schemaSeparator;
-    this.orphanSchemaCleanup = orphanSchemaCleanup;
+    this.dependencies = dependencies;
+    this.orphanSchemaCleanup = new IcebergOrphanSchemaCleanup(dependencies);
   }
 
   @Override
@@ -162,6 +145,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
   @Override
   public void renameTable(IcebergRequestContext context, RenameTableRequest renameTableRequest) {
     dispatcher.renameTable(context, renameTableRequest);
+    String schemaSeparator = dependencies.schemaSeparator();
     NameIdentifier tableSource =
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, context.catalogName(), renameTableRequest.source(), schemaSeparator);
@@ -169,6 +153,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, context.catalogName(), renameTableRequest.destination(), schemaSeparator);
     try {
+      EntityStore entityStore = dependencies.entityStore();
       if (entityStore != null) {
         // Update the entity for the destination table.
         entityStore.update(
@@ -248,15 +233,19 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
         namespace,
         tableName,
         context.userName(),
-        ownerDispatcher,
-        schemaSeparator);
+        dependencies.ownerDispatcher(),
+        dependencies.schemaSeparator());
   }
 
   private void importTableEntity(String catalogName, Namespace namespace, String tableName) {
+    TableDispatcher tableDispatcher = dependencies.tableDispatcher();
     if (tableDispatcher != null) {
       tableDispatcher.loadTable(
           IcebergIdentifierUtils.toGravitinoTableIdentifier(
-              metalake, catalogName, TableIdentifier.of(namespace, tableName), schemaSeparator));
+              metalake,
+              catalogName,
+              TableIdentifier.of(namespace, tableName),
+              dependencies.schemaSeparator()));
     }
   }
 
@@ -294,10 +283,11 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
 
   private void deleteTableEntity(String catalogName, TableIdentifier tableIdentifier) {
     try {
+      EntityStore entityStore = dependencies.entityStore();
       if (entityStore != null) {
         entityStore.delete(
             IcebergIdentifierUtils.toGravitinoTableIdentifier(
-                metalake, catalogName, tableIdentifier, schemaSeparator),
+                metalake, catalogName, tableIdentifier, dependencies.schemaSeparator()),
             Entity.EntityType.TABLE);
       }
     } catch (NoSuchEntityException ignore) {

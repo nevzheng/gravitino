@@ -99,14 +99,14 @@ public class TestIcebergNamespaceHookDispatcher {
         new IcebergNamespaceHookDispatcher(
             mockDispatcher,
             TEST_METALAKE,
-            mockEntityStore,
-            mockLockManager,
-            mockInternalSchemaDispatcher,
-            mockInternalTableDispatcher,
-            mockInternalViewDispatcher,
-            mockInternalOwnerDispatcher,
-            ":",
-            new IcebergOrphanSchemaCleanup(mockEntityStore, ":"));
+            new IcebergHookDependencies(
+                mockEntityStore,
+                mockLockManager,
+                mockInternalSchemaDispatcher,
+                mockInternalTableDispatcher,
+                mockInternalViewDispatcher,
+                mockInternalOwnerDispatcher,
+                ":"));
 
     mockContext = mock(IcebergRequestContext.class);
     when(mockContext.catalogName()).thenReturn(TEST_CATALOG);

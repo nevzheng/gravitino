@@ -21,14 +21,20 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collections;
+import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -40,9 +46,11 @@ import org.apache.gravitino.listener.api.event.IcebergListTablePreEvent;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.mockito.MockedStatic;
 
 public class TestIcebergHookGraph {
 
@@ -124,6 +132,41 @@ public class TestIcebergHookGraph {
     verify(firstTable).listTable(context, namespace);
     verify(secondTable, never()).listTable(context, namespace);
     verify(secondEventBus, never()).dispatchEvent(isA(IcebergListTablePreEvent.class));
+  }
+
+  @Test
+  public void testAuxiliaryGraphRetainsExactDependencyBindings() throws Exception {
+    IcebergTableOperationDispatcher tableOperations = mock(IcebergTableOperationDispatcher.class);
+    EntityStore entityStore = mock(EntityStore.class);
+    EntityStore legacyEntityStore = mock(EntityStore.class);
+    GravitinoEnv legacyEnvironment = mock(GravitinoEnv.class);
+    when(legacyEnvironment.entityStore()).thenReturn(legacyEntityStore);
+    IcebergRequestContext context = mock(IcebergRequestContext.class);
+    TableIdentifier identifier = TableIdentifier.of(Namespace.of("schema"), "table");
+    when(context.catalogName()).thenReturn(CATALOG);
+
+    try (MockedStatic<GravitinoEnv> environment = mockStatic(GravitinoEnv.class)) {
+      environment.when(GravitinoEnv::getInstance).thenReturn(legacyEnvironment);
+      Dispatchers graph =
+          IcebergHookGraph.createAuxiliary(
+              mock(IcebergNamespaceOperationDispatcher.class),
+              tableOperations,
+              mock(IcebergViewOperationDispatcher.class),
+              new EventBus(Collections.emptyList()),
+              METALAKE,
+              entityStore,
+              mock(LockManager.class),
+              mock(SchemaDispatcher.class),
+              mock(TableDispatcher.class),
+              mock(ViewDispatcher.class),
+              mock(OwnerDispatcher.class),
+              SCHEMA_SEPARATOR);
+
+      graph.tableDispatcher().dropTable(context, identifier, false);
+
+      verify(entityStore).delete(any(), eq(Entity.EntityType.TABLE));
+      verify(legacyEntityStore, never()).delete(any(), any());
+    }
   }
 
   private static Dispatchers baseGraph(

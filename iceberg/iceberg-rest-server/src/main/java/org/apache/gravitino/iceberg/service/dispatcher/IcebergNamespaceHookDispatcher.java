@@ -26,14 +26,12 @@ import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
@@ -61,53 +59,26 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
 
   private final IcebergNamespaceOperationDispatcher dispatcher;
   private final String metalake;
-  private final EntityStore entityStore;
-  private final LockManager lockManager;
-  private final SchemaDispatcher schemaDispatcher;
-  private final TableDispatcher tableDispatcher;
-  private final ViewDispatcher viewDispatcher;
-  private final OwnerDispatcher ownerDispatcher;
-  private final String schemaSeparator;
+  private final IcebergHookDependencies dependencies;
   private final IcebergOrphanSchemaCleanup orphanSchemaCleanup;
 
+  @SuppressWarnings({"deprecation", "removal"})
   public IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher dispatcher) {
     this(
         dispatcher,
         IcebergRESTServerContext.getInstance().metalakeName(),
-        IcebergHookGraph.legacyEnvironment().entityStore(),
-        IcebergHookGraph.legacyEnvironment().lockManager(),
-        IcebergHookGraph.legacyEnvironment().internalSchemaDispatcher(),
-        IcebergHookGraph.legacyEnvironment().internalTableDispatcher(),
-        IcebergHookGraph.legacyEnvironment().internalViewDispatcher(),
-        IcebergHookGraph.legacyEnvironment().internalOwnerDispatcher(),
-        HierarchicalSchemaUtil.schemaSeparator(),
-        new IcebergOrphanSchemaCleanup(
-            IcebergHookGraph.legacyEnvironment().entityStore(),
-            HierarchicalSchemaUtil.schemaSeparator()));
+        IcebergHookDependencies.legacy());
   }
 
   @Inject
   IcebergNamespaceHookDispatcher(
       @IcebergHookGraph.EventLayer IcebergNamespaceOperationDispatcher dispatcher,
       @IcebergHookGraph.Metalake String metalake,
-      EntityStore entityStore,
-      LockManager lockManager,
-      SchemaDispatcher schemaDispatcher,
-      TableDispatcher tableDispatcher,
-      ViewDispatcher viewDispatcher,
-      OwnerDispatcher ownerDispatcher,
-      @IcebergHookGraph.SchemaSeparator String schemaSeparator,
-      IcebergOrphanSchemaCleanup orphanSchemaCleanup) {
+      IcebergHookDependencies dependencies) {
     this.dispatcher = dispatcher;
     this.metalake = metalake;
-    this.entityStore = entityStore;
-    this.lockManager = lockManager;
-    this.schemaDispatcher = schemaDispatcher;
-    this.tableDispatcher = tableDispatcher;
-    this.viewDispatcher = viewDispatcher;
-    this.ownerDispatcher = ownerDispatcher;
-    this.schemaSeparator = schemaSeparator;
-    this.orphanSchemaCleanup = orphanSchemaCleanup;
+    this.dependencies = dependencies;
+    this.orphanSchemaCleanup = new IcebergOrphanSchemaCleanup(dependencies);
   }
 
   @Override
@@ -121,7 +92,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // and lets disjoint branches (e.g. A:... and X:...) create in parallel.
     CreateNamespaceResponse createNamespaceResponse =
         TreeLockUtils.doWithTreeLock(
-            lockManager,
+            dependencies.lockManager(),
             NameIdentifier.of(metalake, catalogName, leaf.level(0)),
             LockType.WRITE,
             () -> {
@@ -140,7 +111,12 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // every newly-created namespace in this request gets an owner assigned.
     newlyOwned.add(leaf);
     IcebergOwnershipUtils.setSchemaOwners(
-        metalake, catalogName, newlyOwned, context.userName(), ownerDispatcher, schemaSeparator);
+        metalake,
+        catalogName,
+        newlyOwned,
+        context.userName(),
+        dependencies.ownerDispatcher(),
+        dependencies.schemaSeparator());
     return createNamespaceResponse;
   }
 
@@ -153,6 +129,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
    * Namespace.of("A")} already exists, this returns {@code [Namespace.of("A","B")]}.
    */
   private List<Namespace> getMissingAncestors(IcebergRequestContext context, Namespace namespace) {
+    String schemaSeparator = dependencies.schemaSeparator();
     String namespaceName = String.join(schemaSeparator, namespace.levels());
     List<String> ancestorNames =
         HierarchicalSchemaUtil.getAncestorNames(namespaceName, schemaSeparator);
@@ -188,7 +165,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // Same top-level branch lock as createNamespace, so the phantom-row cleanup stays atomic
     // against concurrent creates that could re-add children under our ancestors.
     TreeLockUtils.doWithTreeLock(
-        lockManager,
+        dependencies.lockManager(),
         NameIdentifier.of(metalake, catalogName, namespace.level(0)),
         LockType.WRITE,
         () -> {
@@ -251,8 +228,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerTableRequest.name(),
         context.userName(),
-        ownerDispatcher,
-        schemaSeparator);
+        dependencies.ownerDispatcher(),
+        dependencies.schemaSeparator());
 
     return response;
   }
@@ -279,22 +256,27 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerViewRequest.name(),
         context.userName(),
-        ownerDispatcher,
-        schemaSeparator);
+        dependencies.ownerDispatcher(),
+        dependencies.schemaSeparator());
 
     return response;
   }
 
   private void importView(String catalogName, Namespace namespace, String viewName) {
+    ViewDispatcher viewDispatcher = dependencies.viewDispatcher();
     if (viewDispatcher != null) {
       viewDispatcher.loadView(
           IcebergIdentifierUtils.toGravitinoTableIdentifier(
-              metalake, catalogName, TableIdentifier.of(namespace, viewName), schemaSeparator));
+              metalake,
+              catalogName,
+              TableIdentifier.of(namespace, viewName),
+              dependencies.schemaSeparator()));
     }
   }
 
   private boolean hasViewEntityInStore(
       IcebergRequestContext context, Namespace namespace, String viewName) {
+    EntityStore entityStore = dependencies.entityStore();
     if (entityStore == null) {
       return false;
     }
@@ -304,7 +286,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
               metalake,
               context.catalogName(),
               TableIdentifier.of(namespace, viewName),
-              schemaSeparator),
+              dependencies.schemaSeparator()),
           Entity.EntityType.VIEW);
     } catch (IOException ioe) {
       throw new RuntimeException("io exception when checking view entity existence", ioe);
@@ -313,6 +295,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
 
   private boolean hasTableEntityInStore(
       IcebergRequestContext context, Namespace namespace, String tableName) {
+    EntityStore entityStore = dependencies.entityStore();
     if (entityStore == null) {
       return false;
     }
@@ -322,7 +305,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
               metalake,
               context.catalogName(),
               TableIdentifier.of(namespace, tableName),
-              schemaSeparator),
+              dependencies.schemaSeparator()),
           Entity.EntityType.TABLE);
     } catch (IOException ioe) {
       throw new RuntimeException("io exception when checking table entity existence", ioe);
@@ -330,18 +313,23 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
   }
 
   private void importTable(String catalogName, Namespace namespace, String tableName) {
+    TableDispatcher tableDispatcher = dependencies.tableDispatcher();
     if (tableDispatcher != null) {
       tableDispatcher.loadTable(
           IcebergIdentifierUtils.toGravitinoTableIdentifier(
-              metalake, catalogName, TableIdentifier.of(namespace, tableName), schemaSeparator));
+              metalake,
+              catalogName,
+              TableIdentifier.of(namespace, tableName),
+              dependencies.schemaSeparator()));
     }
   }
 
   private void importSchema(String catalogName, Namespace namespace) {
+    SchemaDispatcher schemaDispatcher = dependencies.schemaDispatcher();
     if (schemaDispatcher != null) {
       schemaDispatcher.loadSchema(
           IcebergIdentifierUtils.toGravitinoSchemaIdentifier(
-              metalake, catalogName, namespace, schemaSeparator));
+              metalake, catalogName, namespace, dependencies.schemaSeparator()));
     }
   }
 }
