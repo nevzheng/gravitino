@@ -1,0 +1,55 @@
+{
+  "description": "GravitinoEnv migration baseline before the Dagger proof of concept",
+  "metrics": {
+    "field_utils_read_write": {
+      "all": {
+        "code_files": 85,
+        "code_occurrences": 368,
+        "files": 85,
+        "occurrences": 368
+      },
+      "production": {
+        "code_files": 7,
+        "code_occurrences": 21,
+        "files": 7,
+        "occurrences": 21
+      },
+      "test": {
+        "code_files": 78,
+        "code_occurrences": 347,
+        "files": 78,
+        "occurrences": 347
+      }
+    },
+    "gravitino_env": {
+      "constructor_calls": 70,
+      "instance_field_declarations": 39,
+      "lines": 829,
+      "path": "core/src/main/java/org/apache/gravitino/GravitinoEnv.java"
+    },
+    "gravitino_env_get_instance": {
+      "all": {
+        "code_files": 147,
+        "code_occurrences": 457,
+        "files": 147,
+        "occurrences": 458
+      },
+      "production": {
+        "code_files": 70,
+        "code_occurrences": 155,
+        "files": 70,
+        "occurrences": 155
+      },
+      "test": {
+        "code_files": 77,
+        "code_occurrences": 302,
+        "files": 77,
+        "occurrences": 303
+      }
+    },
+    "migrated_package_violations": []
+  },
+  "migrated_packages": [],
+  "schema_version": 1,
+  "source_revision": "bc2b09b7a17cf229debff1e70e58b1ab7434c8a5"
+}
