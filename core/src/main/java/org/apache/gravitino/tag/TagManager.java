@@ -62,14 +62,6 @@ public class TagManager implements TagDispatcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(TagManager.class);
 
-  private final IdGenerator idGenerator;
-
-  private final EntityStore entityStore;
-
-  private final LockManager lockManager;
-
-  private final MetadataObjectExistenceChecker metadataObjectExistenceChecker;
-
   private static final Set<MetadataObject.Type> SUPPORTED_METADATA_OBJECT_TYPES_FOR_TAGS =
       Sets.newHashSet(
           MetadataObject.Type.CATALOG,
@@ -81,6 +73,14 @@ public class TagManager implements TagDispatcher {
           MetadataObject.Type.COLUMN,
           MetadataObject.Type.MODEL,
           MetadataObject.Type.FUNCTION);
+
+  private final IdGenerator idGenerator;
+
+  private final EntityStore entityStore;
+
+  private final LockManager lockManager;
+
+  private final MetadataObjectExistenceChecker metadataObjectExistenceChecker;
 
   /**
    * Creates a tag manager.
