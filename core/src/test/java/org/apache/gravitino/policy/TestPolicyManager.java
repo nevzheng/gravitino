@@ -38,6 +38,7 @@ import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
@@ -71,6 +72,8 @@ import org.apache.gravitino.exceptions.NotFoundException;
 import org.apache.gravitino.exceptions.PolicyAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.lock.LockType;
+import org.apache.gravitino.lock.TreeLock;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
@@ -117,9 +120,8 @@ public class TestPolicyManager {
     Config config = mockConfig();
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
-    policyManager = new PolicyManager(idGenerator, entityStore);
+    policyManager = new PolicyManager(idGenerator, entityStore, new LockManager(config));
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "metalakeDispatcher", metalakeDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogDispatcher", catalogDispatcher, true);
@@ -184,6 +186,21 @@ public class TestPolicyManager {
             .build();
     entityStore.put(table, false /* overwritten */);
     when(tableDispatcher.tableExists(any())).thenReturn(true);
+  }
+
+  @Test
+  public void testUsesInjectedLockManager() {
+    LockManager injectedLockManager = mock(LockManager.class);
+    TreeLock treeLock = mock(TreeLock.class);
+    when(injectedLockManager.createTreeLock(any())).thenReturn(treeLock);
+    PolicyManager manager =
+        new PolicyManager(new RandomIdGenerator(), entityStore, injectedLockManager);
+
+    manager.listPolicies(METALAKE);
+
+    verify(injectedLockManager).createTreeLock(any());
+    verify(treeLock).lock(LockType.READ);
+    verify(treeLock).unlock();
   }
 
   private static Config mockConfig() {

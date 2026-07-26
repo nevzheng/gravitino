@@ -31,6 +31,7 @@ import java.util.Set;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -39,6 +40,7 @@ import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchPolicyException;
 import org.apache.gravitino.exceptions.PolicyAlreadyAssociatedException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -67,8 +69,30 @@ public class PolicyManager implements PolicyDispatcher {
 
   private final IdGenerator idGenerator;
   private final EntityStore entityStore;
+  private final LockManager lockManager;
 
+  /**
+   * Creates a policy manager using the application environment's lock manager.
+   *
+   * <p>This compatibility seam exists only while {@link GravitinoEnv} still assembles policy
+   * services manually. New composition roots should use {@link #PolicyManager(IdGenerator,
+   * EntityStore, LockManager)} so the dependency is explicit.
+   *
+   * @param idGenerator the ID generator used to create policies
+   * @param entityStore the store containing policies and their relations
+   */
   public PolicyManager(IdGenerator idGenerator, EntityStore entityStore) {
+    this(idGenerator, entityStore, GravitinoEnv.getInstance().lockManager());
+  }
+
+  /**
+   * Creates a policy manager.
+   *
+   * @param idGenerator the ID generator used to create policies
+   * @param entityStore the store containing policies and their relations
+   * @param lockManager the manager used to coordinate policy operations
+   */
+  public PolicyManager(IdGenerator idGenerator, EntityStore entityStore, LockManager lockManager) {
     if (!(entityStore instanceof SupportsRelationOperations)) {
       String errorMsg =
           "PolicyManager cannot run with entity store that does not support policy operations, "
@@ -79,6 +103,7 @@ public class PolicyManager implements PolicyDispatcher {
 
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
+    this.lockManager = lockManager;
   }
 
   @Override
@@ -91,6 +116,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier metalakeIdent = NameIdentifierUtil.ofMetalake(metalake);
     checkMetalake(metalakeIdent, entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(NamespaceUtil.ofPolicy(metalake).levels()),
         LockType.READ,
         () -> {
@@ -110,6 +136,7 @@ public class PolicyManager implements PolicyDispatcher {
   public PolicyEntity getPolicy(String metalake, String policyName) throws NoSuchPolicyException {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofPolicy(metalake, policyName),
         LockType.READ,
         () -> {
@@ -140,6 +167,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier metalakeIdent = NameIdentifierUtil.ofMetalake(metalake);
     checkMetalake(metalakeIdent, entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofPolicy(metalake, policyName),
         LockType.WRITE,
         () -> {
@@ -177,6 +205,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier metalakeIdent = NameIdentifierUtil.ofMetalake(metalake);
     checkMetalake(metalakeIdent, entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofPolicy(metalake, policyName),
         LockType.WRITE,
         () -> {
@@ -216,6 +245,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier metalakeIdent = NameIdentifierUtil.ofMetalake(metalake);
     checkMetalake(metalakeIdent, entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofPolicy(metalake, policyName),
         LockType.WRITE,
         () -> {
@@ -235,6 +265,7 @@ public class PolicyManager implements PolicyDispatcher {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         policyIdent,
         LockType.READ,
         () -> {
@@ -270,6 +301,7 @@ public class PolicyManager implements PolicyDispatcher {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         entityIdent,
         LockType.READ,
         () -> {
@@ -332,10 +364,12 @@ public class PolicyManager implements PolicyDispatcher {
 
     checkMetalake(NameIdentifier.of(metalake), entityStore);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         entityIdent,
         LockType.READ,
         () ->
             TreeLockUtils.doWithTreeLock(
+                lockManager,
                 NameIdentifier.of(NamespaceUtil.ofPolicy(metalake).levels()),
                 LockType.WRITE,
                 () -> {
@@ -381,6 +415,7 @@ public class PolicyManager implements PolicyDispatcher {
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         entityIdent,
         LockType.READ,
         () -> {
@@ -414,6 +449,7 @@ public class PolicyManager implements PolicyDispatcher {
     NameIdentifier metalakeIdent = NameIdentifierUtil.ofMetalake(metalake);
     checkMetalake(metalakeIdent, entityStore);
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofPolicy(metalake, policyName),
         LockType.WRITE,
         () -> {
