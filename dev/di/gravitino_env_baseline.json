@@ -1,5 +1,5 @@
 {
-  "description": "GravitinoEnv migration baseline after governance, with exact legacy constructor compatibility bridge callsites",
+  "description": "GravitinoEnv migration baseline after the authorization runtime seam",
   "legacy_runtime_dependencies_allowed_callsites": [
     "core/src/main/java/org/apache/gravitino/authorization/AccessControlManager.java#lockManager",
     "core/src/main/java/org/apache/gravitino/authorization/AuthorizerResolver.java#gravitinoAuthorizer",
@@ -20,10 +20,10 @@
   "metrics": {
     "field_utils_read_write": {
       "all": {
-        "code_files": 79,
-        "code_occurrences": 347,
-        "files": 79,
-        "occurrences": 347
+        "code_files": 78,
+        "code_occurrences": 338,
+        "files": 78,
+        "occurrences": 338
       },
       "production": {
         "code_files": 7,
@@ -32,10 +32,10 @@
         "occurrences": 21
       },
       "test": {
-        "code_files": 72,
-        "code_occurrences": 326,
-        "files": 72,
-        "occurrences": 326
+        "code_files": 71,
+        "code_occurrences": 317,
+        "files": 71,
+        "occurrences": 317
       }
     },
     "gravitino_env": {
@@ -46,22 +46,22 @@
     },
     "gravitino_env_get_instance": {
       "all": {
-        "code_files": 136,
-        "code_occurrences": 426,
-        "files": 136,
-        "occurrences": 427
+        "code_files": 133,
+        "code_occurrences": 406,
+        "files": 133,
+        "occurrences": 407
       },
       "production": {
-        "code_files": 65,
-        "code_occurrences": 148,
-        "files": 65,
-        "occurrences": 148
+        "code_files": 63,
+        "code_occurrences": 140,
+        "files": 63,
+        "occurrences": 140
       },
       "test": {
-        "code_files": 71,
-        "code_occurrences": 278,
-        "files": 71,
-        "occurrences": 279
+        "code_files": 70,
+        "code_occurrences": 266,
+        "files": 70,
+        "occurrences": 267
       }
     },
     "tree_lock_utils": {
@@ -98,12 +98,12 @@
       "do_with_tree_lock": {
         "explicit_lock_manager_4_arg": {
           "all": {
-            "files": 4,
-            "occurrences": 33
+            "files": 7,
+            "occurrences": 71
           },
           "production": {
-            "files": 3,
-            "occurrences": 30
+            "files": 6,
+            "occurrences": 68
           },
           "test": {
             "files": 1,
@@ -112,12 +112,12 @@
         },
         "legacy_3_arg": {
           "all": {
-            "files": 17,
-            "occurrences": 124
+            "files": 14,
+            "occurrences": 86
           },
           "production": {
-            "files": 17,
-            "occurrences": 124
+            "files": 14,
+            "occurrences": 86
           },
           "test": {
             "files": 0,
@@ -143,12 +143,12 @@
     "migrated_package_violations": []
   },
   "metric_source_revisions": {
-    "tree_lock_utils": "b5bd49a7a779d22c6a56978a7257707cb3a7d78f"
+    "tree_lock_utils": "ba202d59aaf70a062a08cde6728701f825bc985c"
   },
   "migrated_packages": [
     "org.apache.gravitino.policy",
     "org.apache.gravitino.tag"
   ],
   "schema_version": 1,
-  "source_revision": "9087b95e8553c038e1f65ddb09fb38d3a1a6ab77"
+  "source_revision": "ba202d59aaf70a062a08cde6728701f825bc985c"
 }
