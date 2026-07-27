@@ -149,6 +149,24 @@ public class IcebergPurgeSQLProvider {
         + " AND j.lease_expires_at > #{now})";
   }
 
+  /** Schedules another target-level attempt without consuming the table action retry budget. */
+  public static String recordTargetRetry(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("reason") String reason,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = 'PENDING',"
+        + " cleanup_last_error = #{reason}, updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'PURGING' AND cleanup_status = 'RUNNING'"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
   /** Yields a bounded table item without recording a cleanup failure attempt. */
   public static String yieldAction(
       @Param("deletionId") String deletionId,
@@ -195,22 +213,33 @@ public class IcebergPurgeSQLProvider {
   /** Aggregates table-item progress without changing the public action lifecycle. */
   public static String countActionStatuses(@Param("purgeJobId") String purgeJobId) {
     return "SELECT"
-        + " COALESCE(SUM(CASE WHEN cleanup_status = 'PENDING'"
-        + " AND cleanup_attempt_count = 0 THEN 1 ELSE 0 END), 0) AS pendingCount,"
-        + " COALESCE(SUM(CASE WHEN cleanup_status = 'RUNNING' THEN 1 ELSE 0 END), 0)"
+        + " COALESCE(SUM(CASE WHEN d.cleanup_status = 'PENDING'"
+        + " AND d.cleanup_attempt_count = 0 AND NOT EXISTS (SELECT 1"
+        + " FROM iceberg_purge_target t WHERE t.deletion_id = d.deletion_id"
+        + " AND t.state = 'RETRYING') THEN 1 ELSE 0 END), 0) AS pendingCount,"
+        + " COALESCE(SUM(CASE WHEN d.cleanup_status = 'RUNNING' THEN 1 ELSE 0 END), 0)"
         + " AS runningCount,"
-        + " COALESCE(SUM(CASE WHEN cleanup_status = 'SUCCEEDED' THEN 1 ELSE 0 END), 0)"
+        + " COALESCE(SUM(CASE WHEN d.cleanup_status = 'SUCCEEDED' THEN 1 ELSE 0 END), 0)"
         + " AS succeededCount,"
-        + " COALESCE(SUM(CASE WHEN cleanup_status = 'FAILED' THEN 1 ELSE 0 END), 0)"
+        + " COALESCE(SUM(CASE WHEN d.cleanup_status = 'FAILED' THEN 1 ELSE 0 END), 0)"
         + " AS failedCount,"
-        + " COALESCE(SUM(CASE WHEN cleanup_status = 'PENDING'"
-        + " AND cleanup_attempt_count > 0 THEN 1 ELSE 0 END), 0) AS retryingCount"
-        + " FROM entity_deletion WHERE purge_job_id = #{purgeJobId}";
+        + " COALESCE(SUM(CASE WHEN d.cleanup_status = 'PENDING'"
+        + " AND (d.cleanup_attempt_count > 0 OR EXISTS (SELECT 1"
+        + " FROM iceberg_purge_target t WHERE t.deletion_id = d.deletion_id"
+        + " AND t.state = 'RETRYING')) THEN 1 ELSE 0 END), 0) AS retryingCount"
+        + " FROM entity_deletion d WHERE d.purge_job_id = #{purgeJobId}";
   }
 
   /** Counts lifecycle audit events associated with one purge batch. */
   public static String countAuditsByJob(@Param("purgeJobId") String purgeJobId) {
     return "SELECT COUNT(*) FROM entity_deletion_audit WHERE purge_job_id = #{purgeJobId}";
+  }
+
+  /** Counts a specific append-only lifecycle event in one purge batch. */
+  public static String countAuditsByEvent(
+      @Param("purgeJobId") String purgeJobId, @Param("eventType") String eventType) {
+    return "SELECT COUNT(*) FROM entity_deletion_audit WHERE purge_job_id = #{purgeJobId}"
+        + " AND event_type = #{eventType}";
   }
 
   /** Inserts one durable batch header. */
@@ -242,7 +271,8 @@ public class IcebergPurgeSQLProvider {
   public static String selectClaimableJobs(@Param("now") long now, @Param("limit") int limit) {
     return "SELECT "
         + JOB_COLUMNS
-        + " FROM iceberg_purge_job WHERE state = 'PENDING'"
+        + " FROM iceberg_purge_job WHERE (state = 'PENDING'"
+        + " AND (lease_expires_at IS NULL OR lease_expires_at <= #{now}))"
         + " OR (state = 'RUNNING' AND lease_expires_at <= #{now})"
         + " ORDER BY updated_at, purge_job_id LIMIT #{limit}";
   }
@@ -250,6 +280,8 @@ public class IcebergPurgeSQLProvider {
   /** Claims or reclaims one batch and increments its fencing epoch. */
   public static String claimJob(
       @Param("purgeJobId") String purgeJobId,
+      @Param("expectedState") String expectedState,
+      @Param("expectedLeaseEpoch") long expectedLeaseEpoch,
       @Param("owner") String owner,
       @Param("now") long now,
       @Param("leaseExpiresAt") long leaseExpiresAt) {
@@ -258,7 +290,10 @@ public class IcebergPurgeSQLProvider {
         + " heartbeat_at = #{now}, attempt_count = attempt_count + 1,"
         + " started_at = CASE WHEN started_at IS NULL THEN #{now} ELSE started_at END,"
         + " updated_at = #{now} WHERE purge_job_id = #{purgeJobId}"
-        + " AND (state = 'PENDING' OR (state = 'RUNNING' AND lease_expires_at <= #{now}))";
+        + " AND state = #{expectedState} AND lease_epoch = #{expectedLeaseEpoch}"
+        + " AND ((state = 'PENDING'"
+        + " AND (lease_expires_at IS NULL OR lease_expires_at <= #{now}))"
+        + " OR (state = 'RUNNING' AND lease_expires_at <= #{now}))";
   }
 
   /** Renews an unexpired lease held by the exact owner and epoch. */
@@ -308,9 +343,11 @@ public class IcebergPurgeSQLProvider {
       @Param("succeededCount") long succeededCount,
       @Param("failedCount") long failedCount,
       @Param("retryingCount") long retryingCount,
+      @Param("nextClaimAt") long nextClaimAt,
       @Param("now") long now) {
     return "UPDATE iceberg_purge_job SET state = 'PENDING', owner = NULL,"
-        + " lease_expires_at = NULL, heartbeat_at = NULL, pending_count = #{pendingCount},"
+        + " lease_expires_at = #{nextClaimAt}, heartbeat_at = NULL,"
+        + " pending_count = #{pendingCount},"
         + " running_count = #{runningCount}, succeeded_count = #{succeededCount},"
         + " failed_count = #{failedCount}, retrying_count = #{retryingCount},"
         + " updated_at = #{now} WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"

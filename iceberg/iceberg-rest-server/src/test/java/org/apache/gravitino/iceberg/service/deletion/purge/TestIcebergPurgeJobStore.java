@@ -157,6 +157,7 @@ public class TestIcebergPurgeJobStore extends TestJDBCBackend {
     IcebergPurgeJobPO reclaimed = purgeStore.takeJob("worker-2", NOW + 150, 100, 10).orElseThrow();
     Assertions.assertEquals(2, reclaimed.getLeaseEpoch());
     Assertions.assertEquals("worker-2", reclaimed.getOwner());
+    Assertions.assertEquals(1, purgeStore.countAudits(jobId, "PURGE_RECLAIMED"));
     Assertions.assertFalse(purgeStore.heartbeat(jobId, "worker-1", 1, NOW + 151, 100));
     Assertions.assertTrue(purgeStore.heartbeat(jobId, "worker-2", 2, NOW + 151, 100));
   }
@@ -204,6 +205,8 @@ public class TestIcebergPurgeJobStore extends TestJDBCBackend {
     Assertions.assertEquals(2, newClaim.getLeaseEpoch());
     Assertions.assertTrue(
         purgeStore.markTargetSucceeded(newClaim, "worker-2", reclaimed.getLeaseEpoch(), NOW + 101));
+    Assertions.assertEquals(2, purgeStore.countAudits(jobId, "PURGE_STARTED"));
+    Assertions.assertEquals(1, purgeStore.countAudits(jobId, "PURGE_RECLAIMED"));
   }
 
   @TestTemplate

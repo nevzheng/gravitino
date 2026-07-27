@@ -177,7 +177,14 @@ public class IcebergPurgeJobStore {
         int updated =
             SessionUtils.doWithCommitAndFetchResult(
                 IcebergPurgeJobMapper.class,
-                mapper -> mapper.claimJob(candidate.getPurgeJobId(), owner, now, leaseExpiresAt));
+                mapper ->
+                    mapper.claimJob(
+                        candidate.getPurgeJobId(),
+                        candidate.getState(),
+                        candidate.getLeaseEpoch(),
+                        owner,
+                        now,
+                        leaseExpiresAt));
         if (updated == 0) {
           SessionUtils.rollbackTransaction();
           continue;
@@ -188,6 +195,21 @@ public class IcebergPurgeJobStore {
                 IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(candidate.getPurgeJobId()));
         if (claimed == null) {
           throw new IllegalStateException("Claimed purge job disappeared");
+        }
+        List<EntityDeletionPO> actions =
+            SessionUtils.getWithoutCommit(
+                IcebergPurgeActionMapper.class,
+                mapper -> mapper.selectActionsByJob(claimed.getPurgeJobId()));
+        if ("RUNNING".equals(candidate.getState())) {
+          for (EntityDeletionPO action : actions) {
+            if ("PURGING".equals(action.getState())
+                && !"SUCCEEDED".equals(action.getCleanupStatus())
+                && !"FAILED".equals(action.getCleanupStatus())) {
+              SessionUtils.doWithCommit(
+                  EntityDeletionAuditMapper.class,
+                  mapper -> mapper.insertAudit(reclaimedAudit(action, claimed, owner, now)));
+            }
+          }
         }
         SessionUtils.doWithCommit(
             IcebergPurgeTargetMapper.class,
@@ -262,16 +284,34 @@ public class IcebergPurgeJobStore {
   /** Starts one pending table-level item under the exact live batch lease. */
   public Optional<EntityDeletionPO> beginAction(
       String deletionId, String purgeJobId, String owner, long leaseEpoch, long now) {
-    int updated =
-        SessionUtils.doWithCommitAndFetchResult(
-            IcebergPurgeActionMapper.class,
-            mapper -> mapper.beginAction(deletionId, purgeJobId, owner, leaseEpoch, now));
-    if (updated == 0) {
-      return Optional.empty();
+    SessionUtils.beginTransaction();
+    try {
+      int updated =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeActionMapper.class,
+              mapper -> mapper.beginAction(deletionId, purgeJobId, owner, leaseEpoch, now));
+      if (updated == 0) {
+        SessionUtils.rollbackTransaction();
+        return Optional.empty();
+      }
+      EntityDeletionPO action =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId));
+      IcebergPurgeJobPO job =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(purgeJobId));
+      if (action == null || job == null) {
+        throw new IllegalStateException("Purge action or job disappeared while starting work");
+      }
+      SessionUtils.doWithCommit(
+          EntityDeletionAuditMapper.class,
+          mapper -> mapper.insertAudit(startedAudit(action, job, owner, leaseEpoch, now)));
+      SessionUtils.commitTransaction();
+      return Optional.of(action);
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
     }
-    return Optional.ofNullable(
-        SessionUtils.getWithoutCommit(
-            IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId)));
   }
 
   /**
@@ -320,12 +360,76 @@ public class IcebergPurgeJobStore {
               .deletionId(action.getDeletionId())
               .entityType(action.getEntityType())
               .entityId(action.getEntityId())
-              .eventType("FAILED".equals(nextStatus) ? "PURGE_ITEM_FAILED" : "PURGE_ITEM_RETRY")
+              .eventType("FAILED".equals(nextStatus) ? "PURGE_FAILED" : "PURGE_RETRY_SCHEDULED")
               .actionRevision(action.getRevision())
               .priorState("PURGING")
               .newState("PURGING")
               .priorCleanupStatus("RUNNING")
               .newCleanupStatus(nextStatus)
+              .purgeJobId(action.getPurgeJobId())
+              .leaseEpoch(leaseEpoch)
+              .actor(owner)
+              .requestId(action.getRequestId())
+              .correlationId(job.getCorrelationId())
+              .reasonCode(reasonCode)
+              .reason(safeReason)
+              .createdAt(now)
+              .build();
+      SessionUtils.doWithCommit(
+          EntityDeletionAuditMapper.class, mapper -> mapper.insertAudit(audit));
+      SessionUtils.commitTransaction();
+      return true;
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
+    }
+  }
+
+  /** Schedules a target-level retry without consuming the table action attempt budget. */
+  public boolean recordTargetRetry(
+      EntityDeletionPO action,
+      String owner,
+      long leaseEpoch,
+      String reasonCode,
+      String reason,
+      long now) {
+    Objects.requireNonNull(action, "action must not be null");
+    String safeReason = sanitizeReason(reason);
+    SessionUtils.beginTransaction();
+    try {
+      int updated =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeActionMapper.class,
+              mapper ->
+                  mapper.recordTargetRetry(
+                      action.getDeletionId(),
+                      action.getPurgeJobId(),
+                      owner,
+                      leaseEpoch,
+                      safeReason,
+                      now));
+      if (updated == 0) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+      IcebergPurgeJobPO job =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(action.getPurgeJobId()));
+      if (job == null) {
+        throw new IllegalStateException("Purge job disappeared while scheduling target retry");
+      }
+      EntityDeletionAuditPO audit =
+          EntityDeletionAuditPO.builder()
+              .auditId(nextOpaqueId())
+              .deletionId(action.getDeletionId())
+              .entityType(action.getEntityType())
+              .entityId(action.getEntityId())
+              .eventType("PURGE_RETRY_SCHEDULED")
+              .actionRevision(action.getRevision())
+              .priorState("PURGING")
+              .newState("PURGING")
+              .priorCleanupStatus("RUNNING")
+              .newCleanupStatus("PENDING")
               .purgeJobId(action.getPurgeJobId())
               .leaseEpoch(leaseEpoch)
               .actor(owner)
@@ -362,6 +466,11 @@ public class IcebergPurgeJobStore {
   long countAudits(String purgeJobId) {
     return SessionUtils.getWithoutCommit(
         IcebergPurgeActionMapper.class, mapper -> mapper.countAuditsByJob(purgeJobId));
+  }
+
+  long countAudits(String purgeJobId, String eventType) {
+    return SessionUtils.getWithoutCommit(
+        IcebergPurgeActionMapper.class, mapper -> mapper.countAuditsByEvent(purgeJobId, eventType));
   }
 
   /**
@@ -760,7 +869,7 @@ public class IcebergPurgeJobStore {
               .deletionId(deletionId)
               .entityType(action.getEntityType())
               .entityId(action.getEntityId())
-              .eventType("PURGED")
+              .eventType("PURGE_COMPLETED")
               .actionRevision(action.getRevision() + 1)
               .priorState("PURGING")
               .newState("PURGED")
@@ -792,7 +901,11 @@ public class IcebergPurgeJobStore {
    * @param now authoritative server timestamp
    * @return true when the exact owner and epoch update succeeds
    */
-  public boolean settleJob(String purgeJobId, String owner, long leaseEpoch, long now) {
+  public boolean settleJob(
+      String purgeJobId, String owner, long leaseEpoch, long now, long nextClaimAt) {
+    if (nextClaimAt < now) {
+      throw new IllegalArgumentException("nextClaimAt must not precede now");
+    }
     IcebergPurgeCountsPO counts =
         SessionUtils.getWithoutCommit(
             IcebergPurgeActionMapper.class, mapper -> mapper.countActionStatuses(purgeJobId));
@@ -822,6 +935,7 @@ public class IcebergPurgeJobStore {
                       counts.getSucceededCount(),
                       counts.getFailedCount(),
                       counts.getRetryingCount(),
+                      nextClaimAt,
                       now))
           == 1;
     }
@@ -912,6 +1026,54 @@ public class IcebergPurgeJobStore {
         .actor(collector)
         .requestId(action.getRequestId())
         .correlationId(correlationId)
+        .createdAt(now)
+        .build();
+  }
+
+  private EntityDeletionAuditPO reclaimedAudit(
+      EntityDeletionPO action, IcebergPurgeJobPO job, String owner, long now) {
+    String priorCleanupStatus = action.getCleanupStatus();
+    String newCleanupStatus = "RUNNING".equals(priorCleanupStatus) ? "PENDING" : priorCleanupStatus;
+    return EntityDeletionAuditPO.builder()
+        .auditId(nextOpaqueId())
+        .deletionId(action.getDeletionId())
+        .entityType(action.getEntityType())
+        .entityId(action.getEntityId())
+        .eventType("PURGE_RECLAIMED")
+        .actionRevision(action.getRevision())
+        .priorState("PURGING")
+        .newState("PURGING")
+        .priorCleanupStatus(priorCleanupStatus)
+        .newCleanupStatus(newCleanupStatus)
+        .purgeJobId(job.getPurgeJobId())
+        .leaseEpoch(job.getLeaseEpoch())
+        .actor(owner)
+        .requestId(action.getRequestId())
+        .correlationId(job.getCorrelationId())
+        .reasonCode("LEASE_EXPIRED")
+        .reason("Expired purge lease was reclaimed")
+        .createdAt(now)
+        .build();
+  }
+
+  private EntityDeletionAuditPO startedAudit(
+      EntityDeletionPO action, IcebergPurgeJobPO job, String owner, long leaseEpoch, long now) {
+    return EntityDeletionAuditPO.builder()
+        .auditId(nextOpaqueId())
+        .deletionId(action.getDeletionId())
+        .entityType(action.getEntityType())
+        .entityId(action.getEntityId())
+        .eventType("PURGE_STARTED")
+        .actionRevision(action.getRevision())
+        .priorState("PURGING")
+        .newState("PURGING")
+        .priorCleanupStatus("PENDING")
+        .newCleanupStatus("RUNNING")
+        .purgeJobId(job.getPurgeJobId())
+        .leaseEpoch(leaseEpoch)
+        .actor(owner)
+        .requestId(action.getRequestId())
+        .correlationId(job.getCorrelationId())
         .createdAt(now)
         .build();
   }

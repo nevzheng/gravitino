@@ -19,7 +19,9 @@
 
 package org.apache.gravitino.iceberg.service.dispatcher;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.UUID;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
@@ -42,12 +44,22 @@ final class IcebergCleanupHelper {
    */
   static long catalogId(String catalogName) {
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
-    return GravitinoEnv.getInstance()
-        .catalogManager()
-        .loadCatalogAndWrap(NameIdentifier.of(metalake, catalogName))
-        .catalog()
-        .entity()
-        .id();
+    try {
+      return GravitinoEnv.getInstance()
+          .catalogManager()
+          .loadCatalogAndWrap(NameIdentifier.of(metalake, catalogName))
+          .catalog()
+          .entity()
+          .id();
+    } catch (RuntimeException noLocalCatalogAuthority) {
+      // Standalone mode has durable cleanup storage but intentionally no Gravitino CatalogManager.
+      // A name-based UUID provides a stable local key used only by the legacy cleanup name guard.
+      UUID synthetic =
+          UUID.nameUUIDFromBytes(
+              ("iceberg-rest-standalone\u001f" + metalake + "\u001f" + catalogName)
+                  .getBytes(StandardCharsets.UTF_8));
+      return synthetic.getMostSignificantBits() & Long.MAX_VALUE;
+    }
   }
 
   /**

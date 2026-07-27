@@ -154,15 +154,9 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
       return;
     }
 
-    // Async cleanup is opt-in per request and only wired in auxiliary mode; otherwise purge inline.
-    if (!context.asyncPurge()) {
-      wrapper.purgeTable(tableIdentifier);
-      return;
-    }
-
-    // Async purge needs the cleanup manager, which only exists in auxiliary mode. A request may
-    // still ask for async purge in standalone mode (empty manager); there is no async engine to
-    // enqueue into, so we fall back to synchronous purge rather than fail the request.
+    // Hard purge is always asynchronous. Standalone uses the durable legacy cleanup lane; when the
+    // relational deletion lifecycle is authoritative, the earlier branch uses the richer purge
+    // job/target ledger instead.
     cleanupManager.ifPresentOrElse(
         manager -> {
           // Read the metadata location before dropping the catalog entry, then enqueue the job. The

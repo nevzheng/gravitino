@@ -212,6 +212,25 @@ public class GravitinoEnv {
   }
 
   /**
+   * Initializes the standalone Iceberg REST environment with durable relational job storage.
+   *
+   * <p>This deliberately does not initialize Gravitino metadata dispatchers or auxiliary services.
+   * Standalone Iceberg catalogs are not a relational {@code table_meta} authority, but asynchronous
+   * hard-delete jobs still require a durable entity store and id generator.
+   *
+   * @param config configuration used by base components and the entity store
+   */
+  public void initializeIcebergRESTComponents(Config config) {
+    LOG.info("Initializing Gravitino Iceberg REST environment...");
+    this.config = config;
+    FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
+    this.manageFullComponents = false;
+    initBaseComponents();
+    initEntityStoreComponents();
+    LOG.info("Gravitino Iceberg REST environment is initialized.");
+  }
+
+  /**
    * Initialize all components, used for Gravitino server.
    *
    * @param config The configuration object to initialize the environment.
@@ -586,6 +605,16 @@ public class GravitinoEnv {
   public void shutdown() {
     LOG.info("Shutting down Gravitino Environment...");
 
+    // Auxiliary services own database-backed background workers. Stop them before closing the
+    // shared EntityStore so no collector or lease heartbeat can race pool shutdown.
+    if (auxServiceManager != null) {
+      try {
+        auxServiceManager.serviceStop();
+      } catch (Exception e) {
+        LOG.warn("Failed to stop AuxServiceManager", e);
+      }
+    }
+
     if (entityStore != null) {
       try {
         entityStore.close();
@@ -596,14 +625,6 @@ public class GravitinoEnv {
 
     if (catalogManager != null) {
       catalogManager.close();
-    }
-
-    if (auxServiceManager != null) {
-      try {
-        auxServiceManager.serviceStop();
-      } catch (Exception e) {
-        LOG.warn("Failed to stop AuxServiceManager", e);
-      }
     }
 
     if (metricsSystem != null) {
@@ -651,13 +672,14 @@ public class GravitinoEnv {
     auditLogManager.init(config, eventListenerManager);
   }
 
-  private void initGravitinoServerComponents() {
-    // Initialize EntityStore
+  private void initEntityStoreComponents() {
     this.entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
-
-    // create and initialize a random id generator
     this.idGenerator = new RandomIdGenerator();
+  }
+
+  private void initGravitinoServerComponents() {
+    initEntityStoreComponents();
 
     // Tree lock
     this.lockManager = new LockManager(config);

@@ -21,18 +21,22 @@ package org.apache.gravitino.iceberg.service.deletion.purge;
 
 import java.util.Objects;
 
-/** Classified, sanitized purge-planning or target-deletion failure. */
+/** Classified purge-planning or target-deletion failure. */
 public class IcebergPurgeException extends Exception {
 
   private final boolean retryable;
   private final String reasonCode;
 
   /**
-   * Creates a classified failure safe to persist after store-level sanitization.
+   * Creates a classified failure.
+   *
+   * <p>The worker persists only a fixed description derived from a validated reason code. This
+   * exception message is diagnostic input and must never be written directly to durable state,
+   * audit output, or an API response.
    *
    * @param retryable whether automatic retry is safe
    * @param reasonCode bounded machine-readable category
-   * @param message failure description; callers must not include credentials
+   * @param message diagnostic failure description
    */
   public IcebergPurgeException(boolean retryable, String reasonCode, String message) {
     super(message);

@@ -62,9 +62,8 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 /**
- * Covers the async purge request path in the table and namespace executors: how {@code dropTable}
- * routes on the {@code X-Gravitino-Async-Purge} header, and how {@code createTable} / {@code
- * registerTable} are blocked while a cleanup job holds the identifier.
+ * Covers the async purge request path in the table and namespace executors and how {@code
+ * createTable} / {@code registerTable} are blocked while a cleanup job holds the identifier.
  */
 class TestIcebergAsyncPurge {
 
@@ -113,14 +112,22 @@ class TestIcebergAsyncPurge {
   }
 
   @Test
-  void testSyncPurgeByDefault() {
+  void testPurgeIsAsyncWithoutLegacyOptInHeader() {
     CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
     IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.metadataFileLocation()).thenReturn("s3://b/db/t/metadata/0.json");
+    when(wrapper.loadTableMetadata(TABLE)).thenReturn(metadata);
+    when(wrapper.fileIOImpl()).thenReturn("io");
+    when(wrapper.fileIOProperties()).thenReturn(Collections.emptyMap());
 
-    tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(false), TABLE, true);
+    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
+      tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(false), TABLE, true);
+    }
 
-    verify(wrapper).purgeTable(TABLE);
-    verify(cleanup, never()).addJob(any());
+    verify(wrapper).dropTable(TABLE);
+    verify(wrapper, never()).purgeTable(TABLE);
+    verify(cleanup).addJob(any());
   }
 
   @Test
@@ -263,6 +270,27 @@ class TestIcebergAsyncPurge {
                 .registerTable(context(false), DB, registerReq()));
 
     verify(wrapper, never()).registerTable(any(), any(), anyBoolean());
+  }
+
+  @Test
+  void testPurgedNameIsVisibleLoadableAndReusable() {
+    CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
+    IcebergTableDeletionLifecycle lifecycle = mock(IcebergTableDeletionLifecycle.class);
+    when(lifecycle.isNameReserved("cat", TABLE)).thenReturn(false);
+    when(wrapper.tableExists(TABLE)).thenReturn(true);
+    when(wrapper.listTable(DB)).thenReturn(ListTablesResponse.builder().add(TABLE).build());
+    IcebergTableOperationExecutor executor =
+        tableExecutor(wrapper, Optional.empty(), Optional.of(lifecycle));
+
+    Assertions.assertTrue(executor.tableExists(context(false), TABLE));
+    Assertions.assertDoesNotThrow(() -> executor.loadTable(context(false), TABLE));
+    Assertions.assertDoesNotThrow(() -> executor.createTable(context(false), DB, createReq()));
+    Assertions.assertEquals(
+        Collections.singletonList(TABLE), executor.listTable(context(false), DB).identifiers());
+
+    verify(wrapper).tableExists(TABLE);
+    verify(wrapper).loadTable(any(), anyBoolean(), any());
+    verify(wrapper).createTable(any(), any(), anyBoolean());
   }
 
   // --- helpers ---

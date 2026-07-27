@@ -46,7 +46,7 @@ public class GravitinoIcebergRESTServer {
   }
 
   private void initialize() {
-    gravitinoEnv.initializeBaseComponents(serverConfig);
+    gravitinoEnv.initializeIcebergRESTComponents(serverConfig);
     icebergRESTService.serviceInit(
         serverConfig.getConfigsWithPrefix(IcebergConfig.ICEBERG_CONFIG_PREFIX), false);
     ServerAuthenticator.getInstance().initialize(serverConfig);
@@ -62,8 +62,12 @@ public class GravitinoIcebergRESTServer {
   }
 
   private void stop() throws Exception {
-    icebergRESTService.serviceStop();
-    LOG.info("Gravitino Iceberg REST service stopped");
+    try {
+      icebergRESTService.serviceStop();
+      LOG.info("Gravitino Iceberg REST service stopped");
+    } finally {
+      gravitinoEnv.shutdown();
+    }
   }
 
   public static void main(String[] args) {

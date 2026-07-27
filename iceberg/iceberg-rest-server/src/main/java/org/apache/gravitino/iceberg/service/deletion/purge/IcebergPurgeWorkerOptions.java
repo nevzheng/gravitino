@@ -33,6 +33,7 @@ public class IcebergPurgeWorkerOptions {
   private final int maxTargetBatchesPerRun;
   private final int maxActionAttempts;
   private final int maxTargetAttempts;
+  private final long retryDelayMs;
 
   /** Returns conservative defaults suitable for production configuration wiring. */
   public static IcebergPurgeWorkerOptions defaults() {
@@ -44,6 +45,7 @@ public class IcebergPurgeWorkerOptions {
         .withMaxTargetBatchesPerRun(100)
         .withMaxActionAttempts(5)
         .withMaxTargetAttempts(5)
+        .withRetryDelayMs(5_000L)
         .build();
   }
 
@@ -56,7 +58,8 @@ public class IcebergPurgeWorkerOptions {
         || planningWriteBatchSize > IcebergPurgeJobStore.MAX_TARGET_WRITE_BATCH
         || maxTargetBatchesPerRun <= 0
         || maxActionAttempts <= 0
-        || maxTargetAttempts <= 0) {
+        || maxTargetAttempts <= 0
+        || retryDelayMs <= 0) {
       throw new IllegalArgumentException("All purge worker bounds must be positive and valid");
     }
   }

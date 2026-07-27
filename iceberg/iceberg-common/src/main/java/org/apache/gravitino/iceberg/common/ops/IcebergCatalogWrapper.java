@@ -42,6 +42,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.jdbc.JdbcCatalogWithMetadataLocationSupport;
 import org.apache.iceberg.rest.CatalogHandlers;
@@ -72,6 +73,16 @@ import org.slf4j.LoggerFactory;
 public class IcebergCatalogWrapper implements AutoCloseable {
 
   public static final Logger LOG = LoggerFactory.getLogger(IcebergCatalogWrapper.class);
+
+  /** Result of attempting to remove one exact saved table registration. */
+  public enum RegistrationRemoval {
+    /** The saved registration was removed. */
+    REMOVED,
+    /** No registration currently occupies the identifier. */
+    ALREADY_ABSENT,
+    /** A different UUID or metadata location occupies the identifier. */
+    GENERATION_MISMATCH
+  }
 
   private final Object initializationLock = new Object();
   private volatile Catalog catalog;
@@ -229,6 +240,38 @@ public class IcebergCatalogWrapper implements AutoCloseable {
   public void dropTable(TableIdentifier tableIdentifier) {
     getMetadataCache().invalidate(tableIdentifier);
     CatalogHandlers.dropTable(getCatalog(), tableIdentifier);
+  }
+
+  /**
+   * Removes a table registration only after matching its saved UUID and metadata location.
+   *
+   * <p>The Iceberg REST name reservation prevents a newer generation from being registered through
+   * this server while purge owns the deletion action. The identity check additionally fences
+   * registrations created through another path before the drop call.
+   *
+   * @param tableIdentifier saved Iceberg identifier
+   * @param expectedUuid saved Iceberg table UUID
+   * @param expectedMetadataLocation saved root metadata location
+   * @return exact registration-removal result
+   */
+  public RegistrationRemoval removeRegistrationIfMatches(
+      TableIdentifier tableIdentifier, String expectedUuid, String expectedMetadataLocation) {
+    TableMetadata current;
+    try {
+      current = loadTableMetadata(tableIdentifier);
+    } catch (NoSuchTableException e) {
+      return RegistrationRemoval.ALREADY_ABSENT;
+    }
+    if (current.uuid() == null
+        || !expectedUuid.equals(current.uuid().toString())
+        || !expectedMetadataLocation.equals(current.metadataFileLocation())) {
+      return RegistrationRemoval.GENERATION_MISMATCH;
+    }
+
+    getMetadataCache().invalidate(tableIdentifier);
+    return getCatalog().dropTable(tableIdentifier, false)
+        ? RegistrationRemoval.REMOVED
+        : RegistrationRemoval.ALREADY_ABSENT;
   }
 
   public void purgeTable(TableIdentifier tableIdentifier) {

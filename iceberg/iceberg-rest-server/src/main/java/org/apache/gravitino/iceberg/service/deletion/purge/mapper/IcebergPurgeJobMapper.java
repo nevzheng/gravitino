@@ -51,6 +51,8 @@ public interface IcebergPurgeJobMapper {
   @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "claimJob")
   int claimJob(
       @Param("purgeJobId") String purgeJobId,
+      @Param("expectedState") String expectedState,
+      @Param("expectedLeaseEpoch") long expectedLeaseEpoch,
       @Param("owner") String owner,
       @Param("now") long now,
       @Param("leaseExpiresAt") long leaseExpiresAt);
@@ -91,6 +93,7 @@ public interface IcebergPurgeJobMapper {
       @Param("succeededCount") long succeededCount,
       @Param("failedCount") long failedCount,
       @Param("retryingCount") long retryingCount,
+      @Param("nextClaimAt") long nextClaimAt,
       @Param("now") long now);
 
   /** Commits a terminal aggregate state after all table items finish. */

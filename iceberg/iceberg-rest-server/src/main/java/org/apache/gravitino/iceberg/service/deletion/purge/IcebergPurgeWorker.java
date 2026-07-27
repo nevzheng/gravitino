@@ -44,6 +44,7 @@ public class IcebergPurgeWorker {
 
   private final IcebergPurgeJobStore store;
   private final IcebergDeletionContextStore contextStore;
+  private final IcebergPurgeRegistrationRemover registrationRemover;
   private final IcebergPurgePlanner planner;
   private final IcebergPurgeTargetDeleter deleter;
   private final LongSupplier clock;
@@ -67,12 +68,35 @@ public class IcebergPurgeWorker {
       IcebergPurgeTargetDeleter deleter,
       LongSupplier clock,
       IcebergPurgeWorkerOptions options) {
-    this(store, contextStore, planner, deleter, clock, options, () -> {});
+    this(store, contextStore, context -> {}, planner, deleter, clock, options, () -> {});
+  }
+
+  /**
+   * Creates a production worker with exact registration removal before physical cleanup.
+   *
+   * @param store durable batch and progress store
+   * @param contextStore immutable Iceberg deletion-context store
+   * @param registrationRemover exact saved-generation registration remover
+   * @param planner streaming exact-target snapshotter
+   * @param deleter exact target hard deleter
+   * @param clock authoritative server clock
+   * @param options bounded lease, batch, and retry controls
+   */
+  public IcebergPurgeWorker(
+      IcebergPurgeJobStore store,
+      IcebergDeletionContextStore contextStore,
+      IcebergPurgeRegistrationRemover registrationRemover,
+      IcebergPurgePlanner planner,
+      IcebergPurgeTargetDeleter deleter,
+      LongSupplier clock,
+      IcebergPurgeWorkerOptions options) {
+    this(store, contextStore, registrationRemover, planner, deleter, clock, options, () -> {});
   }
 
   IcebergPurgeWorker(
       IcebergPurgeJobStore store,
       IcebergDeletionContextStore contextStore,
+      IcebergPurgeRegistrationRemover registrationRemover,
       IcebergPurgePlanner planner,
       IcebergPurgeTargetDeleter deleter,
       LongSupplier clock,
@@ -80,6 +104,8 @@ public class IcebergPurgeWorker {
       Runnable beforeFinalize) {
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.contextStore = Objects.requireNonNull(contextStore, "contextStore must not be null");
+    this.registrationRemover =
+        Objects.requireNonNull(registrationRemover, "registrationRemover must not be null");
     this.planner = Objects.requireNonNull(planner, "planner must not be null");
     this.deleter = Objects.requireNonNull(deleter, "deleter must not be null");
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
@@ -106,6 +132,7 @@ public class IcebergPurgeWorker {
     IcebergPurgeJobPO job = claimed.get();
     WorkBudget budget = new WorkBudget(options.getMaxTargetBatchesPerRun());
     boolean lostLease = false;
+    boolean retryScheduled = false;
     for (EntityDeletionPO snapshot : store.listActions(job.getPurgeJobId())) {
       if (!budget.hasRemaining()) {
         break;
@@ -148,9 +175,22 @@ public class IcebergPurgeWorker {
         store.yieldAction(action, owner, job.getLeaseEpoch(), clock.getAsLong());
         break;
       }
-      if (outcome.kind == OutcomeKind.RETRYABLE_FAILURE
+      if (outcome.kind == OutcomeKind.TARGET_RETRY) {
+        retryScheduled = true;
+        if (!store.recordTargetRetry(
+            action,
+            owner,
+            job.getLeaseEpoch(),
+            outcome.reasonCode,
+            outcome.reason,
+            clock.getAsLong())) {
+          lostLease = true;
+          break;
+        }
+      } else if (outcome.kind == OutcomeKind.RETRYABLE_FAILURE
           || outcome.kind == OutcomeKind.PERMANENT_FAILURE) {
         boolean retryable = outcome.kind == OutcomeKind.RETRYABLE_FAILURE;
+        retryScheduled |= retryable;
         if (!store.recordActionFailure(
             action,
             owner,
@@ -167,7 +207,10 @@ public class IcebergPurgeWorker {
     }
 
     if (!lostLease) {
-      store.settleJob(job.getPurgeJobId(), owner, job.getLeaseEpoch(), clock.getAsLong());
+      long settleTime = clock.getAsLong();
+      long nextClaimAt =
+          retryScheduled ? Math.addExact(settleTime, options.getRetryDelayMs()) : settleTime;
+      store.settleJob(job.getPurgeJobId(), owner, job.getLeaseEpoch(), settleTime, nextClaimAt);
     }
     return true;
   }
@@ -179,6 +222,7 @@ public class IcebergPurgeWorker {
       return Outcome.permanent("MISSING_CONTEXT", "Immutable Iceberg deletion context is missing");
     }
 
+    LeaseHeartbeat heartbeat = new LeaseHeartbeat(job, owner);
     IcebergPurgePlanPO plan =
         store.beginPlan(
             action.getDeletionId(),
@@ -186,8 +230,7 @@ public class IcebergPurgeWorker {
             context.getContextDigest(),
             clock.getAsLong());
     if ("PLANNING".equals(plan.getState())) {
-      PlanningBuffer buffer =
-          new PlanningBuffer(action, job, context, owner, options.getPlanningWriteBatchSize());
+      PlanningBuffer buffer = new PlanningBuffer(action, job, context, options, heartbeat);
       try {
         String rootTargetId = planner.snapshot(context, buffer::add);
         buffer.flush();
@@ -200,14 +243,25 @@ public class IcebergPurgeWorker {
       } catch (LeaseLostDuringPlanningException e) {
         return Outcome.lostLease();
       } catch (IcebergPurgeException e) {
-        return Outcome.failure(e.retryable(), e.reasonCode(), e.getMessage());
+        return classifiedFailure(e);
       }
+    }
+
+    if (!heartbeat.force()) {
+      return Outcome.lostLease();
+    }
+    try {
+      registrationRemover.remove(context);
+    } catch (IcebergPurgeException e) {
+      return classifiedFailure(e);
+    }
+    if (!heartbeat.force()) {
+      return Outcome.lostLease();
     }
 
     while (budget.take()) {
       long now = clock.getAsLong();
-      if (!store.heartbeat(
-          job.getPurgeJobId(), owner, job.getLeaseEpoch(), now, options.getLeaseDurationMs())) {
+      if (!heartbeat.force()) {
         return Outcome.lostLease();
       }
       List<IcebergPurgeTargetPO> targets =
@@ -227,12 +281,17 @@ public class IcebergPurgeWorker {
       String reasonCode = null;
       String reason = null;
       for (IcebergPurgeTargetPO target : targets) {
+        if (!heartbeat.renewIfDue()) {
+          return Outcome.lostLease();
+        }
         try {
           deleter.delete(context, target);
           if (!store.markTargetSucceeded(target, owner, job.getLeaseEpoch(), clock.getAsLong())) {
             return Outcome.lostLease();
           }
         } catch (IcebergPurgeException e) {
+          String safeReasonCode = safeReasonCode(e.reasonCode());
+          String safeReason = safeReason(safeReasonCode);
           boolean willRetry =
               e.retryable() && target.getAttemptCount() < options.getMaxTargetAttempts();
           if (!store.markTargetFailure(
@@ -241,21 +300,21 @@ public class IcebergPurgeWorker {
               job.getLeaseEpoch(),
               e.retryable(),
               options.getMaxTargetAttempts(),
-              e.getMessage(),
+              safeReason,
               clock.getAsLong())) {
             return Outcome.lostLease();
           }
           retryableFailure |= willRetry;
           permanentFailure |= !willRetry;
-          reasonCode = e.reasonCode();
-          reason = e.getMessage();
+          reasonCode = safeReasonCode;
+          reason = safeReason;
         }
       }
       if (permanentFailure) {
         return Outcome.permanent(reasonCode, reason);
       }
       if (retryableFailure) {
-        return Outcome.retryable(reasonCode, reason);
+        return Outcome.targetRetry(reasonCode, reason);
       }
     }
     return Outcome.yielded();
@@ -287,11 +346,27 @@ public class IcebergPurgeWorker {
         "Exact table metadata generation was not eligible for purge finalization");
   }
 
+  private static Outcome classifiedFailure(IcebergPurgeException failure) {
+    String reasonCode = safeReasonCode(failure.reasonCode());
+    return Outcome.failure(failure.retryable(), reasonCode, safeReason(reasonCode));
+  }
+
+  private static String safeReasonCode(String reasonCode) {
+    if (reasonCode != null && reasonCode.matches("[A-Z0-9_]{1,64}")) {
+      return reasonCode;
+    }
+    return "PURGE_FAILURE";
+  }
+
+  private static String safeReason(String reasonCode) {
+    return "Iceberg purge operation failed (" + reasonCode + ")";
+  }
+
   private final class PlanningBuffer {
     private final EntityDeletionPO action;
     private final IcebergPurgeJobPO job;
     private final IcebergDeletionContextPO context;
-    private final String owner;
+    private final LeaseHeartbeat heartbeat;
     private final int batchSize;
     private final List<IcebergPurgeTargetPO> buffered;
 
@@ -299,17 +374,20 @@ public class IcebergPurgeWorker {
         EntityDeletionPO action,
         IcebergPurgeJobPO job,
         IcebergDeletionContextPO context,
-        String owner,
-        int batchSize) {
+        IcebergPurgeWorkerOptions workerOptions,
+        LeaseHeartbeat heartbeat) {
       this.action = action;
       this.job = job;
       this.context = context;
-      this.owner = owner;
-      this.batchSize = batchSize;
+      this.heartbeat = heartbeat;
+      this.batchSize = workerOptions.getPlanningWriteBatchSize();
       this.buffered = new ArrayList<>(batchSize);
     }
 
     private String add(IcebergPurgeTarget target) {
+      if (!heartbeat.renewIfDue()) {
+        throw new LeaseLostDuringPlanningException();
+      }
       String targetId = target.targetId(action.getDeletionId());
       long now = clock.getAsLong();
       buffered.add(
@@ -337,9 +415,7 @@ public class IcebergPurgeWorker {
       if (buffered.isEmpty()) {
         return;
       }
-      long now = clock.getAsLong();
-      if (!store.heartbeat(
-          job.getPurgeJobId(), owner, job.getLeaseEpoch(), now, options.getLeaseDurationMs())) {
+      if (!heartbeat.force()) {
         throw new LeaseLostDuringPlanningException();
       }
       if (!context
@@ -352,12 +428,46 @@ public class IcebergPurgeWorker {
     }
   }
 
+  private final class LeaseHeartbeat {
+    private final IcebergPurgeJobPO job;
+    private final String owner;
+    private final long renewalIntervalMs;
+    private long nextRenewalAt;
+
+    private LeaseHeartbeat(IcebergPurgeJobPO job, String owner) {
+      this.job = job;
+      this.owner = owner;
+      this.renewalIntervalMs = Math.max(1L, options.getLeaseDurationMs() / 3L);
+      this.nextRenewalAt = Long.MIN_VALUE;
+    }
+
+    private boolean renewIfDue() {
+      long now = clock.getAsLong();
+      return now < nextRenewalAt || renew(now);
+    }
+
+    private boolean force() {
+      return renew(clock.getAsLong());
+    }
+
+    private boolean renew(long now) {
+      boolean renewed =
+          store.heartbeat(
+              job.getPurgeJobId(), owner, job.getLeaseEpoch(), now, options.getLeaseDurationMs());
+      if (renewed) {
+        nextRenewalAt = Math.addExact(now, renewalIntervalMs);
+      }
+      return renewed;
+    }
+  }
+
   private static final class LeaseLostDuringPlanningException extends RuntimeException {}
 
   private enum OutcomeKind {
     SUCCEEDED,
     RETRYABLE_FAILURE,
     PERMANENT_FAILURE,
+    TARGET_RETRY,
     YIELDED,
     LOST_LEASE
   }
@@ -383,6 +493,10 @@ public class IcebergPurgeWorker {
 
     private static Outcome permanent(String reasonCode, String reason) {
       return new Outcome(OutcomeKind.PERMANENT_FAILURE, reasonCode, reason);
+    }
+
+    private static Outcome targetRetry(String reasonCode, String reason) {
+      return new Outcome(OutcomeKind.TARGET_RETRY, reasonCode, reason);
     }
 
     private static Outcome failure(boolean retryable, String reasonCode, String reason) {

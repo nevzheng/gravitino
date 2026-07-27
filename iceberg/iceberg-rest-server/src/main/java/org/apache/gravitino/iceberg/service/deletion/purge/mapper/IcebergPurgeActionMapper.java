@@ -75,6 +75,16 @@ public interface IcebergPurgeActionMapper {
       @Param("reason") String reason,
       @Param("now") long now);
 
+  /** Schedules target-level retry without consuming a table-level attempt. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "recordTargetRetry")
+  int recordTargetRetry(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("reason") String reason,
+      @Param("now") long now);
+
   /** Yields a bounded table item without recording a cleanup failure attempt. */
   @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "yieldAction")
   int yieldAction(
@@ -105,4 +115,9 @@ public interface IcebergPurgeActionMapper {
   /** Counts append-only lifecycle audit events associated with a batch. */
   @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countAuditsByJob")
   long countAuditsByJob(@Param("purgeJobId") String purgeJobId);
+
+  /** Counts one lifecycle event type associated with a batch. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countAuditsByEvent")
+  long countAuditsByEvent(
+      @Param("purgeJobId") String purgeJobId, @Param("eventType") String eventType);
 }
