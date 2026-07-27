@@ -25,9 +25,13 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Operator metrics for the Iceberg REST table-deletion lifecycle. */
 public class IcebergDeletionMetricsSource extends MetricsSource {
+
+  private static final Logger LOG = LoggerFactory.getLogger(IcebergDeletionMetricsSource.class);
 
   /** Number of accepted durable table tombstones since this process started. */
   public static final String TOMBSTONES_TOTAL = "tombstones-total";
@@ -67,7 +71,8 @@ public class IcebergDeletionMetricsSource extends MetricsSource {
     super(MetricsSource.GRAVITINO_ICEBERG_METRIC_NAME);
     Objects.requireNonNull(expiredPendingCleanup, "expiredPendingCleanup must not be null");
     this.tombstones = getCounter(TOMBSTONES_TOTAL);
-    registerGauge(TOMBSTONES_EXPIRED_PENDING_CLEANUP, expiredPendingCleanup::getAsLong);
+    registerGauge(
+        TOMBSTONES_EXPIRED_PENDING_CLEANUP, () -> readExpiredPendingCleanup(expiredPendingCleanup));
     this.cleanupDurationSeconds = getHistogram(CLEANUP_DURATION_SECONDS);
     this.cleanupSuccesses = getCounter(CLEANUP_SUCCESS_TOTAL);
     this.cleanupFailures = getCounter(CLEANUP_FAILURE_TOTAL);
@@ -98,5 +103,14 @@ public class IcebergDeletionMetricsSource extends MetricsSource {
   /** Records one durable cleanup-attempt failure. */
   public void recordCleanupFailure() {
     cleanupFailures.inc();
+  }
+
+  private static long readExpiredPendingCleanup(LongSupplier supplier) {
+    try {
+      return supplier.getAsLong();
+    } catch (RuntimeException e) {
+      LOG.warn("Unable to read the durable Iceberg deletion cleanup backlog", e);
+      return 0L;
+    }
   }
 }

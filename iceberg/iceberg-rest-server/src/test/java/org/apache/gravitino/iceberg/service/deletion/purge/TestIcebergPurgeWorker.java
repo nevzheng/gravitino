@@ -19,9 +19,14 @@
 
 package org.apache.gravitino.iceberg.service.deletion.purge;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,6 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionContextStore;
+import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSource;
 import org.apache.gravitino.iceberg.service.deletion.po.IcebergDeletionContextPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeJobPO;
 import org.apache.gravitino.storage.IdGenerator;
@@ -83,15 +89,21 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     String jobId = claimBatch(1).getPurgeJobId();
     List<String> deletedTypes = new ArrayList<>();
     List<String> operations = new ArrayList<>();
+    IcebergDeletionMetricsSource metrics = mock(IcebergDeletionMetricsSource.class);
 
     IcebergPurgeWorker worker =
-        worker(
+        new IcebergPurgeWorker(
+            purgeStore,
+            contextStore,
+            context -> operations.add("unregister"),
             planner(),
             (context, target) -> {
               deletedTypes.add(target.getTargetType());
               operations.add("delete-" + target.getTargetType());
             },
-            context -> operations.add("unregister"));
+            clock::get,
+            options(),
+            metrics);
     Assertions.assertTrue(worker.runOnce("worker-success"));
 
     EntityDeletionPO action = deletion("success");
@@ -118,6 +130,7 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     Assertions.assertNull(purgeStore.getPlan("success"));
     Assertions.assertNotNull(deletion("success"));
     Assertions.assertNotNull(purgeStore.getJob(jobId));
+    verify(metrics).recordCleanupSuccess(any(Duration.class));
   }
 
   @TestTemplate
@@ -125,6 +138,7 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     insertDeletion("failure", 201L);
     insertDeletion("healthy", 202L);
     String jobId = claimBatch(2).getPurgeJobId();
+    IcebergDeletionMetricsSource metrics = mock(IcebergDeletionMetricsSource.class);
 
     IcebergPurgeTargetDeleter deleter =
         (context, target) -> {
@@ -135,7 +149,17 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
                 "permission denied at s3://private/path password=do-not-persist");
           }
         };
-    Assertions.assertTrue(worker(planner(), deleter).runOnce("worker-partial"));
+    IcebergPurgeWorker worker =
+        new IcebergPurgeWorker(
+            purgeStore,
+            contextStore,
+            context -> {},
+            planner(),
+            deleter,
+            clock::get,
+            options(),
+            metrics);
+    Assertions.assertTrue(worker.runOnce("worker-partial"));
 
     EntityDeletionPO failed = deletion("failure");
     Assertions.assertEquals("PURGING", failed.getState());
@@ -148,6 +172,8 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     Assertions.assertEquals("PARTIAL_FAILED", purgeStore.getJob(jobId).getState());
     Assertions.assertEquals(1, rowCount("table_meta", 201L));
     Assertions.assertEquals(0, rowCount("table_meta", 202L));
+    verify(metrics).recordCleanupFailure();
+    verify(metrics).recordCleanupSuccess(any(Duration.class));
   }
 
   @TestTemplate
@@ -262,15 +288,26 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     insertDeletion("target-retry", 601L);
     String jobId = claimBatch(1).getPurgeJobId();
     AtomicInteger dataAttempts = new AtomicInteger();
+    IcebergDeletionMetricsSource metrics = mock(IcebergDeletionMetricsSource.class);
     IcebergPurgeTargetDeleter deleter =
         (context, target) -> {
           if ("DATA".equals(target.getTargetType()) && dataAttempts.getAndIncrement() == 0) {
             throw new IcebergPurgeException(true, "THROTTLED", "provider secret response");
           }
         };
-    IcebergPurgeWorker worker = worker(planner(), deleter);
+    IcebergPurgeWorker worker =
+        new IcebergPurgeWorker(
+            purgeStore,
+            contextStore,
+            context -> {},
+            planner(),
+            deleter,
+            clock::get,
+            options(),
+            metrics);
 
     Assertions.assertTrue(worker.runOnce("worker-target-1"));
+    verify(metrics).recordCleanupFailure();
     Assertions.assertEquals("PENDING", deletion("target-retry").getCleanupStatus());
     Assertions.assertEquals(0, deletion("target-retry").getCleanupAttemptCount());
     Assertions.assertEquals("PENDING", purgeStore.getJob(jobId).getState());
@@ -281,6 +318,7 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     Assertions.assertEquals("PURGED", deletion("target-retry").getState());
     Assertions.assertEquals(0, deletion("target-retry").getCleanupAttemptCount());
     Assertions.assertEquals(2, dataAttempts.get());
+    verify(metrics).recordCleanupSuccess(any(Duration.class));
   }
 
   @TestTemplate

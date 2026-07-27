@@ -85,6 +85,8 @@ public class TestIcebergPurgeJobStore extends TestJDBCBackend {
     insertDeletion("restored", NOW - 1, "RESTORED", true);
     insertDeletion("missing-context", NOW - 1, "DELETED", false);
 
+    Assertions.assertEquals(3L, purgeStore.countEligibleActions(NOW));
+
     IcebergPurgeJobPO first =
         purgeStore
             .claimEligibleBatch(NOW, 2, "collector-a", "request-a", "correlation-a")
@@ -101,6 +103,8 @@ public class TestIcebergPurgeJobStore extends TestJDBCBackend {
     Assertions.assertEquals(2, purgeStore.countJobs());
     Assertions.assertTrue(
         purgeStore.claimEligibleBatch(NOW, 10, "collector-c", null, "correlation-c").isEmpty());
+    Assertions.assertEquals(0L, purgeStore.countEligibleActions(NOW));
+    Assertions.assertEquals(1L, purgeStore.countEligibleActions(NOW + 1));
 
     assertPurging("immediate");
     assertPurging("expired");

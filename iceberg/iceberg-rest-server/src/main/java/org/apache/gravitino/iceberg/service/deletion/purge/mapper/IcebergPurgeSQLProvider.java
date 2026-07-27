@@ -67,19 +67,28 @@ public class IcebergPurgeSQLProvider {
           + " lease_epoch AS leaseEpoch, attempt_count AS attemptCount,"
           + " last_error AS lastError, created_at AS createdAt, updated_at AS updatedAt";
 
+  private static final String ELIGIBLE_ACTIONS =
+      " FROM entity_deletion d WHERE d.entity_type = 'TABLE'"
+          + " AND d.purge_job_type = #{jobType} AND d.state = 'DELETED'"
+          + " AND d.purge_job_id IS NULL"
+          + " AND (d.retention_expires_at IS NULL OR d.retention_expires_at <= #{now})"
+          + " AND EXISTS (SELECT 1 FROM iceberg_deletion_context c"
+          + " WHERE c.deletion_id = d.deletion_id)";
+
   /** Returns a bounded candidate scan; the following update is the authoritative CAS. */
   public static String selectEligibleActions(
       @Param("jobType") String jobType, @Param("now") long now, @Param("limit") int limit) {
     return "SELECT "
         + ACTION_COLUMNS
-        + " FROM entity_deletion d WHERE d.entity_type = 'TABLE'"
-        + " AND d.purge_job_type = #{jobType} AND d.state = 'DELETED'"
-        + " AND d.purge_job_id IS NULL"
-        + " AND (d.retention_expires_at IS NULL OR d.retention_expires_at <= #{now})"
-        + " AND EXISTS (SELECT 1 FROM iceberg_deletion_context c"
-        + " WHERE c.deletion_id = d.deletion_id)"
+        + ELIGIBLE_ACTIONS
         + " ORDER BY CASE WHEN d.retention_expires_at IS NULL THEN d.deleted_at"
         + " ELSE d.retention_expires_at END, d.deletion_id LIMIT #{limit}";
+  }
+
+  /** Counts every action matching the collector's durable eligibility predicate. */
+  public static String countEligibleActions(
+      @Param("jobType") String jobType, @Param("now") long now) {
+    return "SELECT COUNT(*)" + ELIGIBLE_ACTIONS;
   }
 
   /** Claims one eligible deletion action directly from DELETED to PURGING. */

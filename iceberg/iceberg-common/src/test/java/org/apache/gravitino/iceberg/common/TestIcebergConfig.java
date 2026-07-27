@@ -22,6 +22,7 @@ package org.apache.gravitino.iceberg.common;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
+import org.apache.gravitino.config.ConfigConstants;
 import org.apache.gravitino.iceberg.common.cache.LocalTableMetadataCache;
 import org.apache.gravitino.server.web.JettyServerConfig;
 import org.junit.jupiter.api.Assertions;
@@ -106,6 +107,10 @@ public class TestIcebergConfig {
     IcebergConfig defaults = new IcebergConfig(ImmutableMap.of());
     Assertions.assertFalse(defaults.get(IcebergConfig.SOFT_DELETE_ENABLED));
     Assertions.assertEquals(86_400_000L, defaults.get(IcebergConfig.SOFT_DELETE_RETENTION_MS));
+    Assertions.assertEquals(
+        ConfigConstants.VERSION_2_0_0, IcebergConfig.SOFT_DELETE_ENABLED.getVersion());
+    Assertions.assertEquals(
+        ConfigConstants.VERSION_2_0_0, IcebergConfig.SOFT_DELETE_RETENTION_MS.getVersion());
 
     IcebergConfig zeroRetention =
         new IcebergConfig(

@@ -21,6 +21,7 @@ package org.apache.gravitino.iceberg.service.deletion;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
@@ -82,6 +83,7 @@ public class IcebergTableDeletionLifecycle {
   private final boolean available;
   private final boolean softDeleteEnabled;
   private final long retentionMs;
+  @Nullable private final IcebergDeletionMetricsSource metricsSource;
 
   /**
    * Creates the lifecycle coordinator.
@@ -91,7 +93,7 @@ public class IcebergTableDeletionLifecycle {
    */
   public IcebergTableDeletionLifecycle(
       IcebergCatalogWrapperManager wrapperManager, IcebergConfig config) {
-    this(wrapperManager, config, true);
+    this(wrapperManager, config, true, null);
   }
 
   /**
@@ -103,10 +105,28 @@ public class IcebergTableDeletionLifecycle {
    */
   public IcebergTableDeletionLifecycle(
       IcebergCatalogWrapperManager wrapperManager, IcebergConfig config, boolean available) {
+    this(wrapperManager, config, available, null);
+  }
+
+  /**
+   * Creates a lifecycle coordinator that records only committed lifecycle transitions.
+   *
+   * @param wrapperManager Iceberg catalog wrappers
+   * @param config Iceberg REST configuration
+   * @param available whether the shared relational metadata store is available
+   * @param metricsSource deletion lifecycle metrics registered by the owning REST service, or null
+   *     when metrics are not wired by a focused unit test
+   */
+  public IcebergTableDeletionLifecycle(
+      IcebergCatalogWrapperManager wrapperManager,
+      IcebergConfig config,
+      boolean available,
+      @Nullable IcebergDeletionMetricsSource metricsSource) {
     this.wrapperManager = Objects.requireNonNull(wrapperManager, "wrapperManager must not be null");
     this.available = available;
     this.softDeleteEnabled = config.get(IcebergConfig.SOFT_DELETE_ENABLED);
     this.retentionMs = config.get(IcebergConfig.SOFT_DELETE_RETENTION_MS);
+    this.metricsSource = metricsSource;
   }
 
   /**
@@ -206,6 +226,9 @@ public class IcebergTableDeletionLifecycle {
 
     if (inserted.get() == null) {
       throw new IllegalStateException("Deletion transaction committed without an action");
+    }
+    if (metricsSource != null) {
+      metricsSource.recordTombstone();
     }
   }
 
@@ -324,6 +347,7 @@ public class IcebergTableDeletionLifecycle {
             metalake, context.catalogName(), identifier, HierarchicalSchemaUtil.schemaSeparator());
     RouteIdentity requestRoute = routeIdentity(gravitinoIdentifier, identifier);
 
+    AtomicBoolean restored = new AtomicBoolean();
     SessionUtils.doMultipleWithCommit(
         () -> {
           EntityDeletionPO deletion = EntityDeletionService.getInstance().getForUpdate(deletionId);
@@ -366,7 +390,12 @@ public class IcebergTableDeletionLifecycle {
                       finalCorrelationId,
                       serverNow));
           appendChange(metalake, gravitinoIdentifier, OperateType.ALTER);
+          restored.set(true);
         });
+
+    if (restored.get() && metricsSource != null) {
+      metricsSource.recordUndrop();
+    }
 
     return wrapperManager.getCatalogWrapper(context.catalogName()).loadTable(identifier);
   }

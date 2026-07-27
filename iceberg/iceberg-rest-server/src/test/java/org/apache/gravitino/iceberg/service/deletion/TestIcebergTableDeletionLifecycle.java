@@ -130,10 +130,13 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
 
   @TestTemplate
   public void testDeleteAndUndropAreRelationalTransactionsOnly() throws IOException, SQLException {
-    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+    IcebergDeletionMetricsSource metrics = mock(IcebergDeletionMetricsSource.class);
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L, metrics);
     long beforeChange = maxChangeId();
 
     lifecycle.delete(requestContext, icebergIdentifier, true);
+
+    verify(metrics).recordTombstone();
 
     assertFalse(backend.exists(gravitinoIdentifier, Entity.EntityType.TABLE));
     EntityDeletionPO deletion = onlyDeletion();
@@ -169,6 +172,7 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     assertEquals(IcebergTableDeletionLifecycle.RESTORED, receipt.getState());
     assertEquals(etag, receipt.getAcceptedRestoreEtag());
     assertChange(beforeRestoreChange, OperateType.ALTER);
+    verify(metrics).recordUndrop();
 
     TableMetadata advanced =
         TableMetadataParser.fromJson(
@@ -184,6 +188,7 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     assertEquals(advanced.metadataFileLocation(), replay.tableMetadata().metadataFileLocation());
     verify(wrapper, times(2)).loadTable(icebergIdentifier);
     assertEquals(1L, countAuditEvents(deletion.getDeletionId(), "UNDROP_RESTORED"));
+    verify(metrics).recordUndrop();
   }
 
   @TestTemplate
@@ -223,7 +228,8 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
 
   @TestTemplate
   public void testMetadataCaptureFailureRollsBackDeletion() throws IOException, SQLException {
-    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+    IcebergDeletionMetricsSource metrics = mock(IcebergDeletionMetricsSource.class);
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L, metrics);
     when(wrapper.loadTableMetadata(icebergIdentifier))
         .thenThrow(new IllegalStateException("metadata read failed"));
 
@@ -234,6 +240,7 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     assertTrue(backend.exists(gravitinoIdentifier, Entity.EntityType.TABLE));
     assertEquals(0L, selectLong("SELECT COUNT(*) FROM entity_deletion"));
     assertEquals(0L, selectLong("SELECT COUNT(*) FROM iceberg_deletion_context"));
+    verify(metrics, never()).recordTombstone();
   }
 
   @TestTemplate
@@ -371,10 +378,16 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
   }
 
   private IcebergTableDeletionLifecycle lifecycle(boolean enabled, long retentionMs) {
+    return lifecycle(enabled, retentionMs, null);
+  }
+
+  private IcebergTableDeletionLifecycle lifecycle(
+      boolean enabled, long retentionMs, IcebergDeletionMetricsSource metricsSource) {
     Map<String, String> properties = new HashMap<>();
     properties.put("soft-delete.enabled", String.valueOf(enabled));
     properties.put("soft-delete.retention-ms", String.valueOf(retentionMs));
-    return new IcebergTableDeletionLifecycle(wrapperManager, new IcebergConfig(properties));
+    return new IcebergTableDeletionLifecycle(
+        wrapperManager, new IcebergConfig(properties), true, metricsSource);
   }
 
   private static LoadTableResponse response(TableMetadata tableMetadata) {

@@ -28,9 +28,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionContextStore;
+import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,6 +70,24 @@ public class IcebergPurgeManager implements AutoCloseable {
       IcebergDeletionContextStore contextStore,
       IcebergCatalogWrapperManager wrapperManager,
       IcebergConfig config) {
+    this(store, contextStore, wrapperManager, config, null);
+  }
+
+  /**
+   * Creates the production purge runtime and records only committed per-action outcomes.
+   *
+   * @param store durable purge job store
+   * @param contextStore immutable Iceberg deletion context store
+   * @param wrapperManager current catalog configuration and credentials
+   * @param config Iceberg REST configuration
+   * @param metricsSource registered deletion lifecycle metrics
+   */
+  public IcebergPurgeManager(
+      IcebergPurgeJobStore store,
+      IcebergDeletionContextStore contextStore,
+      IcebergCatalogWrapperManager wrapperManager,
+      IcebergConfig config,
+      @Nullable IcebergDeletionMetricsSource metricsSource) {
     this.store = Objects.requireNonNull(store, "store must not be null");
     Objects.requireNonNull(contextStore, "contextStore must not be null");
     Objects.requireNonNull(wrapperManager, "wrapperManager must not be null");
@@ -96,15 +116,29 @@ public class IcebergPurgeManager implements AutoCloseable {
             .withRetryDelayMs(pollIntervalMs)
             .build();
     this.resources = new IcebergPurgeResources(store, wrapperManager);
+    IcebergPurgeRegistrationRemover registrationRemover =
+        new IcebergExactRegistrationRemover(resources);
+    IcebergPurgePlanner planner = new IcebergMetadataGraphPlanner(resources);
+    IcebergPurgeTargetDeleter deleter = new IcebergFileIOPurgeTargetDeleter(resources);
     this.worker =
-        new IcebergPurgeWorker(
-            store,
-            contextStore,
-            new IcebergExactRegistrationRemover(resources),
-            new IcebergMetadataGraphPlanner(resources),
-            new IcebergFileIOPurgeTargetDeleter(resources),
-            System::currentTimeMillis,
-            options);
+        metricsSource == null
+            ? new IcebergPurgeWorker(
+                store,
+                contextStore,
+                registrationRemover,
+                planner,
+                deleter,
+                System::currentTimeMillis,
+                options)
+            : new IcebergPurgeWorker(
+                store,
+                contextStore,
+                registrationRemover,
+                planner,
+                deleter,
+                System::currentTimeMillis,
+                options,
+                metricsSource);
   }
 
   /** Starts the bounded collector, worker loops, and terminal-ledger pruning. */

@@ -37,6 +37,10 @@ public interface IcebergPurgeActionMapper {
   List<EntityDeletionPO> selectEligibleActions(
       @Param("jobType") String jobType, @Param("now") long now, @Param("limit") int limit);
 
+  /** Counts all actions currently eligible for a purge-job claim. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countEligibleActions")
+  long countEligibleActions(@Param("jobType") String jobType, @Param("now") long now);
+
   /** Atomically moves one still-eligible action directly from DELETED to PURGING. */
   @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "claimAction")
   int claimAction(

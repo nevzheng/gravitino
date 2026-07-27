@@ -19,12 +19,15 @@
 
 package org.apache.gravitino.iceberg.service.deletion.purge;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongSupplier;
+import javax.annotation.Nullable;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionContextStore;
+import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSource;
 import org.apache.gravitino.iceberg.service.deletion.po.IcebergDeletionContextPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeCountsPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeJobPO;
@@ -50,6 +53,7 @@ public class IcebergPurgeWorker {
   private final LongSupplier clock;
   private final IcebergPurgeWorkerOptions options;
   private final Runnable beforeFinalize;
+  @Nullable private final IcebergDeletionMetricsSource metricsSource;
 
   /**
    * Creates a worker whose external Iceberg behavior is fully injectable and testable.
@@ -68,7 +72,7 @@ public class IcebergPurgeWorker {
       IcebergPurgeTargetDeleter deleter,
       LongSupplier clock,
       IcebergPurgeWorkerOptions options) {
-    this(store, contextStore, context -> {}, planner, deleter, clock, options, () -> {});
+    this(store, contextStore, context -> {}, planner, deleter, clock, options, () -> {}, null);
   }
 
   /**
@@ -90,7 +94,41 @@ public class IcebergPurgeWorker {
       IcebergPurgeTargetDeleter deleter,
       LongSupplier clock,
       IcebergPurgeWorkerOptions options) {
-    this(store, contextStore, registrationRemover, planner, deleter, clock, options, () -> {});
+    this(
+        store, contextStore, registrationRemover, planner, deleter, clock, options, () -> {}, null);
+  }
+
+  /**
+   * Creates a production worker that records only durably committed item outcomes.
+   *
+   * @param store durable batch and progress store
+   * @param contextStore immutable Iceberg deletion-context store
+   * @param registrationRemover exact saved-generation registration remover
+   * @param planner streaming exact-target snapshotter
+   * @param deleter exact target hard deleter
+   * @param clock authoritative server clock
+   * @param options bounded lease, batch, and retry controls
+   * @param metricsSource registered deletion lifecycle metrics
+   */
+  public IcebergPurgeWorker(
+      IcebergPurgeJobStore store,
+      IcebergDeletionContextStore contextStore,
+      IcebergPurgeRegistrationRemover registrationRemover,
+      IcebergPurgePlanner planner,
+      IcebergPurgeTargetDeleter deleter,
+      LongSupplier clock,
+      IcebergPurgeWorkerOptions options,
+      IcebergDeletionMetricsSource metricsSource) {
+    this(
+        store,
+        contextStore,
+        registrationRemover,
+        planner,
+        deleter,
+        clock,
+        options,
+        () -> {},
+        Objects.requireNonNull(metricsSource, "metricsSource must not be null"));
   }
 
   IcebergPurgeWorker(
@@ -102,6 +140,28 @@ public class IcebergPurgeWorker {
       LongSupplier clock,
       IcebergPurgeWorkerOptions options,
       Runnable beforeFinalize) {
+    this(
+        store,
+        contextStore,
+        registrationRemover,
+        planner,
+        deleter,
+        clock,
+        options,
+        beforeFinalize,
+        null);
+  }
+
+  IcebergPurgeWorker(
+      IcebergPurgeJobStore store,
+      IcebergDeletionContextStore contextStore,
+      IcebergPurgeRegistrationRemover registrationRemover,
+      IcebergPurgePlanner planner,
+      IcebergPurgeTargetDeleter deleter,
+      LongSupplier clock,
+      IcebergPurgeWorkerOptions options,
+      Runnable beforeFinalize,
+      @Nullable IcebergDeletionMetricsSource metricsSource) {
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.contextStore = Objects.requireNonNull(contextStore, "contextStore must not be null");
     this.registrationRemover =
@@ -111,6 +171,7 @@ public class IcebergPurgeWorker {
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.options = Objects.requireNonNull(options, "options must not be null");
     this.beforeFinalize = Objects.requireNonNull(beforeFinalize, "beforeFinalize must not be null");
+    this.metricsSource = metricsSource;
     options.validate();
   }
 
@@ -166,6 +227,7 @@ public class IcebergPurgeWorker {
       }
 
       EntityDeletionPO action = started.get();
+      long actionStartedAt = clock.getAsLong();
       Outcome outcome = processAction(job, action, owner, budget);
       if (outcome.kind == OutcomeKind.LOST_LEASE) {
         lostLease = true;
@@ -174,6 +236,10 @@ public class IcebergPurgeWorker {
       if (outcome.kind == OutcomeKind.YIELDED) {
         store.yieldAction(action, owner, job.getLeaseEpoch(), clock.getAsLong());
         break;
+      }
+      if (outcome.kind == OutcomeKind.SUCCEEDED) {
+        recordCleanupSuccess(actionStartedAt);
+        continue;
       }
       if (outcome.kind == OutcomeKind.TARGET_RETRY) {
         retryScheduled = true;
@@ -187,6 +253,7 @@ public class IcebergPurgeWorker {
           lostLease = true;
           break;
         }
+        recordCleanupFailure();
       } else if (outcome.kind == OutcomeKind.RETRYABLE_FAILURE
           || outcome.kind == OutcomeKind.PERMANENT_FAILURE) {
         boolean retryable = outcome.kind == OutcomeKind.RETRYABLE_FAILURE;
@@ -203,6 +270,7 @@ public class IcebergPurgeWorker {
           lostLease = true;
           break;
         }
+        recordCleanupFailure();
       }
     }
 
@@ -318,6 +386,19 @@ public class IcebergPurgeWorker {
       }
     }
     return Outcome.yielded();
+  }
+
+  private void recordCleanupSuccess(long actionStartedAt) {
+    if (metricsSource != null) {
+      long durationMs = Math.max(0L, clock.getAsLong() - actionStartedAt);
+      metricsSource.recordCleanupSuccess(Duration.ofMillis(durationMs));
+    }
+  }
+
+  private void recordCleanupFailure() {
+    if (metricsSource != null) {
+      metricsSource.recordCleanupFailure();
+    }
   }
 
   private Outcome finishOrClassify(IcebergPurgeJobPO job, EntityDeletionPO action, String owner) {

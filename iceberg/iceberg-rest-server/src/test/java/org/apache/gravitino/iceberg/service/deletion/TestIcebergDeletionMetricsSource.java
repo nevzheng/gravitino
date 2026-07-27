@@ -23,10 +23,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.GravitinoEnv;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link IcebergDeletionMetricsSource}. */
 public class TestIcebergDeletionMetricsSource {
+
+  private Object originalConfig;
+
+  @BeforeEach
+  void clearPartiallyInitializedGlobalConfig() throws IllegalAccessException {
+    originalConfig = FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", null, true);
+  }
+
+  @AfterEach
+  void restoreGlobalConfig() throws IllegalAccessException {
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", originalConfig, true);
+  }
 
   @Test
   void exposesPrdMetricsAndRecordsLifecycleOutcomes() {
@@ -72,5 +89,22 @@ public class TestIcebergDeletionMetricsSource {
             .getMetricRegistry()
             .histogram(IcebergDeletionMetricsSource.CLEANUP_DURATION_SECONDS)
             .getCount());
+  }
+
+  @Test
+  void returnsZeroWhenTheDurableBacklogCannotBeRead() {
+    IcebergDeletionMetricsSource source =
+        new IcebergDeletionMetricsSource(
+            () -> {
+              throw new IllegalStateException("store unavailable");
+            });
+
+    assertEquals(
+        0L,
+        source
+            .getMetricRegistry()
+            .getGauges()
+            .get(IcebergDeletionMetricsSource.TOMBSTONES_EXPIRED_PENDING_CLEANUP)
+            .getValue());
   }
 }

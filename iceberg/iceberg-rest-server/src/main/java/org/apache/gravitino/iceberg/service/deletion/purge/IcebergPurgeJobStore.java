@@ -152,6 +152,12 @@ public class IcebergPurgeJobStore {
     }
   }
 
+  /** Returns the durable number of actions currently eligible for a purge-job claim. */
+  public long countEligibleActions(long now) {
+    return SessionUtils.getWithoutCommit(
+        IcebergPurgeActionMapper.class, mapper -> mapper.countEligibleActions(PURGE_JOB_TYPE, now));
+  }
+
   /**
    * Claims or reclaims the first available batch with a fenced lease.
    *

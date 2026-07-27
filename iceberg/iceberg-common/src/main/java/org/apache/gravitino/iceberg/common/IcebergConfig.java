@@ -401,7 +401,7 @@ public class IcebergConfig extends Config implements OverwriteDefaultConfig {
   public static final ConfigEntry<Boolean> SOFT_DELETE_ENABLED =
       new ConfigBuilder("soft-delete.enabled")
           .doc("Whether Iceberg REST table drops retain metadata for UNDROP.")
-          .version(ConfigConstants.VERSION_1_3_0)
+          .version(ConfigConstants.VERSION_2_0_0)
           .booleanConf()
           .createWithDefault(false);
 
@@ -409,7 +409,7 @@ public class IcebergConfig extends Config implements OverwriteDefaultConfig {
   public static final ConfigEntry<Long> SOFT_DELETE_RETENTION_MS =
       new ConfigBuilder("soft-delete.retention-ms")
           .doc("Iceberg REST soft-delete retention in milliseconds (0 to 90 days).")
-          .version(ConfigConstants.VERSION_1_3_0)
+          .version(ConfigConstants.VERSION_2_0_0)
           .longConf()
           .checkValue(
               value -> value >= 0 && value <= 90L * 24 * 60 * 60 * 1000,

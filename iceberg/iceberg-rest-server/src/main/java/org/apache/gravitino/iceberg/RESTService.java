@@ -37,6 +37,7 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupJobStore;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionContextStore;
+import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSource;
 import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
 import org.apache.gravitino.iceberg.service.deletion.purge.IcebergPurgeJobStore;
 import org.apache.gravitino.iceberg.service.deletion.purge.IcebergPurgeManager;
@@ -95,6 +96,8 @@ public class RESTService implements GravitinoAuxiliaryService {
   private Optional<IcebergPurgeManager> purgeManager;
   private IcebergTableDeletionLifecycle deletionLifecycle;
   private IcebergConfigProvider configProvider;
+  private MetricsSystem metricsSystem;
+  private IcebergDeletionMetricsSource deletionMetricsSource;
   private boolean auxMode;
 
   private void initServer(IcebergConfig icebergConfig) {
@@ -107,7 +110,7 @@ public class RESTService implements GravitinoAuxiliaryService {
             return new IcebergAuthenticationFilter();
           }
         };
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    this.metricsSystem = GravitinoEnv.getInstance().metricsSystem();
     server.initialize(serverConfig, SERVICE_NAME, false /* shouldEnableUI */);
 
     ResourceConfig config = new ResourceConfig();
@@ -137,8 +140,19 @@ public class RESTService implements GravitinoAuxiliaryService {
             auxMode,
             skipAuthorizationForRestBackend,
             icebergCatalogWrapperManager);
+    Optional<IcebergPurgeJobStore> purgeStore =
+        auxMode
+            ? Optional.of(new IcebergPurgeJobStore(GravitinoEnv.getInstance().idGenerator()))
+            : Optional.empty();
+    this.deletionMetricsSource =
+        new IcebergDeletionMetricsSource(
+            () ->
+                purgeStore
+                    .map(store -> store.countEligibleActions(System.currentTimeMillis()))
+                    .orElse(0L));
     this.deletionLifecycle =
-        new IcebergTableDeletionLifecycle(icebergCatalogWrapperManager, icebergConfig, auxMode);
+        new IcebergTableDeletionLifecycle(
+            icebergCatalogWrapperManager, icebergConfig, auxMode, deletionMetricsSource);
     Optional<IcebergTableDeletionLifecycle> deletionLifecycleForOperations =
         auxMode ? Optional.of(deletionLifecycle) : Optional.empty();
     this.icebergMetricsManager = new IcebergMetricsManager(icebergConfig);
@@ -155,12 +169,12 @@ public class RESTService implements GravitinoAuxiliaryService {
       this.purgeManager =
           Optional.of(
               new IcebergPurgeManager(
-                  new IcebergPurgeJobStore(GravitinoEnv.getInstance().idGenerator()),
+                  purgeStore.orElseThrow(),
                   new IcebergDeletionContextStore(),
                   icebergCatalogWrapperManager,
-                  icebergConfig));
+                  icebergConfig,
+                  deletionMetricsSource));
     }
-
     // The raw namespace operation executor is shared with the table and view hook dispatchers so
     // their orphan-schema cleanup can probe namespace existence without firing namespace events.
     IcebergNamespaceOperationDispatcher namespaceOperationDispatcher =
@@ -241,6 +255,7 @@ public class RESTService implements GravitinoAuxiliaryService {
     // systems that expect a /health endpoint.
     server.addServlet(new HealthAliasServlet("/iceberg"), "/health/*");
     server.addServlet(new HealthAliasServlet("/iceberg"), "/health.html");
+    metricsSystem.register(deletionMetricsSource);
   }
 
   static void validateDeletionMode(IcebergConfig icebergConfig, boolean auxMode) {
@@ -329,6 +344,7 @@ public class RESTService implements GravitinoAuxiliaryService {
 
   private void closeComponents() throws Exception {
     List<Exception> failures = Lists.newArrayList();
+    close(failures, this::unregisterDeletionMetrics);
     close(failures, () -> purgeManager.ifPresent(IcebergPurgeManager::close));
     close(failures, () -> cleanupManager.ifPresent(IcebergCleanupManager::close));
     close(
@@ -356,6 +372,13 @@ public class RESTService implements GravitinoAuxiliaryService {
       Exception failure = failures.get(0);
       failures.stream().skip(1).forEach(failure::addSuppressed);
       throw failure;
+    }
+  }
+
+  private void unregisterDeletionMetrics() {
+    if (metricsSystem != null && deletionMetricsSource != null) {
+      metricsSystem.unregister(deletionMetricsSource);
+      deletionMetricsSource = null;
     }
   }
 
