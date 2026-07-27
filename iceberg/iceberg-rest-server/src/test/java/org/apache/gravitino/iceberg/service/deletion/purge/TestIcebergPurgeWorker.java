@@ -78,6 +78,8 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
   void testSuccessfulPurgeDeletesChildrenBeforeRootAndFinalizesExactGeneration()
       throws SQLException {
     insertDeletion("success", 101L);
+    Assertions.assertEquals(2, relationCount("tag_relation_meta", "success"));
+    Assertions.assertEquals(2, relationCount("policy_relation_meta", "success"));
     String jobId = claimBatch(1).getPurgeJobId();
     List<String> deletedTypes = new ArrayList<>();
 
@@ -94,6 +96,11 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     Assertions.assertEquals("SUCCEEDED", purgeStore.getJob(jobId).getState());
     Assertions.assertEquals(0, rowCount("table_meta", 101L));
     Assertions.assertEquals(0, rowCount("table_version_info", 101L));
+    Assertions.assertEquals(0, rowCount("table_column_version_info", 101L));
+    Assertions.assertEquals(0, relationCount("tag_relation_meta", "success"));
+    Assertions.assertEquals(0, relationCount("policy_relation_meta", "success"));
+    Assertions.assertEquals(1, relationCount("tag_relation_meta", "other-success"));
+    Assertions.assertEquals(1, relationCount("policy_relation_meta", "other-success"));
 
     Assertions.assertEquals(0, purgeStore.expireTerminalLedgers(INITIAL_TIME - 1, 10));
     Assertions.assertNotNull(purgeStore.getPlan("success"));
@@ -335,6 +342,93 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
         statement.setString(5, deletionId);
         statement.executeUpdate();
       }
+      long columnId = tableId * 100 + 1;
+      try (PreparedStatement statement =
+          session
+              .getConnection()
+              .prepareStatement(
+                  "INSERT INTO table_column_version_info"
+                      + " (metalake_id, catalog_id, schema_id, table_id, table_version, column_id,"
+                      + " column_name, column_position, column_type, column_comment,"
+                      + " column_nullable, column_auto_increment, column_op_type, deleted_at,"
+                      + " audit_info, deletion_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+                      + " ?, ?, ?)")) {
+        statement.setLong(1, 10L);
+        statement.setLong(2, 20L);
+        statement.setLong(3, 30L);
+        statement.setLong(4, tableId);
+        statement.setLong(5, 1L);
+        statement.setLong(6, columnId);
+        statement.setString(7, "c");
+        statement.setInt(8, 0);
+        statement.setString(9, "integer");
+        statement.setString(10, "");
+        statement.setBoolean(11, true);
+        statement.setBoolean(12, false);
+        statement.setInt(13, 1);
+        statement.setLong(14, 100L);
+        statement.setString(15, "{}");
+        statement.setString(16, deletionId);
+        statement.executeUpdate();
+      }
+      try (PreparedStatement statement =
+          session
+              .getConnection()
+              .prepareStatement(
+                  "INSERT INTO policy_relation_meta"
+                      + " (policy_id, metadata_object_id, metadata_object_type, audit_info,"
+                      + " current_version, last_version, deleted_at, deletion_id)"
+                      + " VALUES (?, ?, 'COLUMN', '{}', 1, 1, 100, ?)")) {
+        statement.setLong(1, tableId * 100 + 2);
+        statement.setLong(2, columnId);
+        statement.setString(3, deletionId);
+        statement.executeUpdate();
+      }
+      try (PreparedStatement statement =
+          session
+              .getConnection()
+              .prepareStatement(
+                  "INSERT INTO tag_relation_meta"
+                      + " (tag_id, metadata_object_id, metadata_object_type, audit_info,"
+                      + " current_version, last_version, deleted_at, deletion_id)"
+                      + " VALUES (?, ?, ?, '{}', 1, 1, 100, ?)")) {
+        statement.setLong(1, tableId * 100 + 3);
+        statement.setLong(2, tableId);
+        statement.setString(3, "TABLE");
+        statement.setString(4, deletionId);
+        statement.addBatch();
+        statement.setLong(1, tableId * 100 + 4);
+        statement.setLong(2, columnId);
+        statement.setString(3, "COLUMN");
+        statement.setString(4, deletionId);
+        statement.addBatch();
+        statement.setLong(1, tableId * 100 + 5);
+        statement.setLong(2, columnId);
+        statement.setString(3, "COLUMN");
+        statement.setString(4, "other-" + deletionId);
+        statement.addBatch();
+        statement.executeBatch();
+      }
+      try (PreparedStatement statement =
+          session
+              .getConnection()
+              .prepareStatement(
+                  "INSERT INTO policy_relation_meta"
+                      + " (policy_id, metadata_object_id, metadata_object_type, audit_info,"
+                      + " current_version, last_version, deleted_at, deletion_id)"
+                      + " VALUES (?, ?, ?, '{}', 1, 1, 100, ?)")) {
+        statement.setLong(1, tableId * 100 + 6);
+        statement.setLong(2, tableId);
+        statement.setString(3, "TABLE");
+        statement.setString(4, deletionId);
+        statement.addBatch();
+        statement.setLong(1, tableId * 100 + 7);
+        statement.setLong(2, columnId);
+        statement.setString(3, "COLUMN");
+        statement.setString(4, "other-" + deletionId);
+        statement.addBatch();
+        statement.executeBatch();
+      }
     }
   }
 
@@ -357,6 +451,8 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
       sql = "SELECT COUNT(*) FROM table_meta WHERE table_id = ?";
     } else if ("table_version_info".equals(table)) {
       sql = "SELECT COUNT(*) FROM table_version_info WHERE table_id = ?";
+    } else if ("table_column_version_info".equals(table)) {
+      sql = "SELECT COUNT(*) FROM table_column_version_info WHERE table_id = ?";
     } else {
       throw new IllegalArgumentException("Unsupported test table " + table);
     }
@@ -364,6 +460,26 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
             SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
         PreparedStatement statement = session.getConnection().prepareStatement(sql)) {
       statement.setLong(1, tableId);
+      try (ResultSet result = statement.executeQuery()) {
+        Assertions.assertTrue(result.next());
+        return result.getLong(1);
+      }
+    }
+  }
+
+  private static long relationCount(String table, String deletionId) throws SQLException {
+    String sql;
+    if ("tag_relation_meta".equals(table)) {
+      sql = "SELECT COUNT(*) FROM tag_relation_meta WHERE deletion_id = ?";
+    } else if ("policy_relation_meta".equals(table)) {
+      sql = "SELECT COUNT(*) FROM policy_relation_meta WHERE deletion_id = ?";
+    } else {
+      throw new IllegalArgumentException("Unsupported relation table " + table);
+    }
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        PreparedStatement statement = session.getConnection().prepareStatement(sql)) {
+      statement.setString(1, deletionId);
       try (ResultSet result = statement.executeQuery()) {
         Assertions.assertTrue(result.next());
         return result.getLong(1);

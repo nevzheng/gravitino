@@ -58,13 +58,13 @@ public class IcebergPurgeMetadataSQLProvider {
   /** Deletes the exact generation's tag relations. */
   public static String deleteTagRelations(
       @Param("tableId") long tableId, @Param("deletionId") String deletionId) {
-    return exactObjectDelete("tag_relation_meta", "metadata_object_type");
+    return exactTableAndColumnObjectDelete("tag_relation_meta");
   }
 
   /** Deletes the exact generation's policy relations. */
   public static String deletePolicyRelations(
       @Param("tableId") long tableId, @Param("deletionId") String deletionId) {
-    return exactObjectDelete("policy_relation_meta", "metadata_object_type");
+    return exactTableAndColumnObjectDelete("policy_relation_meta");
   }
 
   /** Deletes the exact generation's statistic rows. */
@@ -93,5 +93,12 @@ public class IcebergPurgeMetadataSQLProvider {
         + " WHERE metadata_object_id = #{tableId} AND "
         + typeColumn
         + " = 'TABLE' AND deletion_id = #{deletionId}";
+  }
+
+  private static String exactTableAndColumnObjectDelete(String table) {
+    return "DELETE FROM "
+        + table
+        + " WHERE deletion_id = #{deletionId} AND ((metadata_object_type = 'TABLE'"
+        + " AND metadata_object_id = #{tableId}) OR metadata_object_type = 'COLUMN')";
   }
 }

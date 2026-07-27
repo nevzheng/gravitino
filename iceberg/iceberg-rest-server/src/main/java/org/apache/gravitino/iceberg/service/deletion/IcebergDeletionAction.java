@@ -33,6 +33,11 @@ public class IcebergDeletionAction {
   private final long deletedAt;
   @Nullable private final Long retentionExpiresAt;
   @Nullable private final String cleanupStatus;
+  @Nullable private final String purgeJobId;
+  private final int cleanupAttemptCount;
+  @Nullable private final String cleanupLastError;
   private final String deletedBy;
   private final boolean recoverable;
+  @Nullable private final Long restoredAt;
+  @Nullable private final Long purgedAt;
 }

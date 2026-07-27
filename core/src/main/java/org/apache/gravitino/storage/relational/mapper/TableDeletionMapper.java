@@ -156,11 +156,14 @@ public interface TableDeletionMapper {
       @Param("deletedAt") long deletedAt,
       @Param("deletionId") String deletionId);
 
-  /** Stamps live policy relations for the table. */
+  /** Stamps live policy relations for the table and its columns. */
   @Update({
     "UPDATE policy_relation_meta SET deleted_at = #{deletedAt}, deletion_id = #{deletionId}",
-    "WHERE metadata_object_id = #{tableId} AND metadata_object_type = 'TABLE'",
-    "AND deleted_at = 0 AND deletion_id IS NULL"
+    "WHERE deleted_at = 0 AND deletion_id IS NULL AND (",
+    "(metadata_object_type = 'TABLE' AND metadata_object_id = #{tableId}) OR",
+    "(metadata_object_type = 'COLUMN' AND EXISTS (SELECT 1",
+    "FROM table_column_version_info tc WHERE tc.table_id = #{tableId}",
+    "AND tc.column_id = policy_relation_meta.metadata_object_id)))"
   })
   int tombstonePolicyRelations(
       @Param("tableId") long tableId,
@@ -225,11 +228,14 @@ public interface TableDeletionMapper {
   })
   int restoreStatistics(@Param("tableId") long tableId, @Param("deletionId") String deletionId);
 
-  /** Restores policy relations stamped by the exact deletion generation. */
+  /** Restores table and column policy relations stamped by the exact deletion generation. */
   @Update({
     "UPDATE policy_relation_meta SET deleted_at = 0, deletion_id = NULL",
-    "WHERE metadata_object_id = #{tableId} AND metadata_object_type = 'TABLE'",
-    "AND deletion_id = #{deletionId}"
+    "WHERE deletion_id = #{deletionId} AND (",
+    "(metadata_object_type = 'TABLE' AND metadata_object_id = #{tableId}) OR",
+    "(metadata_object_type = 'COLUMN' AND EXISTS (SELECT 1",
+    "FROM table_column_version_info tc WHERE tc.table_id = #{tableId}",
+    "AND tc.column_id = policy_relation_meta.metadata_object_id)))"
   })
   int restorePolicyRelations(
       @Param("tableId") long tableId, @Param("deletionId") String deletionId);

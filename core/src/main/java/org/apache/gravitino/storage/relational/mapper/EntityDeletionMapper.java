@@ -70,6 +70,23 @@ public interface EntityDeletionMapper {
   EntityDeletionPO selectActiveEntityDeletion(@Param("activeNameKey") String activeNameKey);
 
   /**
+   * Selects the newest receipt for a canonical name only while no live table owns that name.
+   *
+   * @param nameLookupKey canonical name-history key
+   * @param parentId immutable parent schema id
+   * @param entityName table name
+   * @return newest deletion receipt, or {@code null} when absent or the name is live
+   */
+  @Nullable
+  @SelectProvider(
+      type = EntityDeletionSQLProvider.class,
+      method = "selectLatestEntityDeletionWhenNameFree")
+  EntityDeletionPO selectLatestEntityDeletionWhenNameFree(
+      @Param("nameLookupKey") String nameLookupKey,
+      @Param("parentId") long parentId,
+      @Param("entityName") String entityName);
+
+  /**
    * Conditionally completes an exact retained restore.
    *
    * @param deletionId opaque deletion identifier

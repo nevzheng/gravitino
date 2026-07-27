@@ -19,10 +19,17 @@
 package org.apache.gravitino.iceberg.service.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import javax.ws.rs.core.Response;
+import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException.Outcome;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.junit.jupiter.api.Test;
 
 /** Tests strict strong-ETag parsing for conditional UNDROP. */
@@ -57,5 +64,27 @@ public class TestIcebergDeletionManagementOperations {
               () -> IcebergDeletionManagementOperations.parseStrongIfMatch(value));
       assertEquals(Outcome.BAD_REQUEST, error.outcome());
     }
+  }
+
+  @Test
+  public void testSuccessfulUndropResponseHasLiveTableEtag() {
+    TableMetadata metadata = mock(TableMetadata.class);
+    when(metadata.metadataFileLocation())
+        .thenReturn("s3://warehouse/sales/orders/metadata/v1.metadata.json");
+    LoadTableResponse loadTableResponse = mock(LoadTableResponse.class);
+    when(loadTableResponse.tableMetadata()).thenReturn(metadata);
+
+    Response response = IcebergDeletionManagementOperations.liveTableResponse(loadTableResponse);
+
+    assertEquals(200, response.getStatus());
+    assertEquals(loadTableResponse, response.getEntity());
+    assertNotNull(response.getHeaderString("ETag"));
+    assertEquals(
+        '"'
+            + IcebergRESTUtils.generateETag(metadata.metadataFileLocation())
+                .orElseThrow()
+                .getValue()
+            + '"',
+        response.getHeaderString("ETag"));
   }
 }

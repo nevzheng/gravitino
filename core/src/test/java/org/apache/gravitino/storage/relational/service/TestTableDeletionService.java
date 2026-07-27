@@ -276,12 +276,23 @@ public class TestTableDeletionService extends TestJDBCBackend {
             "role_meta_securable_object WHERE metadata_object_id = " + table.id(),
             "tag_relation_meta WHERE metadata_object_id = " + table.id(),
             "statistic_meta WHERE metadata_object_id = " + table.id(),
-            "policy_relation_meta WHERE metadata_object_id = " + table.id());
+            "policy_relation_meta WHERE metadata_object_id = " + table.id(),
+            "policy_relation_meta WHERE metadata_object_id = 9001 "
+                + "AND metadata_object_type = 'COLUMN'");
 
     for (String predicate : predicates) {
       assertEquals("D1", selectString("SELECT deletion_id FROM " + predicate));
       assertEquals(DELETED_AT, selectLong("SELECT deleted_at FROM " + predicate));
     }
+    assertNull(
+        selectString(
+            "SELECT deletion_id FROM policy_relation_meta "
+                + "WHERE metadata_object_id = 9999 AND metadata_object_type = 'COLUMN'"));
+    assertEquals(
+        0L,
+        selectLong(
+            "SELECT deleted_at FROM policy_relation_meta "
+                + "WHERE metadata_object_id = 9999 AND metadata_object_type = 'COLUMN'"));
 
     SessionUtils.doMultipleWithCommit(
         () -> {
@@ -296,6 +307,10 @@ public class TestTableDeletionService extends TestJDBCBackend {
       assertNull(selectString("SELECT deletion_id FROM " + predicate));
       assertEquals(0L, selectLong("SELECT deleted_at FROM " + predicate));
     }
+    assertNull(
+        selectString(
+            "SELECT deletion_id FROM policy_relation_meta "
+                + "WHERE metadata_object_id = 9999 AND metadata_object_type = 'COLUMN'"));
     assertFalse(
         TableDeletionService.getInstance()
             .getDeletionGenerationOwner(table.id(), "D1")
@@ -418,6 +433,14 @@ public class TestTableDeletionService extends TestJDBCBackend {
               + "last_version,deleted_at) VALUES (9006,"
               + tableId
               + ",'TABLE','{}',1,1,0)");
+      statement.executeUpdate(
+          "INSERT INTO policy_relation_meta "
+              + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
+              + "last_version,deleted_at) VALUES (9007,9001,'COLUMN','{}',1,1,0)");
+      statement.executeUpdate(
+          "INSERT INTO policy_relation_meta "
+              + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
+              + "last_version,deleted_at) VALUES (9008,9999,'COLUMN','{}',1,1,0)");
     }
   }
 

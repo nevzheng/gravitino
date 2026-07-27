@@ -109,6 +109,28 @@ public class EntityDeletionSQLProvider {
   }
 
   /**
+   * Builds the newest-receipt lookup guarded against a live same-name table.
+   *
+   * @param nameLookupKey canonical name-history key
+   * @param parentId immutable parent schema id
+   * @param entityName table name
+   * @return parameterized select SQL
+   */
+  public static String selectLatestEntityDeletionWhenNameFree(
+      @Param("nameLookupKey") String nameLookupKey,
+      @Param("parentId") long parentId,
+      @Param("entityName") String entityName) {
+    return "SELECT "
+        + SELECT_COLUMNS
+        + " FROM "
+        + TABLE_NAME
+        + " d WHERE d.name_lookup_key = #{nameLookupKey}"
+        + " AND NOT EXISTS (SELECT 1 FROM table_meta t WHERE t.schema_id = #{parentId}"
+        + " AND t.table_name = #{entityName} AND t.deleted_at = 0)"
+        + " ORDER BY d.deleted_at DESC, d.deletion_id DESC LIMIT 1";
+  }
+
+  /**
    * Builds the compare-and-set that completes a retained restore.
    *
    * @param deletionId opaque deletion identifier

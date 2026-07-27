@@ -26,6 +26,7 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
@@ -35,6 +36,9 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException.Outcome;
 import org.apache.gravitino.iceberg.service.deletion.po.IcebergDeletionContextPO;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
+import org.apache.gravitino.meta.NamespacedEntityId;
+import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionAuditPO;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
@@ -42,6 +46,7 @@ import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.apache.gravitino.storage.relational.service.EntityDeletionAuditService;
 import org.apache.gravitino.storage.relational.service.EntityDeletionService;
+import org.apache.gravitino.storage.relational.service.EntityIdService;
 import org.apache.gravitino.storage.relational.service.TableDeletionService;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
@@ -128,13 +133,16 @@ public class IcebergTableDeletionLifecycle {
   public void delete(
       IcebergRequestContext context, TableIdentifier identifier, boolean purgeRequested) {
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
-    String activeNameKey = activeNameKey(metalake, context.catalogName(), identifier);
+    NameIdentifier gravitinoIdentifier =
+        IcebergIdentifierUtils.toGravitinoTableIdentifier(
+            metalake, context.catalogName(), identifier, HierarchicalSchemaUtil.schemaSeparator());
+    RouteIdentity requestRoute = routeIdentity(gravitinoIdentifier, identifier);
+    String activeNameKey = activeNameKey(requestRoute, identifier.name());
     if (EntityDeletionService.getInstance().getByActiveName(activeNameKey) != null) {
       return;
     }
 
     IcebergCatalogWrapper wrapper = wrapperManager.getCatalogWrapper(context.catalogName());
-    TableMetadata metadata = wrapper.loadTableMetadata(identifier);
     long deletedAt = System.currentTimeMillis();
     String deletionId = UUID.randomUUID().toString();
     String requestId = header(context.httpHeaders(), REQUEST_ID_HEADER);
@@ -144,14 +152,17 @@ public class IcebergTableDeletionLifecycle {
     }
     String finalCorrelationId = correlationId;
 
-    NameIdentifier gravitinoIdentifier =
-        IcebergIdentifierUtils.toGravitinoTableIdentifier(
-            metalake, context.catalogName(), identifier, HierarchicalSchemaUtil.schemaSeparator());
     AtomicReference<EntityDeletionPO> inserted = new AtomicReference<>();
     try {
       SessionUtils.doMultipleWithCommit(
           () -> {
             TablePO table = TableDeletionService.getInstance().lockLiveTable(gravitinoIdentifier);
+            RouteIdentity lockedRoute = routeIdentity(table, identifier);
+            if (!requestRoute.equals(lockedRoute)) {
+              throw failure(Outcome.CONFLICT, "Table route changed during DELETE");
+            }
+            TableMetadata metadata = wrapper.loadTableMetadata(identifier);
+            validateMetadata(metadata);
             EntityDeletionPO deletion =
                 newDeletion(
                     deletionId,
@@ -210,30 +221,70 @@ public class IcebergTableDeletionLifecycle {
       return false;
     }
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    NameIdentifier gravitinoIdentifier =
+        IcebergIdentifierUtils.toGravitinoTableIdentifier(
+            metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
+    RouteIdentity route = routeIdentity(gravitinoIdentifier, identifier);
     return EntityDeletionService.getInstance()
-            .getByActiveName(activeNameKey(metalake, catalogName, identifier))
+            .getByActiveName(activeNameKey(route, identifier.name()))
         != null;
   }
 
   /**
-   * Discovers the recoverable action reserving one routed table name.
+   * Discovers the action currently reserving one routed table name.
    *
    * @param catalogName Iceberg catalog name
    * @param identifier Iceberg table identifier
    * @param serverNow authoritative request time
-   * @return exact deletion action
+   * @return current deletion action, including expired and purge-owned actions
    */
   public EntityDeletionPO discover(String catalogName, TableIdentifier identifier, long serverNow) {
     requireAvailable();
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    NameIdentifier gravitinoIdentifier =
+        IcebergIdentifierUtils.toGravitinoTableIdentifier(
+            metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
+    RouteIdentity route = routeIdentity(gravitinoIdentifier, identifier);
     EntityDeletionPO deletion =
         EntityDeletionService.getInstance()
-            .getByActiveName(activeNameKey(metalake, catalogName, identifier));
-    if (deletion == null || deletion.getRetentionExpiresAt() == null) {
-      throw failure(Outcome.NOT_FOUND, "No recoverable deletion exists for this table");
+            .getByActiveName(activeNameKey(route, identifier.name()));
+    if (deletion == null) {
+      deletion =
+          EntityDeletionService.getInstance()
+              .getLatestByNameWhenFree(
+                  activeNameKey(route, identifier.name()), route.parentId, identifier.name());
     }
-    validateRoute(deletion, metalake, catalogName, identifier);
-    validateRecoverable(deletion, serverNow);
+    if (deletion == null) {
+      throw failure(Outcome.NOT_FOUND, "No deletion status exists for this table");
+    }
+    validateRoute(deletion, route, identifier);
+    authorize(gravitinoIdentifier, deletion);
+    return deletion;
+  }
+
+  /**
+   * Loads one exact deletion generation or terminal receipt for a routed table.
+   *
+   * @param catalogName Iceberg catalog name
+   * @param identifier routed Iceberg table name
+   * @param deletionId explicit opaque deletion identifier
+   * @return exact deletion action or terminal receipt
+   */
+  public EntityDeletionPO get(String catalogName, TableIdentifier identifier, String deletionId) {
+    requireAvailable();
+    if (StringUtils.isBlank(deletionId)) {
+      throw failure(Outcome.BAD_REQUEST, "deletionId is required");
+    }
+    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    NameIdentifier gravitinoIdentifier =
+        IcebergIdentifierUtils.toGravitinoTableIdentifier(
+            metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
+    EntityDeletionPO deletion = EntityDeletionService.getInstance().get(deletionId);
+    if (deletion == null) {
+      throw failure(Outcome.NOT_FOUND, "Deletion action does not exist");
+    }
+    validateRoute(deletion, routeIdentity(gravitinoIdentifier, identifier), identifier);
+    authorize(gravitinoIdentifier, deletion);
     return deletion;
   }
 
@@ -271,6 +322,7 @@ public class IcebergTableDeletionLifecycle {
     NameIdentifier gravitinoIdentifier =
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, context.catalogName(), identifier, HierarchicalSchemaUtil.schemaSeparator());
+    RouteIdentity requestRoute = routeIdentity(gravitinoIdentifier, identifier);
 
     SessionUtils.doMultipleWithCommit(
         () -> {
@@ -278,7 +330,8 @@ public class IcebergTableDeletionLifecycle {
           if (deletion == null) {
             throw failure(Outcome.NOT_FOUND, "Deletion action does not exist");
           }
-          validateRoute(deletion, metalake, context.catalogName(), identifier);
+          validateRoute(deletion, requestRoute, identifier);
+          authorize(gravitinoIdentifier, deletion);
 
           if (RESTORED.equals(deletion.getState())) {
             if (!Objects.equals(deletion.getAcceptedRestoreEtag(), acceptedEtag)
@@ -289,7 +342,7 @@ public class IcebergTableDeletionLifecycle {
           }
 
           validateRecoverable(deletion, serverNow);
-          if (!Objects.equals(IcebergDeletionETags.strongTag(deletion), acceptedEtag)) {
+          if (!Objects.equals(IcebergDeletionETags.strongTag(deletion, serverNow), acceptedEtag)) {
             throw failure(Outcome.PRECONDITION_FAILED, "Deletion action ETag changed");
           }
           if (!EntityDeletionService.getInstance()
@@ -334,8 +387,13 @@ public class IcebergTableDeletionLifecycle {
         .deletedAt(deletion.getDeletedAt())
         .retentionExpiresAt(deletion.getRetentionExpiresAt())
         .cleanupStatus(deletion.getCleanupStatus())
+        .purgeJobId(deletion.getPurgeJobId())
+        .cleanupAttemptCount(deletion.getCleanupAttemptCount())
+        .cleanupLastError(deletion.getCleanupLastError())
         .deletedBy(deletion.getDeletedBy())
         .recoverable(isRecoverable(deletion, serverNow))
+        .restoredAt(deletion.getRestoredAt())
+        .purgedAt(deletion.getPurgedAt())
         .build();
   }
 
@@ -358,7 +416,7 @@ public class IcebergTableDeletionLifecycle {
         .metalakeId(table.getMetalakeId())
         .catalogId(table.getCatalogId())
         .parentId(table.getSchemaId())
-        .namespaceSnapshot(identifier.namespace().toString())
+        .namespaceSnapshot(encodeNamespace(identifier))
         .entityNameSnapshot(identifier.name())
         .nameLookupKey(activeNameKey)
         .activeNameKey(activeNameKey)
@@ -395,7 +453,7 @@ public class IcebergTableDeletionLifecycle {
             String.valueOf(table.getCatalogId()));
     return IcebergDeletionContextPO.builder()
         .withDeletionId(deletionId)
-        .withIcebergNamespace(identifier.namespace().toString())
+        .withIcebergNamespace(encodeNamespace(identifier))
         .withIcebergTableName(identifier.name())
         .withIcebergTableUuid(metadata.uuid().toString())
         .withMetadataLocation(metadata.metadataFileLocation())
@@ -453,11 +511,14 @@ public class IcebergTableDeletionLifecycle {
   }
 
   private static void validateRoute(
-      EntityDeletionPO deletion, String metalake, String catalogName, TableIdentifier identifier) {
-    String expected = activeNameKey(metalake, catalogName, identifier);
+      EntityDeletionPO deletion, RouteIdentity route, TableIdentifier identifier) {
+    String expected = activeNameKey(route, identifier.name());
     if (!Entity.EntityType.TABLE.name().equals(deletion.getEntityType())
+        || deletion.getMetalakeId() != route.metalakeId
+        || deletion.getCatalogId() != route.catalogId
+        || deletion.getParentId() != route.parentId
         || !Objects.equals(expected, deletion.getNameLookupKey())
-        || !Objects.equals(identifier.namespace().toString(), deletion.getNamespaceSnapshot())
+        || !Objects.equals(route.namespaceSnapshot, deletion.getNamespaceSnapshot())
         || !Objects.equals(identifier.name(), deletion.getEntityNameSnapshot())) {
       throw failure(Outcome.CONFLICT, "Deletion action does not match the routed table");
     }
@@ -478,6 +539,17 @@ public class IcebergTableDeletionLifecycle {
     }
   }
 
+  private static void authorize(NameIdentifier identifier, EntityDeletionPO deletion) {
+    if (!MetadataAuthzHelper.checkAccessForExactEntity(
+        identifier,
+        Entity.EntityType.TABLE,
+        AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION,
+        deletion.getEntityId(),
+        TableDeletionService.getInstance().getAuthorizationOwner(deletion))) {
+      throw new ForbiddenException("Not authorized to manage this table deletion");
+    }
+  }
+
   private static boolean isRecoverable(EntityDeletionPO deletion, long serverNow) {
     return DELETED.equals(deletion.getState())
         && deletion.getRetentionExpiresAt() != null
@@ -485,17 +557,64 @@ public class IcebergTableDeletionLifecycle {
         && deletion.getPurgeJobId() == null;
   }
 
-  private static String activeNameKey(
-      String metalake, String catalogName, TableIdentifier identifier) {
+  static String activeNameKey(
+      long metalakeId, long catalogId, long parentId, TableIdentifier identifier) {
+    return activeNameKey(
+        new RouteIdentity(metalakeId, catalogId, parentId, encodeNamespace(identifier)),
+        identifier.name());
+  }
+
+  static String encodeNamespace(TableIdentifier identifier) {
+    return IcebergDeletionNamespaceCodec.encode(identifier.namespace().levels());
+  }
+
+  private static String activeNameKey(RouteIdentity route, String tableName) {
     String canonical =
-        String.join(
-            "\u001f",
-            Entity.EntityType.TABLE.name(),
-            metalake,
-            catalogName,
-            identifier.namespace().toString(),
-            identifier.name());
+        Entity.EntityType.TABLE.name()
+            + ':'
+            + route.metalakeId
+            + ':'
+            + route.catalogId
+            + ':'
+            + route.parentId
+            + ':'
+            + route.namespaceSnapshot.length()
+            + ':'
+            + route.namespaceSnapshot
+            + ':'
+            + tableName.length()
+            + ':'
+            + tableName;
     return IcebergDeletionETags.sha256(canonical);
+  }
+
+  private static RouteIdentity routeIdentity(
+      NameIdentifier gravitinoIdentifier, TableIdentifier icebergIdentifier) {
+    NamespacedEntityId schemaIds =
+        EntityIdService.getEntityIds(
+            NameIdentifier.of(gravitinoIdentifier.namespace().levels()), Entity.EntityType.SCHEMA);
+    long[] ancestors = schemaIds.namespaceIds();
+    if (ancestors.length != 2) {
+      throw new IllegalStateException("Schema route does not contain metalake and catalog IDs");
+    }
+    return new RouteIdentity(
+        ancestors[0], ancestors[1], schemaIds.entityId(), encodeNamespace(icebergIdentifier));
+  }
+
+  private static RouteIdentity routeIdentity(TablePO table, TableIdentifier identifier) {
+    return new RouteIdentity(
+        table.getMetalakeId(),
+        table.getCatalogId(),
+        table.getSchemaId(),
+        encodeNamespace(identifier));
+  }
+
+  private static void validateMetadata(TableMetadata metadata) {
+    if (metadata == null
+        || metadata.uuid() == null
+        || StringUtils.isBlank(metadata.metadataFileLocation())) {
+      throw new IllegalStateException("Iceberg table identity is incomplete");
+    }
   }
 
   @Nullable
@@ -509,5 +628,40 @@ public class IcebergTableDeletionLifecycle {
 
   private static IcebergDeletionException failure(Outcome outcome, String message) {
     return new IcebergDeletionException(outcome, message);
+  }
+
+  private static final class RouteIdentity {
+    private final long metalakeId;
+    private final long catalogId;
+    private final long parentId;
+    private final String namespaceSnapshot;
+
+    private RouteIdentity(
+        long metalakeId, long catalogId, long parentId, String namespaceSnapshot) {
+      this.metalakeId = metalakeId;
+      this.catalogId = catalogId;
+      this.parentId = parentId;
+      this.namespaceSnapshot = namespaceSnapshot;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other) {
+        return true;
+      }
+      if (!(other instanceof RouteIdentity)) {
+        return false;
+      }
+      RouteIdentity that = (RouteIdentity) other;
+      return metalakeId == that.metalakeId
+          && catalogId == that.catalogId
+          && parentId == that.parentId
+          && Objects.equals(namespaceSnapshot, that.namespaceSnapshot);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(metalakeId, catalogId, parentId, namespaceSnapshot);
+    }
   }
 }

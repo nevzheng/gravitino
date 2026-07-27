@@ -32,25 +32,47 @@ public final class IcebergDeletionETags {
    * Computes a strong validator token without HTTP quotes.
    *
    * @param deletion deletion action
+   * @param serverNow authoritative server time used for the public recoverable bit
    * @return strong validator token
    */
-  public static String strongTag(EntityDeletionPO deletion) {
-    String canonical =
-        String.join(
-            "\n",
-            deletion.getDeletionId(),
-            String.valueOf(deletion.getEntityId()),
-            deletion.getState(),
-            String.valueOf(deletion.getRevision()),
-            String.valueOf(deletion.getRetentionExpiresAt()),
-            String.valueOf(deletion.getCleanupStatus()),
-            String.valueOf(deletion.getPurgeJobId()));
+  public static String strongTag(EntityDeletionPO deletion, long serverNow) {
+    StringBuilder canonical = new StringBuilder();
+    append(canonical, deletion.getDeletionId());
+    append(canonical, String.valueOf(deletion.getEntityId()));
+    append(canonical, deletion.getState());
+    append(canonical, String.valueOf(deletion.getRevision()));
+    append(canonical, String.valueOf(deletion.getDeletedAt()));
+    append(canonical, deletion.getRetentionExpiresAt());
+    append(canonical, deletion.getCleanupStatus());
+    append(canonical, deletion.getPurgeJobId());
+    append(canonical, String.valueOf(deletion.getCleanupAttemptCount()));
+    append(canonical, deletion.getCleanupLastError());
+    append(canonical, deletion.getDeletedBy());
+    append(canonical, String.valueOf(isRecoverable(deletion, serverNow)));
+    append(canonical, deletion.getRestoredAt());
+    append(canonical, deletion.getPurgedAt());
     return "iceberg-deletion-"
         + deletion.getDeletionId()
         + "-r"
         + deletion.getRevision()
         + "-"
-        + sha256(canonical).substring(0, 16);
+        + sha256(canonical.toString()).substring(0, 16);
+  }
+
+  private static boolean isRecoverable(EntityDeletionPO deletion, long serverNow) {
+    return IcebergTableDeletionLifecycle.DELETED.equals(deletion.getState())
+        && deletion.getRetentionExpiresAt() != null
+        && deletion.getRetentionExpiresAt() > serverNow
+        && deletion.getPurgeJobId() == null;
+  }
+
+  private static void append(StringBuilder canonical, Object value) {
+    if (value == null) {
+      canonical.append("-1:");
+      return;
+    }
+    String field = String.valueOf(value);
+    canonical.append(field.length()).append(':').append(field);
   }
 
   static String sha256(String value) {

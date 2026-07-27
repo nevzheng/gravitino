@@ -98,6 +98,25 @@ public class EntityDeletionService {
   }
 
   /**
+   * Loads the newest terminal receipt for a name only when no live table owns that name.
+   *
+   * @param nameLookupKey canonical name-history key
+   * @param parentId immutable parent schema id
+   * @param entityName table name
+   * @return newest deletion receipt, or {@code null} when absent or the name is live
+   */
+  @Nullable
+  public EntityDeletionPO getLatestByNameWhenFree(
+      String nameLookupKey, long parentId, String entityName) {
+    Objects.requireNonNull(nameLookupKey, "nameLookupKey must not be null");
+    Objects.requireNonNull(entityName, "entityName must not be null");
+    return SessionUtils.doWithCommitAndFetchResult(
+        EntityDeletionMapper.class,
+        mapper ->
+            mapper.selectLatestEntityDeletionWhenNameFree(nameLookupKey, parentId, entityName));
+  }
+
+  /**
    * Completes a restore only while the exact action revision remains recoverable.
    *
    * <p>This method joins the caller's transaction, so restoring the table rows and releasing the

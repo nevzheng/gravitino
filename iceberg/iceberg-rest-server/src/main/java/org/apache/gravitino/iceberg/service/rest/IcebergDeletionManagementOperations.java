@@ -100,11 +100,38 @@ public class IcebergDeletionManagementOperations {
           () -> {
             long serverNow = System.currentTimeMillis();
             EntityDeletionPO deletion = lifecycle.discover(catalogName, identifier, serverNow);
-            IcebergDeletionAction action = lifecycle.toAction(deletion, serverNow);
-            return Response.ok(action)
-                .tag(new EntityTag(IcebergDeletionETags.strongTag(deletion)))
-                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
-                .build();
+            return deletionResponse(lifecycle.toAction(deletion, serverNow), deletion, serverNow);
+          });
+    } catch (IcebergDeletionException e) {
+      return lifecycleError(e);
+    } catch (Exception e) {
+      return IcebergExceptionMapper.toRESTResponse(e);
+    }
+  }
+
+  /** Returns one exact deletion generation, including its retained terminal receipt. */
+  @GET
+  @Path("{table}/deletions/{deletionId}")
+  @Timed(name = "get-exact-table-deletion." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
+  @ResponseMetered(name = "get-exact-table-deletion", absolute = true)
+  @AuthorizationExpression(
+      expression = MANAGEMENT_AUTHORIZATION,
+      accessMetadataType = MetadataObject.Type.SCHEMA)
+  public Response getDeletion(
+      @AuthorizationMetadata(type = Entity.EntityType.CATALOG) @PathParam("prefix") String prefix,
+      @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) @Encoded() @PathParam("namespace")
+          String namespace,
+      @Encoded() @PathParam("table") String table,
+      @PathParam("deletionId") String deletionId) {
+    String catalogName = IcebergRESTUtils.getCatalogName(prefix);
+    TableIdentifier identifier = identifier(namespace, table);
+    try {
+      return Utils.doAs(
+          httpRequest,
+          () -> {
+            long serverNow = System.currentTimeMillis();
+            EntityDeletionPO deletion = lifecycle.get(catalogName, identifier, deletionId);
+            return deletionResponse(lifecycle.toAction(deletion, serverNow), deletion, serverNow);
           });
     } catch (IcebergDeletionException e) {
       return lifecycleError(e);
@@ -139,7 +166,7 @@ public class IcebergDeletionManagementOperations {
             LoadTableResponse response =
                 lifecycle.undrop(
                     context, identifier, deletionId, acceptedEtag, System.currentTimeMillis());
-            return IcebergRESTUtils.ok(response);
+            return liveTableResponse(response);
           });
     } catch (IcebergDeletionException e) {
       return lifecycleError(e);
@@ -163,6 +190,18 @@ public class IcebergDeletionManagementOperations {
           Outcome.BAD_REQUEST, "If-Match must contain one strong deletion-action ETag");
     }
     return value.substring(1, value.length() - 1);
+  }
+
+  static Response liveTableResponse(LoadTableResponse response) {
+    return IcebergRESTUtils.buildResponseWithETag(response);
+  }
+
+  private static Response deletionResponse(
+      IcebergDeletionAction action, EntityDeletionPO deletion, long serverNow) {
+    return Response.ok(action)
+        .tag(new EntityTag(IcebergDeletionETags.strongTag(deletion, serverNow)))
+        .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+        .build();
   }
 
   private static TableIdentifier identifier(String namespace, String table) {
