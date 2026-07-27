@@ -34,6 +34,10 @@ The three companion documents are preserved as review drafts:
 2. [Metadata and purge-job design](iceberg-rest-table-deletion-metadata-design.md)
 3. [Gap analysis](iceberg-rest-table-deletion-gap-analysis.md)
 
+Use the [subforest review ledger](iceberg-rest-table-deletion-subforest-review-ledger.md) to review
+each incremental implementation branch and record an explicit decision. A pushed branch is a
+review snapshot, not an approval.
+
 They capture the design exploration, but several passages predate the simplified implementation.
 Until those passages are reconciled, implementation behavior and the decisions below are the
 current review baseline.
@@ -90,4 +94,3 @@ that the saga design should return.
    conditional registration removal.
 4. Define terminal receipt, context, job, and audit retention plus operator redrive.
 5. Prove standalone parity and execute the live PRD scale/restart/multi-node suites.
-
