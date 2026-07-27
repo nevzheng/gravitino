@@ -18,37 +18,16 @@
  */
 package org.apache.gravitino.iceberg.service.deletion;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import javax.annotation.Nullable;
+import java.util.List;
 import lombok.Builder;
 import lombok.Getter;
 
-/** Safe management representation of one Iceberg table deletion action. */
+/** Safe relational identity of a retained Iceberg table. */
 @Getter
 @Builder
-public class IcebergDeletionAction {
-  @JsonProperty("deletionId")
-  private final String deletionId;
-
-  @JsonProperty("entityId")
-  private final String entityId;
-
-  private final String state;
-  private final long revision;
-
-  @JsonProperty("deletedAt")
-  private final long deletedAt;
-
-  @Nullable
-  @JsonProperty("retentionExpiresAt")
-  private final Long retentionExpiresAt;
-
-  @Nullable
-  @JsonProperty("purgeJobId")
-  private final String purgeJobId;
-
-  @JsonProperty("deletedBy")
-  private final String deletedBy;
-
-  private final boolean recoverable;
+public class IcebergDeletedTableMetadata {
+  private final String id;
+  private final List<String> namespace;
+  private final String name;
+  private final long version;
 }

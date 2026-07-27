@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.storage.relational.mapper;
 
+import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.ibatis.annotations.InsertProvider;
@@ -68,6 +69,17 @@ public interface EntityDeletionMapper {
   @Nullable
   @SelectProvider(type = EntityDeletionSQLProvider.class, method = "selectActiveEntityDeletion")
   EntityDeletionPO selectActiveEntityDeletion(@Param("activeNameKey") String activeNameKey);
+
+  /**
+   * Selects retained table actions through the exact table deletion pointer.
+   *
+   * @param parentId immutable schema id
+   * @param tableName optional exact table name, or null to list the parent
+   * @return retained table deletion actions
+   */
+  @SelectProvider(type = EntityDeletionSQLProvider.class, method = "selectRetainedTableDeletions")
+  List<EntityDeletionPO> selectRetainedTableDeletions(
+      @Param("parentId") long parentId, @Param("tableName") @Nullable String tableName);
 
   /**
    * Conditionally completes an exact retained restore.

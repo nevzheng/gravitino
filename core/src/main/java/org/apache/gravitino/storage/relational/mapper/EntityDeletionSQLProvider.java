@@ -20,27 +20,14 @@ package org.apache.gravitino.storage.relational.mapper;
 
 import static org.apache.gravitino.storage.relational.mapper.EntityDeletionMapper.TABLE_NAME;
 
+import javax.annotation.Nullable;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.ibatis.annotations.Param;
 
 /** Portable SQL provider for durable metadata deletion generations. */
 public class EntityDeletionSQLProvider {
 
-  private static final String SELECT_COLUMNS =
-      "deletion_id AS deletionId, entity_type AS entityType, entity_id AS entityId,"
-          + " entity_version AS entityVersion, metalake_id AS metalakeId,"
-          + " catalog_id AS catalogId, parent_id AS parentId,"
-          + " namespace_snapshot AS namespaceSnapshot,"
-          + " entity_name_snapshot AS entityNameSnapshot, active_name_key AS activeNameKey,"
-          + " state, revision, deleted_at AS deletedAt,"
-          + " retention_expires_at AS retentionExpiresAt, deleted_by AS deletedBy,"
-          + " purge_requested AS purgeRequested, purge_job_type AS purgeJobType,"
-          + " purge_job_id AS purgeJobId, cleanup_status AS cleanupStatus,"
-          + " cleanup_attempt_count AS cleanupAttemptCount,"
-          + " cleanup_last_error AS cleanupLastError,"
-          + " accepted_restore_etag AS acceptedRestoreEtag, request_id AS requestId,"
-          + " correlation_id AS correlationId, restored_at AS restoredAt,"
-          + " purged_at AS purgedAt, updated_at AS updatedAt";
+  private static final String SELECT_COLUMNS = selectColumns("");
 
   /**
    * Builds the insert for one deletion generation.
@@ -106,6 +93,90 @@ public class EntityDeletionSQLProvider {
         + " FROM "
         + TABLE_NAME
         + " WHERE active_name_key = #{activeNameKey}";
+  }
+
+  /**
+   * Builds a deleted-table lookup that follows the table row's current deletion pointer.
+   *
+   * <p>The join is the generation fence: an action is returned only while the retained table row
+   * still points to that exact deletion id. A null table name lists the deleted rows under the
+   * parent; a non-null table name performs the exact item lookup.
+   *
+   * @param parentId immutable schema id
+   * @param tableName optional exact table name
+   * @return parameterized joined lookup
+   */
+  public static String selectRetainedTableDeletions(
+      @Param("parentId") long parentId, @Param("tableName") @Nullable String tableName) {
+    String sql =
+        "SELECT "
+            + selectColumns("d.")
+            + " FROM table_meta t JOIN "
+            + TABLE_NAME
+            + " d ON d.deletion_id = t.deletion_id AND d.entity_id = t.table_id"
+            + " WHERE t.schema_id = #{parentId} AND t.deleted_at > 0"
+            + " AND t.deletion_id IS NOT NULL AND d.entity_type = 'TABLE'";
+    if (tableName != null) {
+      sql += " AND t.table_name = #{tableName}";
+    }
+    return sql + " ORDER BY t.table_name, d.deletion_id";
+  }
+
+  private static String selectColumns(String prefix) {
+    return prefix
+        + "deletion_id AS deletionId, "
+        + prefix
+        + "entity_type AS entityType, "
+        + prefix
+        + "entity_id AS entityId, "
+        + prefix
+        + "entity_version AS entityVersion, "
+        + prefix
+        + "metalake_id AS metalakeId, "
+        + prefix
+        + "catalog_id AS catalogId, "
+        + prefix
+        + "parent_id AS parentId, "
+        + prefix
+        + "namespace_snapshot AS namespaceSnapshot, "
+        + prefix
+        + "entity_name_snapshot AS entityNameSnapshot, "
+        + prefix
+        + "active_name_key AS activeNameKey, "
+        + prefix
+        + "state, "
+        + prefix
+        + "revision, "
+        + prefix
+        + "deleted_at AS deletedAt, "
+        + prefix
+        + "retention_expires_at AS retentionExpiresAt, "
+        + prefix
+        + "deleted_by AS deletedBy, "
+        + prefix
+        + "purge_requested AS purgeRequested, "
+        + prefix
+        + "purge_job_type AS purgeJobType, "
+        + prefix
+        + "purge_job_id AS purgeJobId, "
+        + prefix
+        + "cleanup_status AS cleanupStatus, "
+        + prefix
+        + "cleanup_attempt_count AS cleanupAttemptCount, "
+        + prefix
+        + "cleanup_last_error AS cleanupLastError, "
+        + prefix
+        + "accepted_restore_etag AS acceptedRestoreEtag, "
+        + prefix
+        + "request_id AS requestId, "
+        + prefix
+        + "correlation_id AS correlationId, "
+        + prefix
+        + "restored_at AS restoredAt, "
+        + prefix
+        + "purged_at AS purgedAt, "
+        + prefix
+        + "updated_at AS updatedAt";
   }
 
   /**

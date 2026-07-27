@@ -32,9 +32,10 @@ public final class IcebergDeletionETags {
    * Computes a strong validator token without HTTP quotes.
    *
    * @param deletion deletion action
+   * @param serverNow authoritative request time used by the public recoverable field
    * @return strong validator token
    */
-  public static String strongTag(EntityDeletionPO deletion) {
+  public static String strongTag(EntityDeletionPO deletion, long serverNow) {
     String canonical =
         String.join(
             "\n",
@@ -43,8 +44,8 @@ public final class IcebergDeletionETags {
             deletion.getState(),
             String.valueOf(deletion.getRevision()),
             String.valueOf(deletion.getRetentionExpiresAt()),
-            String.valueOf(deletion.getCleanupStatus()),
-            String.valueOf(deletion.getPurgeJobId()));
+            String.valueOf(deletion.getPurgeJobId()),
+            String.valueOf(IcebergTableDeletionLifecycle.isRecoverable(deletion, serverNow)));
     return "iceberg-deletion-"
         + deletion.getDeletionId()
         + "-r"

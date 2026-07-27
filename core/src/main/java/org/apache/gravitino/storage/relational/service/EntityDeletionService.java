@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.storage.relational.service;
 
+import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
 import org.apache.gravitino.storage.relational.mapper.EntityDeletionMapper;
@@ -95,6 +96,34 @@ public class EntityDeletionService {
     Objects.requireNonNull(activeNameKey, "activeNameKey must not be null");
     return SessionUtils.doWithCommitAndFetchResult(
         EntityDeletionMapper.class, mapper -> mapper.selectActiveEntityDeletion(activeNameKey));
+  }
+
+  /**
+   * Lists retained table deletions whose table rows still point to their exact actions.
+   *
+   * @param parentId immutable schema id
+   * @return retained table deletion actions
+   */
+  public List<EntityDeletionPO> listRetainedTables(long parentId) {
+    return SessionUtils.doWithCommitAndFetchResult(
+        EntityDeletionMapper.class, mapper -> mapper.selectRetainedTableDeletions(parentId, null));
+  }
+
+  /**
+   * Loads a retained table deletion by its immutable parent and original name.
+   *
+   * @param parentId immutable schema id
+   * @param tableName original table name
+   * @return exact retained action, or null when no tombstoned table owns the name
+   */
+  @Nullable
+  public EntityDeletionPO getRetainedTable(long parentId, String tableName) {
+    Objects.requireNonNull(tableName, "tableName must not be null");
+    List<EntityDeletionPO> deletions =
+        SessionUtils.doWithCommitAndFetchResult(
+            EntityDeletionMapper.class,
+            mapper -> mapper.selectRetainedTableDeletions(parentId, tableName));
+    return deletions.isEmpty() ? null : deletions.get(0);
   }
 
   /**

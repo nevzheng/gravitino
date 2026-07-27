@@ -26,8 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -38,6 +37,7 @@ import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
@@ -48,7 +48,6 @@ import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException.Outcome;
-import org.apache.gravitino.iceberg.service.deletion.po.IcebergDeletionContextPO;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.TableEntity;
@@ -63,7 +62,6 @@ import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.ibatis.session.SqlSession;
-import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -99,13 +97,7 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     requestContext = mock(IcebergRequestContext.class);
     icebergIdentifier = TableIdentifier.of(org.apache.iceberg.catalog.Namespace.of(SCHEMA), TABLE);
     loadResponse = mock(LoadTableResponse.class);
-    TableMetadata metadata = mock(TableMetadata.class);
-    when(metadata.uuid()).thenReturn("70d8f29b-4d9c-4ef2-ae43-57b445fc83a1");
-    when(metadata.metadataFileLocation())
-        .thenReturn("s3://warehouse/sales/orders/v1.metadata.json");
     when(wrapperManager.getCatalogWrapper(CATALOG)).thenReturn(wrapper);
-    when(wrapper.loadTableMetadata(icebergIdentifier)).thenReturn(metadata);
-    when(wrapper.fileIOImpl()).thenReturn("org.apache.iceberg.io.ResolvingFileIO");
     when(wrapper.loadTable(icebergIdentifier)).thenReturn(loadResponse);
     when(requestContext.catalogName()).thenReturn(CATALOG);
     when(requestContext.userName()).thenReturn("alice");
@@ -130,17 +122,17 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     assertEquals(IcebergTableDeletionLifecycle.DELETED, deletion.getState());
     assertEquals(deletion.getDeletedAt() + 86_400_000L, deletion.getRetentionExpiresAt());
     assertTrue(lifecycle.isNameReserved(CATALOG, icebergIdentifier));
-    IcebergDeletionContextPO icebergContext =
-        new IcebergDeletionContextStore().get(deletion.getDeletionId());
-    assertNotNull(icebergContext);
     assertEquals(
-        "s3://warehouse/sales/orders/v1.metadata.json", icebergContext.getMetadataLocation());
-    assertEquals("catalog-id:" + deletion.getCatalogId(), icebergContext.getProtectedFileIoRef());
-    verify(wrapper, never()).dropTable(icebergIdentifier);
-    verify(wrapper, never()).purgeTable(icebergIdentifier);
+        deletion.getDeletionId(), lifecycle.getDeleted(CATALOG, icebergIdentifier).getDeletionId());
+    assertEquals(
+        List.of(deletion.getDeletionId()),
+        lifecycle.listDeleted(CATALOG, icebergIdentifier.namespace()).stream()
+            .map(EntityDeletionPO::getDeletionId)
+            .collect(Collectors.toList()));
+    verifyNoInteractions(wrapperManager, wrapper);
     assertChange(beforeChange, OperateType.DROP);
 
-    String etag = IcebergDeletionETags.strongTag(deletion);
+    String etag = IcebergDeletionETags.strongTag(deletion, deletion.getDeletedAt() + 1);
     long beforeRestoreChange = maxChangeId();
     assertSame(
         loadResponse,
@@ -156,6 +148,11 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     EntityDeletionPO receipt = EntityDeletionService.getInstance().get(deletion.getDeletionId());
     assertEquals(IcebergTableDeletionLifecycle.RESTORED, receipt.getState());
     assertEquals(etag, receipt.getAcceptedRestoreEtag());
+    assertTrue(lifecycle.listDeleted(CATALOG, icebergIdentifier.namespace()).isEmpty());
+    IcebergDeletionException missingDeletedItem =
+        assertThrows(
+            IcebergDeletionException.class, () -> lifecycle.getDeleted(CATALOG, icebergIdentifier));
+    assertEquals(Outcome.NOT_FOUND, missingDeletedItem.outcome());
     assertChange(beforeRestoreChange, OperateType.ALTER);
 
     assertSame(
@@ -167,6 +164,20 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
             etag,
             deletion.getDeletedAt() + 2));
     assertEquals(1L, countAuditEvents(deletion.getDeletionId(), "UNDROP_RESTORED"));
+  }
+
+  @TestTemplate
+  public void testRepeatedDeleteReusesTheActiveTombstone() throws SQLException {
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+
+    lifecycle.delete(requestContext, icebergIdentifier, false);
+    EntityDeletionPO deletion = onlyDeletion();
+    lifecycle.delete(requestContext, icebergIdentifier, true);
+
+    assertEquals(deletion.getDeletionId(), onlyDeletion().getDeletionId());
+    assertEquals(1L, selectLong("SELECT COUNT(*) FROM entity_deletion"));
+    assertEquals(1L, countAuditEvents(deletion.getDeletionId(), "DELETE_ACCEPTED"));
+    verifyNoInteractions(wrapperManager, wrapper);
   }
 
   @TestTemplate
@@ -220,7 +231,7 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
                     requestContext,
                     icebergIdentifier,
                     deletion.getDeletionId(),
-                    IcebergDeletionETags.strongTag(deletion),
+                    IcebergDeletionETags.strongTag(deletion, deletion.getDeletedAt() + 1),
                     deletion.getDeletedAt() + 1));
     assertEquals(Outcome.GONE, gone.outcome());
     assertFalse(backend.exists(gravitinoIdentifier, Entity.EntityType.TABLE));

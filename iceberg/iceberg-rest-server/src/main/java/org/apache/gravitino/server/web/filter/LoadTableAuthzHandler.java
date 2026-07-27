@@ -21,6 +21,7 @@ package org.apache.gravitino.server.web.filter;
 
 import java.lang.reflect.Parameter;
 import java.util.Map;
+import javax.ws.rs.QueryParam;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
@@ -95,7 +96,8 @@ public class LoadTableAuthzHandler implements AuthorizationHandler {
         NameIdentifierUtil.ofTable(
             loadContext.metalakeName(), loadContext.catalog(), loadContext.schema(), tableName);
     nameIdentifierMap.put(EntityType.TABLE, tableId);
-    performTableAuthorization(nameIdentifierMap, catalogWrapper, tableIdentifier, tableId);
+    performTableAuthorization(
+        nameIdentifierMap, catalogWrapper, tableIdentifier, tableId, isDeletedRead());
   }
 
   @Override
@@ -117,24 +119,48 @@ public class LoadTableAuthzHandler implements AuthorizationHandler {
       Map<EntityType, NameIdentifier> nameIdentifierMap,
       IcebergCatalogWrapper catalogWrapper,
       TableIdentifier tableIdentifier,
-      NameIdentifier tableId) {
-    if (catalogWrapper.supportsViewOperations() && catalogWrapper.viewExists(tableIdentifier)) {
+      NameIdentifier tableId,
+      boolean deletedRead) {
+    if (!deletedRead
+        && catalogWrapper.supportsViewOperations()
+        && catalogWrapper.viewExists(tableIdentifier)) {
       throw new NoSuchTableException("Table %s not found", tableIdentifier.name());
     }
 
+    String primaryExpression =
+        deletedRead
+            ? AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION
+            : IcebergLoadAuthzHandlerHelper.resolveExpression(
+                authorizationExpression,
+                AuthorizationExpressionConstants.LOAD_TABLE_AUTHORIZATION_EXPRESSION);
+    String allowCheckExistenceExpression =
+        deletedRead
+            ? AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION
+            : IcebergLoadAuthzHandlerHelper.resolveAllowCheckExistenceExpression(
+                authorizationExpression,
+                AuthorizationExpressionConstants
+                    .ICEBERG_TABLE_EXISTS_SECONDARY_AUTHORIZATION_EXPRESSION);
+
     IcebergLoadAuthzHandlerHelper.authorizeLoadEntity(
         nameIdentifierMap,
-        IcebergLoadAuthzHandlerHelper.resolveExpression(
-            authorizationExpression,
-            AuthorizationExpressionConstants.LOAD_TABLE_AUTHORIZATION_EXPRESSION),
-        IcebergLoadAuthzHandlerHelper.resolveAllowCheckExistenceExpression(
-            authorizationExpression,
-            AuthorizationExpressionConstants
-                .ICEBERG_TABLE_EXISTS_SECONDARY_AUTHORIZATION_EXPRESSION),
-        () -> catalogWrapper.tableExists(tableIdentifier),
+        primaryExpression,
+        allowCheckExistenceExpression,
+        () -> !deletedRead && catalogWrapper.tableExists(tableIdentifier),
         () -> new NoSuchTableException("Table %s not found", tableIdentifier.name()),
         "table",
         tableId);
+  }
+
+  private boolean isDeletedRead() {
+    for (int i = 0; i < parameters.length; i++) {
+      QueryParam queryParam = parameters[i].getAnnotation(QueryParam.class);
+      if (queryParam != null
+          && "deleted".equals(queryParam.value())
+          && Boolean.TRUE.equals(args[i])) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

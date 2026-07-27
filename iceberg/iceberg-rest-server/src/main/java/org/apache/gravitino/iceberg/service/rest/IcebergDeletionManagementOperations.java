@@ -22,34 +22,38 @@ import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.Encoded;
-import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
-import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.exceptions.ForbiddenException;
+import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.iceberg.service.IcebergExceptionMapper;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
-import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionAction;
-import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionETags;
+import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException.Outcome;
 import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
+import org.apache.gravitino.iceberg.service.deletion.IcebergUndropRequest;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
+import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
-import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.RESTUtil;
@@ -79,43 +83,10 @@ public class IcebergDeletionManagementOperations {
     this.lifecycle = lifecycle;
   }
 
-  /** Returns the active recoverable deletion and its strong action ETag. */
-  @GET
-  @Path("{table}/deletion")
-  @Timed(name = "get-table-deletion." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
-  @ResponseMetered(name = "get-table-deletion", absolute = true)
-  @AuthorizationExpression(
-      expression = MANAGEMENT_AUTHORIZATION,
-      accessMetadataType = MetadataObject.Type.SCHEMA)
-  public Response getDeletion(
-      @AuthorizationMetadata(type = Entity.EntityType.CATALOG) @PathParam("prefix") String prefix,
-      @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) @Encoded() @PathParam("namespace")
-          String namespace,
-      @Encoded() @PathParam("table") String table) {
-    String catalogName = IcebergRESTUtils.getCatalogName(prefix);
-    TableIdentifier identifier = identifier(namespace, table);
-    try {
-      return Utils.doAs(
-          httpRequest,
-          () -> {
-            long serverNow = System.currentTimeMillis();
-            EntityDeletionPO deletion = lifecycle.discover(catalogName, identifier, serverNow);
-            IcebergDeletionAction action = lifecycle.toAction(deletion, serverNow);
-            return Response.ok(action)
-                .tag(new EntityTag(IcebergDeletionETags.strongTag(deletion)))
-                .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
-                .build();
-          });
-    } catch (IcebergDeletionException e) {
-      return lifecycleError(e);
-    } catch (Exception e) {
-      return IcebergExceptionMapper.toRESTResponse(e);
-    }
-  }
-
   /** Reactivates one exact deletion generation under a strong If-Match precondition. */
   @POST
-  @Path("{table}/deletions/{deletionId}/undrop")
+  @Path("{table}/undrop")
+  @Consumes(MediaType.APPLICATION_JSON)
   @Timed(name = "undrop-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
   @ResponseMetered(name = "undrop-table", absolute = true)
   @AuthorizationExpression(
@@ -126,26 +97,35 @@ public class IcebergDeletionManagementOperations {
       @AuthorizationMetadata(type = Entity.EntityType.SCHEMA) @Encoded() @PathParam("namespace")
           String namespace,
       @Encoded() @PathParam("table") String table,
-      @PathParam("deletionId") String deletionId,
-      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch) {
+      @HeaderParam(HttpHeaders.IF_MATCH) String ifMatch,
+      IcebergUndropRequest request) {
     String catalogName = IcebergRESTUtils.getCatalogName(prefix);
     TableIdentifier identifier = identifier(namespace, table);
     try {
       return Utils.doAs(
           httpRequest,
           () -> {
+            String deletionId = parseDeletionId(request);
             String acceptedEtag = parseStrongIfMatch(ifMatch);
+            requireDropAccess(catalogName, identifier);
             IcebergRequestContext context = new IcebergRequestContext(httpRequest, catalogName);
             LoadTableResponse response =
                 lifecycle.undrop(
                     context, identifier, deletionId, acceptedEtag, System.currentTimeMillis());
-            return IcebergRESTUtils.ok(response);
+            return IcebergRESTUtils.buildResponseWithETag(response);
           });
     } catch (IcebergDeletionException e) {
       return lifecycleError(e);
     } catch (Exception e) {
       return IcebergExceptionMapper.toRESTResponse(e);
     }
+  }
+
+  static String parseDeletionId(IcebergUndropRequest request) {
+    if (request == null || StringUtils.isBlank(request.getDeletionId())) {
+      throw new IcebergDeletionException(Outcome.BAD_REQUEST, "deletionId is required");
+    }
+    return request.getDeletionId();
   }
 
   static String parseStrongIfMatch(String ifMatch) {
@@ -171,7 +151,7 @@ public class IcebergDeletionManagementOperations {
     return TableIdentifier.of(decodedNamespace, RESTUtil.decodeString(table));
   }
 
-  private static Response lifecycleError(IcebergDeletionException error) {
+  static Response lifecycleError(IcebergDeletionException error) {
     int status;
     switch (error.outcome()) {
       case BAD_REQUEST:
@@ -198,5 +178,18 @@ public class IcebergDeletionManagementOperations {
     ErrorResponse response =
         IcebergRESTUtils.errorResponse(status, error.outcome().name(), error.getMessage());
     return Response.status(status).entity(response).type(MediaType.APPLICATION_JSON).build();
+  }
+
+  private static void requireDropAccess(String catalogName, TableIdentifier identifier) {
+    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    NameIdentifier gravitinoIdentifier =
+        IcebergIdentifierUtils.toGravitinoTableIdentifier(
+            metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
+    if (!MetadataAuthzHelper.checkAccess(
+        gravitinoIdentifier,
+        Entity.EntityType.TABLE,
+        AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION)) {
+      throw new ForbiddenException("Not authorized to manage this table deletion");
+    }
   }
 }
