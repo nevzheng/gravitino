@@ -26,6 +26,12 @@
 | Test umbrella | `codex/iceberg-rest-delete-tests-integration` in `gravitino-test` |
 | Scope | Iceberg REST tables, retained UNDROP, and asynchronous hard purge |
 
+The canonical approval checklist is the
+[subforest review ledger](https://github.com/nevzheng/gravitino/blob/codex/iceberg-rest-deletion-lifecycle-design/design-docs/iceberg-rest-table-deletion-subforest-review-ledger.md).
+Each cumulative branch is reviewed independently and receives one explicit decision: `AGREED`,
+`AGREED WITH CHANGES`, `REWORK`, or `DEFERRED`. Being pushed or serving as a later branch's parent
+does not imply approval.
+
 ## Stack
 
 Review the cumulative branches in order:
@@ -103,4 +109,3 @@ in a live environment:
 - multiple Gravitino servers claiming and reclaiming work;
 - the approximately 500,000-object workload; and
 - end-to-end management API routing, authorization, headers, replay, and error mapping.
-
