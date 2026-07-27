@@ -697,6 +697,65 @@ CREATE TABLE IF NOT EXISTS `entity_deletion_audit` (
   KEY `idx_entity_deletion_audit_action` (`deletion_id`, `created_at`, `audit_id`)
 ) COMMENT='append-only deletion lifecycle audit events';
 
+CREATE TABLE IF NOT EXISTS `iceberg_purge_job` (
+  `purge_job_id`       VARCHAR(64)   NOT NULL COMMENT 'opaque identifier for one bounded purge batch',
+  `purge_job_type`     VARCHAR(64)   NOT NULL COMMENT 'durable executor type, ICEBERG_REST_PURGE in this implementation',
+  `state`              VARCHAR(32)   NOT NULL COMMENT 'PENDING|RUNNING|SUCCEEDED|PARTIAL_FAILED|FAILED',
+  `owner`              VARCHAR(128)  DEFAULT NULL COMMENT 'worker currently holding the batch lease',
+  `lease_epoch`        BIGINT        NOT NULL DEFAULT 0 COMMENT 'monotonic fencing token incremented at every claim',
+  `lease_expires_at`   BIGINT        DEFAULT NULL COMMENT 'server timestamp after which another worker may reclaim the batch',
+  `heartbeat_at`       BIGINT        DEFAULT NULL COMMENT 'last successful lease heartbeat in milliseconds',
+  `attempt_count`      INT           NOT NULL DEFAULT 0 COMMENT 'number of batch claims including reclaims',
+  `item_count`         INT           NOT NULL COMMENT 'number of deletion actions in the batch',
+  `pending_count`      INT           NOT NULL DEFAULT 0 COMMENT 'table items waiting to run',
+  `running_count`      INT           NOT NULL DEFAULT 0 COMMENT 'table items currently running',
+  `succeeded_count`    INT           NOT NULL DEFAULT 0 COMMENT 'table items durably purged',
+  `failed_count`       INT           NOT NULL DEFAULT 0 COMMENT 'table items at their retry ceiling',
+  `retrying_count`     INT           NOT NULL DEFAULT 0 COMMENT 'table items waiting for another attempt',
+  `last_error`         VARCHAR(2048) DEFAULT NULL COMMENT 'sanitized batch-level error without credentials or paths',
+  `created_by`         VARCHAR(128)  NOT NULL COMMENT 'collector identity that created the batch',
+  `request_id`         VARCHAR(128)  DEFAULT NULL COMMENT 'collector request identifier',
+  `correlation_id`     VARCHAR(128)  NOT NULL COMMENT 'audit correlation identifier for the batch',
+  `created_at`         BIGINT        NOT NULL COMMENT 'creation timestamp in milliseconds',
+  `started_at`         BIGINT        DEFAULT NULL COMMENT 'first successful claim timestamp in milliseconds',
+  `completed_at`       BIGINT        DEFAULT NULL COMMENT 'terminal timestamp in milliseconds',
+  `updated_at`         BIGINT        NOT NULL COMMENT 'last durable job update in milliseconds',
+  PRIMARY KEY (`purge_job_id`),
+  KEY `idx_iceberg_purge_job_claim` (`state`, `lease_expires_at`, `updated_at`, `purge_job_id`)
+) COMMENT='durable bounded Iceberg purge batch headers';
+
+CREATE TABLE IF NOT EXISTS `iceberg_purge_plan` (
+  `deletion_id`       VARCHAR(64) NOT NULL COMMENT 'deletion action whose exact physical targets are snapshotted',
+  `purge_job_id`      VARCHAR(64) NOT NULL COMMENT 'batch that owns this table item',
+  `context_digest`    VARCHAR(64) NOT NULL COMMENT 'digest of the immutable Iceberg deletion context',
+  `state`             VARCHAR(16) NOT NULL COMMENT 'PLANNING|READY',
+  `target_count`      BIGINT      NOT NULL DEFAULT 0 COMMENT 'durable target count after the plan becomes READY',
+  `root_target_id`    VARCHAR(64) DEFAULT NULL COMMENT 'root metadata target, which must have the greatest delete order',
+  `created_at`        BIGINT      NOT NULL COMMENT 'plan creation timestamp in milliseconds',
+  `completed_at`      BIGINT      DEFAULT NULL COMMENT 'timestamp when the exact target snapshot became READY',
+  `updated_at`        BIGINT      NOT NULL COMMENT 'last durable plan update in milliseconds',
+  PRIMARY KEY (`deletion_id`),
+  KEY `idx_iceberg_purge_plan_job` (`purge_job_id`, `state`, `deletion_id`)
+) COMMENT='durable completeness marker for one deletion action physical target snapshot';
+
+CREATE TABLE IF NOT EXISTS `iceberg_purge_target` (
+  `deletion_id`       VARCHAR(64)   NOT NULL COMMENT 'owning deletion action',
+  `target_id`         VARCHAR(64)   NOT NULL COMMENT 'deterministic digest of deletion id, kind, URI, and object version',
+  `purge_job_id`      VARCHAR(64)   NOT NULL COMMENT 'batch that owns this physical target',
+  `target_type`       VARCHAR(32)   NOT NULL COMMENT 'DATA|MANIFEST|MANIFEST_LIST|STATISTICS|METADATA|ROOT_METADATA',
+  `target_uri`        CLOB          NOT NULL COMMENT 'exact object URI snapshotted before cleanup starts',
+  `object_version`    VARCHAR(256)  DEFAULT NULL COMMENT 'exact provider object version when available',
+  `delete_order`      INT           NOT NULL COMMENT 'child-before-parent order with root metadata greatest',
+  `state`             VARCHAR(16)   NOT NULL COMMENT 'PENDING|RUNNING|RETRYING|SUCCEEDED|FAILED',
+  `lease_epoch`       BIGINT        NOT NULL DEFAULT 0 COMMENT 'batch fencing epoch that claimed the target',
+  `attempt_count`     INT           NOT NULL DEFAULT 0 COMMENT 'number of external delete attempts',
+  `last_error`        VARCHAR(2048) DEFAULT NULL COMMENT 'sanitized most recent target error',
+  `created_at`        BIGINT        NOT NULL COMMENT 'target snapshot timestamp in milliseconds',
+  `updated_at`        BIGINT        NOT NULL COMMENT 'last progress update timestamp in milliseconds',
+  PRIMARY KEY (`deletion_id`, `target_id`),
+  KEY `idx_iceberg_purge_target_work` (`purge_job_id`, `deletion_id`, `state`, `delete_order`, `target_id`)
+) COMMENT='per-object progress ledger for restart-safe Iceberg hard deletion';
+
 CREATE TABLE IF NOT EXISTS `entity_change_log` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'auto increment id',
   `metalake_name` VARCHAR(128)    NOT NULL COMMENT 'metalake name',

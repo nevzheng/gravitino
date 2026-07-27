@@ -201,3 +201,110 @@ COMMENT ON COLUMN entity_deletion_audit.correlation_id IS 'lifecycle correlation
 COMMENT ON COLUMN entity_deletion_audit.reason_code IS 'bounded machine-readable reason';
 COMMENT ON COLUMN entity_deletion_audit.reason IS 'sanitized reason without credentials or secrets';
 COMMENT ON COLUMN entity_deletion_audit.created_at IS 'event timestamp in milliseconds';
+
+CREATE TABLE IF NOT EXISTS iceberg_purge_job (
+    purge_job_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    purge_job_type VARCHAR(64) NOT NULL,
+    state VARCHAR(32) NOT NULL,
+    owner VARCHAR(128),
+    lease_epoch BIGINT NOT NULL DEFAULT 0,
+    lease_expires_at BIGINT,
+    heartbeat_at BIGINT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    item_count INTEGER NOT NULL,
+    pending_count INTEGER NOT NULL DEFAULT 0,
+    running_count INTEGER NOT NULL DEFAULT 0,
+    succeeded_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    retrying_count INTEGER NOT NULL DEFAULT 0,
+    last_error VARCHAR(2048),
+    created_by VARCHAR(128) NOT NULL,
+    request_id VARCHAR(128),
+    correlation_id VARCHAR(128) NOT NULL,
+    created_at BIGINT NOT NULL,
+    started_at BIGINT,
+    completed_at BIGINT,
+    updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_iceberg_purge_job_claim
+    ON iceberg_purge_job (state, lease_expires_at, updated_at, purge_job_id);
+COMMENT ON TABLE iceberg_purge_job IS 'durable bounded Iceberg purge batch headers';
+COMMENT ON COLUMN iceberg_purge_job.purge_job_id IS 'opaque identifier for one bounded purge batch';
+COMMENT ON COLUMN iceberg_purge_job.purge_job_type IS 'durable executor type, ICEBERG_REST_PURGE in this implementation';
+COMMENT ON COLUMN iceberg_purge_job.state IS 'PENDING | RUNNING | SUCCEEDED | PARTIAL_FAILED | FAILED';
+COMMENT ON COLUMN iceberg_purge_job.owner IS 'worker currently holding the batch lease';
+COMMENT ON COLUMN iceberg_purge_job.lease_epoch IS 'monotonic fencing token incremented at every claim';
+COMMENT ON COLUMN iceberg_purge_job.lease_expires_at IS 'server timestamp after which another worker may reclaim the batch';
+COMMENT ON COLUMN iceberg_purge_job.heartbeat_at IS 'last successful lease heartbeat in milliseconds';
+COMMENT ON COLUMN iceberg_purge_job.attempt_count IS 'number of batch claims including reclaims';
+COMMENT ON COLUMN iceberg_purge_job.item_count IS 'number of deletion actions in the batch';
+COMMENT ON COLUMN iceberg_purge_job.pending_count IS 'table items waiting to run';
+COMMENT ON COLUMN iceberg_purge_job.running_count IS 'table items currently running';
+COMMENT ON COLUMN iceberg_purge_job.succeeded_count IS 'table items durably purged';
+COMMENT ON COLUMN iceberg_purge_job.failed_count IS 'table items at their retry ceiling';
+COMMENT ON COLUMN iceberg_purge_job.retrying_count IS 'table items waiting for another attempt';
+COMMENT ON COLUMN iceberg_purge_job.last_error IS 'sanitized batch-level error without credentials or paths';
+COMMENT ON COLUMN iceberg_purge_job.created_by IS 'collector identity that created the batch';
+COMMENT ON COLUMN iceberg_purge_job.request_id IS 'collector request identifier';
+COMMENT ON COLUMN iceberg_purge_job.correlation_id IS 'audit correlation identifier for the batch';
+COMMENT ON COLUMN iceberg_purge_job.created_at IS 'creation timestamp in milliseconds';
+COMMENT ON COLUMN iceberg_purge_job.started_at IS 'first successful claim timestamp in milliseconds';
+COMMENT ON COLUMN iceberg_purge_job.completed_at IS 'terminal timestamp in milliseconds';
+COMMENT ON COLUMN iceberg_purge_job.updated_at IS 'last durable job update in milliseconds';
+
+CREATE TABLE IF NOT EXISTS iceberg_purge_plan (
+    deletion_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    purge_job_id VARCHAR(64) NOT NULL,
+    context_digest VARCHAR(64) NOT NULL,
+    state VARCHAR(16) NOT NULL,
+    target_count BIGINT NOT NULL DEFAULT 0,
+    root_target_id VARCHAR(64),
+    created_at BIGINT NOT NULL,
+    completed_at BIGINT,
+    updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_iceberg_purge_plan_job
+    ON iceberg_purge_plan (purge_job_id, state, deletion_id);
+COMMENT ON TABLE iceberg_purge_plan IS 'durable completeness marker for one deletion action physical target snapshot';
+COMMENT ON COLUMN iceberg_purge_plan.deletion_id IS 'deletion action whose exact physical targets are snapshotted';
+COMMENT ON COLUMN iceberg_purge_plan.purge_job_id IS 'batch that owns this table item';
+COMMENT ON COLUMN iceberg_purge_plan.context_digest IS 'digest of the immutable Iceberg deletion context';
+COMMENT ON COLUMN iceberg_purge_plan.state IS 'PLANNING | READY';
+COMMENT ON COLUMN iceberg_purge_plan.target_count IS 'durable target count after the plan becomes READY';
+COMMENT ON COLUMN iceberg_purge_plan.root_target_id IS 'root metadata target, which must have the greatest delete order';
+COMMENT ON COLUMN iceberg_purge_plan.created_at IS 'plan creation timestamp in milliseconds';
+COMMENT ON COLUMN iceberg_purge_plan.completed_at IS 'timestamp when the exact target snapshot became READY';
+COMMENT ON COLUMN iceberg_purge_plan.updated_at IS 'last durable plan update in milliseconds';
+
+CREATE TABLE IF NOT EXISTS iceberg_purge_target (
+    deletion_id VARCHAR(64) NOT NULL,
+    target_id VARCHAR(64) NOT NULL,
+    purge_job_id VARCHAR(64) NOT NULL,
+    target_type VARCHAR(32) NOT NULL,
+    target_uri TEXT NOT NULL,
+    object_version VARCHAR(256),
+    delete_order INTEGER NOT NULL,
+    state VARCHAR(16) NOT NULL,
+    lease_epoch BIGINT NOT NULL DEFAULT 0,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error VARCHAR(2048),
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (deletion_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_iceberg_purge_target_work
+    ON iceberg_purge_target (purge_job_id, deletion_id, state, delete_order, target_id);
+COMMENT ON TABLE iceberg_purge_target IS 'per-object progress ledger for restart-safe Iceberg hard deletion';
+COMMENT ON COLUMN iceberg_purge_target.deletion_id IS 'owning deletion action';
+COMMENT ON COLUMN iceberg_purge_target.target_id IS 'deterministic digest of deletion id, kind, URI, and object version';
+COMMENT ON COLUMN iceberg_purge_target.purge_job_id IS 'batch that owns this physical target';
+COMMENT ON COLUMN iceberg_purge_target.target_type IS 'DATA | MANIFEST | MANIFEST_LIST | STATISTICS | METADATA | ROOT_METADATA';
+COMMENT ON COLUMN iceberg_purge_target.target_uri IS 'exact object URI snapshotted before cleanup starts';
+COMMENT ON COLUMN iceberg_purge_target.object_version IS 'exact provider object version when available';
+COMMENT ON COLUMN iceberg_purge_target.delete_order IS 'child-before-parent order with root metadata greatest';
+COMMENT ON COLUMN iceberg_purge_target.state IS 'PENDING | RUNNING | RETRYING | SUCCEEDED | FAILED';
+COMMENT ON COLUMN iceberg_purge_target.lease_epoch IS 'batch fencing epoch that claimed the target';
+COMMENT ON COLUMN iceberg_purge_target.attempt_count IS 'number of external delete attempts';
+COMMENT ON COLUMN iceberg_purge_target.last_error IS 'sanitized most recent target error';
+COMMENT ON COLUMN iceberg_purge_target.created_at IS 'target snapshot timestamp in milliseconds';
+COMMENT ON COLUMN iceberg_purge_target.updated_at IS 'last progress update timestamp in milliseconds';
