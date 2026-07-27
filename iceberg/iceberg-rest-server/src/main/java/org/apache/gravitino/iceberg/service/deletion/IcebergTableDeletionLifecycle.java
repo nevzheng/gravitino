@@ -53,6 +53,7 @@ import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 
 /** Transactional Iceberg REST table deletion and UNDROP lifecycle. */
@@ -159,7 +160,7 @@ public class IcebergTableDeletionLifecycle {
     RouteIdentity requestRoute = routeIdentity(gravitinoIdentifier, identifier);
     String activeNameKey = activeNameKey(requestRoute, identifier.name());
     if (EntityDeletionService.getInstance().getByActiveName(activeNameKey) != null) {
-      return;
+      throw new NoSuchTableException("Table does not exist: %s", identifier);
     }
 
     IcebergCatalogWrapper wrapper = wrapperManager.getCatalogWrapper(context.catalogName());
@@ -219,7 +220,7 @@ public class IcebergTableDeletionLifecycle {
           });
     } catch (NoSuchEntityException e) {
       if (EntityDeletionService.getInstance().getByActiveName(activeNameKey) != null) {
-        return;
+        throw new NoSuchTableException("Table does not exist: %s", identifier);
       }
       throw e;
     }

@@ -70,6 +70,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.StringType;
@@ -189,6 +190,22 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
     verify(wrapper, times(2)).loadTable(icebergIdentifier);
     assertEquals(1L, countAuditEvents(deletion.getDeletionId(), "UNDROP_RESTORED"));
     verify(metrics).recordUndrop();
+  }
+
+  @TestTemplate
+  public void testRepeatedDeleteReturnsMissingWithoutCreatingAnotherAction()
+      throws IOException, SQLException {
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+
+    lifecycle.delete(requestContext, icebergIdentifier, true);
+    EntityDeletionPO original = onlyDeletion();
+
+    assertThrows(
+        NoSuchTableException.class,
+        () -> lifecycle.delete(requestContext, icebergIdentifier, true));
+    assertEquals(original.getDeletionId(), onlyDeletion().getDeletionId());
+    assertEquals(1L, countAuditEvents(original.getDeletionId(), "DELETE_ACCEPTED"));
+    verify(wrapper, times(1)).loadTableMetadata(icebergIdentifier);
   }
 
   @TestTemplate
