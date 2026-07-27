@@ -116,7 +116,6 @@ public class TestEntityDeletionStorage extends TestJDBCBackend {
         .parentId(300L)
         .namespaceSnapshot("demo.sales")
         .entityNameSnapshot("orders")
-        .nameLookupKey("0123456789abcdef")
         .activeNameKey("0123456789abcdef")
         .state("DELETED")
         .revision(0L)

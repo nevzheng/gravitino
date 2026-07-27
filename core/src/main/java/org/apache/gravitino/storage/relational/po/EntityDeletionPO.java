@@ -41,7 +41,6 @@ public class EntityDeletionPO {
   private Long parentId;
   private String namespaceSnapshot;
   private String entityNameSnapshot;
-  private String nameLookupKey;
   @Nullable private String activeNameKey;
   private String state;
   private Long revision;

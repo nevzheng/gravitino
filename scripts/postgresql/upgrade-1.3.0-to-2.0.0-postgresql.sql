@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS entity_deletion (
     parent_id BIGINT NOT NULL,
     namespace_snapshot VARCHAR(512) NOT NULL,
     entity_name_snapshot VARCHAR(128) NOT NULL,
-    name_lookup_key VARCHAR(64) NOT NULL,
     active_name_key VARCHAR(64),
     state VARCHAR(16) NOT NULL,
     revision BIGINT NOT NULL DEFAULT 0,
@@ -98,8 +97,6 @@ CREATE TABLE IF NOT EXISTS entity_deletion (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_entity_deletion_active_name
     ON entity_deletion (active_name_key);
-CREATE INDEX IF NOT EXISTS idx_entity_deletion_name_lookup
-    ON entity_deletion (name_lookup_key, deleted_at, deletion_id);
 CREATE INDEX IF NOT EXISTS idx_entity_deletion_entity_history
     ON entity_deletion (entity_type, entity_id, deleted_at, deletion_id);
 CREATE INDEX IF NOT EXISTS idx_entity_deletion_gc
@@ -116,7 +113,6 @@ COMMENT ON COLUMN entity_deletion.catalog_id IS 'immutable owning catalog id';
 COMMENT ON COLUMN entity_deletion.parent_id IS 'immutable immediate parent id, schema id for a table';
 COMMENT ON COLUMN entity_deletion.namespace_snapshot IS 'namespace snapshot used for routing and audit';
 COMMENT ON COLUMN entity_deletion.entity_name_snapshot IS 'entity name captured at deletion';
-COMMENT ON COLUMN entity_deletion.name_lookup_key IS 'digest used to find deletion generations by canonical name';
 COMMENT ON COLUMN entity_deletion.active_name_key IS 'unique name reservation while deletion is active';
 COMMENT ON COLUMN entity_deletion.state IS 'DELETED | RESTORED | PURGING | PURGED';
 COMMENT ON COLUMN entity_deletion.revision IS 'optimistic lifecycle revision';
@@ -135,30 +131,6 @@ COMMENT ON COLUMN entity_deletion.correlation_id IS 'lifecycle correlation id';
 COMMENT ON COLUMN entity_deletion.restored_at IS 'successful restore timestamp in milliseconds';
 COMMENT ON COLUMN entity_deletion.purged_at IS 'successful purge timestamp in milliseconds';
 COMMENT ON COLUMN entity_deletion.updated_at IS 'last lifecycle update timestamp in milliseconds';
-
-CREATE TABLE IF NOT EXISTS iceberg_deletion_context (
-    deletion_id VARCHAR(64) NOT NULL PRIMARY KEY,
-    iceberg_namespace VARCHAR(512) NOT NULL,
-    iceberg_table_name VARCHAR(128) NOT NULL,
-    iceberg_table_uuid VARCHAR(64) NOT NULL,
-    metadata_location TEXT NOT NULL,
-    file_io_impl VARCHAR(256) NOT NULL,
-    protected_file_io_ref TEXT NOT NULL,
-    context_digest VARCHAR(64) NOT NULL,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
-);
-COMMENT ON TABLE iceberg_deletion_context IS 'immutable Iceberg REST purge context keyed by deletion generation';
-COMMENT ON COLUMN iceberg_deletion_context.deletion_id IS 'deletion generation identifier';
-COMMENT ON COLUMN iceberg_deletion_context.iceberg_namespace IS 'Iceberg namespace snapshot';
-COMMENT ON COLUMN iceberg_deletion_context.iceberg_table_name IS 'Iceberg table name snapshot';
-COMMENT ON COLUMN iceberg_deletion_context.iceberg_table_uuid IS 'Iceberg table UUID';
-COMMENT ON COLUMN iceberg_deletion_context.metadata_location IS 'metadata root used by the purge worker';
-COMMENT ON COLUMN iceberg_deletion_context.file_io_impl IS 'FileIO implementation class';
-COMMENT ON COLUMN iceberg_deletion_context.protected_file_io_ref IS 'protected reference used to reconstruct FileIO without exposing secrets';
-COMMENT ON COLUMN iceberg_deletion_context.context_digest IS 'digest of immutable purge input';
-COMMENT ON COLUMN iceberg_deletion_context.created_at IS 'creation timestamp in milliseconds';
-COMMENT ON COLUMN iceberg_deletion_context.updated_at IS 'last update timestamp in milliseconds';
 
 CREATE TABLE IF NOT EXISTS entity_deletion_audit (
     audit_id VARCHAR(64) NOT NULL PRIMARY KEY,

@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS `entity_deletion` (
   `parent_id`                BIGINT        NOT NULL COMMENT 'immutable immediate parent id, schema id for a table',
   `namespace_snapshot`       VARCHAR(512)  NOT NULL COMMENT 'namespace snapshot used for routing and audit',
   `entity_name_snapshot`     VARCHAR(128)  NOT NULL COMMENT 'entity name captured at deletion',
-  `name_lookup_key`          VARCHAR(64)   NOT NULL COMMENT 'digest used to find deletion generations by canonical name',
   `active_name_key`          VARCHAR(64)   DEFAULT NULL COMMENT 'unique name reservation while deletion is active',
   `state`                    VARCHAR(16)   NOT NULL COMMENT 'DELETED|RESTORED|PURGING|PURGED',
   `revision`                 BIGINT        NOT NULL DEFAULT 0 COMMENT 'optimistic lifecycle revision',
@@ -98,25 +97,10 @@ CREATE TABLE IF NOT EXISTS `entity_deletion` (
   `updated_at`               BIGINT        NOT NULL COMMENT 'last lifecycle update timestamp in milliseconds',
   PRIMARY KEY (`deletion_id`),
   UNIQUE KEY `uk_entity_deletion_active_name` (`active_name_key`),
-  KEY `idx_entity_deletion_name_lookup` (`name_lookup_key`, `deleted_at`, `deletion_id`),
   KEY `idx_entity_deletion_entity_history` (`entity_type`, `entity_id`, `deleted_at`, `deletion_id`),
   KEY `idx_entity_deletion_gc` (`state`, `retention_expires_at`, `deletion_id`),
   KEY `idx_entity_deletion_purge_job` (`purge_job_id`, `cleanup_status`, `deletion_id`)
 ) COMMENT='durable deletion lifecycle actions and terminal receipts';
-
-CREATE TABLE IF NOT EXISTS `iceberg_deletion_context` (
-  `deletion_id`           VARCHAR(64)  NOT NULL COMMENT 'deletion generation identifier',
-  `iceberg_namespace`     VARCHAR(512) NOT NULL COMMENT 'Iceberg namespace snapshot',
-  `iceberg_table_name`    VARCHAR(128) NOT NULL COMMENT 'Iceberg table name snapshot',
-  `iceberg_table_uuid`    VARCHAR(64)  NOT NULL COMMENT 'Iceberg table UUID',
-  `metadata_location`     CLOB         NOT NULL COMMENT 'metadata root used by the purge worker',
-  `file_io_impl`          VARCHAR(256) NOT NULL COMMENT 'FileIO implementation class',
-  `protected_file_io_ref` CLOB         NOT NULL COMMENT 'protected reference used to reconstruct FileIO without exposing secrets',
-  `context_digest`        VARCHAR(64)  NOT NULL COMMENT 'digest of immutable purge input',
-  `created_at`            BIGINT       NOT NULL COMMENT 'creation timestamp in milliseconds',
-  `updated_at`            BIGINT       NOT NULL COMMENT 'last update timestamp in milliseconds',
-  PRIMARY KEY (`deletion_id`)
-) COMMENT='immutable Iceberg REST purge context keyed by deletion generation';
 
 CREATE TABLE IF NOT EXISTS `entity_deletion_audit` (
   `audit_id`                 VARCHAR(64)   NOT NULL COMMENT 'audit event identifier',
