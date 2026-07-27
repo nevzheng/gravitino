@@ -108,6 +108,106 @@ public class IcebergPurgeSQLProvider {
         + " ORDER BY deletion_id";
   }
 
+  /** Selects one exact deletion action. */
+  public static String selectAction(@Param("deletionId") String deletionId) {
+    return "SELECT " + ACTION_COLUMNS + " FROM entity_deletion WHERE deletion_id = #{deletionId}";
+  }
+
+  /** Marks one pending table item running only under a live, fenced batch lease. */
+  public static String beginAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = 'RUNNING',"
+        + " cleanup_last_error = NULL, updated_at = #{now} WHERE deletion_id = #{deletionId}"
+        + " AND purge_job_id = #{purgeJobId} AND state = 'PURGING'"
+        + " AND cleanup_status = 'PENDING' AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Records table-item retry or permanent failure only under the exact fenced lease. */
+  public static String recordActionFailure(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("nextStatus") String nextStatus,
+      @Param("reason") String reason,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = #{nextStatus},"
+        + " cleanup_attempt_count = cleanup_attempt_count + 1,"
+        + " cleanup_last_error = #{reason}, updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'PURGING' AND cleanup_status = 'RUNNING'"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Yields a bounded table item without recording a cleanup failure attempt. */
+  public static String yieldAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = 'PENDING', updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'PURGING' AND cleanup_status = 'RUNNING'"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Commits the table action PURGED only under the exact fenced lease. */
+  public static String markActionPurged(
+      @Param("deletionId") String deletionId,
+      @Param("entityId") long entityId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET state = 'PURGED', revision = revision + 1,"
+        + " active_name_key = NULL, cleanup_status = 'SUCCEEDED', cleanup_last_error = NULL,"
+        + " purged_at = #{now}, updated_at = #{now} WHERE deletion_id = #{deletionId}"
+        + " AND entity_type = 'TABLE' AND entity_id = #{entityId}"
+        + " AND purge_job_id = #{purgeJobId} AND state = 'PURGING'"
+        + " AND cleanup_status = 'RUNNING' AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Resets interrupted table items when a stale batch lease is reclaimed. */
+  public static String resetRunningActions(
+      @Param("purgeJobId") String purgeJobId, @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = 'PENDING', updated_at = #{now}"
+        + " WHERE purge_job_id = #{purgeJobId} AND state = 'PURGING'"
+        + " AND cleanup_status = 'RUNNING'";
+  }
+
+  /** Aggregates table-item progress without changing the public action lifecycle. */
+  public static String countActionStatuses(@Param("purgeJobId") String purgeJobId) {
+    return "SELECT"
+        + " COALESCE(SUM(CASE WHEN cleanup_status = 'PENDING'"
+        + " AND cleanup_attempt_count = 0 THEN 1 ELSE 0 END), 0) AS pendingCount,"
+        + " COALESCE(SUM(CASE WHEN cleanup_status = 'RUNNING' THEN 1 ELSE 0 END), 0)"
+        + " AS runningCount,"
+        + " COALESCE(SUM(CASE WHEN cleanup_status = 'SUCCEEDED' THEN 1 ELSE 0 END), 0)"
+        + " AS succeededCount,"
+        + " COALESCE(SUM(CASE WHEN cleanup_status = 'FAILED' THEN 1 ELSE 0 END), 0)"
+        + " AS failedCount,"
+        + " COALESCE(SUM(CASE WHEN cleanup_status = 'PENDING'"
+        + " AND cleanup_attempt_count > 0 THEN 1 ELSE 0 END), 0) AS retryingCount"
+        + " FROM entity_deletion WHERE purge_job_id = #{purgeJobId}";
+  }
+
   /** Counts lifecycle audit events associated with one purge batch. */
   public static String countAuditsByJob(@Param("purgeJobId") String purgeJobId) {
     return "SELECT COUNT(*) FROM entity_deletion_audit WHERE purge_job_id = #{purgeJobId}";
@@ -175,6 +275,67 @@ public class IcebergPurgeSQLProvider {
         + " AND lease_expires_at > #{now}";
   }
 
+  /** Verifies one exact, unexpired batch lease. */
+  public static String ownsJobLease(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "SELECT COUNT(*) FROM iceberg_purge_job WHERE purge_job_id = #{purgeJobId}"
+        + " AND state = 'RUNNING' AND owner = #{owner} AND lease_epoch = #{leaseEpoch}"
+        + " AND lease_expires_at > #{now}";
+  }
+
+  /** Locks and verifies one exact, unexpired batch lease before a terminal metadata commit. */
+  public static String fenceJobLease(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_job SET updated_at = updated_at"
+        + " WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"
+        + " AND owner = #{owner} AND lease_epoch = #{leaseEpoch}"
+        + " AND lease_expires_at > #{now}";
+  }
+
+  /** Releases an unfinished batch for a later fair/retry claim while storing aggregate progress. */
+  public static String releaseJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("pendingCount") long pendingCount,
+      @Param("runningCount") long runningCount,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("retryingCount") long retryingCount,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_job SET state = 'PENDING', owner = NULL,"
+        + " lease_expires_at = NULL, heartbeat_at = NULL, pending_count = #{pendingCount},"
+        + " running_count = #{runningCount}, succeeded_count = #{succeededCount},"
+        + " failed_count = #{failedCount}, retrying_count = #{retryingCount},"
+        + " updated_at = #{now} WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"
+        + " AND owner = #{owner} AND lease_epoch = #{leaseEpoch}"
+        + " AND lease_expires_at > #{now}";
+  }
+
+  /** Completes a batch after every table item is either SUCCEEDED or FAILED. */
+  public static String finishJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("state") String state,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_job SET state = #{state}, owner = NULL,"
+        + " lease_expires_at = NULL, heartbeat_at = NULL, pending_count = 0,"
+        + " running_count = 0, succeeded_count = #{succeededCount},"
+        + " failed_count = #{failedCount}, retrying_count = 0, completed_at = #{now},"
+        + " updated_at = #{now} WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"
+        + " AND owner = #{owner} AND lease_epoch = #{leaseEpoch}"
+        + " AND lease_expires_at > #{now}";
+  }
+
   /** Inserts the planning marker before any physical target may be deleted. */
   public static String insertPlan(@Param("plan") IcebergPurgePlanPO plan) {
     return "INSERT INTO iceberg_purge_plan (deletion_id, purge_job_id, context_digest, state,"
@@ -210,6 +371,101 @@ public class IcebergPurgeSQLProvider {
         + " AND target_id = #{targetId}";
   }
 
+  /** Selects a bounded batch at the earliest unfinished child-before-parent order. */
+  public static String selectTargetCandidates(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("limit") int limit) {
+    return "SELECT "
+        + TARGET_COLUMNS
+        + " FROM iceberg_purge_target t WHERE t.deletion_id = #{deletionId}"
+        + " AND t.purge_job_id = #{purgeJobId} AND t.state IN ('PENDING', 'RETRYING')"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_plan p"
+        + " WHERE p.deletion_id = t.deletion_id AND p.purge_job_id = t.purge_job_id"
+        + " AND p.state = 'READY') AND t.delete_order = (SELECT MIN(blocker.delete_order)"
+        + " FROM iceberg_purge_target blocker WHERE blocker.deletion_id = t.deletion_id"
+        + " AND blocker.state <> 'SUCCEEDED') ORDER BY t.target_id LIMIT #{limit}";
+  }
+
+  /** Claims one target under the exact live batch lease and fencing epoch. */
+  public static String claimTarget(
+      @Param("deletionId") String deletionId,
+      @Param("targetId") String targetId,
+      @Param("priorState") String priorState,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_target SET state = 'RUNNING', lease_epoch = #{leaseEpoch},"
+        + " attempt_count = attempt_count + 1, last_error = NULL, updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND target_id = #{targetId}"
+        + " AND purge_job_id = #{purgeJobId} AND state = #{priorState}"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Marks one exact target succeeded, fenced by target and batch epochs. */
+  public static String markTargetSucceeded(
+      @Param("deletionId") String deletionId,
+      @Param("targetId") String targetId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_target SET state = 'SUCCEEDED', last_error = NULL,"
+        + " updated_at = #{now} WHERE deletion_id = #{deletionId}"
+        + " AND target_id = #{targetId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'RUNNING' AND lease_epoch = #{leaseEpoch}"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Records one retryable or permanent target failure under the exact fenced lease. */
+  public static String markTargetFailed(
+      @Param("deletionId") String deletionId,
+      @Param("targetId") String targetId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("nextState") String nextState,
+      @Param("reason") String reason,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_target SET state = #{nextState}, last_error = #{reason},"
+        + " updated_at = #{now} WHERE deletion_id = #{deletionId}"
+        + " AND target_id = #{targetId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'RUNNING' AND lease_epoch = #{leaseEpoch}"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId} AND j.state = 'RUNNING'"
+        + " AND j.owner = #{owner} AND j.lease_epoch = #{leaseEpoch}"
+        + " AND j.lease_expires_at > #{now})";
+  }
+
+  /** Makes interrupted target attempts retryable after a stale batch lease is reclaimed. */
+  public static String resetRunningTargets(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_target SET state = 'RETRYING', updated_at = #{now}"
+        + " WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"
+        + " AND lease_epoch < #{leaseEpoch}";
+  }
+
+  /** Aggregates physical-target progress for one deletion action. */
+  public static String countTargetStatuses(@Param("deletionId") String deletionId) {
+    return "SELECT"
+        + " COALESCE(SUM(CASE WHEN state = 'PENDING' THEN 1 ELSE 0 END), 0) AS pendingCount,"
+        + " COALESCE(SUM(CASE WHEN state = 'RUNNING' THEN 1 ELSE 0 END), 0) AS runningCount,"
+        + " COALESCE(SUM(CASE WHEN state = 'SUCCEEDED' THEN 1 ELSE 0 END), 0)"
+        + " AS succeededCount,"
+        + " COALESCE(SUM(CASE WHEN state = 'FAILED' THEN 1 ELSE 0 END), 0) AS failedCount,"
+        + " COALESCE(SUM(CASE WHEN state = 'RETRYING' THEN 1 ELSE 0 END), 0)"
+        + " AS retryingCount FROM iceberg_purge_target WHERE deletion_id = #{deletionId}";
+  }
+
   /** Counts the snapshotted targets for one deletion action. */
   public static String countTargets(@Param("deletionId") String deletionId) {
     return "SELECT COUNT(*) FROM iceberg_purge_target WHERE deletion_id = #{deletionId}";
@@ -227,6 +483,12 @@ public class IcebergPurgeSQLProvider {
         + " AND target_id = #{targetId} AND target_type = 'ROOT_METADATA'";
   }
 
+  /** Counts root metadata targets, which must be exactly one in a complete plan. */
+  public static String countRootTargets(@Param("deletionId") String deletionId) {
+    return "SELECT COUNT(*) FROM iceberg_purge_target WHERE deletion_id = #{deletionId}"
+        + " AND target_type = 'ROOT_METADATA'";
+  }
+
   /** Makes a complete immutable target snapshot visible to deletion workers. */
   public static String markPlanReady(
       @Param("deletionId") String deletionId,
@@ -239,5 +501,24 @@ public class IcebergPurgeSQLProvider {
         + " root_target_id = #{rootTargetId}, completed_at = #{now}, updated_at = #{now}"
         + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
         + " AND context_digest = #{contextDigest} AND state = 'PLANNING'";
+  }
+
+  /** Selects bounded physical ledgers whose terminal action receipt passed its retention cutoff. */
+  public static String selectExpiredLedgerCandidates(
+      @Param("receiptCutoff") long receiptCutoff, @Param("limit") int limit) {
+    return "SELECT p.deletion_id FROM iceberg_purge_plan p JOIN entity_deletion d"
+        + " ON d.deletion_id = p.deletion_id WHERE d.state = 'PURGED'"
+        + " AND d.purged_at IS NOT NULL AND d.purged_at <= #{receiptCutoff}"
+        + " ORDER BY d.purged_at, p.deletion_id LIMIT #{limit}";
+  }
+
+  /** Deletes all physical-target details for one already terminal action. */
+  public static String deleteTargets(@Param("deletionId") String deletionId) {
+    return "DELETE FROM iceberg_purge_target WHERE deletion_id = #{deletionId}";
+  }
+
+  /** Deletes one physical-plan marker after its target details. */
+  public static String deletePlan(@Param("deletionId") String deletionId) {
+    return "DELETE FROM iceberg_purge_plan WHERE deletion_id = #{deletionId}";
   }
 }

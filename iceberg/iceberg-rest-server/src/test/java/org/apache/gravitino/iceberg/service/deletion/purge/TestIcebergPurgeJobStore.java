@@ -162,6 +162,51 @@ public class TestIcebergPurgeJobStore extends TestJDBCBackend {
   }
 
   @TestTemplate
+  void testReclaimResetsInterruptedItemAndTargetWhileFencingStaleCompletion() {
+    insertDeletion("deep-fence", NOW, "DELETED", true);
+    String jobId =
+        purgeStore
+            .claimEligibleBatch(NOW, 1, "collector", null, "deep-fence-correlation")
+            .orElseThrow()
+            .getPurgeJobId();
+    IcebergPurgeJobPO first = purgeStore.takeJob("worker-1", NOW, 100, 10).orElseThrow();
+    EntityDeletionPO action =
+        purgeStore
+            .beginAction("deep-fence", jobId, "worker-1", first.getLeaseEpoch(), NOW)
+            .orElseThrow();
+    purgeStore.beginPlan("deep-fence", jobId, digest("deep-fence"), NOW);
+    IcebergPurgeTargetPO root = target("deep-fence", jobId, "root", "ROOT_METADATA", 100);
+    purgeStore.addTargetBatch(List.of(root));
+    purgeStore.completePlan("deep-fence", jobId, digest("deep-fence"), "root", NOW);
+    IcebergPurgeTargetPO oldClaim =
+        purgeStore
+            .claimTargetBatch("deep-fence", jobId, "worker-1", first.getLeaseEpoch(), NOW, 1)
+            .get(0);
+
+    IcebergPurgeJobPO reclaimed = purgeStore.takeJob("worker-2", NOW + 100, 100, 10).orElseThrow();
+    Assertions.assertEquals(2, reclaimed.getLeaseEpoch());
+    Assertions.assertEquals("PENDING", purgeStore.getAction("deep-fence").getCleanupStatus());
+    Assertions.assertEquals("RETRYING", purgeStore.getTarget("deep-fence", "root").getState());
+    Assertions.assertFalse(
+        purgeStore.markTargetSucceeded(oldClaim, "worker-1", first.getLeaseEpoch(), NOW + 101));
+    Assertions.assertFalse(
+        purgeStore.yieldAction(action, "worker-1", first.getLeaseEpoch(), NOW + 101));
+
+    Assertions.assertTrue(
+        purgeStore
+            .beginAction("deep-fence", jobId, "worker-2", reclaimed.getLeaseEpoch(), NOW + 101)
+            .isPresent());
+    IcebergPurgeTargetPO newClaim =
+        purgeStore
+            .claimTargetBatch(
+                "deep-fence", jobId, "worker-2", reclaimed.getLeaseEpoch(), NOW + 101, 1)
+            .get(0);
+    Assertions.assertEquals(2, newClaim.getLeaseEpoch());
+    Assertions.assertTrue(
+        purgeStore.markTargetSucceeded(newClaim, "worker-2", reclaimed.getLeaseEpoch(), NOW + 101));
+  }
+
+  @TestTemplate
   void testPlanIsStreamedIdempotentAndRootLastBeforeReady() {
     insertDeletion("planned", NOW, "DELETED", true);
     String jobId =

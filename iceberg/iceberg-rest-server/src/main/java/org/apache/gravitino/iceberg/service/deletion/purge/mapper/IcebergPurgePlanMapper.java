@@ -19,8 +19,10 @@
 
 package org.apache.gravitino.iceberg.service.deletion.purge.mapper;
 
+import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgePlanPO;
+import org.apache.ibatis.annotations.DeleteProvider;
 import org.apache.ibatis.annotations.InsertProvider;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.SelectProvider;
@@ -53,6 +55,10 @@ public interface IcebergPurgePlanMapper {
   Integer selectTargetOrder(
       @Param("deletionId") String deletionId, @Param("targetId") String targetId);
 
+  /** Counts root metadata targets in the snapshot. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countRootTargets")
+  long countRootTargets(@Param("deletionId") String deletionId);
+
   /** Atomically publishes a complete, root-last target snapshot. */
   @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "markPlanReady")
   int markPlanReady(
@@ -62,4 +68,13 @@ public interface IcebergPurgePlanMapper {
       @Param("targetCount") long targetCount,
       @Param("rootTargetId") String rootTargetId,
       @Param("now") long now);
+
+  /** Selects a bounded set of PURGED ledgers older than the action-receipt cutoff. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "selectExpiredLedgerCandidates")
+  List<String> selectExpiredLedgerCandidates(
+      @Param("receiptCutoff") long receiptCutoff, @Param("limit") int limit);
+
+  /** Deletes one terminal completeness marker without deleting its action or audit receipt. */
+  @DeleteProvider(type = IcebergPurgeSQLProvider.class, method = "deletePlan")
+  int deletePlan(@Param("deletionId") String deletionId);
 }

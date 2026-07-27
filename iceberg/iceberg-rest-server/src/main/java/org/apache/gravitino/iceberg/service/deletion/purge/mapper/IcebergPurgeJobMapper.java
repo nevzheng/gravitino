@@ -63,4 +63,44 @@ public interface IcebergPurgeJobMapper {
       @Param("leaseEpoch") long leaseEpoch,
       @Param("now") long now,
       @Param("leaseExpiresAt") long leaseExpiresAt);
+
+  /** Returns one only when the exact owner holds the exact unexpired fencing epoch. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "ownsJobLease")
+  long ownsJobLease(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now);
+
+  /** Acquires the job row lock while verifying the exact live fencing lease. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "fenceJobLease")
+  int fenceJobLease(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now);
+
+  /** Releases a batch with unfinished automatic work for another fair claim. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "releaseJob")
+  int releaseJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("pendingCount") long pendingCount,
+      @Param("runningCount") long runningCount,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("retryingCount") long retryingCount,
+      @Param("now") long now);
+
+  /** Commits a terminal aggregate state after all table items finish. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "finishJob")
+  int finishJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("state") String state,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("now") long now);
 }

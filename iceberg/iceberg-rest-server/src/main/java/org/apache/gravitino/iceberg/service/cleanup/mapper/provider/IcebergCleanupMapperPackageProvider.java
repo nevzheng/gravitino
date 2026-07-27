@@ -25,6 +25,7 @@ import org.apache.gravitino.iceberg.service.cleanup.mapper.IcebergCleanupJobMapp
 import org.apache.gravitino.iceberg.service.deletion.mapper.IcebergDeletionContextMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeActionMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeJobMapper;
+import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeMetadataMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgePlanMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeTargetMapper;
 import org.apache.gravitino.storage.relational.mapper.provider.MapperPackageProvider;
@@ -49,6 +50,7 @@ public class IcebergCleanupMapperPackageProvider implements MapperPackageProvide
         IcebergDeletionContextMapper.class,
         IcebergPurgeActionMapper.class,
         IcebergPurgeJobMapper.class,
+        IcebergPurgeMetadataMapper.class,
         IcebergPurgePlanMapper.class,
         IcebergPurgeTargetMapper.class);
   }

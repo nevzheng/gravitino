@@ -20,6 +20,8 @@
 package org.apache.gravitino.iceberg.service.deletion.purge.mapper;
 
 import java.util.List;
+import javax.annotation.Nullable;
+import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeCountsPO;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.SelectProvider;
@@ -47,6 +49,58 @@ public interface IcebergPurgeActionMapper {
   /** Returns the table-level actions in one batch. */
   @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "selectActionsByJob")
   List<EntityDeletionPO> selectActionsByJob(@Param("purgeJobId") String purgeJobId);
+
+  /** Loads one exact deletion action. */
+  @Nullable
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "selectAction")
+  EntityDeletionPO selectAction(@Param("deletionId") String deletionId);
+
+  /** Starts a pending table item under a live fenced lease. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "beginAction")
+  int beginAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now);
+
+  /** Records table-item retry or permanent failure under the exact fenced lease. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "recordActionFailure")
+  int recordActionFailure(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("nextStatus") String nextStatus,
+      @Param("reason") String reason,
+      @Param("now") long now);
+
+  /** Yields a bounded table item without recording a cleanup failure attempt. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "yieldAction")
+  int yieldAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now);
+
+  /** Commits one exact table action PURGED under the exact fenced lease. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "markActionPurged")
+  int markActionPurged(
+      @Param("deletionId") String deletionId,
+      @Param("entityId") long entityId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("owner") String owner,
+      @Param("leaseEpoch") long leaseEpoch,
+      @Param("now") long now);
+
+  /** Resets table items interrupted under a stale batch lease. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "resetRunningActions")
+  int resetRunningActions(@Param("purgeJobId") String purgeJobId, @Param("now") long now);
+
+  /** Aggregates table-item progress for one batch. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countActionStatuses")
+  IcebergPurgeCountsPO countActionStatuses(@Param("purgeJobId") String purgeJobId);
 
   /** Counts append-only lifecycle audit events associated with a batch. */
   @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countAuditsByJob")

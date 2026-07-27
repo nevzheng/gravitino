@@ -26,8 +26,10 @@ import java.util.Optional;
 import org.apache.gravitino.iceberg.service.cleanup.mapper.provider.IcebergCleanupMapperPackageProvider;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeActionMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeJobMapper;
+import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeMetadataMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgePlanMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeTargetMapper;
+import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeCountsPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeJobPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgePlanPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeTargetPO;
@@ -54,6 +56,8 @@ public class IcebergPurgeJobStore {
 
   /** Maximum target rows accepted by one planning write transaction. */
   public static final int MAX_TARGET_WRITE_BATCH = 1000;
+
+  private static final int MAX_ERROR_LENGTH = 2048;
 
   private final IdGenerator idGenerator;
   private final Runnable afterCandidateScan;
@@ -168,12 +172,35 @@ public class IcebergPurgeJobStore {
         SessionUtils.getWithoutCommit(
             IcebergPurgeJobMapper.class, mapper -> mapper.selectClaimableJobs(now, window));
     for (IcebergPurgeJobPO candidate : candidates) {
-      int updated =
-          SessionUtils.doWithCommitAndFetchResult(
-              IcebergPurgeJobMapper.class,
-              mapper -> mapper.claimJob(candidate.getPurgeJobId(), owner, now, leaseExpiresAt));
-      if (updated == 1) {
-        return Optional.ofNullable(getJob(candidate.getPurgeJobId()));
+      SessionUtils.beginTransaction();
+      try {
+        int updated =
+            SessionUtils.doWithCommitAndFetchResult(
+                IcebergPurgeJobMapper.class,
+                mapper -> mapper.claimJob(candidate.getPurgeJobId(), owner, now, leaseExpiresAt));
+        if (updated == 0) {
+          SessionUtils.rollbackTransaction();
+          continue;
+        }
+
+        IcebergPurgeJobPO claimed =
+            SessionUtils.getWithoutCommit(
+                IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(candidate.getPurgeJobId()));
+        if (claimed == null) {
+          throw new IllegalStateException("Claimed purge job disappeared");
+        }
+        SessionUtils.doWithCommit(
+            IcebergPurgeTargetMapper.class,
+            mapper ->
+                mapper.resetRunningTargets(claimed.getPurgeJobId(), claimed.getLeaseEpoch(), now));
+        SessionUtils.doWithCommit(
+            IcebergPurgeActionMapper.class,
+            mapper -> mapper.resetRunningActions(claimed.getPurgeJobId(), now));
+        SessionUtils.commitTransaction();
+        return Optional.of(claimed);
+      } catch (Throwable t) {
+        SessionUtils.rollbackTransaction();
+        throw t;
       }
     }
     return Optional.empty();
@@ -203,6 +230,14 @@ public class IcebergPurgeJobStore {
         == 1;
   }
 
+  /** Returns true only while the exact worker owns the exact unexpired fencing epoch. */
+  public boolean ownsLease(String purgeJobId, String owner, long leaseEpoch, long now) {
+    return SessionUtils.getWithoutCommit(
+            IcebergPurgeJobMapper.class,
+            mapper -> mapper.ownsJobLease(purgeJobId, owner, leaseEpoch, now))
+        == 1;
+  }
+
   /** Returns one exact batch header, or {@code null} when absent. */
   public IcebergPurgeJobPO getJob(String purgeJobId) {
     Objects.requireNonNull(purgeJobId, "purgeJobId must not be null");
@@ -215,6 +250,109 @@ public class IcebergPurgeJobStore {
     Objects.requireNonNull(purgeJobId, "purgeJobId must not be null");
     return SessionUtils.getWithoutCommit(
         IcebergPurgeActionMapper.class, mapper -> mapper.selectActionsByJob(purgeJobId));
+  }
+
+  /** Returns one exact deletion action, or {@code null} when absent. */
+  public EntityDeletionPO getAction(String deletionId) {
+    Objects.requireNonNull(deletionId, "deletionId must not be null");
+    return SessionUtils.getWithoutCommit(
+        IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId));
+  }
+
+  /** Starts one pending table-level item under the exact live batch lease. */
+  public Optional<EntityDeletionPO> beginAction(
+      String deletionId, String purgeJobId, String owner, long leaseEpoch, long now) {
+    int updated =
+        SessionUtils.doWithCommitAndFetchResult(
+            IcebergPurgeActionMapper.class,
+            mapper -> mapper.beginAction(deletionId, purgeJobId, owner, leaseEpoch, now));
+    if (updated == 0) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(
+        SessionUtils.getWithoutCommit(
+            IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId)));
+  }
+
+  /**
+   * Records a retryable or permanent table-item failure without rolling its lifecycle to DELETED.
+   */
+  public boolean recordActionFailure(
+      EntityDeletionPO action,
+      String owner,
+      long leaseEpoch,
+      boolean retryable,
+      int maxAttempts,
+      String reasonCode,
+      String reason,
+      long now) {
+    Objects.requireNonNull(action, "action must not be null");
+    String nextStatus =
+        retryable && action.getCleanupAttemptCount() + 1 < maxAttempts ? "PENDING" : "FAILED";
+    String safeReason = sanitizeReason(reason);
+    SessionUtils.beginTransaction();
+    try {
+      int updated =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeActionMapper.class,
+              mapper ->
+                  mapper.recordActionFailure(
+                      action.getDeletionId(),
+                      action.getPurgeJobId(),
+                      owner,
+                      leaseEpoch,
+                      nextStatus,
+                      safeReason,
+                      now));
+      if (updated == 0) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+      IcebergPurgeJobPO job =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(action.getPurgeJobId()));
+      if (job == null) {
+        throw new IllegalStateException("Purge job disappeared while recording item failure");
+      }
+      EntityDeletionAuditPO audit =
+          EntityDeletionAuditPO.builder()
+              .auditId(nextOpaqueId())
+              .deletionId(action.getDeletionId())
+              .entityType(action.getEntityType())
+              .entityId(action.getEntityId())
+              .eventType("FAILED".equals(nextStatus) ? "PURGE_ITEM_FAILED" : "PURGE_ITEM_RETRY")
+              .actionRevision(action.getRevision())
+              .priorState("PURGING")
+              .newState("PURGING")
+              .priorCleanupStatus("RUNNING")
+              .newCleanupStatus(nextStatus)
+              .purgeJobId(action.getPurgeJobId())
+              .leaseEpoch(leaseEpoch)
+              .actor(owner)
+              .requestId(action.getRequestId())
+              .correlationId(job.getCorrelationId())
+              .reasonCode(reasonCode)
+              .reason(safeReason)
+              .createdAt(now)
+              .build();
+      SessionUtils.doWithCommit(
+          EntityDeletionAuditMapper.class, mapper -> mapper.insertAudit(audit));
+      SessionUtils.commitTransaction();
+      return true;
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
+    }
+  }
+
+  /** Yields an item after bounded work without counting it as a cleanup failure. */
+  public boolean yieldAction(EntityDeletionPO action, String owner, long leaseEpoch, long now) {
+    return SessionUtils.doWithCommitAndFetchResult(
+            IcebergPurgeActionMapper.class,
+            mapper ->
+                mapper.yieldAction(
+                    action.getDeletionId(), action.getPurgeJobId(), owner, leaseEpoch, now))
+        == 1;
   }
 
   long countJobs() {
@@ -347,7 +485,10 @@ public class IcebergPurgeJobStore {
           SessionUtils.getWithoutCommit(
               IcebergPurgePlanMapper.class,
               mapper -> mapper.selectTargetOrder(deletionId, rootTargetId));
-      if (count == 0 || rootOrder == null || !rootOrder.equals(maximumOrder)) {
+      long rootCount =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgePlanMapper.class, mapper -> mapper.countRootTargets(deletionId));
+      if (count == 0 || rootCount != 1 || rootOrder == null || !rootOrder.equals(maximumOrder)) {
         throw new IllegalStateException(
             "Target plan must be nonempty with designated root metadata ordered last");
       }
@@ -382,6 +523,329 @@ public class IcebergPurgeJobStore {
     Objects.requireNonNull(targetId, "targetId must not be null");
     return SessionUtils.getWithoutCommit(
         IcebergPurgeTargetMapper.class, mapper -> mapper.selectTarget(deletionId, targetId));
+  }
+
+  /**
+   * Claims a bounded child-before-parent target batch under an exact live batch lease.
+   *
+   * @param deletionId table-level deletion action
+   * @param purgeJobId owning batch
+   * @param owner current worker identity
+   * @param leaseEpoch current fencing epoch
+   * @param now authoritative server timestamp
+   * @param limit positive target limit
+   * @return successfully claimed targets with incremented attempt counts
+   */
+  public List<IcebergPurgeTargetPO> claimTargetBatch(
+      String deletionId, String purgeJobId, String owner, long leaseEpoch, long now, int limit) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive");
+    }
+    List<IcebergPurgeTargetPO> candidates =
+        SessionUtils.getWithoutCommit(
+            IcebergPurgeTargetMapper.class,
+            mapper -> mapper.selectTargetCandidates(deletionId, purgeJobId, limit));
+    List<IcebergPurgeTargetPO> claimed = new ArrayList<>(candidates.size());
+    for (IcebergPurgeTargetPO candidate : candidates) {
+      int updated =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeTargetMapper.class,
+              mapper ->
+                  mapper.claimTarget(
+                      deletionId,
+                      candidate.getTargetId(),
+                      candidate.getState(),
+                      purgeJobId,
+                      owner,
+                      leaseEpoch,
+                      now));
+      if (updated == 1) {
+        IcebergPurgeTargetPO target = getTarget(deletionId, candidate.getTargetId());
+        if (target != null) {
+          claimed.add(target);
+        }
+      }
+    }
+    return claimed;
+  }
+
+  /** Marks one exact target succeeded if the caller still owns both fencing epochs. */
+  public boolean markTargetSucceeded(
+      IcebergPurgeTargetPO target, String owner, long leaseEpoch, long now) {
+    return SessionUtils.doWithCommitAndFetchResult(
+            IcebergPurgeTargetMapper.class,
+            mapper ->
+                mapper.markTargetSucceeded(
+                    target.getDeletionId(),
+                    target.getTargetId(),
+                    target.getPurgeJobId(),
+                    owner,
+                    leaseEpoch,
+                    now))
+        == 1;
+  }
+
+  /** Records one target as retryable or permanently failed under the exact fencing epoch. */
+  public boolean markTargetFailure(
+      IcebergPurgeTargetPO target,
+      String owner,
+      long leaseEpoch,
+      boolean retryable,
+      int maxAttempts,
+      String reason,
+      long now) {
+    String nextState = retryable && target.getAttemptCount() < maxAttempts ? "RETRYING" : "FAILED";
+    return SessionUtils.doWithCommitAndFetchResult(
+            IcebergPurgeTargetMapper.class,
+            mapper ->
+                mapper.markTargetFailed(
+                    target.getDeletionId(),
+                    target.getTargetId(),
+                    target.getPurgeJobId(),
+                    owner,
+                    leaseEpoch,
+                    nextState,
+                    sanitizeReason(reason),
+                    now))
+        == 1;
+  }
+
+  /** Returns aggregate physical-target progress for one deletion action. */
+  public IcebergPurgeCountsPO targetCounts(String deletionId) {
+    return SessionUtils.getWithoutCommit(
+        IcebergPurgeTargetMapper.class, mapper -> mapper.countTargetStatuses(deletionId));
+  }
+
+  /**
+   * Expires a bounded set of physical target ledgers after terminal receipt retention.
+   *
+   * <p>This deliberately leaves {@code entity_deletion}, its append-only audit events, and the
+   * compact batch header intact. Callers supply a cutoff derived from the independently configured
+   * terminal receipt-retention policy; active, failed, and recently PURGED actions never match.
+   *
+   * @param receiptCutoff inclusive PURGED timestamp cutoff
+   * @param limit maximum action ledgers to delete
+   * @return number of plan ledgers removed
+   */
+  public int expireTerminalLedgers(long receiptCutoff, int limit) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive");
+    }
+    SessionUtils.beginTransaction();
+    try {
+      List<String> deletionIds =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgePlanMapper.class,
+              mapper -> mapper.selectExpiredLedgerCandidates(receiptCutoff, limit));
+      int removed = 0;
+      for (String deletionId : deletionIds) {
+        SessionUtils.doWithCommit(
+            IcebergPurgeTargetMapper.class, mapper -> mapper.deleteTargets(deletionId));
+        removed +=
+            SessionUtils.doWithCommitAndFetchResult(
+                IcebergPurgePlanMapper.class, mapper -> mapper.deletePlan(deletionId));
+      }
+      SessionUtils.commitTransaction();
+      return removed;
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
+    }
+  }
+
+  /**
+   * Atomically hard-deletes the exact metadata generation and commits the action PURGED.
+   *
+   * <p>The parent table and every stamped child row are addressed by immutable source table id plus
+   * deletion id. A restored, re-dropped, or same-name live table cannot match this predicate. The
+   * target plan must be READY and every snapshotted target must already be individually SUCCEEDED.
+   *
+   * @param deletionId exact deletion generation
+   * @param purgeJobId owning batch
+   * @param owner current worker identity
+   * @param leaseEpoch current fencing epoch
+   * @param now authoritative server timestamp
+   * @return true when this worker committed PURGED; false when it lost its fence or action state
+   */
+  public boolean finalizePurgedAction(
+      String deletionId, String purgeJobId, String owner, long leaseEpoch, long now) {
+    SessionUtils.beginTransaction();
+    try {
+      int fenced =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeJobMapper.class,
+              mapper -> mapper.fenceJobLease(purgeJobId, owner, leaseEpoch, now));
+      if (fenced != 1) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+      EntityDeletionPO action =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId));
+      IcebergPurgeJobPO job =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeJobMapper.class, mapper -> mapper.selectJob(purgeJobId));
+      IcebergPurgePlanPO plan =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgePlanMapper.class, mapper -> mapper.selectPlan(deletionId));
+      IcebergPurgeCountsPO targets =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeTargetMapper.class, mapper -> mapper.countTargetStatuses(deletionId));
+      if (action == null
+          || job == null
+          || plan == null
+          || !"PURGING".equals(action.getState())
+          || !"RUNNING".equals(action.getCleanupStatus())
+          || !purgeJobId.equals(action.getPurgeJobId())
+          || !"READY".equals(plan.getState())
+          || targets.unfinishedCount() != 0
+          || targets.getFailedCount() != 0
+          || targets.getSucceededCount().longValue() != plan.getTargetCount().longValue()) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+
+      long exactParentCount =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeMetadataMapper.class,
+              mapper -> mapper.countExactTable(action.getEntityId(), deletionId));
+      if (exactParentCount != 1) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+
+      int transitioned =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeActionMapper.class,
+              mapper ->
+                  mapper.markActionPurged(
+                      deletionId, action.getEntityId(), purgeJobId, owner, leaseEpoch, now));
+      if (transitioned != 1) {
+        SessionUtils.rollbackTransaction();
+        return false;
+      }
+
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteColumns(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteVersions(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteOwners(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteSecurableObjects(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteTagRelations(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deletePolicyRelations(action.getEntityId(), deletionId));
+      SessionUtils.doWithCommit(
+          IcebergPurgeMetadataMapper.class,
+          mapper -> mapper.deleteStatistics(action.getEntityId(), deletionId));
+      int deletedParent =
+          SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeMetadataMapper.class,
+              mapper -> mapper.deleteTable(action.getEntityId(), deletionId));
+      if (deletedParent != 1) {
+        throw new IllegalStateException("Exact table generation changed during purge finalization");
+      }
+
+      EntityDeletionAuditPO audit =
+          EntityDeletionAuditPO.builder()
+              .auditId(nextOpaqueId())
+              .deletionId(deletionId)
+              .entityType(action.getEntityType())
+              .entityId(action.getEntityId())
+              .eventType("PURGED")
+              .actionRevision(action.getRevision() + 1)
+              .priorState("PURGING")
+              .newState("PURGED")
+              .priorCleanupStatus("RUNNING")
+              .newCleanupStatus("SUCCEEDED")
+              .purgeJobId(purgeJobId)
+              .leaseEpoch(leaseEpoch)
+              .actor(owner)
+              .requestId(action.getRequestId())
+              .correlationId(job.getCorrelationId())
+              .createdAt(now)
+              .build();
+      SessionUtils.doWithCommit(
+          EntityDeletionAuditMapper.class, mapper -> mapper.insertAudit(audit));
+      SessionUtils.commitTransaction();
+      return true;
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
+    }
+  }
+
+  /**
+   * Stores aggregate progress and either releases unfinished work or commits a terminal batch.
+   *
+   * @param purgeJobId batch identifier
+   * @param owner current worker identity
+   * @param leaseEpoch current fencing epoch
+   * @param now authoritative server timestamp
+   * @return true when the exact owner and epoch update succeeds
+   */
+  public boolean settleJob(String purgeJobId, String owner, long leaseEpoch, long now) {
+    IcebergPurgeCountsPO counts =
+        SessionUtils.getWithoutCommit(
+            IcebergPurgeActionMapper.class, mapper -> mapper.countActionStatuses(purgeJobId));
+    IcebergPurgeJobPO job = getJob(purgeJobId);
+    if (job == null) {
+      return false;
+    }
+    long counted =
+        counts.getPendingCount()
+            + counts.getRunningCount()
+            + counts.getSucceededCount()
+            + counts.getFailedCount()
+            + counts.getRetryingCount();
+    if (counted != job.getItemCount()) {
+      throw new IllegalStateException("Purge job aggregate does not match its durable item count");
+    }
+    if (counts.unfinishedCount() > 0) {
+      return SessionUtils.doWithCommitAndFetchResult(
+              IcebergPurgeJobMapper.class,
+              mapper ->
+                  mapper.releaseJob(
+                      purgeJobId,
+                      owner,
+                      leaseEpoch,
+                      counts.getPendingCount(),
+                      counts.getRunningCount(),
+                      counts.getSucceededCount(),
+                      counts.getFailedCount(),
+                      counts.getRetryingCount(),
+                      now))
+          == 1;
+    }
+
+    String terminalState;
+    if (counts.getFailedCount() == 0) {
+      terminalState = "SUCCEEDED";
+    } else if (counts.getSucceededCount() == 0) {
+      terminalState = "FAILED";
+    } else {
+      terminalState = "PARTIAL_FAILED";
+    }
+    return SessionUtils.doWithCommitAndFetchResult(
+            IcebergPurgeJobMapper.class,
+            mapper ->
+                mapper.finishJob(
+                    purgeJobId,
+                    owner,
+                    leaseEpoch,
+                    terminalState,
+                    counts.getSucceededCount(),
+                    counts.getFailedCount(),
+                    now))
+        == 1;
   }
 
   private static void registerMappers() {
@@ -479,5 +943,16 @@ public class IcebergPurgeJobStore {
       throw new IllegalStateException(
           "Target id collision or changed immutable snapshot for " + candidate.getTargetId());
     }
+  }
+
+  private static String sanitizeReason(String reason) {
+    String safe = reason == null || reason.isBlank() ? "unspecified purge failure" : reason;
+    safe = safe.replaceAll("(?i)[a-z][a-z0-9+.-]*://\\S+", "<redacted-location>");
+    safe =
+        safe.replaceAll(
+            "(?i)(access[_-]?key|secret|token|password|credential)(\\s*[:=]\\s*)\\S+",
+            "$1$2<redacted>");
+    safe = safe.replace('\n', ' ').replace('\r', ' ');
+    return safe.length() <= MAX_ERROR_LENGTH ? safe : safe.substring(0, MAX_ERROR_LENGTH);
   }
 }
