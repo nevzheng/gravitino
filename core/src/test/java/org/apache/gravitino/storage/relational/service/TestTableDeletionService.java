@@ -200,6 +200,52 @@ public class TestTableDeletionService extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testAuthorizationOwnerUsesOnlyTheExactGeneration() throws IOException, SQLException {
+    AtomicReference<TablePO> live = new AtomicReference<>();
+    SessionUtils.doMultipleWithCommit(
+        () -> live.set(TableDeletionService.getInstance().lockLiveTable(tableIdentifier)));
+    seedTableOwnedRows(live.get());
+
+    EntityDeletionPO deletion = delete("D1", "authorization-owner-name");
+    assertEquals(
+        9002L,
+        TableDeletionService.getInstance()
+            .getAuthorizationOwner(deletion)
+            .orElseThrow(() -> new AssertionError("Retained authorization owner is missing"))
+            .getOwnerId());
+
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          EntityDeletionPO locked = EntityDeletionService.getInstance().getForUpdate("D1");
+          assertTrue(
+              EntityDeletionService.getInstance()
+                  .restore("D1", locked.getRevision(), RESTORED_AT, "etag-D1-r0"));
+          TableDeletionService.getInstance().restore(locked, RESTORED_AT);
+        });
+
+    EntityDeletionPO restoredReceipt = EntityDeletionService.getInstance().get("D1");
+    assertEquals("RESTORED", restoredReceipt.getState());
+    assertEquals(
+        9002L,
+        TableDeletionService.getInstance()
+            .getAuthorizationOwner(restoredReceipt)
+            .orElseThrow(() -> new AssertionError("Restored authorization owner is missing"))
+            .getOwnerId());
+
+    EntityDeletionPO wrongIdentity =
+        EntityDeletionPO.builder()
+            .deletionId("D-other")
+            .entityId(RandomIdGenerator.INSTANCE.nextId())
+            .parentId(restoredReceipt.getParentId())
+            .entityNameSnapshot(restoredReceipt.getEntityNameSnapshot())
+            .state("RESTORED")
+            .build();
+    assertFalse(
+        TableDeletionService.getInstance().getAuthorizationOwner(wrongIdentity).isPresent(),
+        "A same-name table with another immutable id must not provide the replay owner");
+  }
+
+  @TestTemplate
   public void testAllTableOwnedRowsUseAndClearTheExactDeletionId()
       throws IOException, SQLException {
     AtomicReference<TablePO> live = new AtomicReference<>();

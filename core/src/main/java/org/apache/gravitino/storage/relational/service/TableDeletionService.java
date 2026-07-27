@@ -24,6 +24,7 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.TableDeletionMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
@@ -224,6 +225,34 @@ public class TableDeletionService {
         SessionUtils.getWithoutCommit(
             TableDeletionMapper.class,
             mapper -> mapper.selectOwnerForDeletionGeneration(tableId, deletionId)));
+  }
+
+  /**
+   * Returns the current authorization owner for an exact table deletion action.
+   *
+   * <p>A retained action uses only the owner relation stamped with its deletion id. A restored
+   * receipt may use the current live owner, but only after verifying that the live row is the
+   * action's immutable source table id. This method never resolves an owner from the routed name.
+   *
+   * @param deletion exact deletion action or terminal receipt
+   * @return owner authorized for that exact generation, or empty when its identity is not live
+   */
+  public Optional<OwnerInfo> getAuthorizationOwner(EntityDeletionPO deletion) {
+    Objects.requireNonNull(deletion, "deletion must not be null");
+    if (!"RESTORED".equals(deletion.getState())) {
+      return getDeletionGenerationOwner(deletion.getEntityId(), deletion.getDeletionId());
+    }
+
+    TablePO restored = getRestoredTable(deletion);
+    if (restored == null || !Objects.equals(restored.getTableId(), deletion.getEntityId())) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(
+        SessionUtils.getWithoutCommit(
+            OwnerMetaMapper.class,
+            mapper ->
+                mapper.selectOwnerByMetadataObjectIdAndType(
+                    deletion.getEntityId(), Entity.EntityType.TABLE.name())));
   }
 
   private static IllegalStateException generationChanged(String deletionId, String reason) {
