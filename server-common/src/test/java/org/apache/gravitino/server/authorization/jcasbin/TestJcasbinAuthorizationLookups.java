@@ -157,6 +157,27 @@ public class TestJcasbinAuthorizationLookups {
     verify(ownerMetaMapper, times(1)).selectOwnerByMetadataObjectIdAndType(100L, "TABLE");
   }
 
+  @Test
+  void testExactGenerationBindingsBypassSharedNameAndOwnerCaches() {
+    MetadataObject table =
+        MetadataObjects.of(Arrays.asList("cat1", "sch1", "tbl1"), MetadataObject.Type.TABLE);
+    CountingCache<String, Long> metadataIdCache = new CountingCache<>(999L);
+    CountingCache<Long, Optional<OwnerInfo>> ownerRelCache =
+        new CountingCache<>(Optional.of(new OwnerInfo(88L, "USER")));
+    JcasbinAuthorizationLookups lookups =
+        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+    AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
+    requestContext.bindExactMetadataId("ml1", table, 100L);
+    requestContext.bindExactOwner(100L, MetadataObject.Type.TABLE, Optional.empty());
+
+    Assertions.assertEquals(
+        Optional.of(100L), lookups.resolveMetadataId(table, "ml1", requestContext));
+    Assertions.assertFalse(
+        lookups.resolveOwnerId(100L, MetadataObject.Type.TABLE, requestContext).isPresent());
+    Assertions.assertEquals(0, metadataIdCache.getCount);
+    Assertions.assertEquals(0, ownerRelCache.getCount);
+  }
+
   private static class CountingCache<K, V> implements GravitinoCache<K, V> {
     private final V value;
     private Optional<V> cachedValue = Optional.empty();

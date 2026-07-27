@@ -78,6 +78,12 @@ public class AuthorizationRequestContext {
   /** Per-request metadataId→owner cache. Deduplicates isOwner within a single request. */
   private final Map<Long, Optional<OwnerInfo>> ownerCache = new ConcurrentHashMap<>();
 
+  /** Exact name→id bindings supplied for metadata generations hidden from normal lookup. */
+  private final Map<ExactMetadataKey, Long> exactMetadataIds = new ConcurrentHashMap<>();
+
+  /** Exact metadata generation→owner bindings supplied for hidden metadata generations. */
+  private final Map<ExactOwnerKey, Optional<OwnerInfo>> exactOwners = new ConcurrentHashMap<>();
+
   /**
    * Per-request roleId → {@link RoleUpdatedAt} map populated by the fat-JOIN prefetch on the
    * authorize hot path. When present, {@code versionCheckAndLoadRoles} can skip its dedicated
@@ -202,6 +208,79 @@ public class AuthorizationRequestContext {
         id -> Objects.requireNonNull(loader.apply(id), "Owner loader must not return null"));
   }
 
+  /**
+   * Binds one metadata name to an immutable entity id for this authorization request.
+   *
+   * <p>This is used when an exact metadata generation still exists relationally but is deliberately
+   * hidden from ordinary name lookup, such as a retained table deletion. A conflicting binding is
+   * rejected instead of silently authorizing a different generation under the same name.
+   *
+   * @param metalake metalake containing the metadata object
+   * @param metadataObject metadata object used by the authorization expression
+   * @param metadataId immutable entity id of the exact generation
+   */
+  public void bindExactMetadataId(String metalake, MetadataObject metadataObject, long metadataId) {
+    ExactMetadataKey key = exactMetadataKey(metalake, metadataObject);
+    Long existing = exactMetadataIds.putIfAbsent(key, metadataId);
+    if (existing != null && existing != metadataId) {
+      throw new IllegalStateException(
+          String.format(
+              "Metadata object %s is already bound to entity id %d",
+              metadataObject.fullName(), existing));
+    }
+  }
+
+  /**
+   * Returns an exact entity-id binding supplied for this request.
+   *
+   * @param metalake metalake containing the metadata object
+   * @param metadataObject metadata object used by the authorization expression
+   * @return exact entity id, or empty when normal lookup should be used
+   */
+  public Optional<Long> findExactMetadataId(String metalake, MetadataObject metadataObject) {
+    return Optional.ofNullable(exactMetadataIds.get(exactMetadataKey(metalake, metadataObject)));
+  }
+
+  /**
+   * Binds the owner of one exact metadata generation for this authorization request.
+   *
+   * <p>An empty owner is meaningful and prevents a stale shared owner-cache entry from being used
+   * for the exact generation.
+   *
+   * @param metadataId immutable entity id of the exact generation
+   * @param metadataType metadata object type
+   * @param owner exact owner, or empty when the generation has no owner
+   */
+  public void bindExactOwner(
+      long metadataId, MetadataObject.Type metadataType, Optional<OwnerInfo> owner) {
+    Objects.requireNonNull(metadataType, "metadataType must not be null");
+    Objects.requireNonNull(owner, "owner must not be null");
+    ExactOwnerKey key = new ExactOwnerKey(metadataId, metadataType);
+    Optional<OwnerInfo> existing = exactOwners.putIfAbsent(key, owner);
+    if (existing != null && !existing.equals(owner)) {
+      throw new IllegalStateException(
+          String.format(
+              "Metadata entity %d of type %s already has an exact owner binding",
+              metadataId, metadataType));
+    }
+  }
+
+  /**
+   * Returns an exact owner binding supplied for this request.
+   *
+   * <p>The outer optional distinguishes "no exact binding" from an exact binding whose owner is
+   * absent.
+   *
+   * @param metadataId immutable entity id of the exact generation
+   * @param metadataType metadata object type
+   * @return exact owner binding, or empty when normal lookup should be used
+   */
+  public Optional<Optional<OwnerInfo>> findExactOwner(
+      long metadataId, MetadataObject.Type metadataType) {
+    Objects.requireNonNull(metadataType, "metadataType must not be null");
+    return Optional.ofNullable(exactOwners.get(new ExactOwnerKey(metadataId, metadataType)));
+  }
+
   public String getOriginalAuthorizationExpression() {
     return originalAuthorizationExpression;
   }
@@ -248,6 +327,27 @@ public class AuthorizationRequestContext {
    */
   public void setActiveRoles(ActiveRoles activeRoles) {
     this.activeRoles = Objects.requireNonNull(activeRoles, "activeRoles must not be null");
+  }
+
+  private static ExactMetadataKey exactMetadataKey(String metalake, MetadataObject metadataObject) {
+    Objects.requireNonNull(metalake, "metalake must not be null");
+    Objects.requireNonNull(metadataObject, "metadataObject must not be null");
+    return new ExactMetadataKey(metalake, metadataObject.type(), metadataObject.fullName());
+  }
+
+  @AllArgsConstructor
+  @EqualsAndHashCode
+  private static class ExactMetadataKey {
+    private final String metalake;
+    private final MetadataObject.Type metadataType;
+    private final String fullName;
+  }
+
+  @AllArgsConstructor
+  @EqualsAndHashCode
+  private static class ExactOwnerKey {
+    private final long metadataId;
+    private final MetadataObject.Type metadataType;
   }
 
   /**

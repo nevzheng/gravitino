@@ -19,6 +19,7 @@
 package org.apache.gravitino.storage.relational.service;
 
 import java.util.Objects;
+import java.util.Optional;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
@@ -26,6 +27,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.storage.relational.mapper.TableDeletionMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
+import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 
@@ -204,6 +206,24 @@ public class TableDeletionService {
         mapper ->
             mapper.selectRestoredTable(
                 deletion.getEntityId(), deletion.getParentId(), deletion.getEntityNameSnapshot()));
+  }
+
+  /**
+   * Returns the owner relation stamped by one exact table deletion generation.
+   *
+   * <p>This lookup deliberately includes only the row carrying {@code deletionId}; it never falls
+   * back to a live same-name table or another deletion generation.
+   *
+   * @param tableId immutable source table id
+   * @param deletionId opaque deletion generation id
+   * @return exact tombstoned owner, or empty when the generation has no owner relation
+   */
+  public Optional<OwnerInfo> getDeletionGenerationOwner(long tableId, String deletionId) {
+    Objects.requireNonNull(deletionId, "deletionId must not be null");
+    return Optional.ofNullable(
+        SessionUtils.getWithoutCommit(
+            TableDeletionMapper.class,
+            mapper -> mapper.selectOwnerForDeletionGeneration(tableId, deletionId)));
   }
 
   private static IllegalStateException generationChanged(String deletionId, String reason) {

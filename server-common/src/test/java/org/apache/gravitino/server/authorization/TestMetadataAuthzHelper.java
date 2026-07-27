@@ -27,7 +27,9 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
@@ -35,10 +37,12 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
+import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
+import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.junit.jupiter.api.AfterAll;
@@ -193,6 +197,78 @@ public class TestMetadataAuthzHelper {
       // Based on the MockGravitinoAuthorizer, 2 of the 3 tables should be accessible
       Assertions.assertEquals(1, filtered.length);
       Assertions.assertEquals("testSchema", filtered[0].name());
+    }
+  }
+
+  @Test
+  public void testExactGenerationAccessReevaluatesCurrentParentPermissions() {
+    AtomicBoolean currentParentUse = new AtomicBoolean(true);
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
+    when(authorizer.authorize(any(), eq("testMetalake"), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              Privilege.Name privilege = invocation.getArgument(3);
+              return currentParentUse.get()
+                  && (privilege == Privilege.Name.USE_CATALOG
+                      || privilege == Privilege.Name.USE_SCHEMA);
+            });
+    when(authorizer.deny(any(), eq("testMetalake"), any(), any(), any())).thenReturn(false);
+    when(authorizer.isOwner(any(), eq("testMetalake"), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              MetadataObject object = invocation.getArgument(2);
+              AuthorizationRequestContext context = invocation.getArgument(3);
+              if (object.type() != MetadataObject.Type.TABLE) {
+                return false;
+              }
+              Optional<Long> id = context.findExactMetadataId("testMetalake", object);
+              Optional<Optional<OwnerInfo>> owner =
+                  context.findExactOwner(1001L, MetadataObject.Type.TABLE);
+              return id.equals(Optional.of(1001L))
+                  && owner.isPresent()
+                  && owner.get().isPresent()
+                  && owner.get().get().getOwnerId() == 42L;
+            });
+
+    try (MockedStatic<PrincipalUtils> principalUtils = mockStatic(PrincipalUtils.class);
+        MockedStatic<GravitinoAuthorizerProvider> providerStatic =
+            mockStatic(GravitinoAuthorizerProvider.class)) {
+      principalUtils
+          .when(PrincipalUtils::getCurrentPrincipal)
+          .thenReturn(new UserPrincipal("tester"));
+      GravitinoAuthorizerProvider provider = mock(GravitinoAuthorizerProvider.class);
+      providerStatic.when(GravitinoAuthorizerProvider::getInstance).thenReturn(provider);
+      when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
+      NameIdentifier table =
+          NameIdentifierUtil.ofTable("testMetalake", "testCatalog", "testSchema", "deletedTable");
+
+      Assertions.assertTrue(
+          MetadataAuthzHelper.checkAccessForExactEntity(
+              table,
+              Entity.EntityType.TABLE,
+              AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION,
+              1001L,
+              Optional.of(new OwnerInfo(42L, "USER"))));
+
+      currentParentUse.set(false);
+      Assertions.assertFalse(
+          MetadataAuthzHelper.checkAccessForExactEntity(
+              table,
+              Entity.EntityType.TABLE,
+              AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION,
+              1001L,
+              Optional.of(new OwnerInfo(42L, "USER"))),
+          "Current parent permissions must be rechecked after deletion");
+
+      currentParentUse.set(true);
+      Assertions.assertFalse(
+          MetadataAuthzHelper.checkAccessForExactEntity(
+              table,
+              Entity.EntityType.TABLE,
+              AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION,
+              1001L,
+              Optional.empty()),
+          "An absent exact owner must deny the table-owner path");
     }
   }
 

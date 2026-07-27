@@ -70,6 +70,11 @@ public class JcasbinAuthorizationLookups {
    */
   public Optional<Long> resolveMetadataId(
       MetadataObject metadataObject, String metalake, AuthorizationRequestContext requestContext) {
+    Optional<Long> exactMetadataId = requestContext.findExactMetadataId(metalake, metadataObject);
+    if (exactMetadataId.isPresent()) {
+      return exactMetadataId;
+    }
+
     String cacheKey = JcasbinAuthorizationCacheKeys.metadataIdCacheKey(metalake, metadataObject);
     try {
       // Both cache tiers load atomically and forbid caching null, so a missing object is signalled
@@ -101,6 +106,12 @@ public class JcasbinAuthorizationLookups {
       Long metadataId,
       MetadataObject.Type metadataType,
       AuthorizationRequestContext requestContext) {
+    Optional<Optional<OwnerInfo>> exactOwner =
+        requestContext.findExactOwner(metadataId, metadataType);
+    if (exactOwner.isPresent()) {
+      return exactOwner.get();
+    }
+
     return requestContext.computeOwnerIfAbsent(
         metadataId,
         // Use the cache's atomic loader so concurrent misses on the same id collapse to one DB

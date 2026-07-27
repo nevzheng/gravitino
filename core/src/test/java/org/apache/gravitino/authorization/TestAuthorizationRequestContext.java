@@ -28,6 +28,8 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.storage.relational.po.auth.GroupUpdatedAt;
@@ -295,6 +297,27 @@ public class TestAuthorizationRequestContext {
     assertFalse(absentFirst.isPresent());
     assertFalse(absentSecond.isPresent(), "Absent owner result must also be cached");
     assertEquals(2, loaderCalls.get(), "Loader must fire once per distinct metadataId");
+  }
+
+  @Test
+  public void testExactMetadataGenerationBindingsAreAuthoritative() {
+    AuthorizationRequestContext context = new AuthorizationRequestContext();
+    MetadataObject table =
+        MetadataObjects.of(Arrays.asList("catalog", "schema", "table"), MetadataObject.Type.TABLE);
+    OwnerInfo owner = new OwnerInfo(42L, "USER");
+
+    context.bindExactMetadataId("metalake", table, 1001L);
+    context.bindExactOwner(1001L, MetadataObject.Type.TABLE, Optional.of(owner));
+    context.bindExactOwner(1002L, MetadataObject.Type.TABLE, Optional.empty());
+
+    assertEquals(Optional.of(1001L), context.findExactMetadataId("metalake", table));
+    assertEquals(
+        Optional.of(Optional.of(owner)), context.findExactOwner(1001L, MetadataObject.Type.TABLE));
+    assertEquals(
+        Optional.of(Optional.empty()), context.findExactOwner(1002L, MetadataObject.Type.TABLE));
+    assertFalse(context.findExactMetadataId("other-metalake", table).isPresent());
+    assertThrows(
+        IllegalStateException.class, () -> context.bindExactMetadataId("metalake", table, 9999L));
   }
 
   @Test

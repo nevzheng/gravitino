@@ -41,6 +41,7 @@ import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
+import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -207,6 +208,16 @@ public class TestTableDeletionService extends TestJDBCBackend {
     seedTableOwnedRows(live.get());
 
     EntityDeletionPO deletion = delete("D1", "all-related-name");
+    OwnerInfo deletionOwner =
+        TableDeletionService.getInstance()
+            .getDeletionGenerationOwner(table.id(), "D1")
+            .orElseThrow(() -> new AssertionError("Exact deletion owner is missing"));
+    assertEquals(9002L, deletionOwner.getOwnerId());
+    assertEquals("USER", deletionOwner.getOwnerType());
+    assertFalse(
+        TableDeletionService.getInstance()
+            .getDeletionGenerationOwner(table.id(), "other-generation")
+            .isPresent());
     List<String> predicates =
         Arrays.asList(
             "table_meta WHERE table_id = " + table.id(),
@@ -239,6 +250,10 @@ public class TestTableDeletionService extends TestJDBCBackend {
       assertNull(selectString("SELECT deletion_id FROM " + predicate));
       assertEquals(0L, selectLong("SELECT deleted_at FROM " + predicate));
     }
+    assertFalse(
+        TableDeletionService.getInstance()
+            .getDeletionGenerationOwner(table.id(), "D1")
+            .isPresent());
   }
 
   private EntityDeletionPO delete(String deletionId, String activeNameKey) {

@@ -19,6 +19,7 @@
 package org.apache.gravitino.storage.relational.mapper;
 
 import org.apache.gravitino.storage.relational.po.TablePO;
+import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -96,6 +97,16 @@ public interface TableDeletionMapper {
       @Param("tableId") long tableId,
       @Param("deletedAt") long deletedAt,
       @Param("deletionId") String deletionId);
+
+  /** Returns the owner relation stamped by the exact deletion generation. */
+  @Select({
+    "SELECT owner_id AS ownerId, owner_type AS ownerType FROM owner_meta",
+    "WHERE metadata_object_id = #{tableId} AND metadata_object_type = 'TABLE'",
+    "AND deletion_id = #{deletionId} AND deleted_at > 0",
+    "ORDER BY updated_at DESC, id DESC LIMIT 1"
+  })
+  OwnerInfo selectOwnerForDeletionGeneration(
+      @Param("tableId") long tableId, @Param("deletionId") String deletionId);
 
   /** Stamps all live column-version rows owned by the table. */
   @Update({

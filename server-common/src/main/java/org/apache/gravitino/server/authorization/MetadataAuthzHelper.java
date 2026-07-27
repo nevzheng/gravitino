@@ -47,6 +47,7 @@ import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
+import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.utils.EntityClassMapper;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -337,6 +338,45 @@ public class MetadataAuthzHelper {
         new AuthorizationExpressionEvaluator(expression);
     return authorizationExpressionEvaluator.evaluate(
         nameIdentifierMap, new AuthorizationRequestContext());
+  }
+
+  /**
+   * Checks access to an exact metadata generation that ordinary name lookup may hide.
+   *
+   * <p>The supplied entity id and owner are scoped to this single authorization evaluation. Parent
+   * objects and the caller's current roles are still resolved normally, so permissions revoked
+   * after deletion take effect immediately. Supplying an empty owner is authoritative and cannot
+   * fall back to a stale shared owner-cache entry.
+   *
+   * @param identifier metadata identifier used to route the request
+   * @param entityType metadata entity type
+   * @param expression authorization expression
+   * @param exactEntityId immutable id of the deletion generation
+   * @param exactOwner owner stamped by the deletion generation, or empty when none exists
+   * @return whether the current principal has access
+   */
+  public static boolean checkAccessForExactEntity(
+      NameIdentifier identifier,
+      Entity.EntityType entityType,
+      String expression,
+      long exactEntityId,
+      Optional<OwnerInfo> exactOwner) {
+    if (!enableAuthorization()) {
+      return true;
+    }
+
+    Objects.requireNonNull(exactOwner, "exactOwner must not be null");
+    String metalake = NameIdentifierUtil.getMetalake(identifier);
+    Map<Entity.EntityType, NameIdentifier> nameIdentifierMap =
+        NameIdentifierUtil.splitNameIdentifier(metalake, entityType, identifier);
+    MetadataObject exactMetadataObject =
+        NameIdentifierUtil.toMetadataObject(identifier, entityType);
+    AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
+    requestContext.setOriginalAuthorizationExpression(expression);
+    requestContext.bindExactMetadataId(metalake, exactMetadataObject, exactEntityId);
+    requestContext.bindExactOwner(exactEntityId, exactMetadataObject.type(), exactOwner);
+    return new AuthorizationExpressionEvaluator(expression)
+        .evaluate(nameIdentifierMap, requestContext);
   }
 
   /**
