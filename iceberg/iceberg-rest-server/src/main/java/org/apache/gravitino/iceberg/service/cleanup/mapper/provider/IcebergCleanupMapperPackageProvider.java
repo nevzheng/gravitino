@@ -22,6 +22,7 @@ package org.apache.gravitino.iceberg.service.cleanup.mapper.provider;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
 import org.apache.gravitino.iceberg.service.cleanup.mapper.IcebergCleanupJobMapper;
+import org.apache.gravitino.iceberg.service.deletion.mapper.IcebergDeletionContextMapper;
 import org.apache.gravitino.storage.relational.mapper.provider.MapperPackageProvider;
 
 /**
@@ -39,6 +40,6 @@ public class IcebergCleanupMapperPackageProvider implements MapperPackageProvide
 
   @Override
   public List<Class<?>> getMapperClasses() {
-    return ImmutableList.of(IcebergCleanupJobMapper.class);
+    return ImmutableList.of(IcebergCleanupJobMapper.class, IcebergDeletionContextMapper.class);
   }
 }
