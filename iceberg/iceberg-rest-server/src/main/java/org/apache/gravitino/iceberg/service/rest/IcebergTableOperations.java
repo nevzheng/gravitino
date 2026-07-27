@@ -397,7 +397,7 @@ public class IcebergTableOperations {
             if (deleted) {
               EntityDeletionPO deletion =
                   requireDeletionLifecycle().getDeleted(catalogName, tableIdentifier);
-              requireDeletedTableAccess(catalogName, icebergNS, tableName, deletion);
+              requireDeletedTableVisibility(catalogName, icebergNS, tableName, deletion);
               long serverNow = System.currentTimeMillis();
               String strongTag = IcebergDeletionETags.strongTag(deletion, serverNow);
               EntityTag entityTag = new EntityTag(strongTag);
@@ -775,7 +775,16 @@ public class IcebergTableOperations {
     }
   }
 
-  private boolean canManageDeletedTable(
+  private void requireDeletedTableVisibility(
+      String catalogName, Namespace namespace, String tableName, EntityDeletionPO deletion) {
+    if (!canManageDeletedTable(catalogName, namespace, tableName, deletion)) {
+      throw new IcebergDeletionException(
+          IcebergDeletionException.Outcome.NOT_FOUND, "Deleted table does not exist");
+    }
+  }
+
+  @VisibleForTesting
+  boolean canManageDeletedTable(
       String catalogName,
       Namespace namespace,
       String tableName,

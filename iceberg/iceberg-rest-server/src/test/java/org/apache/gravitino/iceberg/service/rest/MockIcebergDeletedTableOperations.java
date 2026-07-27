@@ -24,6 +24,8 @@ import javax.servlet.http.HttpServletRequest;
 import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationDispatcher;
 import org.apache.gravitino.iceberg.service.metrics.IcebergMetricsManager;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
+import org.apache.iceberg.catalog.Namespace;
 
 /** Table resource used to exercise deleted-table HTTP representations. */
 public class MockIcebergDeletedTableOperations extends IcebergTableOperations {
@@ -40,5 +42,11 @@ public class MockIcebergDeletedTableOperations extends IcebergTableOperations {
   @Override
   HttpServletRequest httpServletRequest() {
     return IcebergRestTestUtil.createMockHttpRequest();
+  }
+
+  @Override
+  boolean canManageDeletedTable(
+      String catalogName, Namespace namespace, String tableName, EntityDeletionPO deletion) {
+    return !"hidden".equals(tableName);
   }
 }

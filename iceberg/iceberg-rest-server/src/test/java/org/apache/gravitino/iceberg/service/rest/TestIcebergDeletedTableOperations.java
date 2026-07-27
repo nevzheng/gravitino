@@ -61,6 +61,7 @@ public class TestIcebergDeletedTableOperations extends IcebergTestBase {
 
   private IcebergTableDeletionLifecycle lifecycle;
   private EntityDeletionPO first;
+  private EntityDeletionPO hidden;
   private EntityDeletionPO second;
   private EntityDeletionPO third;
 
@@ -84,16 +85,19 @@ public class TestIcebergDeletedTableOperations extends IcebergTestBase {
   @BeforeEach
   void setUpDeletedActions() {
     first = deletion("D1", 41L, "customers", 1L);
+    hidden = deletion("D-hidden", 99L, "hidden", 1L);
     second = deletion("D2", 42L, "orders", 2L);
     third = deletion("D3", 43L, "returns", 3L);
     when(lifecycle.toAction(eq(first), anyLong())).thenReturn(action(first));
+    when(lifecycle.toAction(eq(hidden), anyLong())).thenReturn(action(hidden));
     when(lifecycle.toAction(eq(second), anyLong())).thenReturn(action(second));
     when(lifecycle.toAction(eq(third), anyLong())).thenReturn(action(third));
   }
 
   @Test
   void testDeletedOnlyListUsesTablePaginationAndJoinedRepresentation() throws Exception {
-    when(lifecycle.listDeleted(CATALOG, NAMESPACE)).thenReturn(List.of(first, second, third));
+    when(lifecycle.listDeleted(CATALOG, NAMESPACE))
+        .thenReturn(List.of(first, hidden, second, third));
 
     String path = tableCollectionPath();
     Response firstPage =
@@ -125,6 +129,8 @@ public class TestIcebergDeletedTableOperations extends IcebergTestBase {
     assertEquals(1, secondJson.get("tables").size());
     assertEquals("returns", secondJson.at("/tables/0/table/name").asText());
     assertFalse(secondJson.has("next-page-token"));
+    assertFalse(firstJson.toString().contains("hidden"));
+    assertFalse(secondJson.toString().contains("hidden"));
   }
 
   @Test
@@ -177,6 +183,19 @@ public class TestIcebergDeletedTableOperations extends IcebergTestBase {
         getIcebergClientBuilder(
                 tablePath("missing"), Optional.of(ImmutableMap.of("deleted", "true")))
             .get();
+    assertEquals(404, response.getStatus());
+  }
+
+  @Test
+  void testUnauthorizedDeletedItemIsConcealedAsNotFound() {
+    TableIdentifier identifier = TableIdentifier.of(NAMESPACE, "hidden");
+    when(lifecycle.getDeleted(CATALOG, identifier)).thenReturn(hidden);
+
+    Response response =
+        getIcebergClientBuilder(
+                tablePath("hidden"), Optional.of(ImmutableMap.of("deleted", "true")))
+            .get();
+
     assertEquals(404, response.getStatus());
   }
 

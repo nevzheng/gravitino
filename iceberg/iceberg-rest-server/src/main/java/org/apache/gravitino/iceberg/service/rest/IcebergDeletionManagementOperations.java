@@ -37,7 +37,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.iceberg.service.IcebergExceptionMapper;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
@@ -188,7 +187,7 @@ public class IcebergDeletionManagementOperations {
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
     if (!IcebergDeletionAuthorization.canDrop(gravitinoIdentifier, deletion)) {
-      throw new ForbiddenException("Not authorized to manage this table deletion");
+      throw new IcebergDeletionException(Outcome.NOT_FOUND, "Deletion action does not exist");
     }
   }
 }
