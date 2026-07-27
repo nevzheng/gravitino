@@ -36,7 +36,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.UserPrincipal;
+import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.meta.TableEntity;
+import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
@@ -240,6 +243,30 @@ public class TestTableDeletionService extends TestJDBCBackend {
     }
   }
 
+  @TestTemplate
+  public void testRetainedOwnerLookupUsesExactDeletionGeneration()
+      throws IOException, SQLException {
+    UserEntity user =
+        createUserEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            AuthorizationUtils.ofUserNamespace(METALAKE),
+            "alice",
+            AUDIT_INFO);
+    backend.insert(user, false);
+    OwnerMetaService.getInstance()
+        .setOwner(tableIdentifier, Entity.EntityType.TABLE, user.nameIdentifier(), user.type());
+
+    EntityDeletionPO deletion = delete("D1", "owner-name");
+    assertTrue(
+        TableDeletionService.getInstance().isRetainedOwner(deletion, new UserPrincipal("alice")));
+    assertFalse(
+        TableDeletionService.getInstance().isRetainedOwner(deletion, new UserPrincipal("bob")));
+
+    execute("UPDATE owner_meta SET deletion_id = 'D2' WHERE metadata_object_id = " + table.id());
+    assertFalse(
+        TableDeletionService.getInstance().isRetainedOwner(deletion, new UserPrincipal("alice")));
+  }
+
   private EntityDeletionPO delete(String deletionId, String activeNameKey) {
     AtomicReference<EntityDeletionPO> result = new AtomicReference<>();
     SessionUtils.doMultipleWithCommit(
@@ -366,6 +393,15 @@ public class TestTableDeletionService extends TestJDBCBackend {
         ResultSet resultSet = statement.executeQuery(sql)) {
       assertTrue(resultSet.next());
       return resultSet.getString(1);
+    }
+  }
+
+  private void execute(String sql) throws SQLException {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(sql);
     }
   }
 

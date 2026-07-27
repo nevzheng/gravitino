@@ -181,6 +181,20 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
   }
 
   @TestTemplate
+  public void testDeleteMissingTableIsNotFound() {
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+    TableIdentifier missing =
+        TableIdentifier.of(org.apache.iceberg.catalog.Namespace.of(SCHEMA), "missing");
+
+    IcebergDeletionException error =
+        assertThrows(
+            IcebergDeletionException.class, () -> lifecycle.delete(requestContext, missing, false));
+
+    assertEquals(Outcome.NOT_FOUND, error.outcome());
+    verifyNoInteractions(wrapperManager, wrapper);
+  }
+
+  @TestTemplate
   public void testPrdConfigurationMatrixIsCapturedAtDeleteTime() throws SQLException {
     IcebergTableDeletionLifecycle disabled = lifecycle(false, 86_400_000L);
     assertFalse(disabled.manages(false));
@@ -235,6 +249,60 @@ public class TestIcebergTableDeletionLifecycle extends TestJDBCBackend {
                     deletion.getDeletedAt() + 1));
     assertEquals(Outcome.GONE, gone.outcome());
     assertFalse(backend.exists(gravitinoIdentifier, Entity.EntityType.TABLE));
+  }
+
+  @TestTemplate
+  public void testRestoreGenerationFailureIsConflict() throws IOException, SQLException {
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+    lifecycle.delete(requestContext, icebergIdentifier, false);
+    EntityDeletionPO deletion = onlyDeletion();
+    execute(
+        "UPDATE table_meta SET deletion_id = 'other-generation' WHERE table_id = "
+            + deletion.getEntityId());
+
+    IcebergDeletionException conflict =
+        assertThrows(
+            IcebergDeletionException.class,
+            () ->
+                lifecycle.undrop(
+                    requestContext,
+                    icebergIdentifier,
+                    deletion.getDeletionId(),
+                    IcebergDeletionETags.strongTag(deletion, deletion.getDeletedAt() + 1),
+                    deletion.getDeletedAt() + 1));
+
+    assertEquals(Outcome.CONFLICT, conflict.outcome());
+    assertEquals(
+        IcebergTableDeletionLifecycle.DELETED,
+        EntityDeletionService.getInstance().get(deletion.getDeletionId()).getState());
+  }
+
+  @TestTemplate
+  public void testRestoreMissingParentIsConflict() throws IOException, SQLException {
+    IcebergTableDeletionLifecycle lifecycle = lifecycle(true, 86_400_000L);
+    lifecycle.delete(requestContext, icebergIdentifier, false);
+    EntityDeletionPO deletion = onlyDeletion();
+    execute(
+        "UPDATE schema_meta SET deleted_at = "
+            + (deletion.getDeletedAt() + 1)
+            + " WHERE schema_id = "
+            + deletion.getParentId());
+
+    IcebergDeletionException conflict =
+        assertThrows(
+            IcebergDeletionException.class,
+            () ->
+                lifecycle.undrop(
+                    requestContext,
+                    icebergIdentifier,
+                    deletion.getDeletionId(),
+                    IcebergDeletionETags.strongTag(deletion, deletion.getDeletedAt() + 1),
+                    deletion.getDeletedAt() + 1));
+
+    assertEquals(Outcome.CONFLICT, conflict.outcome());
+    assertEquals(
+        IcebergTableDeletionLifecycle.DELETED,
+        EntityDeletionService.getInstance().get(deletion.getDeletionId()).getState());
   }
 
   private IcebergTableDeletionLifecycle lifecycle(boolean enabled, long retentionMs) {

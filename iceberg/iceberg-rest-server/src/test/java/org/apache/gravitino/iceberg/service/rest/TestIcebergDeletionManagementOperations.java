@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Locale;
+import javax.ws.rs.core.Response;
 import org.apache.gravitino.iceberg.service.IcebergObjectMapper;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletedTable;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletedTableMetadata;
@@ -90,6 +91,23 @@ public class TestIcebergDeletionManagementOperations {
         IcebergObjectMapper.getInstance()
             .readValue("{\"deletionId\":\"D1\"}", IcebergUndropRequest.class);
     assertEquals("D1", request.getDeletionId());
+  }
+
+  @Test
+  public void testLifecycleConflictsAndPurgeBoundaryHaveTypedStatuses() {
+    try (Response conflict =
+            IcebergDeletionManagementOperations.lifecycleError(
+                new IcebergDeletionException(Outcome.CONFLICT, "generation changed"));
+        Response gone =
+            IcebergDeletionManagementOperations.lifecycleError(
+                new IcebergDeletionException(Outcome.GONE, "purge boundary"));
+        Response missing =
+            IcebergDeletionManagementOperations.lifecycleError(
+                new IcebergDeletionException(Outcome.NOT_FOUND, "missing"))) {
+      assertEquals(409, conflict.getStatus());
+      assertEquals(410, gone.getStatus());
+      assertEquals(404, missing.getStatus());
+    }
   }
 
   @Test

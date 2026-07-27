@@ -174,7 +174,7 @@ public class IcebergTableDeletionLifecycle {
             appendChange(metalake, gravitinoIdentifier, OperateType.DROP);
           } catch (NoSuchEntityException e) {
             if (EntityDeletionService.getInstance().getByActiveName(activeNameKey) == null) {
-              throw e;
+              throw failure(Outcome.NOT_FOUND, "Table does not exist");
             }
           }
         });
@@ -239,6 +239,48 @@ public class IcebergTableDeletionLifecycle {
     if (deletion == null) {
       throw failure(Outcome.NOT_FOUND, "Deleted table does not exist");
     }
+    validateRoute(deletion, metalake, catalogName, identifier);
+    return deletion;
+  }
+
+  /**
+   * Returns the active deletion action reserving a routed table name, if one exists.
+   *
+   * @param catalogName Iceberg catalog name
+   * @param identifier routed Iceberg table name
+   * @return active deletion action, or {@code null}
+   */
+  @Nullable
+  public EntityDeletionPO findActive(String catalogName, TableIdentifier identifier) {
+    if (!available) {
+      return null;
+    }
+    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    EntityDeletionPO deletion =
+        EntityDeletionService.getInstance()
+            .getByActiveName(activeNameKey(metalake, catalogName, identifier));
+    if (deletion != null) {
+      validateRoute(deletion, metalake, catalogName, identifier);
+    }
+    return deletion;
+  }
+
+  /**
+   * Returns one exact deletion action after validating its routed table snapshots.
+   *
+   * @param catalogName Iceberg catalog name
+   * @param identifier routed Iceberg table name
+   * @param deletionId exact opaque deletion identifier
+   * @return exact deletion action
+   */
+  public EntityDeletionPO getAction(
+      String catalogName, TableIdentifier identifier, String deletionId) {
+    requireAvailable();
+    EntityDeletionPO deletion = EntityDeletionService.getInstance().get(deletionId);
+    if (deletion == null) {
+      throw failure(Outcome.NOT_FOUND, "Deletion action does not exist");
+    }
+    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
     validateRoute(deletion, metalake, catalogName, identifier);
     return deletion;
   }
@@ -325,7 +367,13 @@ public class IcebergTableDeletionLifecycle {
             throw failure(Outcome.PRECONDITION_FAILED, "Deletion action changed during UNDROP");
           }
 
-          TableDeletionService.getInstance().restore(deletion, serverNow);
+          try {
+            TableDeletionService.getInstance().restore(deletion, serverNow);
+          } catch (IllegalStateException e) {
+            throw failure(
+                Outcome.CONFLICT,
+                "Table cannot be restored because its parent, name, or deletion generation changed");
+          }
           EntityDeletionAuditService.getInstance()
               .insert(
                   newAudit(
@@ -451,7 +499,12 @@ public class IcebergTableDeletionLifecycle {
 
   private static void validateRoute(
       EntityDeletionPO deletion, String metalake, String catalogName, TableIdentifier identifier) {
-    long expectedParentId = schemaId(metalake, catalogName, identifier.namespace());
+    long expectedParentId;
+    try {
+      expectedParentId = schemaId(metalake, catalogName, identifier.namespace());
+    } catch (NoSuchEntityException e) {
+      throw failure(Outcome.CONFLICT, "Deletion action parent namespace is no longer live");
+    }
     if (!Entity.EntityType.TABLE.name().equals(deletion.getEntityType())
         || !Objects.equals(expectedParentId, deletion.getParentId())
         || !Objects.equals(identifier.namespace().toString(), deletion.getNamespaceSnapshot())

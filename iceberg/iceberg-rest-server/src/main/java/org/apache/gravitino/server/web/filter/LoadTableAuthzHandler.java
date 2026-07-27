@@ -50,6 +50,10 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
  * clients such as Trino/Spark).
  */
 public class LoadTableAuthzHandler implements AuthorizationHandler {
+  private static final String DELETED_TABLE_AUTHORIZATION_PREFLIGHT =
+      "ANY(OWNER, METALAKE, CATALOG) || SCHEMA_OWNER_WITH_USE_CATALOG || "
+          + "ANY_USE_CATALOG && ANY_USE_SCHEMA";
+
   private final AuthorizationExpression authorizationExpression;
   private final Parameter[] parameters;
   private final Object[] args;
@@ -129,13 +133,13 @@ public class LoadTableAuthzHandler implements AuthorizationHandler {
 
     String primaryExpression =
         deletedRead
-            ? AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION
+            ? DELETED_TABLE_AUTHORIZATION_PREFLIGHT
             : IcebergLoadAuthzHandlerHelper.resolveExpression(
                 authorizationExpression,
                 AuthorizationExpressionConstants.LOAD_TABLE_AUTHORIZATION_EXPRESSION);
     String allowCheckExistenceExpression =
         deletedRead
-            ? AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION
+            ? DELETED_TABLE_AUTHORIZATION_PREFLIGHT
             : IcebergLoadAuthzHandlerHelper.resolveAllowCheckExistenceExpression(
                 authorizationExpression,
                 AuthorizationExpressionConstants

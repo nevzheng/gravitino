@@ -42,17 +42,17 @@ import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.iceberg.service.IcebergExceptionMapper;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
+import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionAuthorization;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException;
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionException.Outcome;
 import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
 import org.apache.gravitino.iceberg.service.deletion.IcebergUndropRequest;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
-import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -107,7 +107,8 @@ public class IcebergDeletionManagementOperations {
           () -> {
             String deletionId = parseDeletionId(request);
             String acceptedEtag = parseStrongIfMatch(ifMatch);
-            requireDropAccess(catalogName, identifier);
+            EntityDeletionPO deletion = lifecycle.getAction(catalogName, identifier, deletionId);
+            requireDropAccess(catalogName, identifier, deletion);
             IcebergRequestContext context = new IcebergRequestContext(httpRequest, catalogName);
             LoadTableResponse response =
                 lifecycle.undrop(
@@ -180,15 +181,13 @@ public class IcebergDeletionManagementOperations {
     return Response.status(status).entity(response).type(MediaType.APPLICATION_JSON).build();
   }
 
-  private static void requireDropAccess(String catalogName, TableIdentifier identifier) {
+  private static void requireDropAccess(
+      String catalogName, TableIdentifier identifier, EntityDeletionPO deletion) {
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
     NameIdentifier gravitinoIdentifier =
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, catalogName, identifier, HierarchicalSchemaUtil.schemaSeparator());
-    if (!MetadataAuthzHelper.checkAccess(
-        gravitinoIdentifier,
-        Entity.EntityType.TABLE,
-        AuthorizationExpressionConstants.ICEBERG_DROP_TABLE_AUTHORIZATION_EXPRESSION)) {
+    if (!IcebergDeletionAuthorization.canDrop(gravitinoIdentifier, deletion)) {
       throw new ForbiddenException("Not authorized to manage this table deletion");
     }
   }

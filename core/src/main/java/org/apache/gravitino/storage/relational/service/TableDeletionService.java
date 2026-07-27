@@ -18,10 +18,12 @@
  */
 package org.apache.gravitino.storage.relational.service;
 
+import java.security.Principal;
 import java.util.Objects;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.storage.relational.mapper.TableDeletionMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
@@ -204,6 +206,39 @@ public class TableDeletionService {
         mapper ->
             mapper.selectRestoredTable(
                 deletion.getEntityId(), deletion.getParentId(), deletion.getEntityNameSnapshot()));
+  }
+
+  /**
+   * Returns whether the principal owns the table row retained by an exact deletion generation.
+   *
+   * <p>This lookup intentionally does not reactivate or treat the tombstone as a live table. It
+   * reads only the owner relation stamped with the same immutable table ID and deletion ID.
+   *
+   * @param deletion exact table deletion generation
+   * @param principal current request principal
+   * @return whether the principal is the retained user or group owner
+   */
+  public boolean isRetainedOwner(EntityDeletionPO deletion, Principal principal) {
+    Objects.requireNonNull(deletion, "deletion must not be null");
+    Objects.requireNonNull(principal, "principal must not be null");
+    return SessionUtils.getWithoutCommit(
+        TableDeletionMapper.class,
+        mapper -> {
+          String userOwner =
+              mapper.selectRetainedUserOwnerName(deletion.getEntityId(), deletion.getDeletionId());
+          if (Objects.equals(userOwner, principal.getName())) {
+            return true;
+          }
+          if (!(principal instanceof UserPrincipal)) {
+            return false;
+          }
+          String groupOwner =
+              mapper.selectRetainedGroupOwnerName(deletion.getEntityId(), deletion.getDeletionId());
+          return groupOwner != null
+              && ((UserPrincipal) principal)
+                  .getGroups().stream()
+                      .anyMatch(group -> Objects.equals(groupOwner, group.getGroupName()));
+        });
   }
 
   private static IllegalStateException generationChanged(String deletionId, String reason) {

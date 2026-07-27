@@ -70,6 +70,26 @@ public interface TableDeletionMapper {
       @Param("schemaId") long schemaId,
       @Param("tableName") String tableName);
 
+  /** Returns the retained user owner stamped by the exact deletion generation. */
+  @Select({
+    "SELECT u.user_name FROM owner_meta o",
+    "JOIN user_meta u ON u.user_id = o.owner_id AND u.deleted_at = 0",
+    "WHERE o.metadata_object_id = #{tableId} AND o.metadata_object_type = 'TABLE'",
+    "AND o.owner_type = 'USER' AND o.deletion_id = #{deletionId}"
+  })
+  String selectRetainedUserOwnerName(
+      @Param("tableId") long tableId, @Param("deletionId") String deletionId);
+
+  /** Returns the retained group owner stamped by the exact deletion generation. */
+  @Select({
+    "SELECT g.group_name FROM owner_meta o",
+    "JOIN group_meta g ON g.group_id = o.owner_id AND g.deleted_at = 0",
+    "WHERE o.metadata_object_id = #{tableId} AND o.metadata_object_type = 'TABLE'",
+    "AND o.owner_type = 'GROUP' AND o.deletion_id = #{deletionId}"
+  })
+  String selectRetainedGroupOwnerName(
+      @Param("tableId") long tableId, @Param("deletionId") String deletionId);
+
   /** Tombstones the exact live table row. */
   @Update({
     "UPDATE table_meta SET deleted_at = #{deletedAt}, deletion_id = #{deletionId}",
