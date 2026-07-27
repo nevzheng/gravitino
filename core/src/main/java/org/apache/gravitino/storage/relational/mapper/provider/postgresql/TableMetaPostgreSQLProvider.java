@@ -98,8 +98,9 @@ public class TableMetaPostgreSQLProvider extends TableMetaBaseSQLProvider {
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + TABLE_NAME
-        + " WHERE table_id IN (SELECT table_id FROM "
+        + " WHERE deletion_id IS NULL AND table_id IN (SELECT table_id FROM "
         + TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline}"
+        + " AND deletion_id IS NULL LIMIT #{limit})";
   }
 }

@@ -198,8 +198,9 @@ public class SecurableObjectPostgreSQLProvider extends SecurableObjectBaseSQLPro
       @Param("legacyTimeline") Long legacyTimeline, @Param("limit") int limit) {
     return "DELETE FROM "
         + SECURABLE_OBJECT_TABLE_NAME
-        + " WHERE id IN (SELECT id FROM "
+        + " WHERE deletion_id IS NULL AND id IN (SELECT id FROM "
         + SECURABLE_OBJECT_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline}"
+        + " AND deletion_id IS NULL LIMIT #{limit})";
   }
 }

@@ -39,6 +39,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
+import org.apache.gravitino.storage.relational.mapper.PolicyMetadataObjectRelMapper;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
 import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
@@ -317,6 +318,64 @@ public class TestTableDeletionService extends TestJDBCBackend {
             .isPresent());
   }
 
+  @TestTemplate
+  public void testLegacyGarbageCollectionSkipsDeletionGenerations()
+      throws IOException, SQLException {
+    AtomicReference<TablePO> retained = new AtomicReference<>();
+    SessionUtils.doMultipleWithCommit(
+        () -> retained.set(TableDeletionService.getInstance().lockLiveTable(tableIdentifier)));
+    seedTableOwnedRows(retained.get());
+    delete("D1", "gc-protected-name");
+
+    NameIdentifier legacyIdentifier =
+        NameIdentifier.of(tableIdentifier.namespace(), "legacy_orders");
+    TableEntity legacyTable =
+        createTableEntity(
+            RandomIdGenerator.INSTANCE.nextId(),
+            tableIdentifier.namespace(),
+            legacyIdentifier.name(),
+            AUDIT_INFO);
+    backend.insert(legacyTable, false);
+    AtomicReference<TablePO> legacy = new AtomicReference<>();
+    SessionUtils.doMultipleWithCommit(
+        () -> legacy.set(TableDeletionService.getInstance().lockLiveTable(legacyIdentifier)));
+    seedTableOwnedRows(legacy.get(), 19_000L);
+    assertTrue(backend.delete(legacyIdentifier, Entity.EntityType.TABLE, false));
+    markLegacyTableOwnedRows(legacy.get(), 19_001L);
+
+    long legacyTimeline = DELETED_AT + 1;
+    backend.hardDeleteLegacyData(Entity.EntityType.TABLE, legacyTimeline);
+    backend.hardDeleteLegacyData(Entity.EntityType.COLUMN, legacyTimeline);
+    backend.hardDeleteLegacyData(Entity.EntityType.METALAKE, legacyTimeline);
+    backend.hardDeleteLegacyData(Entity.EntityType.ROLE, legacyTimeline);
+    backend.hardDeleteLegacyData(Entity.EntityType.TAG, legacyTimeline);
+    SessionUtils.doWithCommitAndFetchResult(
+        PolicyMetadataObjectRelMapper.class,
+        mapper -> mapper.deletePolicyEntityRelsByLegacyTimeline(legacyTimeline, 100));
+    backend.hardDeleteLegacyData(Entity.EntityType.TABLE_STATISTIC, legacyTimeline);
+
+    for (String tableName :
+        Arrays.asList(
+            "table_meta",
+            "table_version_info",
+            "table_column_version_info",
+            "owner_meta",
+            "role_meta_securable_object",
+            "tag_relation_meta",
+            "policy_relation_meta",
+            "statistic_meta")) {
+      long expectedGenerationRows = "policy_relation_meta".equals(tableName) ? 2L : 1L;
+      assertEquals(
+          expectedGenerationRows,
+          countRows(tableName, "deletion_id = 'D1'"),
+          tableName + " must retain the deletion generation");
+      assertEquals(
+          0L,
+          countRows(tableName, "deletion_id IS NULL AND deleted_at = " + DELETED_AT),
+          tableName + " must remove the ordinary legacy tombstone");
+    }
+  }
+
   private EntityDeletionPO delete(String deletionId, String activeNameKey) {
     AtomicReference<EntityDeletionPO> result = new AtomicReference<>();
     SessionUtils.doMultipleWithCommit(
@@ -374,11 +433,16 @@ public class TestTableDeletionService extends TestJDBCBackend {
   }
 
   private void seedTableOwnedRows(TablePO row) throws SQLException {
+    seedTableOwnedRows(row, 9_000L);
+  }
+
+  private void seedTableOwnedRows(TablePO row, long idBase) throws SQLException {
     long tableId = row.getTableId();
     long metalakeId = row.getMetalakeId();
     long catalogId = row.getCatalogId();
     long schemaId = row.getSchemaId();
     long version = row.getCurrentVersion();
+    long columnId = idBase + 1;
     try (SqlSession session =
             SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
         Connection connection = session.getConnection();
@@ -397,32 +461,42 @@ public class TestTableDeletionService extends TestJDBCBackend {
               + tableId
               + ","
               + version
-              + ",9001,'c',0,'integer','',1,0,1,0,'{}')");
+              + ","
+              + columnId
+              + ",'c',0,'integer','',1,0,1,0,'{}')");
       statement.executeUpdate(
           "INSERT INTO owner_meta "
               + "(metalake_id,owner_id,owner_type,metadata_object_id,metadata_object_type,"
               + "audit_info,current_version,last_version,deleted_at,updated_at) VALUES ("
               + metalakeId
-              + ",9002,'USER',"
+              + ","
+              + (idBase + 2)
+              + ",'USER',"
               + tableId
               + ",'TABLE','{}',1,1,0,0)");
       statement.executeUpdate(
           "INSERT INTO role_meta_securable_object "
               + "(role_id,metadata_object_id,type,privilege_names,privilege_conditions,"
-              + "current_version,last_version,deleted_at) VALUES (9003,"
+              + "current_version,last_version,deleted_at) VALUES ("
+              + (idBase + 3)
+              + ","
               + tableId
               + ",'TABLE','[]','[]',1,1,0)");
       statement.executeUpdate(
           "INSERT INTO tag_relation_meta "
               + "(tag_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
-              + "last_version,deleted_at) VALUES (9004,"
+              + "last_version,deleted_at) VALUES ("
+              + (idBase + 4)
+              + ","
               + tableId
               + ",'TABLE','{}',1,1,0)");
       statement.executeUpdate(
           "INSERT INTO statistic_meta "
               + "(statistic_id,statistic_name,metalake_id,statistic_value,metadata_object_id,"
               + "metadata_object_type,audit_info,current_version,last_version,deleted_at) VALUES "
-              + "(9005,'rows',"
+              + "("
+              + (idBase + 5)
+              + ",'rows',"
               + metalakeId
               + ",'1',"
               + tableId
@@ -430,18 +504,83 @@ public class TestTableDeletionService extends TestJDBCBackend {
       statement.executeUpdate(
           "INSERT INTO policy_relation_meta "
               + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
-              + "last_version,deleted_at) VALUES (9006,"
+              + "last_version,deleted_at) VALUES ("
+              + (idBase + 6)
+              + ","
               + tableId
               + ",'TABLE','{}',1,1,0)");
       statement.executeUpdate(
           "INSERT INTO policy_relation_meta "
               + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
-              + "last_version,deleted_at) VALUES (9007,9001,'COLUMN','{}',1,1,0)");
+              + "last_version,deleted_at) VALUES ("
+              + (idBase + 7)
+              + ","
+              + columnId
+              + ",'COLUMN','{}',1,1,0)");
       statement.executeUpdate(
           "INSERT INTO policy_relation_meta "
               + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
-              + "last_version,deleted_at) VALUES (9008,9999,'COLUMN','{}',1,1,0)");
+              + "last_version,deleted_at) VALUES ("
+              + (idBase + 8)
+              + ","
+              + (idBase + 999)
+              + ",'COLUMN','{}',1,1,0)");
     }
+  }
+
+  private void markLegacyTableOwnedRows(TablePO row, long columnId) throws SQLException {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "UPDATE table_meta SET deleted_at = "
+              + DELETED_AT
+              + " WHERE table_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE table_version_info SET deleted_at = "
+              + DELETED_AT
+              + " WHERE table_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE table_column_version_info SET deleted_at = "
+              + DELETED_AT
+              + " WHERE table_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE owner_meta SET deleted_at = "
+              + DELETED_AT
+              + " WHERE metadata_object_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE role_meta_securable_object SET deleted_at = "
+              + DELETED_AT
+              + " WHERE metadata_object_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE tag_relation_meta SET deleted_at = "
+              + DELETED_AT
+              + " WHERE metadata_object_id = "
+              + row.getTableId());
+      statement.executeUpdate(
+          "UPDATE policy_relation_meta SET deleted_at = "
+              + DELETED_AT
+              + " WHERE metadata_object_id IN ("
+              + row.getTableId()
+              + ","
+              + columnId
+              + ")");
+      statement.executeUpdate(
+          "UPDATE statistic_meta SET deleted_at = "
+              + DELETED_AT
+              + " WHERE metadata_object_id = "
+              + row.getTableId());
+    }
+  }
+
+  private long countRows(String tableName, String predicate) throws SQLException {
+    return selectLong("SELECT COUNT(*) FROM " + tableName + " WHERE " + predicate);
   }
 
   private String selectString(String sql) throws SQLException {

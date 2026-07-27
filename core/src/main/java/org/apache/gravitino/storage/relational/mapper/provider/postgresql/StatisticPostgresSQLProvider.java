@@ -63,8 +63,9 @@ public class StatisticPostgresSQLProvider extends StatisticBaseSQLProvider {
   public String deleteStatisticsByLegacyTimeline(Long legacyTimeline, int limit) {
     return "DELETE FROM "
         + STATISTIC_META_TABLE_NAME
-        + " WHERE statistic_id IN (SELECT statistic_id FROM "
+        + " WHERE deletion_id IS NULL AND statistic_id IN (SELECT statistic_id FROM "
         + STATISTIC_META_TABLE_NAME
-        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline} LIMIT #{limit})";
+        + " WHERE deleted_at > 0 AND deleted_at < #{legacyTimeline}"
+        + " AND deletion_id IS NULL LIMIT #{limit})";
   }
 }
