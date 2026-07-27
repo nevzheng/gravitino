@@ -26,6 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
@@ -35,8 +41,10 @@ import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
 import org.apache.gravitino.storage.relational.po.TablePO;
+import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
 import org.apache.gravitino.utils.NamespaceUtil;
+import org.apache.ibatis.session.SqlSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 
@@ -189,6 +197,49 @@ public class TestTableDeletionService extends TestJDBCBackend {
             .getDeletionId());
   }
 
+  @TestTemplate
+  public void testAllTableOwnedRowsUseAndClearTheExactDeletionId()
+      throws IOException, SQLException {
+    AtomicReference<TablePO> live = new AtomicReference<>();
+    SessionUtils.doMultipleWithCommit(
+        () -> live.set(TableDeletionService.getInstance().lockLiveTable(tableIdentifier)));
+    seedTableOwnedRows(live.get());
+
+    EntityDeletionPO deletion = delete("D1", "all-related-name");
+    List<String> predicates =
+        Arrays.asList(
+            "table_meta WHERE table_id = " + table.id(),
+            "table_version_info WHERE table_id = "
+                + table.id()
+                + " AND version = "
+                + deletion.getEntityVersion(),
+            "table_column_version_info WHERE table_id = " + table.id(),
+            "owner_meta WHERE metadata_object_id = " + table.id(),
+            "role_meta_securable_object WHERE metadata_object_id = " + table.id(),
+            "tag_relation_meta WHERE metadata_object_id = " + table.id(),
+            "statistic_meta WHERE metadata_object_id = " + table.id(),
+            "policy_relation_meta WHERE metadata_object_id = " + table.id());
+
+    for (String predicate : predicates) {
+      assertEquals("D1", selectString("SELECT deletion_id FROM " + predicate));
+      assertEquals(DELETED_AT, selectLong("SELECT deleted_at FROM " + predicate));
+    }
+
+    SessionUtils.doMultipleWithCommit(
+        () -> {
+          EntityDeletionPO locked = EntityDeletionService.getInstance().getForUpdate("D1");
+          assertTrue(
+              EntityDeletionService.getInstance()
+                  .restore("D1", locked.getRevision(), RESTORED_AT, "etag-D1-r0"));
+          TableDeletionService.getInstance().restore(locked, RESTORED_AT);
+        });
+
+    for (String predicate : predicates) {
+      assertNull(selectString("SELECT deletion_id FROM " + predicate));
+      assertEquals(0L, selectLong("SELECT deleted_at FROM " + predicate));
+    }
+  }
+
   private EntityDeletionPO delete(String deletionId, String activeNameKey) {
     AtomicReference<EntityDeletionPO> result = new AtomicReference<>();
     SessionUtils.doMultipleWithCommit(
@@ -242,5 +293,90 @@ public class TestTableDeletionService extends TestJDBCBackend {
         .withDeletedAt(deletion.getDeletedAt())
         .withDeletionId(deletion.getDeletionId())
         .build();
+  }
+
+  private void seedTableOwnedRows(TablePO row) throws SQLException {
+    long tableId = row.getTableId();
+    long metalakeId = row.getMetalakeId();
+    long catalogId = row.getCatalogId();
+    long schemaId = row.getSchemaId();
+    long version = row.getCurrentVersion();
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "INSERT INTO table_column_version_info "
+              + "(metalake_id,catalog_id,schema_id,table_id,table_version,column_id,column_name,"
+              + "column_position,column_type,column_comment,column_nullable,column_auto_increment,"
+              + "column_op_type,deleted_at,audit_info) VALUES ("
+              + metalakeId
+              + ","
+              + catalogId
+              + ","
+              + schemaId
+              + ","
+              + tableId
+              + ","
+              + version
+              + ",9001,'c',0,'integer','',1,0,1,0,'{}')");
+      statement.executeUpdate(
+          "INSERT INTO owner_meta "
+              + "(metalake_id,owner_id,owner_type,metadata_object_id,metadata_object_type,"
+              + "audit_info,current_version,last_version,deleted_at,updated_at) VALUES ("
+              + metalakeId
+              + ",9002,'USER',"
+              + tableId
+              + ",'TABLE','{}',1,1,0,0)");
+      statement.executeUpdate(
+          "INSERT INTO role_meta_securable_object "
+              + "(role_id,metadata_object_id,type,privilege_names,privilege_conditions,"
+              + "current_version,last_version,deleted_at) VALUES (9003,"
+              + tableId
+              + ",'TABLE','[]','[]',1,1,0)");
+      statement.executeUpdate(
+          "INSERT INTO tag_relation_meta "
+              + "(tag_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
+              + "last_version,deleted_at) VALUES (9004,"
+              + tableId
+              + ",'TABLE','{}',1,1,0)");
+      statement.executeUpdate(
+          "INSERT INTO statistic_meta "
+              + "(statistic_id,statistic_name,metalake_id,statistic_value,metadata_object_id,"
+              + "metadata_object_type,audit_info,current_version,last_version,deleted_at) VALUES "
+              + "(9005,'rows',"
+              + metalakeId
+              + ",'1',"
+              + tableId
+              + ",'TABLE','{}',1,1,0)");
+      statement.executeUpdate(
+          "INSERT INTO policy_relation_meta "
+              + "(policy_id,metadata_object_id,metadata_object_type,audit_info,current_version,"
+              + "last_version,deleted_at) VALUES (9006,"
+              + tableId
+              + ",'TABLE','{}',1,1,0)");
+    }
+  }
+
+  private String selectString(String sql) throws SQLException {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet resultSet = statement.executeQuery(sql)) {
+      assertTrue(resultSet.next());
+      return resultSet.getString(1);
+    }
+  }
+
+  private long selectLong(String sql) throws SQLException {
+    try (SqlSession session =
+            SqlSessionFactoryHelper.getInstance().getSqlSessionFactory().openSession(true);
+        Connection connection = session.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet resultSet = statement.executeQuery(sql)) {
+      assertTrue(resultSet.next());
+      return resultSet.getLong(1);
+    }
   }
 }
