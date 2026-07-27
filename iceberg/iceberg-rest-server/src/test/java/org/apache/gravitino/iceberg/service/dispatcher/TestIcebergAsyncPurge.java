@@ -39,6 +39,7 @@ import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupJob;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
+import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.CatalogEntity;
@@ -47,9 +48,11 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.AlreadyExistsException;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.rest.requests.CreateTableRequest;
 import org.apache.iceberg.rest.requests.ImmutableRegisterTableRequest;
 import org.apache.iceberg.rest.requests.RegisterTableRequest;
+import org.apache.iceberg.rest.responses.ListTablesResponse;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -141,6 +144,24 @@ class TestIcebergAsyncPurge {
     verify(cleanup, never()).addJob(any());
   }
 
+  @Test
+  void testLifecycleDropUsesOnlyTheRelationalLifecycle() {
+    CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
+    IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
+    IcebergTableDeletionLifecycle lifecycle = mock(IcebergTableDeletionLifecycle.class);
+    IcebergRequestContext request = context(false);
+    when(lifecycle.manages(true)).thenReturn(true);
+
+    tableExecutor(wrapper, Optional.of(cleanup), Optional.of(lifecycle))
+        .dropTable(request, TABLE, true);
+
+    verify(lifecycle).delete(request, TABLE, true);
+    verify(wrapper, never()).dropTable(any());
+    verify(wrapper, never()).purgeTable(any());
+    verify(wrapper, never()).loadTableMetadata(any());
+    verify(cleanup, never()).addJob(any());
+  }
+
   // --- create / register tombstone ---
 
   @Test
@@ -204,6 +225,46 @@ class TestIcebergAsyncPurge {
     verify(wrapper).registerTable(any(), any(), anyBoolean());
   }
 
+  @Test
+  void testLifecycleReservationHidesAndBlocksTheTableName() {
+    CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
+    IcebergTableDeletionLifecycle lifecycle = mock(IcebergTableDeletionLifecycle.class);
+    TableIdentifier other = TableIdentifier.of("db", "other");
+    when(lifecycle.isNameReserved("cat", TABLE)).thenReturn(true);
+    when(lifecycle.isNameReserved("cat", other)).thenReturn(false);
+    when(wrapper.listTable(DB))
+        .thenReturn(ListTablesResponse.builder().add(TABLE).add(other).build());
+    IcebergTableOperationExecutor executor =
+        tableExecutor(wrapper, Optional.empty(), Optional.of(lifecycle));
+
+    Assertions.assertFalse(executor.tableExists(context(false), TABLE));
+    Assertions.assertThrows(
+        NoSuchTableException.class, () -> executor.loadTable(context(false), TABLE));
+    Assertions.assertThrows(
+        AlreadyExistsException.class, () -> executor.createTable(context(false), DB, createReq()));
+    Assertions.assertEquals(
+        Collections.singletonList(other), executor.listTable(context(false), DB).identifiers());
+
+    verify(wrapper, never()).tableExists(TABLE);
+    verify(wrapper, never()).loadTable(any(), anyBoolean(), any());
+    verify(wrapper, never()).createTable(any(), any(), anyBoolean());
+  }
+
+  @Test
+  void testLifecycleReservationBlocksRegisterTable() {
+    CatalogWrapperForREST wrapper = mock(CatalogWrapperForREST.class);
+    IcebergTableDeletionLifecycle lifecycle = mock(IcebergTableDeletionLifecycle.class);
+    when(lifecycle.isNameReserved("cat", TABLE)).thenReturn(true);
+
+    Assertions.assertThrows(
+        AlreadyExistsException.class,
+        () ->
+            namespaceExecutor(wrapper, Optional.empty(), Optional.of(lifecycle))
+                .registerTable(context(false), DB, registerReq()));
+
+    verify(wrapper, never()).registerTable(any(), any(), anyBoolean());
+  }
+
   // --- helpers ---
 
   private IcebergTableOperationExecutor tableExecutor(
@@ -211,9 +272,23 @@ class TestIcebergAsyncPurge {
     return new IcebergTableOperationExecutor(wrapperManager(wrapper), cleanup);
   }
 
+  private IcebergTableOperationExecutor tableExecutor(
+      CatalogWrapperForREST wrapper,
+      Optional<IcebergCleanupManager> cleanup,
+      Optional<IcebergTableDeletionLifecycle> lifecycle) {
+    return new IcebergTableOperationExecutor(wrapperManager(wrapper), cleanup, lifecycle);
+  }
+
   private IcebergNamespaceOperationExecutor namespaceExecutor(
       CatalogWrapperForREST wrapper, Optional<IcebergCleanupManager> cleanup) {
     return new IcebergNamespaceOperationExecutor(wrapperManager(wrapper), cleanup);
+  }
+
+  private IcebergNamespaceOperationExecutor namespaceExecutor(
+      CatalogWrapperForREST wrapper,
+      Optional<IcebergCleanupManager> cleanup,
+      Optional<IcebergTableDeletionLifecycle> lifecycle) {
+    return new IcebergNamespaceOperationExecutor(wrapperManager(wrapper), cleanup, lifecycle);
   }
 
   private static IcebergCatalogWrapperManager wrapperManager(CatalogWrapperForREST wrapper) {
