@@ -59,6 +59,17 @@ public interface IcebergPurgeActionMapper {
   @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "selectAction")
   EntityDeletionPO selectAction(@Param("deletionId") String deletionId);
 
+  /** Returns a bounded window of terminal failed items eligible for explicit manual redrive. */
+  @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "selectFailedActionsForRedrive")
+  List<EntityDeletionPO> selectFailedActionsForRedrive(@Param("limit") int limit);
+
+  /** Makes one exact terminal failed item claimable without resetting its attempt history. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "redriveFailedAction")
+  int redriveFailedAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("now") long now);
+
   /** Starts a pending table item under a live fenced lease. */
   @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "beginAction")
   int beginAction(

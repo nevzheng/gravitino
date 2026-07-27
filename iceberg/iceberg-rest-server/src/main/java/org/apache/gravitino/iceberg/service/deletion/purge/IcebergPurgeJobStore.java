@@ -20,9 +20,11 @@
 package org.apache.gravitino.iceberg.service.deletion.purge;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.apache.gravitino.iceberg.service.cleanup.mapper.provider.IcebergCleanupMapperPackageProvider;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeActionMapper;
 import org.apache.gravitino.iceberg.service.deletion.purge.mapper.IcebergPurgeJobMapper;
@@ -285,6 +287,84 @@ public class IcebergPurgeJobStore {
     Objects.requireNonNull(deletionId, "deletionId must not be null");
     return SessionUtils.getWithoutCommit(
         IcebergPurgeActionMapper.class, mapper -> mapper.selectAction(deletionId));
+  }
+
+  /**
+   * Atomically makes a bounded set of terminal failed items claimable for explicit manual redrive.
+   *
+   * <p>Only {@code FAILED} actions owned by terminal batch headers are eligible. The transaction
+   * resets failed physical targets to {@code RETRYING}, leaves confirmed {@code SUCCEEDED} targets
+   * unchanged, preserves historical job/target attempts, increments the action attempt count for
+   * the new redrive, reopens affected batch headers, and appends one audit event per action.
+   *
+   * @param limit maximum actions to redrive
+   * @param actor non-secret audit actor
+   * @param correlationId non-secret audit correlation identifier
+   * @param now authoritative server timestamp
+   * @return number of actions made claimable
+   */
+  public int redriveFailedActions(int limit, String actor, String correlationId, long now) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive");
+    }
+    Objects.requireNonNull(actor, "actor must not be null");
+    Objects.requireNonNull(correlationId, "correlationId must not be null");
+
+    SessionUtils.beginTransaction();
+    try {
+      List<EntityDeletionPO> candidates =
+          SessionUtils.getWithoutCommit(
+              IcebergPurgeActionMapper.class,
+              mapper -> mapper.selectFailedActionsForRedrive(limit));
+      Set<String> affectedJobs = new LinkedHashSet<>();
+      int redriven = 0;
+      for (EntityDeletionPO action : candidates) {
+        int updated =
+            SessionUtils.doWithCommitAndFetchResult(
+                IcebergPurgeActionMapper.class,
+                mapper ->
+                    mapper.redriveFailedAction(
+                        action.getDeletionId(), action.getPurgeJobId(), now));
+        if (updated == 0) {
+          continue;
+        }
+        SessionUtils.doWithCommit(
+            IcebergPurgeTargetMapper.class,
+            mapper ->
+                mapper.redriveFailedTargets(action.getDeletionId(), action.getPurgeJobId(), now));
+        SessionUtils.doWithCommit(
+            EntityDeletionAuditMapper.class,
+            mapper -> mapper.insertAudit(redriveAudit(action, actor, correlationId, now)));
+        affectedJobs.add(action.getPurgeJobId());
+        redriven++;
+      }
+
+      for (String purgeJobId : affectedJobs) {
+        IcebergPurgeCountsPO counts =
+            SessionUtils.getWithoutCommit(
+                IcebergPurgeActionMapper.class, mapper -> mapper.countActionStatuses(purgeJobId));
+        int reopened =
+            SessionUtils.doWithCommitAndFetchResult(
+                IcebergPurgeJobMapper.class,
+                mapper ->
+                    mapper.redriveTerminalJob(
+                        purgeJobId,
+                        counts.getPendingCount(),
+                        counts.getRunningCount(),
+                        counts.getSucceededCount(),
+                        counts.getFailedCount(),
+                        counts.getRetryingCount(),
+                        now));
+        if (reopened != 1) {
+          throw new IllegalStateException("Failed to reopen redriven purge batch");
+        }
+      }
+      SessionUtils.commitTransaction();
+      return redriven;
+    } catch (Throwable t) {
+      SessionUtils.rollbackTransaction();
+      throw t;
+    }
   }
 
   /** Starts one pending table-level item under the exact live batch lease. */
@@ -1080,6 +1160,29 @@ public class IcebergPurgeJobStore {
         .actor(owner)
         .requestId(action.getRequestId())
         .correlationId(job.getCorrelationId())
+        .createdAt(now)
+        .build();
+  }
+
+  private EntityDeletionAuditPO redriveAudit(
+      EntityDeletionPO action, String actor, String correlationId, long now) {
+    return EntityDeletionAuditPO.builder()
+        .auditId(nextOpaqueId())
+        .deletionId(action.getDeletionId())
+        .entityType(action.getEntityType())
+        .entityId(action.getEntityId())
+        .eventType("PURGE_REDRIVE_REQUESTED")
+        .actionRevision(action.getRevision())
+        .priorState("PURGING")
+        .newState("PURGING")
+        .priorCleanupStatus("FAILED")
+        .newCleanupStatus("PENDING")
+        .purgeJobId(action.getPurgeJobId())
+        .actor(actor)
+        .requestId(action.getRequestId())
+        .correlationId(correlationId)
+        .reasonCode("MANUAL_REDRIVE")
+        .reason("A bounded manual purge redrive was requested")
         .createdAt(now)
         .build();
   }

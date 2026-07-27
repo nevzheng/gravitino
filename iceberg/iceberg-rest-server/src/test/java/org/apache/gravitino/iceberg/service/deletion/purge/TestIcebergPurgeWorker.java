@@ -37,6 +37,8 @@ import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionContextStore
 import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSource;
 import org.apache.gravitino.iceberg.service.deletion.po.IcebergDeletionContextPO;
 import org.apache.gravitino.iceberg.service.deletion.purge.po.IcebergPurgeJobPO;
+import org.apache.gravitino.iceberg.service.deletion.testhook.IcebergDeletionTestHookController;
+import org.apache.gravitino.iceberg.service.deletion.testhook.IcebergDeletionTestHookController.Fault;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.po.EntityDeletionPO;
@@ -356,6 +358,50 @@ public class TestIcebergPurgeWorker extends TestJDBCBackend {
     Assertions.assertTrue(worker(threeTargets, slowDeleter).runOnce("worker-slow"));
     Assertions.assertTrue(clock.get() - INITIAL_TIME > LEASE_MS);
     Assertions.assertEquals("PURGED", deletion("slow-batch").getState());
+  }
+
+  @TestTemplate
+  void testBoundedManualRedrivePreservesSuccessAndUsesNormalWorker() throws Exception {
+    insertDeletion("manual-redrive", 901L);
+    String jobId = claimBatch(1).getPurgeJobId();
+    IcebergDeletionTestHookController controller = new IcebergDeletionTestHookController();
+    controller.install(20L, "db", "manual-redrive", Fault.PERMISSION_DENIED, 1);
+    AtomicInteger realDeletes = new AtomicInteger();
+    IcebergPurgeTargetDeleter realDeleter = (context, target) -> realDeletes.incrementAndGet();
+    IcebergPurgeWorker faulted = worker(planner(), controller.decorate(realDeleter));
+
+    Assertions.assertTrue(faulted.runOnce("worker-faulted"));
+    EntityDeletionPO failed = deletion("manual-redrive");
+    Assertions.assertEquals("PURGING", failed.getState());
+    Assertions.assertEquals("FAILED", failed.getCleanupStatus());
+    Assertions.assertEquals(1, failed.getCleanupAttemptCount());
+    Assertions.assertEquals(
+        "Iceberg purge operation failed (PERMISSION_DENIED)", failed.getCleanupLastError());
+    Assertions.assertEquals("FAILED", purgeStore.getJob(jobId).getState());
+    Assertions.assertEquals(1, purgeStore.targetCounts("manual-redrive").getSucceededCount());
+    Assertions.assertEquals(1, purgeStore.targetCounts("manual-redrive").getFailedCount());
+
+    controller.clear(20L, "db", "manual-redrive");
+    Assertions.assertEquals(
+        1,
+        purgeStore.redriveFailedActions(
+            1, "test-hook", "redrive-correlation", clock.incrementAndGet()));
+    EntityDeletionPO redriven = deletion("manual-redrive");
+    Assertions.assertEquals("PENDING", redriven.getCleanupStatus());
+    Assertions.assertEquals(2, redriven.getCleanupAttemptCount());
+    Assertions.assertEquals(1, purgeStore.targetCounts("manual-redrive").getSucceededCount());
+    Assertions.assertEquals(1, purgeStore.targetCounts("manual-redrive").getRetryingCount());
+    Assertions.assertEquals(1, purgeStore.countAudits(jobId, "PURGE_REDRIVE_REQUESTED"));
+    Assertions.assertEquals("PENDING", purgeStore.getJob(jobId).getState());
+
+    Assertions.assertTrue(worker(planner(), realDeleter).runOnce("worker-redrive"));
+    EntityDeletionPO purged = deletion("manual-redrive");
+    Assertions.assertEquals("PURGED", purged.getState());
+    Assertions.assertEquals("SUCCEEDED", purged.getCleanupStatus());
+    Assertions.assertEquals(2, purged.getCleanupAttemptCount());
+    Assertions.assertEquals(2, purgeStore.targetCounts("manual-redrive").getSucceededCount());
+    Assertions.assertEquals(2, realDeletes.get());
+    Assertions.assertEquals(0, rowCount("table_meta", 901L));
   }
 
   private IcebergPurgeWorker worker(

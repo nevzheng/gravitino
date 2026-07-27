@@ -106,4 +106,15 @@ public interface IcebergPurgeJobMapper {
       @Param("succeededCount") long succeededCount,
       @Param("failedCount") long failedCount,
       @Param("now") long now);
+
+  /** Reopens a terminal batch after at least one failed item was explicitly redriven. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "redriveTerminalJob")
+  int redriveTerminalJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("pendingCount") long pendingCount,
+      @Param("runningCount") long runningCount,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("retryingCount") long retryingCount,
+      @Param("now") long now);
 }

@@ -89,6 +89,13 @@ public interface IcebergPurgeTargetMapper {
       @Param("leaseEpoch") long leaseEpoch,
       @Param("now") long now);
 
+  /** Makes only permanently failed targets retryable while preserving successful target rows. */
+  @UpdateProvider(type = IcebergPurgeSQLProvider.class, method = "redriveFailedTargets")
+  int redriveFailedTargets(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("now") long now);
+
   /** Aggregates per-target progress for one deletion action. */
   @SelectProvider(type = IcebergPurgeSQLProvider.class, method = "countTargetStatuses")
   IcebergPurgeCountsPO countTargetStatuses(@Param("deletionId") String deletionId);

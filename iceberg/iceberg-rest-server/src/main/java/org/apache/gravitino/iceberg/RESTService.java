@@ -19,13 +19,16 @@
 package org.apache.gravitino.iceberg;
 
 import com.google.common.collect.Lists;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.IcebergAuthenticationFilter;
@@ -41,6 +44,8 @@ import org.apache.gravitino.iceberg.service.deletion.IcebergDeletionMetricsSourc
 import org.apache.gravitino.iceberg.service.deletion.IcebergTableDeletionLifecycle;
 import org.apache.gravitino.iceberg.service.deletion.purge.IcebergPurgeJobStore;
 import org.apache.gravitino.iceberg.service.deletion.purge.IcebergPurgeManager;
+import org.apache.gravitino.iceberg.service.deletion.testhook.IcebergDeletionTestHookController;
+import org.apache.gravitino.iceberg.service.deletion.testhook.IcebergDeletionTestHookOperations;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceEventDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceHookDispatcher;
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationDispatcher;
@@ -66,6 +71,7 @@ import org.apache.gravitino.server.web.HttpServerMetricsSource;
 import org.apache.gravitino.server.web.JettyServer;
 import org.apache.gravitino.server.web.JettyServerConfig;
 import org.apache.gravitino.server.web.filter.IcebergRESTAuthInterceptionService;
+import org.apache.gravitino.storage.relational.service.EntityIdService;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.jackson.JacksonFeature;
@@ -122,7 +128,10 @@ public class RESTService implements GravitinoAuxiliaryService {
         new HttpServerMetricsSource(MetricsSource.ICEBERG_REST_SERVER_METRIC_NAME, config, server);
     metricsSystem.register(httpServerMetricsSource);
 
-    Map<String, String> configProperties = icebergConfig.getAllConfig();
+    Map<String, String> configProperties = new HashMap<>(icebergConfig.getAllConfig());
+    // The hook credential belongs only to its explicitly registered resource. Never forward it to
+    // catalog wrappers, FileIO reconstruction, or provider configuration snapshots.
+    configProperties.remove(IcebergConfig.DELETION_TEST_HOOK_TOKEN.getKey());
     this.configProvider = IcebergConfigProviderFactory.create(configProperties);
     configProvider.initialize(configProperties);
     String metalakeName = configProvider.getMetalakeName();
@@ -166,14 +175,38 @@ public class RESTService implements GravitinoAuxiliaryService {
                 new IcebergCleanupJobStore(GravitinoEnv.getInstance().idGenerator()),
                 icebergConfig));
     if (auxMode) {
-      this.purgeManager =
-          Optional.of(
-              new IcebergPurgeManager(
-                  purgeStore.orElseThrow(),
-                  new IcebergDeletionContextStore(),
-                  icebergCatalogWrapperManager,
-                  icebergConfig,
-                  deletionMetricsSource));
+      IcebergPurgeJobStore deletionPurgeStore = purgeStore.orElseThrow();
+      IcebergDeletionContextStore deletionContextStore = new IcebergDeletionContextStore();
+      if (shouldRegisterDeletionTestHook(icebergConfig, auxMode)) {
+        IcebergDeletionTestHookController testHookController =
+            new IcebergDeletionTestHookController();
+        IcebergPurgeManager manager =
+            new IcebergPurgeManager(
+                deletionPurgeStore,
+                deletionContextStore,
+                icebergCatalogWrapperManager,
+                icebergConfig,
+                deletionMetricsSource,
+                testHookController::decorate);
+        this.purgeManager = Optional.of(manager);
+        config.register(
+            new IcebergDeletionTestHookOperations(
+                testHookController,
+                catalog ->
+                    EntityIdService.getEntityId(
+                        NameIdentifier.of(metalakeName, catalog), Entity.EntityType.CATALOG),
+                manager::redriveFailedAndRunOnce,
+                icebergConfig.get(IcebergConfig.DELETION_TEST_HOOK_TOKEN)));
+      } else {
+        this.purgeManager =
+            Optional.of(
+                new IcebergPurgeManager(
+                    deletionPurgeStore,
+                    deletionContextStore,
+                    icebergCatalogWrapperManager,
+                    icebergConfig,
+                    deletionMetricsSource));
+      }
     }
     // The raw namespace operation executor is shared with the table and view hook dispatchers so
     // their orphan-schema cleanup can probe namespace existence without firing namespace events.
@@ -264,6 +297,20 @@ public class RESTService implements GravitinoAuxiliaryService {
           "Iceberg REST soft delete requires Gravitino table_meta authority and is not supported "
               + "in standalone mode; disable gravitino.iceberg-rest.soft-delete.enabled");
     }
+    if (icebergConfig.get(IcebergConfig.DELETION_TEST_HOOK_ENABLED)) {
+      if (!auxMode) {
+        throw new IllegalArgumentException(
+            "Iceberg deletion test hook requires auxiliary deletion-action mode");
+      }
+      if (icebergConfig.get(IcebergConfig.DELETION_TEST_HOOK_TOKEN).isBlank()) {
+        throw new IllegalArgumentException(
+            "Iceberg deletion test hook requires a nonblank configured token");
+      }
+    }
+  }
+
+  static boolean shouldRegisterDeletionTestHook(IcebergConfig icebergConfig, boolean auxMode) {
+    return auxMode && icebergConfig.get(IcebergConfig.DELETION_TEST_HOOK_ENABLED);
   }
 
   @Override

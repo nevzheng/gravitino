@@ -416,6 +416,24 @@ public class IcebergConfig extends Config implements OverwriteDefaultConfig {
               "The value must be between 0 and 90 days")
           .createWithDefault(86_400_000L);
 
+  /** Whether the production-disabled Iceberg deletion integration-test hook is registered. */
+  public static final ConfigEntry<Boolean> DELETION_TEST_HOOK_ENABLED =
+      new ConfigBuilder("deletion.test-hook.enabled")
+          .doc(
+              "Whether to register the authenticated Iceberg deletion fault-injection test hook. "
+                  + "This must remain disabled outside controlled integration tests.")
+          .version(ConfigConstants.VERSION_1_3_0)
+          .booleanConf()
+          .createWithDefault(false);
+
+  /** Shared authentication token for the production-disabled deletion integration-test hook. */
+  public static final ConfigEntry<String> DELETION_TEST_HOOK_TOKEN =
+      new ConfigBuilder("deletion.test-hook.token")
+          .doc("Authentication token for the Iceberg deletion integration-test hook.")
+          .version(ConfigConstants.VERSION_1_3_0)
+          .stringConf()
+          .createWithDefault("");
+
   public String getJdbcDriver() {
     return get(JDBC_DRIVER);
   }

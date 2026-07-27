@@ -122,6 +122,34 @@ public class IcebergPurgeSQLProvider {
     return "SELECT " + ACTION_COLUMNS + " FROM entity_deletion WHERE deletion_id = #{deletionId}";
   }
 
+  /** Selects a bounded window of failed items from terminal jobs only. */
+  public static String selectFailedActionsForRedrive(@Param("limit") int limit) {
+    return "SELECT "
+        + ACTION_COLUMNS
+        + " FROM entity_deletion d WHERE d.entity_type = 'TABLE'"
+        + " AND d.purge_job_type = 'ICEBERG_REST_PURGE' AND d.state = 'PURGING'"
+        + " AND d.cleanup_status = 'FAILED' AND d.purge_job_id IS NOT NULL"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = d.purge_job_id"
+        + " AND j.state IN ('FAILED', 'PARTIAL_FAILED'))"
+        + " ORDER BY d.updated_at, d.deletion_id LIMIT #{limit}";
+  }
+
+  /** Resets one exact failed item without changing its lifecycle or attempt history. */
+  public static String redriveFailedAction(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("now") long now) {
+    return "UPDATE entity_deletion SET cleanup_status = 'PENDING',"
+        + " cleanup_attempt_count = cleanup_attempt_count + 1, updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
+        + " AND entity_type = 'TABLE' AND purge_job_type = 'ICEBERG_REST_PURGE'"
+        + " AND state = 'PURGING' AND cleanup_status = 'FAILED'"
+        + " AND EXISTS (SELECT 1 FROM iceberg_purge_job j"
+        + " WHERE j.purge_job_id = #{purgeJobId}"
+        + " AND j.state IN ('FAILED', 'PARTIAL_FAILED'))";
+  }
+
   /** Marks one pending table item running only under a live, fenced batch lease. */
   public static String beginAction(
       @Param("deletionId") String deletionId,
@@ -382,6 +410,24 @@ public class IcebergPurgeSQLProvider {
         + " AND lease_expires_at > #{now}";
   }
 
+  /** Reopens one terminal batch while preserving its fencing epoch and attempt count. */
+  public static String redriveTerminalJob(
+      @Param("purgeJobId") String purgeJobId,
+      @Param("pendingCount") long pendingCount,
+      @Param("runningCount") long runningCount,
+      @Param("succeededCount") long succeededCount,
+      @Param("failedCount") long failedCount,
+      @Param("retryingCount") long retryingCount,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_job SET state = 'PENDING', owner = NULL,"
+        + " lease_expires_at = NULL, heartbeat_at = NULL,"
+        + " pending_count = #{pendingCount}, running_count = #{runningCount},"
+        + " succeeded_count = #{succeededCount}, failed_count = #{failedCount},"
+        + " retrying_count = #{retryingCount}, last_error = NULL, completed_at = NULL,"
+        + " updated_at = #{now} WHERE purge_job_id = #{purgeJobId}"
+        + " AND state IN ('FAILED', 'PARTIAL_FAILED')";
+  }
+
   /** Inserts the planning marker before any physical target may be deleted. */
   public static String insertPlan(@Param("plan") IcebergPurgePlanPO plan) {
     return "INSERT INTO iceberg_purge_plan (deletion_id, purge_job_id, context_digest, state,"
@@ -498,6 +544,16 @@ public class IcebergPurgeSQLProvider {
     return "UPDATE iceberg_purge_target SET state = 'RETRYING', updated_at = #{now}"
         + " WHERE purge_job_id = #{purgeJobId} AND state = 'RUNNING'"
         + " AND lease_epoch < #{leaseEpoch}";
+  }
+
+  /** Makes permanently failed targets retryable without touching confirmed successes. */
+  public static String redriveFailedTargets(
+      @Param("deletionId") String deletionId,
+      @Param("purgeJobId") String purgeJobId,
+      @Param("now") long now) {
+    return "UPDATE iceberg_purge_target SET state = 'RETRYING', updated_at = #{now}"
+        + " WHERE deletion_id = #{deletionId} AND purge_job_id = #{purgeJobId}"
+        + " AND state = 'FAILED'";
   }
 
   /** Aggregates physical-target progress for one deletion action. */

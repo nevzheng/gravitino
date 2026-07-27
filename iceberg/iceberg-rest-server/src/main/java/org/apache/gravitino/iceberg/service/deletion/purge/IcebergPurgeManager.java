@@ -28,6 +28,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
@@ -70,7 +71,7 @@ public class IcebergPurgeManager implements AutoCloseable {
       IcebergDeletionContextStore contextStore,
       IcebergCatalogWrapperManager wrapperManager,
       IcebergConfig config) {
-    this(store, contextStore, wrapperManager, config, null);
+    this(store, contextStore, wrapperManager, config, null, UnaryOperator.identity());
   }
 
   /**
@@ -88,10 +89,34 @@ public class IcebergPurgeManager implements AutoCloseable {
       IcebergCatalogWrapperManager wrapperManager,
       IcebergConfig config,
       @Nullable IcebergDeletionMetricsSource metricsSource) {
+    this(store, contextStore, wrapperManager, config, metricsSource, UnaryOperator.identity());
+  }
+
+  /**
+   * Creates the purge runtime with metrics and an optional target-deleter decorator.
+   *
+   * <p>The production-disabled integration-test hook uses the decorator to inject a classified
+   * failure around the real FileIO delete. Production construction uses the identity decorator.
+   *
+   * @param store durable purge job store
+   * @param contextStore immutable Iceberg deletion context store
+   * @param wrapperManager current catalog configuration and credentials
+   * @param config Iceberg REST configuration
+   * @param metricsSource registered deletion lifecycle metrics
+   * @param targetDeleterDecorator decorator around the real target deleter
+   */
+  public IcebergPurgeManager(
+      IcebergPurgeJobStore store,
+      IcebergDeletionContextStore contextStore,
+      IcebergCatalogWrapperManager wrapperManager,
+      IcebergConfig config,
+      @Nullable IcebergDeletionMetricsSource metricsSource,
+      UnaryOperator<IcebergPurgeTargetDeleter> targetDeleterDecorator) {
     this.store = Objects.requireNonNull(store, "store must not be null");
     Objects.requireNonNull(contextStore, "contextStore must not be null");
     Objects.requireNonNull(wrapperManager, "wrapperManager must not be null");
     Objects.requireNonNull(config, "config must not be null");
+    Objects.requireNonNull(targetDeleterDecorator, "targetDeleterDecorator must not be null");
     this.workerThreads = config.get(IcebergConfig.ASYNC_CLEANUP_WORKER_THREADS);
     this.collectionBatchSize = Math.max(1, workerThreads * 4);
     this.pollIntervalMs = config.get(IcebergConfig.ASYNC_CLEANUP_POLL_INTERVAL_SECS) * 1000L;
@@ -119,7 +144,9 @@ public class IcebergPurgeManager implements AutoCloseable {
     IcebergPurgeRegistrationRemover registrationRemover =
         new IcebergExactRegistrationRemover(resources);
     IcebergPurgePlanner planner = new IcebergMetadataGraphPlanner(resources);
-    IcebergPurgeTargetDeleter deleter = new IcebergFileIOPurgeTargetDeleter(resources);
+    IcebergPurgeTargetDeleter deleter =
+        targetDeleterDecorator.apply(new IcebergFileIOPurgeTargetDeleter(resources));
+    Objects.requireNonNull(deleter, "decorated target deleter must not be null");
     this.worker =
         metricsSource == null
             ? new IcebergPurgeWorker(
@@ -185,6 +212,25 @@ public class IcebergPurgeManager implements AutoCloseable {
     boolean collected = collectOnce();
     String owner = processId + "-manual-" + manualRun.incrementAndGet();
     return worker.runOnce(owner) || collected;
+  }
+
+  /**
+   * Redrives a bounded set of terminal failed items, then advances the normal worker once.
+   *
+   * <p>This method is called only by the explicitly enabled, authenticated integration-test hook.
+   * The redrive transaction preserves successful target rows and historical attempt counters while
+   * recording the new action attempt.
+   *
+   * @param actor non-secret audit actor
+   * @param correlationId non-secret audit correlation identifier
+   * @return number of failed actions made claimable
+   */
+  public int redriveFailedAndRunOnce(String actor, String correlationId) {
+    int redriven =
+        store.redriveFailedActions(
+            collectionBatchSize, actor, correlationId, System.currentTimeMillis());
+    runOnce();
+    return redriven;
   }
 
   @Override

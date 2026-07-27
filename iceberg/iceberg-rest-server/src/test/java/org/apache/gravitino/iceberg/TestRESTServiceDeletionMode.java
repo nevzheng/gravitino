@@ -19,7 +19,9 @@
 package org.apache.gravitino.iceberg;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
@@ -43,5 +45,34 @@ public class TestRESTServiceDeletionMode {
         new IcebergConfig(ImmutableMap.of("soft-delete.enabled", Boolean.FALSE.toString()));
 
     assertDoesNotThrow(() -> RESTService.validateDeletionMode(disabled, false));
+  }
+
+  @Test
+  public void testDeletionTestHookIsDisabledAndUnregisteredByDefault() {
+    IcebergConfig config = new IcebergConfig(ImmutableMap.of());
+
+    assertFalse(config.get(IcebergConfig.DELETION_TEST_HOOK_ENABLED));
+    assertFalse(RESTService.shouldRegisterDeletionTestHook(config, true));
+    assertFalse(RESTService.shouldRegisterDeletionTestHook(config, false));
+  }
+
+  @Test
+  public void testDeletionTestHookRequiresAuxModeAndNonblankToken() {
+    IcebergConfig missingToken =
+        new IcebergConfig(ImmutableMap.of("deletion.test-hook.enabled", Boolean.TRUE.toString()));
+    assertThrows(
+        IllegalArgumentException.class, () -> RESTService.validateDeletionMode(missingToken, true));
+
+    IcebergConfig enabled =
+        new IcebergConfig(
+            ImmutableMap.of(
+                "deletion.test-hook.enabled",
+                Boolean.TRUE.toString(),
+                "deletion.test-hook.token",
+                "integration-secret"));
+    assertThrows(
+        IllegalArgumentException.class, () -> RESTService.validateDeletionMode(enabled, false));
+    assertDoesNotThrow(() -> RESTService.validateDeletionMode(enabled, true));
+    assertTrue(RESTService.shouldRegisterDeletionTestHook(enabled, true));
   }
 }
