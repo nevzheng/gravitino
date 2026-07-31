@@ -68,3 +68,16 @@
 - When hitting a problem, search memory first for known solutions before debugging from scratch.
 - After completing a task, save key findings and solutions to claude-mem for future reference.
 - Use multiple keyword combinations when searching (e.g., module name + issue type, class name + error).
+
+## Cursor Cloud specific instructions
+
+These notes describe non-obvious details for running this repo in the Cursor Cloud VM. Standard build/test commands are documented above and in `docs/how-to-build.md`.
+
+- **JDK**: The VM's default `java`/`javac` are set to **JDK 17** (via `update-alternatives`). This is required because Gradle 8.2 (see `gradle/wrapper/gradle-wrapper.properties`) does **not** support running under JDK 21+. The VM also has JDK 21 installed; do **not** launch Gradle with JDK 21. If a command uses the wrong JDK, run it with `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64` (also exported in the agent's `~/.bashrc`). Gradle's Java Toolchain still auto-downloads other JDKs it needs for specific modules (e.g. the Trino connector).
+- **Server (primary product)**: Build a runnable distribution with `./gradlew compileDistribution -x test`, then run from `distribution/package`:
+  - Start (background): `./bin/gravitino.sh start` — Stop: `./bin/gravitino.sh stop` — Status: `./bin/gravitino.sh status` — Foreground (dev): `./bin/gravitino.sh run`.
+  - Logs: `distribution/package/logs/gravitino-server.out`.
+  - The server listens on **http://localhost:8090** and serves both the REST API (`/api/...`) and the bundled Web UI. It uses an **embedded H2** entity store by default, so **no external database/service is required** to run and exercise the metadata API + UI end to end. Health check: `curl http://localhost:8090/api/health`.
+  - `./gradlew clean` deletes the `distribution/` directory, so re-run `compileDistribution` after a clean.
+- **Web UI dev (hot-reload)**: only needed when editing the front-end; otherwise the UI is already bundled into the server at 8090. Run `pnpm install && pnpm dev` in `web-v2/web` (Next.js dev server on **:3000**, proxies `/api` to the server at :8090 via `NEXT_PUBLIC_API_URL`). `web/web` is the legacy v1 UI.
+- **Docker-based integration tests are skipped by default** (`skipDockerTests=true`); Docker is not set up in this VM. Catalogs like Hive/Kafka/JDBC and query-engine connectors (Trino/Spark/Flink) only need their external services for those specific integration tests, not for running the server.
