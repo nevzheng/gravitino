@@ -41,7 +41,7 @@ Use this skill whenever the user asks about:
 
 Full guide:
 
-.claude/skills/trino-test-guide.md
+[trino-test-guide.md](trino-test-guide.md)
 
 Read the guide for complete details on:
 - Test architecture and structure
@@ -55,11 +55,8 @@ Read the guide for complete details on:
 
 ## Project Root
 
-All commands assume:
-
-```bash
-cd /home/ubuntu/git/gravitino
-```
+Run all commands from the repository root, identified by the root `gradlew`
+script. Do not assume a fixed absolute checkout path.
 
 ---
 
@@ -84,8 +81,10 @@ cd /home/ubuntu/git/gravitino
 ```
 
 ### Run specific test catalog with testset
+```bash
 ./trino-connector/integration-test/trino-test-tools/trino_integration_test.sh \
   --auto=all  --test_set=tpch --catalog=hive
+```
 
 
 ### Test specific Trino version with specific trino connector
@@ -98,7 +97,9 @@ cd /home/ubuntu/git/gravitino
 
 ## Check test status
 
-grep -E "(Test progress|All testers|Total|PASS|FAIL|BUILD) from log
+```bash
+grep -E "Test progress|All testers|Total|PASS|FAIL|BUILD" /path/to/test.log
+```
 
 ## Test Structure
 

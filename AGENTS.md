@@ -19,16 +19,43 @@
 
 # Gravitino Agent Guidelines
 
+## Guidance Map
+
+`AGENTS.md` is the shared baseline for repository agents. Load only the
+additional guidance relevant to the task:
+
+- **GitHub artifacts**: Follow the GitHub Artifact Workflow below.
+- **Design documents**: Read and apply
+  `.claude/skills/gravitino-design-doc/SKILL.md` for document content.
+- **Documentation style refinement**: Read and apply
+  `.claude/skills/gravitino-docs-refine/SKILL.md` and its `STYLE.md` when
+  refining Markdown structure or style under `docs/`.
+- **Explicit operational tasks**: When the user asks to manage a release, read
+  and apply `agent-skills/gravitino-release/SKILL.md`. For Trino integration
+  tests, read and apply `agent-skills/trino-test/SKILL.md`. Do not invoke the
+  release workflow for unrelated tasks.
+
+Agent-specific entry points must route to this file and should contain only
+tool-specific additions or a minimal fallback for surfaces that do not load it.
+Shared safety and approval rules in this file still apply when more specific
+guidance is loaded. Native templates and forms control artifact structure,
+task-specific guides control domain content, and the GitHub writing guide
+controls artifact framing. Do not duplicate those guides here.
+
 ## General Coding Standards
 - **Language**: Use English for all code, comments, and documentation.
 - **Style**: Follow rigid Google Java Style. Run `./gradlew spotlessApply` to format.
+- **Python**: Follow PEP 8 and use type hints.
+- **Dependencies**: Do not add a dependency without explicit user approval.
 - **Javadoc**: All new `public` and `protected` classes, methods, and fields must have Javadoc. Missing Javadoc fails the checkstyle CI step (runs with `-Werror`).
 - **Imports**: Always use normal `import` statements instead of Fully Qualified Class Names (FQN) in Java code whenever possible.
   - **Bad**: `org.apache.gravitino.rel.Table table = ...;`
   - **Good**: `Table table = ...;` (with `import org.apache.gravitino.rel.Table;`)
   - Do not write inline types like `java.nio.file.Paths` or `org.apache.xxx.Table` unless there is a real class name conflict that cannot be resolved cleanly.
   - If two classes share the same simple name, prefer imports plus small refactors over keeping FQNs throughout the code.
-- **Safety**: Use `@Nullable` annotations. Handle resources with try-with-resources.
+- **Safety**: Use `@Nullable` annotations, validate Java arguments with
+  `Preconditions.checkArgument`, catch specific exceptions instead of generic
+  `Exception`, and handle resources with try-with-resources.
 - **Logging**: Use SLF4J. No `System.out.println`.
 - **Testing**:
   - Write unit tests for ALL new logic. NO tests = NO merge.
@@ -42,10 +69,27 @@
   4. Constructors.
   5. Methods (Group by visibility, putting `private` methods at the end).
 
-## Create Issue and PR Guidelines
-[IMPORTANT] Before creating an issue or PR using the gh command or the GitHub MCP server, please show a preview of the PR/issue first. Submit it only after I confirm. The issue/PR format should follow the reference and keep the content concise and clear.
-- **Issue Templates**: Use the appropriate template from `.github/ISSUE_TEMPLATE/`
-- **PR Description**: Follow the template in `.github/PULL_REQUEST_TEMPLATE`
+## GitHub Artifact Workflow
+
+- **Structure and style**: Before drafting or revising a pull request title and
+  description, GitHub Issue, or GitHub Discussion, read the applicable native
+  template or form and `.github/WRITING_GUIDE.md`. Use
+  `.github/PULL_REQUEST_TEMPLATE.md` by default and
+  `.github/PULL_REQUEST_TEMPLATE/design_document.md` only for its documented
+  design-only route. Select the appropriate Issue form from
+  `.github/ISSUE_TEMPLATE/`, and preserve supplied Discussion category or
+  template requirements. Preserve the selected title syntax, required fields,
+  headings, and order.
+- **Conciseness**: Apply only the guide sections relevant to the artifact, then
+  run its Conciseness Pass before showing a complete title and body.
+- **Preview and approval**: Before creating a pull request, Issue, or
+  Discussion, or externally updating its title or body, show the exact proposed
+  title and body and wait for explicit user approval.
+- **Freshness**: When a title or body exists, after significant code changes or
+  material changes to scope, behavior, user-facing boundaries, decisions,
+  issue or stack relationships, or verification evidence, compare it with the
+  current state before requesting review or publishing an update. If it may be
+  stale, warn the user and show a refreshed, concise preview first.
 
 ## Project Structure
 - `api/`: Public interfaces.
@@ -61,10 +105,3 @@
 - **Unit Tests**: `./gradlew test -PskipITs -PskipDockerTests=false`
 - **Integration Tests**: `./gradlew test -PskipTests -PskipDockerTests=false`
 - **OpenAPI Docs Validation**: `./gradlew :docs:build` — Run this after any changes to `docs/open-api/*.yaml` to validate OpenAPI specification correctness.
-
-## Claude Memory Usage
-- Before starting any task, use mcp-search to check if similar work has been done before.
-  When encountering unfamiliar code or configuration, search memory for prior context.
-- When hitting a problem, search memory first for known solutions before debugging from scratch.
-- After completing a task, save key findings and solutions to claude-mem for future reference.
-- Use multiple keyword combinations when searching (e.g., module name + issue type, class name + error).

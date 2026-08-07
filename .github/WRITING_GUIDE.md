@@ -172,3 +172,6 @@ or any material change to scope, behavior, boundaries, issue relationships,
 decisions, or verification evidence, compare the published text with the latest
 state and refresh it before requesting review or updating the published
 artifact.
+
+For a read-only, non-gating human exercise, use the
+[writing-guide try-it-out](WRITING_GUIDE_EVAL.md).

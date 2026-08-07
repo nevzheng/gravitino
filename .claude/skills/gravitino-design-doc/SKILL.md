@@ -17,7 +17,7 @@
 
 ---
 name: gravitino-design-doc
-description: Use when writing or reviewing a design document PR for the Apache Gravitino project
+description: Use when writing or reviewing the content of an Apache Gravitino design document under design-docs/; not for pull request metadata
 ---
 
 # Gravitino Design Document
@@ -25,6 +25,11 @@ description: Use when writing or reviewing a design document PR for the Apache G
 ## Overview
 
 All Gravitino design documents must cover the problem, scope, and solution in a consistent structure so reviewers can evaluate them efficiently.
+
+This skill controls design-document content, not pull request metadata. For a
+pull request title and description, follow `AGENTS.md`,
+`.github/WRITING_GUIDE.md`, and the selected pull request template. Do not copy
+the document outline or implementation detail into the pull request body.
 
 ## Required Sections (in order)
 
@@ -219,4 +224,3 @@ Before submitting a design doc PR, verify:
 | Goals have no bold label | Use `**Label**: Description` format |
 | Task Breakdown bundles multiple concerns into one task | Split into one task per issue/PR |
 | Task Breakdown is unordered with no dependency awareness | Order so dependencies come first |
-

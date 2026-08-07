@@ -1,3 +1,4 @@
+# This form controls required structure. Use .github/WRITING_GUIDE.md for framing and style.
 name: Feature Request
 title: "[FEATURE] "
 description: Suggest an idea for Gravitino

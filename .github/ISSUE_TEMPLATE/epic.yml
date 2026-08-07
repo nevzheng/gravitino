@@ -1,3 +1,4 @@
+# This form controls required structure. Use .github/WRITING_GUIDE.md for framing and style.
 name: Epic
 title: "[EPIC] "
 description: An epic issue with multiple sub-tasks
