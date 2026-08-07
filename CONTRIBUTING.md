@@ -153,8 +153,17 @@ Reviewing and triaging helps maintain the project. You can:
 ## 🔃 Creating Pull Requests
 
 * Use feature branches
-* Write clear commit messages and PR descriptions
-* Link to issues (e.g., `Fixes #123`)
+* Follow the [GitHub writing guide](.github/WRITING_GUIDE.md) for pull requests,
+  Issues, and Discussions
+* Use the [default pull request template](.github/PULL_REQUEST_TEMPLATE.md) for
+  code, tests, configuration, builds, mixed changes, ordinary documentation,
+  and minor design-document corrections
+* When substantive changes are limited to a design document and its supporting
+  assets, use the [design-document pull request template](.github/PULL_REQUEST_TEMPLATE/design_document.md)
+  by setting the compare URL's `template` query parameter to
+  `design_document.md`
+* Use `Fixes: #123` only when the pull request fully resolves the Issue;
+  otherwise use `Part of: #123` or `Related: #123`
 * Respond to reviewer feedback
 
 ## 💻 Setting Up Development Environment

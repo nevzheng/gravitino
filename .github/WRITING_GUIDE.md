@@ -89,14 +89,18 @@ not invent information to bridge a shortened explanation.
 
 ## Pull Requests
 
-Preserve the repository pull request template's title syntax, required headings,
+Preserve the selected pull request template's title syntax, required headings,
 and heading order. This guide controls the story within that structure.
 
-Use the design-document narrative below only when the primary purpose is to
-propose or materially revise a design decision and substantive changes are
-limited to a document under `design-docs/` and its supporting assets. Code,
-tests, build, configuration, ordinary documentation, minor design-doc
-corrections, and mixed changes use the default narrative.
+Use the [default pull request template](PULL_REQUEST_TEMPLATE.md) for code,
+tests, build, configuration, ordinary documentation, minor design-document
+corrections, and mixed changes. Use the
+[design-document pull request template](PULL_REQUEST_TEMPLATE/design_document.md)
+only when the primary purpose is to propose, materially revise or clarify, or
+record a previously accepted design decision, and substantive changes are
+limited to a document under `design-docs/` and its supporting assets. Select it
+with the `template=design_document.md` query parameter. When uncertain, use the
+default template.
 
 Treat the Conventional Commit type and scope as classification. Make the subject
 a compact narrative: state the concrete outcome, then include the goal, impact,
@@ -124,11 +128,12 @@ reviewer would reasonably expect coverage.
 
 ### Design Document Pull Requests
 
-Follow a decision arc: need, shortest material background, proposed direction,
-impact if adopted, then evaluation and document validation. Keep proposals
-distinct from shipped behavior and do not claim consensus or implementation
-tests that do not exist. Link relevant document sections instead of reproducing
-its outline or technical detail.
+Follow a decision arc: need, objective, decision summary, review focus, impact
+if adopted, then document validation. Keep proposals distinct from shipped
+behavior and do not claim consensus or implementation tests that do not exist.
+When recording a previously accepted decision, link the evidence of acceptance
+and keep acceptance distinct from implementation. Link relevant document
+sections instead of reproducing their outline or technical detail.
 
 For either route, put formal issue and stack relationships in the optional final
 `Metadata` section, after any Deep dive. Use `Fixes:` only when the pull request

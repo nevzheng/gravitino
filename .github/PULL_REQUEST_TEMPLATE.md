@@ -29,15 +29,22 @@
      - "[MINOR] docs(auth): Clarify Kerberos setup for first-time deployment"
      - "[#255] test: Cover catalog recovery across restart"
    Reference: https://www.conventionalcommits.org/en/v1.0.0/
-2. Required before drafting or revising: read and apply
+2. This is the default template. Use it for code, tests, build, configuration,
+   mixed changes, ordinary documentation, and minor design-document
+   corrections. When the primary purpose is to propose, materially revise or
+   clarify, or record a previously accepted design decision, and substantive
+   changes are limited to a document under `design-docs/` and its supporting
+   assets, use `.github/PULL_REQUEST_TEMPLATE/design_document.md` by selecting
+   `template=design_document.md` instead.
+3. Required before drafting or revising: read and apply
    `.github/WRITING_GUIDE.md`. If the guide is unavailable, do not block or
    invent missing rules. Use this fallback: lead with the problem and outcome,
    keep sections concise and non-overlapping, report only verification actually
    performed, and put procedural detail and metadata last.
-3. Keep the four required headings below. Keep each section as short as its
+4. Keep the four required headings below. Keep each section as short as its
    distinct answer permits, and do not repeat adjacent sections.
-4. Delete optional sections when they do not add reviewer value.
-5. If the pull request is unfinished, mark it as draft.
+5. Delete optional sections when they do not add reviewer value.
+6. If the pull request is unfinished, mark it as draft.
 -->
 
 ### Why are the changes needed?
