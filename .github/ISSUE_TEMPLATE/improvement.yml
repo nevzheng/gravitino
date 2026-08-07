@@ -1,4 +1,5 @@
 # See https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository
+# This form controls required structure. Use .github/WRITING_GUIDE.md for framing and style.
 
 name: Improvement
 title: "[Improvement] "

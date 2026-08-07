@@ -19,38 +19,14 @@
 
 # Copilot Instructions for Gravitino
 
-## Critical Rules
-- **Java Imports**: ALWAYS use standard imports. NEVER use Fully Qualified Class Names (FQN) inside methods unless absolutely necessary for collision resolution.
-  - BAD: `org.apache.gravitino.NameIdentifier id = ...`
-  - GOOD: `NameIdentifier id = ...` (add `import org.apache.gravitino.NameIdentifier;`)
-- **Coding Style**: Strict adherence to Google Java Style.
-- **Testing**:
-  - EVERY change must have a corresponding test.
-  - Do NOT modify existing tests unless the logic has fundamentally changed.
-  - Use `TestXxx` prefix for test classes (e.g., `TestMetalake`).
-- **Dependencies**: Do NOT add new dependencies without explicit user request.
-- **Documentation**: JavaDoc is required for all public APIs.
+Read and follow the root `AGENTS.md` as the shared repository policy. If it is
+not already in context, load it before acting. For pull requests, GitHub Issues,
+and GitHub Discussions, load the selected native structure and
+`.github/WRITING_GUIDE.md` as routed there. The checks below supplement the
+shared policy. Keep overlapping guidance consistent, and surface any conflict.
 
-## Language Specifics
-- **Java**:
-  - Use `@Nullable` for optional fields/params.
-  - Avoid `System.out.println`. Use SLF4J logging.
-  - Use `Preconditions.checkArgument` for validation.
-  - **Class Member Ordering**: Follow the order:
-    1. `static` constants (e.g., `LOG`).
-    2. `static` fields.
-    3. Instance fields.
-    4. Constructors.
-    5. Methods (Group by visibility, putting `private` methods at the end).
-- **Python**:
-  - Follow PEP 8.
-  - Type hints are mandatory.
+## Copilot Review Additions
 
-## General
-- **Brevity**: Write concise, efficient code. Avoid boilerplate where possible.
-- **Safety**: Always check for nulls and handle exceptions specifically (no generic `catch (Exception e)`).
-
-## Review Checklist (Keep It Short)
 - **License/Legal**: New files must include Apache License 2.0 header; dependency/license changes must update LICENSE/NOTICE as required.
 - **Compatibility**: Avoid breaking changes unless explicitly justified and documented (including migrations when needed).
 - **Java hygiene**: No wildcard imports; close resources (try-with-resources); do not leave TODO/FIXME without an issue reference.

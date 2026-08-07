@@ -197,7 +197,9 @@ When grouping reviewed files into PRs, prefer topical bundles over arbitrary chu
 - IRC and REST service docs together
 - Trino, Spark, Flink engine connector docs together
 
-Aim for 5-15 files per PR. PR title format: `docs(<area>): <improvement>`. PR description should list the categories of changes and call out anything that needed engineering verification.
+Aim for 5-15 files per PR. For pull request titles and descriptions, follow
+`.github/WRITING_GUIDE.md` and the selected pull request template. This guide
+adds no documentation-specific metadata format.
 
 ## Notes for future maintainers of this file
 
