@@ -42,7 +42,7 @@ sequenceDiagram
     participant Gravitino
     participant Evaluator as "Encryption policy evaluator"
     participant Iceberg as "Iceberg catalog"
-    participant KMS as "OpenBao Transit"
+    participant KMS as "Engine keystore"
     participant Storage
 
     Admin->>Gravitino: Create enabled encryption policy in metalake
@@ -163,24 +163,21 @@ Changing the key ID to `unapproved-key` returns HTTP `400` with error type
 
 ## Spark example
 
-The demo cluster runs the official Go-based OpenBao image and enables its Transit secrets engine.
-The standalone IRC advertises an explicit, non-secret KMS configuration allowlist from its
-Iceberg REST `/v1/config` response. Iceberg 1.11+ consumes the implementation, endpoint, and Transit
-mount when the Spark catalog is initialized. Spark pins the endpoint and token-file path locally,
-and the connector rejects an IRC attempt to override either. The Gravitino catalog request does not duplicate them as
+The demo cluster bootstraps a PKCS12 keystore with wrapping-key alias `customer-pii-v1`. The
+standalone IRC advertises only the non-secret `encryption.kms-impl` class name from `/v1/config`.
+Spark pins the keystore path and password-file locally, and the connector rejects an IRC attempt to
+override those client-local secrets. The Gravitino catalog request does not duplicate them as
 `gravitino.bypass.*` or `spark.bypass.*` properties.
 
 ```text
-IRC default: encryption.kms-impl=org.apache.gravitino.iceberg.kms.OpenBaoKeyManagementClient
-IRC default and Spark local pin: encryption.kms.openbao.endpoint=http://openbao-kms:8200
-IRC default: encryption.kms.openbao.transit-mount=transit
-Spark local only: encryption.kms.openbao.token-file=/run/secrets/kms/token
+IRC default: encryption.kms-impl=org.apache.iceberg.encryption.KeystoreKeyManagementClient
+Spark local only: encryption.kms.keystore.path=/run/secrets/kms/demo.p12
+Spark local only: encryption.kms.keystore.password-file=/run/secrets/kms/password
 ```
 
-The token-file path is never served by IRC. Only Spark mounts a token at that path. Neither
-Gravitino nor IRC receives a KMS token or packages the KMS client; the shaded Spark runtime owns the
-OpenBao adapter and the Iceberg REST encryption bridge. Token contents and arbitrary
-`encryption.kms.*` properties are never returned by IRC.
+Keystore path and password-file are never served by IRC. Only Spark mounts the keystore. Neither
+Gravitino nor IRC receives KMS credentials or packages a Transit wrap/unwrap client; the shaded
+Spark runtime owns the keystore `KeyManagementClient` and the Iceberg REST encryption bridge.
 
 With the Gravitino Spark connector configured, the table request follows the same policy path:
 
@@ -253,7 +250,5 @@ behavior).
   policy allowlist performs exact ID matching and does not auto-inject a key.
 - Tamper-evident `metadata.json` verification is required production follow-up work, not a feature
   proven by this disposable SQLite POC.
-- The demo uses OpenBao dev mode and plain HTTP only inside the isolated demo network. Dev mode is
-  ephemeral: restarting it invalidates previously wrapped table keys. Production requires durable
-  OpenBao storage, TLS, workload identity, unseal and recovery procedures, availability, and
-  durable audit.
+- The demo uses an ephemeral PKCS12 keystore mounted only into Spark. Restarting the cluster
+  regenerates the keystore and invalidates previously wrapped table keys.

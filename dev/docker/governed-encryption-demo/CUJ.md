@@ -24,7 +24,7 @@ This customer journey proves the complete POC path:
 ```text
 REST or Spark -> Gravitino policy dispatcher -> lakehouse REST client
               -> standalone Gravitino IRC -> shared warehouse
-Spark <- IRC /v1/config; Spark -> OpenBao Transit key wrapping
+Spark <- IRC /v1/config; Spark -> keystore wrap/unwrap (engine-local)
 ```
 
 Start with a fresh cluster:
@@ -49,36 +49,32 @@ API=http://localhost:8090/api
 IRC=http://localhost:9001/iceberg
 ```
 
-## Verify REST-served KMS configuration and the token boundary
+## Verify REST-served KMS configuration and the keystore boundary
 
-Iceberg 1.11+ clients consume the allowlisted KMS implementation, non-secret endpoint, and Transit
-mount from the IRC catalog handshake. The credential source is client-local and is never accepted
-from IRC:
+Iceberg 1.11+ clients consume the allowlisted KMS implementation name from the IRC catalog
+handshake. Keystore path and password-file are client-local and are never accepted from IRC:
 
 ```shell
 curl -sS "$IRC/v1/config" | jq '
   ((.defaults // {}) + (.overrides // {})) as $config
   | {
       kmsImpl: $config["encryption.kms-impl"],
-      kmsType: $config["encryption.kms-type"],
-      openBaoEndpoint: $config["encryption.kms.openbao.endpoint"],
-      transitMount: $config["encryption.kms.openbao.transit-mount"],
-      tokenFileServedByIrc: $config["encryption.kms.openbao.token-file"]
+      kmsType: $config["encryption.kms-type"]
     }'
 
 docker compose -f dev/docker/governed-encryption-demo/docker-compose.yaml \
-  exec -T iceberg-rest test ! -e /run/secrets/kms/token
+  exec -T iceberg-rest test ! -e /run/secrets/kms/demo.p12
 docker compose -f dev/docker/governed-encryption-demo/docker-compose.yaml \
-  exec -T gravitino test ! -e /run/secrets/kms/token
+  exec -T gravitino test ! -e /run/secrets/kms/demo.p12
 docker compose -f dev/docker/governed-encryption-demo/docker-compose.yaml \
-  exec -T spark test -s /run/secrets/kms/token
+  exec -T spark test -s /run/secrets/kms/demo.p12
 ```
 
-Expected: the response supplies `encryption.kms-impl` (or `encryption.kms-type`), the internal
-OpenBao endpoint, and Transit mount `transit`, while `tokenFileServedByIrc` is null. Spark pins the endpoint and
-`/run/secrets/kms/token` in its own configuration and rejects an IRC attempt to override either.
-Only Spark mounts that file. Gravitino and IRC can catalog encrypted metadata but cannot unwrap
-keys.
+Expected: the response supplies
+`encryption.kms-impl=org.apache.iceberg.encryption.KeystoreKeyManagementClient` and does not
+advertise keystore path or password-file. Spark pins those secrets in its own configuration and
+rejects an IRC attempt to override either. Only Spark mounts the keystore. Gravitino and IRC can
+catalog encrypted metadata but cannot unwrap keys.
 
 ## 1. Create the REST-backed Iceberg namespace
 
@@ -277,15 +273,13 @@ curl -sS "$IRC/v1/namespaces/customer_data/tables/encrypted_customer_records" | 
   responseConfig: ((.config // {}) | with_entries(
     select(
       .key == "encryption.kms-impl"
-      or .key == "encryption.kms-type"
-      or .key == "encryption.kms.openbao.endpoint"
-      or .key == "encryption.kms.openbao.transit-mount")))
+      or .key == "encryption.kms-type")))
 }'
 ```
 
 List every object and its size, then inspect text metadata and only the first 64 bytes of binary
-objects. The `cat` command intentionally displays the base64-encoded wrapped key metadata stored in
-`metadata.json`; it does not display the plaintext key or KMS token:
+objects. The `cat` command intentionally displays the opaque wrapped key metadata stored in
+`metadata.json`; it does not display the plaintext key or keystore password:
 
 ```shell
 docker compose -f dev/docker/governed-encryption-demo/docker-compose.yaml \
@@ -317,14 +311,9 @@ docker compose -f dev/docker/governed-encryption-demo/docker-compose.yaml \
 Expected: data starts `PARE`, manifest/list Avro starts `AGS1`, and `grep` returns no match. Never
 raw-`cat` the full binary objects.
 
-The runner additionally base64-decodes `encrypted-key-metadata`, verifies its `vault:v1:` Transit
-envelope, and asks Transit to unwrap that envelope with the generated least-privilege token. It
-does not reprint the decoded envelope and asserts non-empty key material without printing the token
-or plaintext key.
-
-`bao decrypt` cannot decrypt the Parquet object. Transit unwraps the Iceberg table/snapshot key
-envelope; Iceberg uses that key hierarchy and per-file metadata to decrypt the `PARE` and `AGS1`
-formats. Sending an entire encrypted file to Transit confuses those separate layers.
+The runner asserts that `encrypted-key-metadata` is present for alias `customer-pii-v1` without
+printing the opaque envelope. Unwrap happens only inside Spark through
+`KeystoreKeyManagementClient`; Gravitino and IRC never mount the keystore.
 
 ## 10. Finish with a fresh, cache-invalidated Spark read
 
@@ -333,8 +322,8 @@ formats. Sending an entire encrypted file to Transit confuses those separate lay
 ```
 
 Expected: `APPROVED_SPARK_READ_OK`, ID `1`, and `governed-encryption-poc-marker`. This final read
-shows that a new Spark session can load valid IRC encryption metadata, unwrap through Transit, and
-let Iceberg decrypt the stored row.
+shows that a new Spark session can load valid IRC encryption metadata, unwrap through the keystore,
+and let Iceberg decrypt the stored row.
 
 ## 11. Map the out-of-scope direct IRC bypass boundary
 
@@ -355,30 +344,10 @@ DAT-232 governs Spark and REST table creates that enter through Gravitino; direc
 is intentionally outside this implementation. The plaintext result maps a gap in governed coverage,
 not an acceptance failure for the scoped create path.
 
-## 12. Optional advanced checkpoint: rotate the Transit key
+## 12. Keystore demo boundary
 
-This checkpoint is deliberately separate from the primary CUJ. It rotates the backing Transit key
-without changing the logical `encryption.key-id`, proves the original `vault:v1:` envelope remains
-readable, and creates a new table to inspect the version of a newly wrapped table key:
-
-```shell
-./dev/docker/governed-encryption-demo/rotation-checkpoint.sh
-```
-
-The underlying admin operation is a Vault-compatible REST call. The default token below is only
-the disposable root token of this local dev-mode container:
-
-```shell
-curl -sS -o /dev/null -w 'HTTP %{http_code}\n' -X POST \
-  -H "X-Vault-Token: ${TRANSIT_ROOT_TOKEN:-gravitino-transit-demo-root}" \
-  http://localhost:18200/v1/transit/keys/customer-pii-v1/rotate
-```
-
-The key ID remains `customer-pii-v1`. An existing `vault:v1:` envelope stays decryptable because
-Transit retains older key versions; a newly wrapped table key can carry `vault:v2:`. A later write
-to the *same* table does not necessarily emit v2 immediately because the client may reuse that
-table's already wrapped key-encryption key. This POC does not implement bulk rewrap of existing
-Iceberg metadata or objects.
+This PKCS12 demo does not include Transit-style key-version rotation. Use a fresh cluster (or run
+suffix) when you need a clean wrapping key.
 
 Direct calls to IRC remain an explicit POC boundary: they bypass the current Gravitino table-create
 dispatcher and therefore bypass this policy check. Stop and delete all ephemeral state with:

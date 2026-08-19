@@ -28,13 +28,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
-import org.apache.gravitino.iceberg.kms.OpenBaoKeyManagementClient;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.encryption.EncryptionUtil;
 import org.apache.iceberg.encryption.KeyManagementClient;
+import org.apache.iceberg.encryption.KeystoreKeyManagementClient;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.util.EnvironmentUtil;
@@ -75,26 +75,57 @@ class RESTSessionCatalogWithEncryption extends RESTSessionCatalog {
     }
   }
 
+  /**
+   * Builds KMS properties that the engine may use.
+   *
+   * <p>The catalog may advertise {@code encryption.kms-impl} / {@code encryption.kms-type}. Secret
+   * material and client-local coordinates must come from the engine configuration; IRC overrides of
+   * those values are rejected.
+   */
   static Map<String, String> validatedKmsProperties(
       Map<String, String> localProperties, Map<String, String> mergedProperties) {
-    String kmsImplementation = mergedProperties.get(CatalogProperties.ENCRYPTION_KMS_IMPL);
-    if (!OpenBaoKeyManagementClient.class.getName().equals(kmsImplementation)) {
+    String localType = localProperties.get(CatalogProperties.ENCRYPTION_KMS_TYPE);
+    String localImplementation = localProperties.get(CatalogProperties.ENCRYPTION_KMS_IMPL);
+    if (localType == null && localImplementation == null) {
       throw new IllegalArgumentException(
-          "Unsupported REST-served KMS implementation: " + kmsImplementation);
+          "Client must set "
+              + CatalogProperties.ENCRYPTION_KMS_TYPE
+              + " or "
+              + CatalogProperties.ENCRYPTION_KMS_IMPL);
+    }
+    rejectBlankSelector(CatalogProperties.ENCRYPTION_KMS_TYPE, localType);
+    rejectBlankSelector(CatalogProperties.ENCRYPTION_KMS_IMPL, localImplementation);
+    if (localType != null && localImplementation != null) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Cannot set both KMS type (%s) and KMS impl (%s)", localType, localImplementation));
     }
 
-    String localEndpoint =
-        requireLocalProperty(localProperties, OpenBaoKeyManagementClient.ENDPOINT_PROPERTY);
-    String localTokenFile =
-        requireLocalProperty(localProperties, OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY);
+    rejectServerOverride(mergedProperties, CatalogProperties.ENCRYPTION_KMS_TYPE, localType);
     rejectServerOverride(
-        mergedProperties, OpenBaoKeyManagementClient.ENDPOINT_PROPERTY, localEndpoint);
-    rejectServerOverride(
-        mergedProperties, OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY, localTokenFile);
+        mergedProperties, CatalogProperties.ENCRYPTION_KMS_IMPL, localImplementation);
 
     Map<String, String> validated = new HashMap<>(mergedProperties);
-    validated.put(OpenBaoKeyManagementClient.ENDPOINT_PROPERTY, localEndpoint);
-    validated.put(OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY, localTokenFile);
+    if (localType != null) {
+      validated.put(CatalogProperties.ENCRYPTION_KMS_TYPE, localType);
+      validated.remove(CatalogProperties.ENCRYPTION_KMS_IMPL);
+    } else {
+      validated.put(CatalogProperties.ENCRYPTION_KMS_IMPL, localImplementation);
+      validated.remove(CatalogProperties.ENCRYPTION_KMS_TYPE);
+    }
+
+    if (KeystoreKeyManagementClient.class.getName().equals(localImplementation)) {
+      copyRequiredLocalProperty(
+          localProperties, validated, mergedProperties, KeystoreKeyManagementClient.PATH_PROPERTY);
+      copyRequiredLocalProperty(
+          localProperties,
+          validated,
+          mergedProperties,
+          KeystoreKeyManagementClient.PASSWORD_FILE_PROPERTY);
+      copyOptionalLocalProperty(
+          localProperties, validated, mergedProperties, KeystoreKeyManagementClient.TYPE_PROPERTY);
+    }
+
     return validated;
   }
 
@@ -102,6 +133,29 @@ class RESTSessionCatalogWithEncryption extends RESTSessionCatalog {
     String fileIOImplementation =
         properties.getOrDefault(CatalogProperties.FILE_IO_IMPL, ResolvingFileIO.class.getName());
     return CatalogUtil.loadFileIO(fileIOImplementation, properties, hadoopConf);
+  }
+
+  private static void copyRequiredLocalProperty(
+      Map<String, String> localProperties,
+      Map<String, String> validated,
+      Map<String, String> mergedProperties,
+      String property) {
+    String localValue = requireLocalProperty(localProperties, property);
+    rejectServerOverride(mergedProperties, property, localValue);
+    validated.put(property, localValue);
+  }
+
+  private static void copyOptionalLocalProperty(
+      Map<String, String> localProperties,
+      Map<String, String> validated,
+      Map<String, String> mergedProperties,
+      String property) {
+    String localValue = localProperties.get(property);
+    if (localValue == null || localValue.trim().isEmpty()) {
+      return;
+    }
+    rejectServerOverride(mergedProperties, property, localValue);
+    validated.put(property, localValue);
   }
 
   private static String requireLocalProperty(Map<String, String> properties, String property) {
@@ -113,8 +167,17 @@ class RESTSessionCatalogWithEncryption extends RESTSessionCatalog {
     return value;
   }
 
+  private static void rejectBlankSelector(String property, @Nullable String value) {
+    if (value != null && value.trim().isEmpty()) {
+      throw new IllegalArgumentException("KMS property cannot be blank: " + property);
+    }
+  }
+
   private static void rejectServerOverride(
-      Map<String, String> mergedProperties, String property, String localValue) {
+      Map<String, String> mergedProperties, String property, @Nullable String localValue) {
+    if (localValue == null) {
+      return;
+    }
     if (!Objects.equals(localValue, mergedProperties.get(property))) {
       throw new IllegalArgumentException(
           "IRC cannot override client-local KMS property: " + property);

@@ -371,7 +371,7 @@ banner
 step \
   '1/12' \
   'Verify the trust boundary and REST catalog handshake' \
-  'Confirm both services are ready, IRC serves only safe KMS coordinates, and only Spark receives the KMS token.'
+  'Confirm both services are ready, IRC serves only the KMS implementation name, and only Spark mounts the keystore.'
 health_file="$TMP_DIR/health.json"
 request_block "GET $API_BASE/health/ready"
 show_command "curl -sS '$API_BASE/health/ready' | jq ."
@@ -388,41 +388,38 @@ irc_status=$(request GET "$IRC_BASE/v1/config" "$irc_config_file")
 expect_code "$irc_status" 200 "$irc_config_file" "IRC readiness"
 if ! jq -e '
   ((.defaults // {}) + (.overrides // {})) as $config
-  | (($config["encryption.kms-impl"] // $config["encryption.kms-type"] // "") | length > 0)
-    and $config["encryption.kms.openbao.endpoint"] == "http://openbao-kms:8200"
-    and $config["encryption.kms.openbao.transit-mount"] == "transit"
+  | $config["encryption.kms-impl"] == "org.apache.iceberg.encryption.KeystoreKeyManagementClient"
+    and ($config | has("encryption.kms.keystore.path") | not)
+    and ($config | has("encryption.kms.keystore.password-file") | not)
     and ([$config
       | to_entries[]
-      | select(.key | test("token"; "i"))]
+      | select(.key | test("password|token"; "i"))]
       | length == 0)' "$irc_config_file" >/dev/null; then
   fail "IRC did not vend the expected safe KMS catalog defaults."
 fi
-output_block "HTTP $irc_status — safe client configuration (no token):"
+output_block "HTTP $irc_status — safe client configuration (no keystore secrets):"
 jq "${JQ_OUTPUT_ARGS[@]}" '
   ((.defaults // {}) + (.overrides // {})) as $config
   | {
       kmsImpl: $config["encryption.kms-impl"],
       kmsType: $config["encryption.kms-type"],
-      openBaoEndpoint: $config["encryption.kms.openbao.endpoint"],
-      transitMount: $config["encryption.kms.openbao.transit-mount"],
-      tokenFileServedByIrc: $config["encryption.kms.openbao.token-file"],
       advertisedEndpointCount: ((.endpoints // []) | length)
     }' "$irc_config_file"
 
-evidence_block 'Inspect KMS credential placement across containers:'
-show_command "docker compose exec -T iceberg-rest test ! -e /run/secrets/kms/token"
-"${COMPOSE[@]}" exec -T iceberg-rest test ! -e /run/secrets/kms/token \
-  || fail "IRC must not mount the KMS token."
-show_command "docker compose exec -T gravitino test ! -e /run/secrets/kms/token"
-"${COMPOSE[@]}" exec -T gravitino test ! -e /run/secrets/kms/token \
-  || fail "Gravitino must not mount the KMS token."
-show_command "docker compose exec -T spark test -s /run/secrets/kms/token"
-"${COMPOSE[@]}" exec -T spark test -s /run/secrets/kms/token \
-  || fail "Spark must receive the generated KMS token."
+evidence_block 'Inspect KMS keystore placement across containers:'
+show_command "docker compose exec -T iceberg-rest test ! -e /run/secrets/kms/demo.p12"
+"${COMPOSE[@]}" exec -T iceberg-rest test ! -e /run/secrets/kms/demo.p12 \
+  || fail "IRC must not mount the keystore."
+show_command "docker compose exec -T gravitino test ! -e /run/secrets/kms/demo.p12"
+"${COMPOSE[@]}" exec -T gravitino test ! -e /run/secrets/kms/demo.p12 \
+  || fail "Gravitino must not mount the keystore."
+show_command "docker compose exec -T spark test -s /run/secrets/kms/demo.p12"
+"${COMPOSE[@]}" exec -T spark test -s /run/secrets/kms/demo.p12 \
+  || fail "Spark must receive the generated keystore."
 show_command "docker compose ps"
 "${COMPOSE[@]}" ps
 pass 'Iceberg 1.11+ clients receive safe REST-served KMS configuration.'
-pass 'The runtime token is mounted only in Spark, never Gravitino or IRC.'
+pass 'The keystore is mounted only in Spark, never Gravitino or IRC.'
 pause
 
 step \
@@ -802,9 +799,7 @@ jq "${JQ_OUTPUT_ARGS[@]}" '{
   responseConfig: ((.config // {}) | with_entries(
     select(
       .key == "encryption.kms-impl"
-      or .key == "encryption.kms-type"
-      or .key == "encryption.kms.openbao.endpoint"
-      or .key == "encryption.kms.openbao.transit-mount")))
+      or .key == "encryption.kms-type")))
 }' "$irc_table_file"
 jq -e \
   '.metadata["format-version"] == 3
@@ -883,46 +878,19 @@ encoded_envelope=$(jq -er \
     | map(select(.["encrypted-by-id"] == "customer-pii-v1"))
     | .[0]["encrypted-key-metadata"]' \
   "$irc_table_file")
-wrapped_envelope=$(python3 -c \
-  'import base64, sys; print(base64.b64decode(sys.argv[1]).decode("utf-8"))' \
-  "$encoded_envelope")
-[[ "$wrapped_envelope" == vault:v*:* ]] \
-  || fail "Iceberg encrypted-key-metadata was not a Vault-compatible Transit envelope."
-wrapped_remainder=${wrapped_envelope#*:}
-wrapped_prefix="vault:${wrapped_remainder%%:*}:"
-pass 'Iceberg key metadata decodes to a Vault Transit ciphertext; decoded value not printed.'
-
-request_block 'POST OpenBao /v1/transit/decrypt/customer-pii-v1 (inside the credentialed bootstrap container)'
-input_block "ciphertext=${wrapped_prefix}<redacted>; token=<mounted secret, not printed>"
-show_command \
-  "docker compose run --rm --no-deps openbao-kms-bootstrap bao write transit/decrypt/customer-pii-v1 ciphertext='${wrapped_prefix}<redacted>'"
-"${COMPOSE[@]}" run --rm --no-deps \
-  --entrypoint /bin/sh \
-  --env WRAPPED_ENVELOPE="$wrapped_envelope" \
-  openbao-kms-bootstrap -eu -c '
-    client_token=$(cat /run/openbao-client/token)
-    export BAO_ADDR="${BAO_ADDR:-$VAULT_ADDR}"
-    export VAULT_ADDR="$BAO_ADDR"
-    export BAO_TOKEN="$client_token"
-    export VAULT_TOKEN="$client_token"
-    unset client_token
-    unwrapped=$(bao write -field=plaintext \
-      transit/decrypt/customer-pii-v1 ciphertext="$WRAPPED_ENVELOPE")
-    test -n "$unwrapped"
-    unset unwrapped
-  ' >/dev/null
-output_block 'OpenBao returned plaintext key material to the credentialed process; output withheld.'
-pass 'KMS unwrap succeeded without exposing the unwrapped key.'
-note 'Transit unwraps Iceberg key metadata only; whole PARE/AGS1 files are decrypted by Iceberg, not bao.'
+[[ -n "$encoded_envelope" ]] \
+  || fail "Iceberg encrypted-key-metadata was missing for customer-pii-v1."
+pass 'Iceberg key metadata carries an opaque wrapped envelope for the keystore alias; decoded value not printed.'
+note 'Unwrap happens only in the Spark process via KeystoreKeyManagementClient; Gravitino and IRC hold no keystore.'
 pause
 
 step \
   '12/12' \
   'Read through a fresh Spark session' \
-  'Reload IRC metadata in a new client process, unwrap through KMS, and let Iceberg decrypt the AGS1/PARE layers into the original row.'
+  'Reload IRC metadata in a new client process, unwrap through the keystore, and let Iceberg decrypt the AGS1/PARE layers into the original row.'
 readback_sql=$(render_sql "$SCRIPT_DIR/spark-readback.sql")
 show_sql "$SCRIPT_DIR/spark-readback.sql" "$readback_sql"
-request_block 'Fresh Spark SQL process -> IRC metadata -> OpenBao unwrap -> Iceberg file decryption'
+request_block 'Fresh Spark SQL process -> IRC metadata -> keystore unwrap -> Iceberg file decryption'
 show_command \
   "printf '%s\\n' '<SQL above>' | $SCRIPT_DIR/spark-sql.sh --conf spark.sql.gravitino.metalake=$METALAKE_NAME -f /dev/stdin"
 set +e

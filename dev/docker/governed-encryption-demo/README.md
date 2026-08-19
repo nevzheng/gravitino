@@ -25,7 +25,7 @@ This directory packages the current checkout into a persistent, manually operabl
 - a standalone current-source Gravitino Iceberg REST Catalog (IRC) service;
 - the current shaded Spark 3.5 connector plus Iceberg 1.11.0;
 - an IRC SQLite JDBC catalog with a shared local warehouse volume; and
-- OpenBao 2.6.0 Transit with one approved key and a generated least-privilege client token.
+- a PKCS12 keystore bootstrap with one approved wrapping-key alias mounted only into Spark.
 
 Start the cluster from anywhere in the repository:
 
@@ -42,7 +42,7 @@ each request/input/output/evidence block, and colorizes commands and JSON on a T
 schema, and table names, so the persistent cluster can host repeated runs; pass
 `--run-suffix <id>` or `DEMO_RUN_SUFFIX=<id>` to choose a reproducible suffix.
 
-Stop the cluster and remove its ephemeral keys, token, metadata, and data with:
+Stop the cluster and remove its ephemeral keystore, metadata, and data with:
 
 ```shell
 ./dev/docker/governed-encryption-demo/down.sh
@@ -56,35 +56,22 @@ Stop the cluster and remove its ephemeral keys, token, metadata, and data with:
 | Gravitino inside Compose | `http://gravitino:8090` |
 | IRC from the host | `http://localhost:9001/iceberg` |
 | IRC inside Compose | `http://iceberg-rest:9001/iceberg` |
-| Transit from the host | `http://localhost:18200` |
-| Transit inside Compose | `http://openbao-kms:8200` |
 | Iceberg warehouse | `file:///warehouse` in the shared `warehouse` volume |
-| Spark-only KMS token file | `/run/secrets/kms/token` in the Spark container |
+| Spark-only keystore | `/run/secrets/kms/demo.p12` and `/run/secrets/kms/password` in Spark |
 | Mounted demo files in Spark | `/opt/demo` |
 
-The default Transit server is OpenBao because it is open source and compatible with Apache project
-licensing. HashiCorp Vault 1.15 and later use the Business Source License (BSL), which the ASF treats
-as Category X, so a Vault image must not become a downloaded dependency or the default for this
-Apache project demo. The server image can still be overridden for a locally obtained Vault-compatible
-image without changing the demo:
-
-```shell
-TRANSIT_SERVER_IMAGE=hashicorp/vault:<version> ./dev/docker/governed-encryption-demo/up.sh
-```
-
-The bootstrap client remains OpenBao and uses the common Vault Transit API. The current Java adapter
-class and property names contain `OpenBao`, so an overridden server is protocol-compatible but the
-names will still say OpenBao. Both configurations are development mode over plaintext HTTP; keys are
-ephemeral and the known root token is not suitable for production.
+The engine wraps and unwraps Iceberg DEKs by talking to the keystore directly through
+`org.apache.iceberg.encryption.KeystoreKeyManagementClient`. Gravitino and IRC never mount the
+keystore and never proxy wrap/unwrap. IRC only advertises the `encryption.kms-impl` class name;
+Spark pins the keystore path and password-file locally and rejects an IRC override of those
+secrets.
 
 The governed lakehouse-Iceberg catalog uses the REST backend and points to the demo IRC service. IRC
 uses a local SQLite JDBC catalog and writes Iceberg metadata and data files to the shared
 `/warehouse` volume. The SQLite database is also ephemeral in that volume. This makes the committed
 `*.metadata.json` files available for the demo's real list/cat inspection. The resulting create
-path is Gravitino policy dispatcher -> lakehouse REST client -> IRC -> local warehouse. IRC serves
-the allowlisted KMS implementation, endpoint, and Transit mount through `/v1/config`; Spark pins that
-endpoint and its token-file path locally and rejects an IRC override. The token is mounted only into Spark.
-Neither Gravitino nor IRC receives KMS credentials. This
+path is Gravitino policy dispatcher -> lakehouse REST client -> IRC -> local warehouse. Neither
+Gravitino nor IRC receives KMS credentials. This
 removes Hive and HDFS from the POC without removing the PRD's IRC integration surface. Iceberg v3
 encryption is catalog-backend independent. Calling IRC directly remains a POC boundary: a direct IRC
 client bypasses the current Gravitino table-create dispatcher and therefore bypasses this policy
@@ -141,18 +128,17 @@ not satisfy this IRC path.
 
 ## Observe the demo
 
-Every service logs to its container standard output, so a presenter can follow policy, IRC, Spark,
-and Transit activity without entering a container:
+Every service logs to its container standard output, so a presenter can follow policy, IRC, and Spark
+activity without entering a container:
 
 ```shell
 docker compose \
   --project-directory dev/docker/governed-encryption-demo \
   --file dev/docker/governed-encryption-demo/docker-compose.yaml \
-  logs --follow --tail=100 gravitino iceberg-rest spark openbao-kms
+  logs --follow --tail=100 gravitino iceberg-rest spark
 ```
 
-Remove `--follow` for a finite log snapshot. The one-shot `openbao-kms-bootstrap` container can be
-included when diagnosing Transit setup.
+Remove `--follow` for a finite log snapshot.
 
-After the main CUJ succeeds, run [rotation-checkpoint.sh](./rotation-checkpoint.sh) to exercise the
-explicit key-rotation checkpoint separately.
+The PKCS12 keystore demo does not include Transit-style key-version rotation. Use a fresh run suffix
+when you need a clean wrapping key.

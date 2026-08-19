@@ -20,7 +20,25 @@
 
 set -euo pipefail
 
-printf '%s\n' \
-  'The PKCS12 keystore demo does not include Transit-style key-version rotation.' \
-  'Use a fresh cluster (./down.sh && ./up.sh) or a new --run-suffix for a clean wrapping key.'
-exit 0
+KEYSTORE_DIR=${KEYSTORE_DIR:-/run/secrets/kms}
+KEYSTORE_PATH=${KEYSTORE_PATH:-$KEYSTORE_DIR/demo.p12}
+PASSWORD_FILE=${PASSWORD_FILE:-$KEYSTORE_DIR/password}
+ALIAS=${KEY_ALIAS:-customer-pii-v1}
+PASSWORD=${KEYSTORE_PASSWORD:-changeit}
+
+mkdir -p "$KEYSTORE_DIR"
+printf '%s' "$PASSWORD" >"$PASSWORD_FILE"
+chmod 600 "$PASSWORD_FILE"
+
+# PKCS12 secret-key entry used as the Iceberg wrapping key alias.
+keytool -genseckey \
+  -alias "$ALIAS" \
+  -keyalg AES \
+  -keysize 256 \
+  -keystore "$KEYSTORE_PATH" \
+  -storetype PKCS12 \
+  -storepass "$PASSWORD" \
+  -keypass "$PASSWORD"
+
+chmod 600 "$KEYSTORE_PATH"
+printf 'Wrote keystore %s (alias %s)\n' "$KEYSTORE_PATH" "$ALIAS"

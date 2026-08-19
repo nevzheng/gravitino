@@ -7,7 +7,7 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *  http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -18,45 +18,48 @@
  */
 package org.apache.iceberg.rest;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.gravitino.iceberg.kms.OpenBaoKeyManagementClient;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.encryption.KeystoreKeyManagementClient;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class TestRESTSessionCatalogWithEncryption {
 
-  private static final String TRUSTED_ENDPOINT = "http://openbao:8200";
-  private static final String TRUSTED_TOKEN_FILE = "/run/secrets/kms/token";
+  @TempDir Path tempDir;
 
   @Test
-  void testAcceptsRestServedImplementationWithClientLocalTrustSettings() {
-    Map<String, String> localProperties = localProperties();
+  void testAcceptsRestServedImplementationWithClientLocalKeystoreSettings() throws Exception {
+    Map<String, String> localProperties = localKeystoreProperties();
     Map<String, String> mergedProperties = new HashMap<>(localProperties);
     mergedProperties.put(
-        CatalogProperties.ENCRYPTION_KMS_IMPL, OpenBaoKeyManagementClient.class.getName());
+        CatalogProperties.ENCRYPTION_KMS_IMPL, KeystoreKeyManagementClient.class.getName());
 
     Map<String, String> validated =
         RESTSessionCatalogWithEncryption.validatedKmsProperties(localProperties, mergedProperties);
 
     Assertions.assertEquals(
-        TRUSTED_ENDPOINT, validated.get(OpenBaoKeyManagementClient.ENDPOINT_PROPERTY));
+        localProperties.get(KeystoreKeyManagementClient.PATH_PROPERTY),
+        validated.get(KeystoreKeyManagementClient.PATH_PROPERTY));
     Assertions.assertEquals(
-        TRUSTED_TOKEN_FILE, validated.get(OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY));
+        localProperties.get(KeystoreKeyManagementClient.PASSWORD_FILE_PROPERTY),
+        validated.get(KeystoreKeyManagementClient.PASSWORD_FILE_PROPERTY));
   }
 
   @Test
-  void testRejectsRestOverrideOfClientLocalEndpoint() {
-    Map<String, String> localProperties = localProperties();
+  void testRejectsRestOverrideOfClientLocalKeystorePath() throws Exception {
+    Map<String, String> localProperties = localKeystoreProperties();
     Map<String, String> mergedProperties = new HashMap<>(localProperties);
     mergedProperties.put(
-        CatalogProperties.ENCRYPTION_KMS_IMPL, OpenBaoKeyManagementClient.class.getName());
-    mergedProperties.put(
-        OpenBaoKeyManagementClient.ENDPOINT_PROPERTY, "http://attacker.example:8200");
+        CatalogProperties.ENCRYPTION_KMS_IMPL, KeystoreKeyManagementClient.class.getName());
+    mergedProperties.put(KeystoreKeyManagementClient.PATH_PROPERTY, "/tmp/attacker.p12");
 
     IllegalArgumentException exception =
         Assertions.assertThrows(
@@ -68,12 +71,10 @@ class TestRESTSessionCatalogWithEncryption {
   }
 
   @Test
-  void testRejectsRestOverrideOfClientLocalTokenFile() {
-    Map<String, String> localProperties = localProperties();
-    Map<String, String> mergedProperties = new HashMap<>(localProperties);
-    mergedProperties.put(
-        CatalogProperties.ENCRYPTION_KMS_IMPL, OpenBaoKeyManagementClient.class.getName());
-    mergedProperties.put(OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY, "/etc/passwd");
+  void testRejectsMissingClientLocalKmsSelector() {
+    Map<String, String> localProperties = Map.of();
+    Map<String, String> mergedProperties =
+        Map.of(CatalogProperties.ENCRYPTION_KMS_IMPL, KeystoreKeyManagementClient.class.getName());
 
     IllegalArgumentException exception =
         Assertions.assertThrows(
@@ -81,7 +82,7 @@ class TestRESTSessionCatalogWithEncryption {
             () ->
                 RESTSessionCatalogWithEncryption.validatedKmsProperties(
                     localProperties, mergedProperties));
-    Assertions.assertTrue(exception.getMessage().contains("cannot override"));
+    Assertions.assertTrue(exception.getMessage().contains("Client must set"));
   }
 
   @Test
@@ -102,10 +103,17 @@ class TestRESTSessionCatalogWithEncryption {
     Assertions.assertTrue(second.closed);
   }
 
-  private static Map<String, String> localProperties() {
+  private Map<String, String> localKeystoreProperties() throws Exception {
+    Path keystore = tempDir.resolve("demo.p12");
+    Path passwordFile = tempDir.resolve("password");
+    Files.write(passwordFile, "changeit".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    Files.write(keystore, new byte[] {1, 2, 3});
+
     Map<String, String> properties = new HashMap<>();
-    properties.put(OpenBaoKeyManagementClient.ENDPOINT_PROPERTY, TRUSTED_ENDPOINT);
-    properties.put(OpenBaoKeyManagementClient.TOKEN_FILE_PROPERTY, TRUSTED_TOKEN_FILE);
+    properties.put(
+        CatalogProperties.ENCRYPTION_KMS_IMPL, KeystoreKeyManagementClient.class.getName());
+    properties.put(KeystoreKeyManagementClient.PATH_PROPERTY, keystore.toString());
+    properties.put(KeystoreKeyManagementClient.PASSWORD_FILE_PROPERTY, passwordFile.toString());
     return properties;
   }
 

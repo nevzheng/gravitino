@@ -87,11 +87,14 @@ cp "$iceberg_jar" "$BUILD_DIR/spark/"
 cp "$sqlite_jar" "$BUILD_DIR/iceberg-rest/libs/"
 
 jar tf "$connector_jar" \
-  | grep -q 'org/apache/gravitino/iceberg/kms/OpenBaoKeyManagementClient.class' \
-  || fail "The Spark runtime does not contain the Iceberg KMS adapter."
+  | grep -q 'org/apache/iceberg/encryption/KeystoreKeyManagementClient.class' \
+  || fail "The Spark runtime does not contain the keystore Iceberg KMS client."
 jar tf "$connector_jar" \
   | grep -q 'org/apache/iceberg/rest/RESTCatalogWithEncryption.class' \
   || fail "The Spark runtime does not contain the REST encryption bridge."
+jar tf "$connector_jar" \
+  | grep -q 'org/apache/gravitino/iceberg/kms/OpenBaoKeyManagementClient.class' \
+  && fail "OpenBaoKeyManagementClient must not ship in the Spark runtime."
 jar tf "$BUILD_DIR/iceberg-rest/libs/$(basename "$sqlite_jar")" \
   | grep -q 'org/sqlite/JDBC.class' \
   || fail "The standalone IRC package does not contain the SQLite JDBC driver."
