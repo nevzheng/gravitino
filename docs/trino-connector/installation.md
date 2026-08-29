@@ -64,8 +64,7 @@ After unpacking, you can see the connector directory:
 1. Download and unpack the correct Gravitino Trino connector tarball for your Trino version.
 2. Rename the unpacked connector directory to `gravitino`, and then copy it to the Trino plugin directory.
    Normally, the directory location is `Trino-server-<version>/plugin`, and the directory contains other catalogs used by Trino.
-3. Add Trino JVM arguments `-Dlog4j.configurationFile=file:////etc/trino/log4j2.properties` to enable logging for the Gravitino Trino connector.
-4. Update Trino coordinator configuration. 
+3. Update Trino coordinator configuration.
    You need to set `catalog.management=dynamic`, The config location is `Trino-server-<version>/etc/config.properties`,  and the contents like:
 
 ```text
@@ -182,7 +181,7 @@ system
 
 See the `gravitino` catalog in the result set. This signifies the successful installation of the Gravitino Trino connector.
 
-Assuming you have created a catalog named `test.jdbc-mysql` in the Gravitino server, or refer to [Create a Catalog](../manage-relational-metadata-using-gravitino.md#create-a-catalog). Then you can use the Trino CLI to connect to the Trino container and run a query like this.
+Assuming you have created a catalog named `test.jdbc-mysql` in the Gravitino server, or refer to [Create a Catalog](../manage-catalogs-and-schemas.md#create-a-catalog). Then you can use the Trino CLI to connect to the Trino container and run a query like this.
 
 ```text
 docker exec -it trino-gravitino trino

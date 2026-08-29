@@ -21,6 +21,7 @@ package org.apache.gravitino.client;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,9 +68,12 @@ import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyChange;
 import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyOperations;
+import org.apache.gravitino.secret.SecretBinding;
+import org.apache.gravitino.secret.SecretReference;
 import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagChange;
 import org.apache.gravitino.tag.TagOperations;
+import org.apache.gravitino.tag.TagValueConstraint;
 
 /**
  * Apache Gravitino Client for a user to interact with the Gravitino API, allowing the client to
@@ -139,7 +143,29 @@ public class GravitinoClient extends GravitinoClientBase
       String comment,
       Map<String, String> properties)
       throws NoSuchMetalakeException, CatalogAlreadyExistsException {
-    return getMetalake().createCatalog(catalogName, type, provider, comment, properties);
+    return createCatalog(
+        catalogName,
+        type,
+        provider,
+        comment,
+        properties,
+        Collections.emptyMap(),
+        Collections.emptyMap());
+  }
+
+  @Override
+  public Catalog createCatalog(
+      String catalogName,
+      Catalog.Type type,
+      String provider,
+      String comment,
+      Map<String, String> properties,
+      Map<String, SecretBinding> secretBindings,
+      Map<String, SecretReference> secretReferences)
+      throws NoSuchMetalakeException, CatalogAlreadyExistsException {
+    return getMetalake()
+        .createCatalog(
+            catalogName, type, provider, comment, properties, secretBindings, secretReferences);
   }
 
   @Override
@@ -575,6 +601,11 @@ public class GravitinoClient extends GravitinoClientBase
   }
 
   @Override
+  public void testConnection(String catalogName) throws Exception {
+    getMetalake().testConnection(catalogName);
+  }
+
+  @Override
   public String[] listTags() throws NoSuchMetalakeException {
     return getMetalake().listTags();
   }
@@ -593,6 +624,16 @@ public class GravitinoClient extends GravitinoClientBase
   public Tag createTag(String name, String comment, Map<String, String> properties)
       throws TagAlreadyExistsException {
     return getMetalake().createTag(name, comment, properties);
+  }
+
+  @Override
+  public Tag createTag(
+      String name,
+      String comment,
+      Map<String, String> properties,
+      TagValueConstraint valueConstraint)
+      throws TagAlreadyExistsException {
+    return getMetalake().createTag(name, comment, properties, valueConstraint);
   }
 
   @Override

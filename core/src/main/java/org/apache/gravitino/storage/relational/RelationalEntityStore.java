@@ -27,9 +27,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.tuple.Pair;
@@ -50,6 +50,7 @@ import org.apache.gravitino.SupportsIdOperations;
 import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.cache.CacheFactory;
 import org.apache.gravitino.cache.CachedEntityIdResolver;
+import org.apache.gravitino.cache.Coherence;
 import org.apache.gravitino.cache.EntityCache;
 import org.apache.gravitino.cache.EntityCacheKey;
 import org.apache.gravitino.cache.NoOpsCache;
@@ -80,6 +81,10 @@ public class RelationalEntityStore
   private EntityChangeLogCleaner entityChangeLogCleaner;
   private EntityCache cache;
 
+  // Non-null only for a LOCAL_PER_NODE cache, which needs cross-node invalidation. SHARED and NONE
+  // caches have no per-node copy to invalidate, so no listener is registered.
+  @Nullable private EntityCacheChangeLogListener entityCacheChangeLogListener;
+
   @VisibleForTesting
   public EntityCache getCache() {
     return cache;
@@ -103,20 +108,33 @@ public class RelationalEntityStore
     // Polling and cleanup use separate single-threaded schedulers. Polling only dispatches changes
     // to local listeners, while cleanup independently removes records beyond the retention period.
     this.entityChangeLogPoller =
-        new EntityChangeLogPoller(
-            config.get(Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS),
-            config.get(Configs.ENTITY_CHANGE_LOG_LISTENER_MAX_RETRIES),
-            EntityChangeLogPoller.ListenerFailureAction.valueOf(
-                config
-                    .get(Configs.ENTITY_CHANGE_LOG_LISTENER_FAILURE_ACTION)
-                    .toUpperCase(Locale.ROOT)));
+        new EntityChangeLogPoller(config.get(Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS));
     this.entityChangeLogCleaner =
         new EntityChangeLogCleaner(
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_RETENTION_SECS)),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS)),
             TimeUnit.SECONDS.toMillis(config.get(Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS)));
+
+    registerCacheChangeLogListener();
+
     this.entityChangeLogPoller.start();
     this.entityChangeLogCleaner.start();
+  }
+
+  /**
+   * The coherence gate: a {@link Coherence#LOCAL_PER_NODE} cache keeps its own copy per node, so
+   * changes made on other nodes must be replayed here through the change log. {@link
+   * Coherence#SHARED} and {@link Coherence#NONE} caches have nothing per-node to invalidate, so no
+   * listener is registered.
+   */
+  @VisibleForTesting
+  void registerCacheChangeLogListener() {
+    if (cache.coherence() != Coherence.LOCAL_PER_NODE) {
+      return;
+    }
+
+    this.entityCacheChangeLogListener = new EntityCacheChangeLogListener(cache);
+    this.entityChangeLogPoller.registerListener(entityCacheChangeLogListener);
   }
 
   private RelationalBackend createRelationalEntityBackend(Config config) {
@@ -161,7 +179,14 @@ public class RelationalEntityStore
   public <E extends Entity & HasIdentifier> void put(E e, boolean overwritten)
       throws IOException, EntityAlreadyExistsException {
     backend.insert(e, overwritten);
-    cache.put(e);
+    if (overwritten) {
+      // An overwrite is resolved by the database, which may keep the identity and version of the
+      // row it already had. Caching the copy handed in here would publish values the stored row
+      // does not carry, so the next read is served from the backend instead.
+      cache.invalidate(e.nameIdentifier(), e.type());
+    } else {
+      cache.put(e);
+    }
   }
 
   @Override
@@ -304,6 +329,20 @@ public class RelationalEntityStore
   }
 
   @Override
+  public <E extends Entity & HasIdentifier> Optional<E> deleteAndGet(
+      NameIdentifier ident,
+      Entity.EntityType entityType,
+      Class<E> clazz,
+      Consumer<E> postDeleteAction)
+      throws IOException {
+    try {
+      return backend.deleteAndGet(ident, entityType, clazz, postDeleteAction);
+    } finally {
+      cache.invalidate(ident, entityType);
+    }
+  }
+
+  @Override
   public <R, E extends Exception> R executeInTransaction(Executable<R, E> executable) {
     throw new UnsupportedOperationException("Unsupported operation in relational entity store.");
   }
@@ -437,13 +476,26 @@ public class RelationalEntityStore
       NameIdentifier[] destEntitiesToAdd,
       NameIdentifier[] destEntitiesToRemove)
       throws IOException, NoSuchEntityException, EntityAlreadyExistsException {
-    return updateEntityRelations(
+    RelationUpdate update =
         RelationUpdate.of(
             relType,
             srcEntityIdent,
             srcEntityType,
             toRelationEdgeTargets(relType, destEntitiesToAdd),
-            toRelationEdgeTargets(relType, destEntitiesToRemove)));
+            toRelationEdgeTargets(relType, destEntitiesToRemove));
+    if (relType != SupportsRelationOperations.Type.TAG_METADATA_OBJECT_REL) {
+      return updateEntityRelations(update);
+    }
+
+    List<E> result =
+        backend.updateEntityRelations(
+            relType, srcEntityIdent, srcEntityType, destEntitiesToAdd, destEntitiesToRemove);
+    Entity.EntityType targetEntityType = relationUpdateTargetType(relType);
+    cache.invalidate(srcEntityIdent, srcEntityType);
+    invalidateRelationTargetCache(targetEntityType, update.targetsToAdd());
+    invalidateRelationTargetCache(targetEntityType, update.targetsToRemove());
+
+    return result;
   }
 
   @Override
@@ -467,18 +519,7 @@ public class RelationalEntityStore
 
     RelationEdgeTarget[] targetsToAdd = update.targetsToAdd();
     RelationEdgeTarget[] targetsToRemove = update.targetsToRemove();
-    List<E> result;
-    if (update.hasRelationValues()) {
-      result = backend.updateEntityRelations(update);
-    } else {
-      result =
-          backend.updateEntityRelations(
-              update.relationType(),
-              update.sourceIdentifier(),
-              update.sourceEntityType(),
-              toNameIdentifiers(targetsToAdd),
-              toNameIdentifiers(targetsToRemove));
-    }
+    List<E> result = backend.updateEntityRelations(update);
 
     // Invalidate after the backend write, not before: invalidating first opens a window where a
     // concurrent read could repopulate the cache with stale pre-commit data.
@@ -540,18 +581,14 @@ public class RelationalEntityStore
         .toArray(RelationEdgeTarget[]::new);
   }
 
-  private static NameIdentifier[] toNameIdentifiers(RelationEdgeTarget[] relationTargets) {
-    return Arrays.stream(relationTargets)
-        .map(RelationEdgeTarget::nameIdentifier)
-        .toArray(NameIdentifier[]::new);
-  }
-
   private static Entity.EntityType relationUpdateTargetType(Type relType) {
     switch (relType) {
       case POLICY_METADATA_OBJECT_REL:
         return Entity.EntityType.POLICY;
       case TAG_METADATA_OBJECT_REL:
         return Entity.EntityType.TAG;
+      case POLICY_TAG_REL:
+        return Entity.EntityType.POLICY;
       default:
         throw new IllegalArgumentException(
             String.format("Doesn't support the relation type %s", relType));

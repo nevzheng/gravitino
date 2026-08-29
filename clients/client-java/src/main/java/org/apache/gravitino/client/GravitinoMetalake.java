@@ -95,6 +95,8 @@ import org.apache.gravitino.dto.responses.TagListResponse;
 import org.apache.gravitino.dto.responses.TagResponse;
 import org.apache.gravitino.dto.responses.UserListResponse;
 import org.apache.gravitino.dto.responses.UserResponse;
+import org.apache.gravitino.dto.secret.SecretBindingDTO;
+import org.apache.gravitino.dto.secret.SecretReferenceDTO;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.CatalogInUseException;
 import org.apache.gravitino.exceptions.GroupAlreadyExistsException;
@@ -128,9 +130,12 @@ import org.apache.gravitino.policy.PolicyChange;
 import org.apache.gravitino.policy.PolicyContent;
 import org.apache.gravitino.policy.PolicyOperations;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.secret.SecretBinding;
+import org.apache.gravitino.secret.SecretReference;
 import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagChange;
 import org.apache.gravitino.tag.TagOperations;
+import org.apache.gravitino.tag.TagValueConstraint;
 
 /**
  * Apache Gravitino Metalake is the top-level metadata repository for users. It contains a list of
@@ -255,8 +260,52 @@ public class GravitinoMetalake extends MetalakeDTO
       String comment,
       Map<String, String> properties)
       throws NoSuchMetalakeException, CatalogAlreadyExistsException {
+    return createCatalog(
+        catalogName,
+        type,
+        provider,
+        comment,
+        properties,
+        Collections.emptyMap(),
+        Collections.emptyMap());
+  }
+
+  /**
+   * Create a new catalog with specified identifier, type, comment, properties, and optional secret
+   * maps.
+   *
+   * @param catalogName The identifier of the catalog.
+   * @param type The type of the catalog.
+   * @param provider The provider of the catalog.
+   * @param comment The comment of the catalog.
+   * @param properties The properties of the catalog.
+   * @param secretBindings Optional property key → binding ({@code provider} + {@code plaintext})
+   *     for write-through.
+   * @param secretReferences Optional property key → secret locator ({@code provider} plus
+   *     provider-specific attributes).
+   * @return The created {@link Catalog}.
+   * @throws NoSuchMetalakeException if the metalake with specified namespace does not exist.
+   * @throws CatalogAlreadyExistsException if the catalog with specified identifier already exists.
+   */
+  @Override
+  public Catalog createCatalog(
+      String catalogName,
+      Catalog.Type type,
+      String provider,
+      String comment,
+      Map<String, String> properties,
+      Map<String, SecretBinding> secretBindings,
+      Map<String, SecretReference> secretReferences)
+      throws NoSuchMetalakeException, CatalogAlreadyExistsException {
     CatalogCreateRequest req =
-        new CatalogCreateRequest(catalogName, type, provider, comment, properties);
+        new CatalogCreateRequest(
+            catalogName,
+            type,
+            provider,
+            comment,
+            properties,
+            SecretBindingDTO.fromSecretBindings(secretBindings),
+            SecretReferenceDTO.fromSecretReferences(secretReferences));
     req.validate();
 
     CatalogResponse resp =
@@ -429,6 +478,26 @@ public class GravitinoMetalake extends MetalakeDTO
   }
 
   @Override
+  public void testConnection(String catalogName) throws Exception {
+    ErrorResponse resp =
+        restClient.post(
+            String.format(
+                API_METALAKES_CATALOGS_PATH + "/testConnection",
+                RESTUtils.encodeString(this.name()),
+                RESTUtils.encodeString(catalogName)),
+            null,
+            ErrorResponse.class,
+            Collections.emptyMap(),
+            ErrorHandlers.catalogErrorHandler());
+
+    if (resp.getCode() == 0) {
+      return;
+    }
+
+    ErrorHandlers.catalogErrorHandler().accept(resp);
+  }
+
+  @Override
   public SupportsRoles supportsRoles() {
     return this;
   }
@@ -510,8 +579,46 @@ public class GravitinoMetalake extends MetalakeDTO
   @Override
   public Tag createTag(String name, String comment, Map<String, String> properties)
       throws TagAlreadyExistsException {
+    return createTag(name, comment, properties, TagValueConstraint.anyValue());
+  }
+
+  /**
+   * Create a tag under the current metalake with an assignment value constraint.
+   *
+   * @param name The name of the tag.
+   * @param comment The comment of the tag.
+   * @param properties The properties of the tag.
+   * @param valueConstraint The assignment value constraint of the tag.
+   * @return The created tag.
+   * @throws TagAlreadyExistsException If the tag already exists.
+   */
+  @Override
+  public Tag createTag(
+      String name,
+      String comment,
+      Map<String, String> properties,
+      TagValueConstraint valueConstraint)
+      throws TagAlreadyExistsException {
     Preconditions.checkArgument(StringUtils.isNotBlank(name), "tag name must not be null or empty");
-    TagCreateRequest req = new TagCreateRequest(name, comment, properties);
+    TagValueConstraint normalizedConstraint =
+        valueConstraint == null ? TagValueConstraint.anyValue() : valueConstraint;
+    String[] allowedValues;
+    switch (normalizedConstraint.type()) {
+      case ANY_VALUE:
+        allowedValues = null;
+        break;
+      case NO_VALUE:
+        allowedValues = new String[0];
+        break;
+      case ALLOWED_VALUES:
+        allowedValues = normalizedConstraint.allowedValues();
+        break;
+      default:
+        throw new IllegalArgumentException(
+            "Unknown tag value constraint: " + normalizedConstraint.type());
+    }
+
+    TagCreateRequest req = new TagCreateRequest(name, comment, properties, allowedValues);
     req.validate();
 
     TagResponse resp =

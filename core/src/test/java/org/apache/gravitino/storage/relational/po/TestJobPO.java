@@ -128,6 +128,8 @@ public class TestJobPO {
             .withNamespace(NamespaceUtil.ofJob("test"))
             .withAuditInfo(
                 AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
+            .withStartedAt(0L)
+            .withFinishedAt(0L)
             .build();
 
     JobPO.JobPOBuilder builder = JobPO.builder().withMetalakeId(1L);
@@ -140,5 +142,123 @@ public class TestJobPO {
     Assertions.assertEquals(jobEntity.status(), resultEntity.status());
     Assertions.assertEquals(jobEntity.namespace(), resultEntity.namespace());
     Assertions.assertEquals(jobEntity.auditInfo().creator(), resultEntity.auditInfo().creator());
+    // A queued job has no startedAt/finishedAt, so both should round-trip as the "not
+    // started"/"not finished" sentinel.
+    Assertions.assertEquals(0L, resultEntity.startedAt());
+    Assertions.assertEquals(0L, resultEntity.finishedAt());
+  }
+
+  @Test
+  public void testJobPOStartedAt() {
+    // initializeJobPO must trust the startedAt already set on the entity by the caller (e.g.
+    // JobManager), rather than deriving it independently from the job's status.
+    long startedAt = Instant.now().toEpochMilli();
+    JobEntity jobEntity =
+        JobEntity.builder()
+            .withId(1L)
+            .withJobExecutionId("job-execution-1")
+            .withJobTemplateName("test-job-template")
+            .withStatus(JobHandle.Status.STARTED)
+            .withNamespace(NamespaceUtil.ofJob("test"))
+            .withAuditInfo(
+                AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
+            .withStartedAt(startedAt)
+            .withFinishedAt(0L)
+            .build();
+
+    JobPO.JobPOBuilder builder = JobPO.builder().withMetalakeId(1L);
+    JobPO jobPO = JobPO.initializeJobPO(jobEntity, builder);
+    JobEntity resultEntity = JobPO.fromJobPO(jobPO, NamespaceUtil.ofJob("test"));
+
+    Assertions.assertEquals(startedAt, jobPO.jobStartedAt());
+    Assertions.assertEquals(startedAt, resultEntity.startedAt());
+  }
+
+  @Test
+  public void testJobPOFinishedAt() {
+    // initializeJobPO must trust the finishedAt already set on the entity by the caller (e.g.
+    // JobManager), rather than deriving it independently from the job's status.
+    long startedAt = Instant.now().toEpochMilli() - 1000;
+    long finishedAt = Instant.now().toEpochMilli();
+    JobEntity jobEntity =
+        JobEntity.builder()
+            .withId(1L)
+            .withJobExecutionId("job-execution-1")
+            .withJobTemplateName("test-job-template")
+            .withStatus(JobHandle.Status.SUCCEEDED)
+            .withNamespace(NamespaceUtil.ofJob("test"))
+            .withAuditInfo(
+                AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
+            .withStartedAt(startedAt)
+            .withFinishedAt(finishedAt)
+            .build();
+
+    JobPO.JobPOBuilder builder = JobPO.builder().withMetalakeId(1L);
+    JobPO jobPO = JobPO.initializeJobPO(jobEntity, builder);
+    JobEntity resultEntity = JobPO.fromJobPO(jobPO, NamespaceUtil.ofJob("test"));
+
+    Assertions.assertEquals(finishedAt, jobPO.jobFinishedAt());
+    Assertions.assertEquals(finishedAt, resultEntity.finishedAt());
+  }
+
+  @Test
+  public void testUpdateJobPO() {
+    JobEntity oldEntity =
+        JobEntity.builder()
+            .withId(1L)
+            .withJobExecutionId("job-execution-1")
+            .withJobTemplateName("test-job-template")
+            .withStatus(JobHandle.Status.QUEUED)
+            .withNamespace(NamespaceUtil.ofJob("test"))
+            .withAuditInfo(
+                AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
+            .withStartedAt(0L)
+            .withFinishedAt(0L)
+            .build();
+
+    JobPO.JobPOBuilder initBuilder = JobPO.builder().withMetalakeId(1L);
+    JobPO oldJobPO = JobPO.initializeJobPO(oldEntity, initBuilder);
+
+    long startedAt = Instant.now().toEpochMilli();
+    AuditInfo updatedAuditInfo =
+        AuditInfo.builder()
+            .withCreator(oldEntity.auditInfo().creator())
+            .withCreateTime(oldEntity.auditInfo().createTime())
+            .withLastModifier("updater")
+            .withLastModifiedTime(Instant.now())
+            .build();
+
+    // Deliberately try to change jobTemplateName - updateJobPO must ignore it and keep the old
+    // PO's value, since a job's template is immutable once the job is created.
+    JobEntity newEntity =
+        JobEntity.builder()
+            .withId(oldEntity.id())
+            .withJobExecutionId("job-execution-2")
+            .withJobTemplateName("a-different-job-template")
+            .withStatus(JobHandle.Status.STARTED)
+            .withNamespace(oldEntity.namespace())
+            .withAuditInfo(updatedAuditInfo)
+            .withStartedAt(startedAt)
+            .withFinishedAt(0L)
+            .build();
+
+    JobPO.JobPOBuilder updateBuilder = JobPO.builder().withMetalakeId(oldJobPO.metalakeId());
+    JobPO newJobPO = JobPO.updateJobPO(oldJobPO, newEntity, updateBuilder);
+
+    Assertions.assertEquals(oldJobPO.jobRunId(), newJobPO.jobRunId());
+    Assertions.assertEquals(oldJobPO.jobTemplateName(), newJobPO.jobTemplateName());
+    Assertions.assertEquals("job-execution-2", newJobPO.jobExecutionId());
+    Assertions.assertEquals(JobHandle.Status.STARTED.name(), newJobPO.jobRunStatus());
+    Assertions.assertEquals(startedAt, newJobPO.jobStartedAt());
+    Assertions.assertEquals(0L, newJobPO.jobFinishedAt());
+    Assertions.assertEquals(oldJobPO.currentVersion() + 1, newJobPO.currentVersion());
+    Assertions.assertEquals(oldJobPO.lastVersion() + 1, newJobPO.lastVersion());
+
+    JobEntity resultEntity = JobPO.fromJobPO(newJobPO, NamespaceUtil.ofJob("test"));
+    Assertions.assertEquals(JobHandle.Status.STARTED, resultEntity.status());
+    Assertions.assertEquals(startedAt, resultEntity.startedAt());
+    Assertions.assertEquals("test-job-template", resultEntity.jobTemplateName());
+    Assertions.assertEquals(
+        updatedAuditInfo.lastModifier(), resultEntity.auditInfo().lastModifier());
   }
 }

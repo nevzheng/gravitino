@@ -20,8 +20,6 @@ package org.apache.gravitino.tag;
 
 import static org.apache.gravitino.Configs.DEFAULT_ENTITY_RELATIONAL_STORE;
 import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_LISTENER_FAILURE_ACTION;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_LISTENER_MAX_RETRIES;
 import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS;
 import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_RETENTION_SECS;
 import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER;
@@ -157,8 +155,6 @@ public class TestTagManager {
     Mockito.when(config.get(STORE_TRANSACTION_MAX_SKEW_TIME)).thenReturn(1000L);
     Mockito.when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(20 * 60 * 1000L);
     Mockito.when(config.get(ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS)).thenReturn(3L);
-    Mockito.when(config.get(ENTITY_CHANGE_LOG_LISTENER_MAX_RETRIES)).thenReturn(10);
-    Mockito.when(config.get(ENTITY_CHANGE_LOG_LISTENER_FAILURE_ACTION)).thenReturn("SKIP");
     Mockito.when(config.get(ENTITY_CHANGE_LOG_RETENTION_SECS)).thenReturn(24 * 60 * 60L);
     Mockito.when(config.get(ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS)).thenReturn(60 * 60L);
     Mockito.when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
@@ -700,6 +696,16 @@ public class TestTagManager {
     Assertions.assertEquals(
         0, tagManager.listMetadataObjectsForTag(METALAKE, tag.name(), "pii").length);
 
+    tagManager.associateTagValuesForMetadataObject(
+        METALAKE, tableObject, null, new TagValue[] {TagValue.noValue(tag.name())});
+    Tag dataDomainInfo = tagManager.getTagForMetadataObject(METALAKE, tableObject, tag.name());
+    Assertions.assertArrayEquals(
+        new String[] {"finance", "risk"}, dataDomainInfo.assignment().get().values());
+
+    Assertions.assertArrayEquals(
+        new MetadataObject[] {tableObject},
+        tagManager.listMetadataObjectsForTag(METALAKE, tag.name(), "finance"));
+
     Tag ownerTag = tagManager.createTag(METALAKE, "owner", null, null);
     tagManager.associateTagValuesForMetadataObject(
         METALAKE, tableObject, new TagValue[] {TagValue.noValue(ownerTag.name())}, null);
@@ -714,10 +720,48 @@ public class TestTagManager {
         new MetadataObject[] {tableObject},
         tagManager.listMetadataObjectsForTag(METALAKE, ownerTag.name(), "team-a"));
 
+    Tag noValueIdempotentTag = tagManager.createTag(METALAKE, "no_value_idempotent", null, null);
+    tagManager.associateTagValuesForMetadataObject(
+        METALAKE,
+        tableObject,
+        new TagValue[] {TagValue.noValue(noValueIdempotentTag.name())},
+        null);
+    Assertions.assertDoesNotThrow(
+        () ->
+            tagManager.associateTagValuesForMetadataObject(
+                METALAKE,
+                tableObject,
+                new TagValue[] {TagValue.noValue(noValueIdempotentTag.name())},
+                null));
+
     Assertions.assertTrue(
         tagInfos[0].valueConstraint().type() == TagValueConstraint.Type.ALLOWED_VALUES);
     Assertions.assertArrayEquals(
         new String[] {"finance", "risk"}, tagInfos[0].valueConstraint().allowedValues());
+  }
+
+  @Test
+  public void testV1RemoveValuedTagByName() {
+    Tag tag =
+        tagManager.createTag(
+            METALAKE, "v1_remove_valued", null, null, TagValueConstraint.ofAllowedValues("dev"));
+    MetadataObject tableObject =
+        NameIdentifierUtil.toMetadataObject(
+            NameIdentifierUtil.ofTable(METALAKE, CATALOG, SCHEMA, TABLE), Entity.EntityType.TABLE);
+
+    tagManager.associateTagValuesForMetadataObject(
+        METALAKE, tableObject, new TagValue[] {TagValue.of(tag.name(), "dev")}, null);
+    Assertions.assertArrayEquals(
+        new MetadataObject[] {tableObject},
+        tagManager.listMetadataObjectsForTag(METALAKE, tag.name(), "dev"));
+
+    tagManager.associateTagsForMetadataObject(
+        METALAKE, tableObject, null, new String[] {tag.name()});
+
+    Assertions.assertEquals(
+        0, tagManager.listTagsInfoForMetadataObject(METALAKE, tableObject).length);
+    Assertions.assertEquals(
+        0, tagManager.listMetadataObjectsForTag(METALAKE, tag.name(), "dev").length);
   }
 
   @Test

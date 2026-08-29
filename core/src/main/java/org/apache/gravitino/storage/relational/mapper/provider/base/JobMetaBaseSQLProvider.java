@@ -31,16 +31,16 @@ public class JobMetaBaseSQLProvider {
     return "INSERT INTO "
         + JobMetaMapper.TABLE_NAME
         + " (job_run_id, job_template_id, metalake_id,"
-        + " job_execution_id, job_run_status, job_finished_at, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " job_execution_id, job_run_status, job_started_at, job_finished_at, audit_info,"
+        + " current_version, last_version, deleted_at)"
         + " VALUES (#{jobMeta.jobRunId},"
         + " (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
         + " WHERE job_template_name = #{jobMeta.jobTemplateName}"
         + " AND metalake_id = #{jobMeta.metalakeId} AND deleted_at = 0),"
         + " #{jobMeta.metalakeId}, #{jobMeta.jobExecutionId},"
-        + " #{jobMeta.jobRunStatus}, #{jobMeta.jobFinishedAt}, #{jobMeta.auditInfo},"
-        + " #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
+        + " #{jobMeta.jobRunStatus}, #{jobMeta.jobStartedAt}, #{jobMeta.jobFinishedAt},"
+        + " #{jobMeta.auditInfo}, #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
         + " #{jobMeta.deletedAt})";
   }
 
@@ -48,16 +48,16 @@ public class JobMetaBaseSQLProvider {
     return "INSERT INTO "
         + JobMetaMapper.TABLE_NAME
         + " (job_run_id, job_template_id, metalake_id,"
-        + " job_execution_id, job_run_status, job_finished_at, audit_info, current_version,"
-        + " last_version, deleted_at)"
+        + " job_execution_id, job_run_status, job_started_at, job_finished_at, audit_info,"
+        + " current_version, last_version, deleted_at)"
         + " VALUES (#{jobMeta.jobRunId},"
         + " (SELECT job_template_id FROM "
         + JobTemplateMetaMapper.TABLE_NAME
         + " WHERE job_template_name = #{jobMeta.jobTemplateName}"
         + " AND metalake_id = #{jobMeta.metalakeId} AND deleted_at = 0),"
         + " #{jobMeta.metalakeId}, #{jobMeta.jobExecutionId},"
-        + " #{jobMeta.jobRunStatus}, #{jobMeta.jobFinishedAt}, #{jobMeta.auditInfo},"
-        + " #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
+        + " #{jobMeta.jobRunStatus}, #{jobMeta.jobStartedAt}, #{jobMeta.jobFinishedAt},"
+        + " #{jobMeta.auditInfo}, #{jobMeta.currentVersion}, #{jobMeta.lastVersion},"
         + " #{jobMeta.deletedAt})"
         + " ON DUPLICATE KEY UPDATE"
         + " job_template_id = (SELECT job_template_id FROM "
@@ -67,6 +67,7 @@ public class JobMetaBaseSQLProvider {
         + " metalake_id = #{jobMeta.metalakeId},"
         + " job_execution_id = #{jobMeta.jobExecutionId},"
         + " job_run_status = #{jobMeta.jobRunStatus},"
+        + " job_started_at = #{jobMeta.jobStartedAt},"
         + " job_finished_at = #{jobMeta.jobFinishedAt},"
         + " audit_info = #{jobMeta.auditInfo},"
         + " current_version = #{jobMeta.currentVersion},"
@@ -77,7 +78,8 @@ public class JobMetaBaseSQLProvider {
   public String listJobPOsByMetalake(@Param("metalakeName") String metalakeName) {
     return "SELECT jrm.job_run_id AS jobRunId, jtm.job_template_name AS jobTemplateName,"
         + " jrm.metalake_id AS metalakeId, jrm.job_execution_id AS jobExecutionId,"
-        + " jrm.job_run_status AS jobRunStatus, jrm.job_finished_at AS jobFinishedAt,"
+        + " jrm.job_run_status AS jobRunStatus, jrm.job_started_at AS jobStartedAt,"
+        + " jrm.job_finished_at AS jobFinishedAt,"
         + " jrm.audit_info AS auditInfo,"
         + " jrm.current_version AS currentVersion, jrm.last_version AS lastVersion,"
         + " jrm.deleted_at AS deletedAt"
@@ -98,7 +100,8 @@ public class JobMetaBaseSQLProvider {
       @Param("jobTemplateName") String jobTemplateName) {
     return "SELECT jrm.job_run_id AS jobRunId, jtm.job_template_name AS jobTemplateName,"
         + " jrm.metalake_id AS metalakeId, jrm.job_execution_id AS jobExecutionId,"
-        + " jrm.job_run_status AS jobRunStatus, jrm.job_finished_at AS jobFinishedAt,"
+        + " jrm.job_run_status AS jobRunStatus, jrm.job_started_at AS jobStartedAt,"
+        + " jrm.job_finished_at AS jobFinishedAt,"
         + " jrm.audit_info AS auditInfo,"
         + " jrm.current_version AS currentVersion, jrm.last_version AS lastVersion,"
         + " jrm.deleted_at AS deletedAt"
@@ -118,7 +121,8 @@ public class JobMetaBaseSQLProvider {
       @Param("metalakeName") String metalakeName, @Param("jobRunId") Long jobRunId) {
     return "SELECT jrm.job_run_id AS jobRunId, jtm.job_template_name AS jobTemplateName,"
         + " jrm.metalake_id AS metalakeId, jrm.job_execution_id AS jobExecutionId,"
-        + " jrm.job_run_status AS jobRunStatus, jrm.job_finished_at AS jobFinishedAt,"
+        + " jrm.job_run_status AS jobRunStatus, jrm.job_started_at AS jobStartedAt,"
+        + " jrm.job_finished_at AS jobFinishedAt,"
         + " jrm.audit_info AS auditInfo,"
         + " jrm.current_version AS currentVersion, jrm.last_version AS lastVersion,"
         + " jrm.deleted_at AS deletedAt"
@@ -132,6 +136,23 @@ public class JobMetaBaseSQLProvider {
         + " mm ON jrm.metalake_id = mm.metalake_id"
         + " WHERE mm.metalake_name = #{metalakeName} AND jrm.job_run_id = #{jobRunId}"
         + " AND jrm.deleted_at = 0 AND mm.deleted_at = 0 AND jtm.deleted_at = 0";
+  }
+
+  public String updateJobMeta(
+      @Param("newJobMeta") JobPO newJobPO, @Param("oldJobMeta") JobPO oldJobPO) {
+    return "UPDATE "
+        + JobMetaMapper.TABLE_NAME
+        + " SET job_execution_id = #{newJobMeta.jobExecutionId},"
+        + " job_run_status = #{newJobMeta.jobRunStatus},"
+        + " job_started_at = #{newJobMeta.jobStartedAt},"
+        + " job_finished_at = #{newJobMeta.jobFinishedAt},"
+        + " audit_info = #{newJobMeta.auditInfo},"
+        + " current_version = #{newJobMeta.currentVersion},"
+        + " last_version = #{newJobMeta.lastVersion}"
+        + " WHERE job_run_id = #{oldJobMeta.jobRunId}"
+        + " AND current_version = #{oldJobMeta.currentVersion}"
+        + " AND last_version = #{oldJobMeta.lastVersion}"
+        + " AND deleted_at = 0";
   }
 
   public String softDeleteJobMetaByMetalakeAndTemplate(
@@ -188,7 +209,8 @@ public class JobMetaBaseSQLProvider {
     return "<script>"
         + "SELECT jrm.job_run_id AS jobRunId, jtm.job_template_name AS jobTemplateName,"
         + " jrm.metalake_id AS metalakeId, jrm.job_execution_id AS jobExecutionId,"
-        + " jrm.job_run_status AS jobRunStatus, jrm.job_finished_at AS jobFinishedAt,"
+        + " jrm.job_run_status AS jobRunStatus, jrm.job_started_at AS jobStartedAt,"
+        + " jrm.job_finished_at AS jobFinishedAt,"
         + " jrm.audit_info AS auditInfo,"
         + " jrm.current_version AS currentVersion, jrm.last_version AS lastVersion,"
         + " jrm.deleted_at AS deletedAt"
