@@ -54,57 +54,46 @@ jobs:
     steps:
       - name: Set environment variables
         run: |
+          write_image_env() {
+            {
+              echo "image_type=$1"
+              echo "image_name=$2"
+              if [[ -n "${3:-}" ]]; then
+                echo "tag_name=$3"
+              fi
+            } >> "${GITHUB_ENV}"
+          }
           if [ "${{ github.event.inputs.image }}" == "gravitino-ci:hive" ]; then
-            echo "image_type=hive" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-ci" >> $GITHUB_ENV
-            echo "tag_name=hive" >> $GITHUB_ENV
+            write_image_env hive "${{ github.event.inputs.docker_repo_name }}/gravitino-ci" hive
           elif [ "${{ github.event.inputs.image }}" == "gravitino-ci:kerberos-hive" ]; then
-            echo "image_type=kerberos-hive" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-ci" >> $GITHUB_ENV
-            echo "tag_name=kerberos-hive" >> $GITHUB_ENV
+            write_image_env kerberos-hive "${{ github.event.inputs.docker_repo_name }}/gravitino-ci" kerberos-hive
           elif [ "${{ github.event.inputs.image }}" == "gravitino-ci:trino" ]; then
-            echo "image_type=trino" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-ci" >> $GITHUB_ENV
-            echo "tag_name=trino" >> $GITHUB_ENV
+            write_image_env trino "${{ github.event.inputs.docker_repo_name }}/gravitino-ci" trino
           elif [ "${{ github.event.inputs.image }}" == "gravitino-ci:doris" ]; then
-            echo "image_type=doris" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-ci" >> $GITHUB_ENV
-            echo "tag_name=doris" >> $GITHUB_ENV
+            write_image_env doris "${{ github.event.inputs.docker_repo_name }}/gravitino-ci" doris
           elif [ "${{ github.event.inputs.image }}" == "gravitino-ci:ranger" ]; then
-            echo "image_type=ranger" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-ci" >> $GITHUB_ENV
-            echo "tag_name=ranger" >> $GITHUB_ENV
+            write_image_env ranger "${{ github.event.inputs.docker_repo_name }}/gravitino-ci" ranger
           elif [ "${{ github.event.inputs.image }}" == "gravitino" ]; then
-            echo "image_type=gravitino" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino" >> $GITHUB_ENV
+            write_image_env gravitino "${{ github.event.inputs.docker_repo_name }}/gravitino"
             # `${{ github.event.inputs.docker_repo_name }}/gravitino` is the default image name, didn"t need to tag alias name
           elif [ "${{ github.event.inputs.image }}" == "gravitino-playground:trino" ]; then
-            echo "image_type=trino" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-playground" >> $GITHUB_ENV
-            echo "tag_name=trino" >> $GITHUB_ENV
+            write_image_env trino "${{ github.event.inputs.docker_repo_name }}/gravitino-playground" trino
           elif [ "${{ github.event.inputs.image }}" == "gravitino-playground:hive" ]; then
-            echo "image_type=hive" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-playground" >> $GITHUB_ENV
-            echo "tag_name=hive" >> $GITHUB_ENV
+            write_image_env hive "${{ github.event.inputs.docker_repo_name }}/gravitino-playground" hive
           elif [ "${{ github.event.inputs.image }}" == "gravitino-playground:ranger" ]; then
-            echo "image_type=ranger" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-playground" >> $GITHUB_ENV
-            echo "tag_name=ranger" >> $GITHUB_ENV
+            write_image_env ranger "${{ github.event.inputs.docker_repo_name }}/gravitino-playground" ranger
           elif [ "${{ github.event.inputs.image }}" == "gravitino-iceberg-rest-server" ]; then
-            echo "image_type=iceberg-rest-server" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-iceberg-rest" >> $GITHUB_ENV
+            write_image_env iceberg-rest-server "${{ github.event.inputs.docker_repo_name }}/gravitino-iceberg-rest"
           elif [ "${{ github.event.inputs.image }}" == "gravitino-lance-rest-server" ]; then
-            echo "image_type=lance-rest-server" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-lance-rest" >> $GITHUB_ENV
+            write_image_env lance-rest-server "${{ github.event.inputs.docker_repo_name }}/gravitino-lance-rest"
           elif [ "${{ github.event.inputs.image }}" == "gravitino-mcp-server" ]; then
-            echo "image_type=mcp-server" >> $GITHUB_ENV
-            echo "image_name=${{ github.event.inputs.docker_repo_name }}/gravitino-mcp-server" >> $GITHUB_ENV
+            write_image_env mcp-server "${{ github.event.inputs.docker_repo_name }}/gravitino-mcp-server"
           fi
 
           if [ "${{ github.event.inputs.publish-latest-tag }}" == "true" ]; then
-            echo "publish_latest=true" >> $GITHUB_ENV
+            echo "publish_latest=true" >> "${GITHUB_ENV}"
           else
-            echo "publish_latest=false" >> $GITHUB_ENV
+            echo "publish_latest=false" >> "${GITHUB_ENV}"
           fi
 
       - name: Check publish Docker token
@@ -146,8 +135,8 @@ jobs:
 
           if [[ "${publish_latest}" == "true" ]]; then
             echo "Publish tag ${full_tag_name}, and update latest too."
-            ./dev/docker/build-docker.sh --platform all --type ${image_type} --image ${image_name} --tag ${full_tag_name} --latest
+            ./dev/docker/build-docker.sh --platform all --type "${image_type}" --image "${image_name}" --tag "${full_tag_name}" --latest
           else
             echo "Publish tag ${full_tag_name}."
-            ./dev/docker/build-docker.sh --platform all --type ${image_type} --image ${image_name} --tag ${full_tag_name}
+            ./dev/docker/build-docker.sh --platform all --type "${image_type}" --image "${image_name}" --tag "${full_tag_name}"
           fi

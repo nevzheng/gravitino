@@ -99,7 +99,7 @@ jobs:
       - name: List changed
         id: list-changed
         run: |
-          changed=$(ct list-changed --chart-dirs=dev/charts --target-branch ${{ github.event.pull_request.base.ref }})
+          changed=$(ct list-changed --chart-dirs=dev/charts --target-branch "${{ github.event.pull_request.base.ref }}")
           if [[ -n "$changed" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -108,7 +108,7 @@ jobs:
         if: steps.list-changed.outputs.changed == 'true'
         run: |
           helm repo add bitnami https://charts.bitnami.com/bitnami
-          ct lint --chart-dirs=dev/charts --chart-yaml-schema=dev/ci/chart_schema.yaml --lint-conf=dev/ci/lintconf.yaml --target-branch ${{ github.event.pull_request.base.ref }} --check-version-increment=false
+          ct lint --chart-dirs=dev/charts --chart-yaml-schema=dev/ci/chart_schema.yaml --lint-conf=dev/ci/lintconf.yaml --target-branch "${{ github.event.pull_request.base.ref }}" --check-version-increment=false
 
       - name: Set up helm-unittest
         if: steps.list-changed.outputs.changed == 'true'
@@ -152,7 +152,7 @@ jobs:
           IMAGE_TAG=$(yq '.image.tag' dev/charts/gravitino/values.yaml)
           
           # Remove any potential quotes and save to GitHub Outputs
-          echo "tag=$(echo $IMAGE_TAG | tr -d '\"')" >> "$GITHUB_ENV"
+          echo "tag=$(echo "$IMAGE_TAG" | tr -d '\"')" >> "$GITHUB_ENV"
 
       - name: Build the Docker image to local registry
         if: steps.list-changed.outputs.changed == 'true'
@@ -168,9 +168,11 @@ jobs:
             REPO_NAME=${t#*:}
             FOLDER_NAME=${t%:*}
             CONTEXT_DIR="${{ github.workspace }}/dev/docker/${FOLDER_NAME}/"
-            . ${CONTEXT_DIR}/${FOLDER_NAME}-dependency.sh
-            docker build -t ${KIND_REGISTRY}/${REPO_NAME}:${tag} "${CONTEXT_DIR}"
-            docker push ${KIND_REGISTRY}/${REPO_NAME}:${tag}
+            # Dynamic sibling script per image folder (gravitino, iceberg-rest-server, lance-rest-server).
+            # shellcheck disable=SC1090
+            . "${CONTEXT_DIR}/${FOLDER_NAME}-dependency.sh"
+            docker build -t "${KIND_REGISTRY}/${REPO_NAME}:${tag}" "${CONTEXT_DIR}"
+            docker push "${KIND_REGISTRY}/${REPO_NAME}:${tag}"
             )
           done
 
@@ -179,28 +181,28 @@ jobs:
 
       - name: Run chart-testing (install default,gravitino)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct install --charts dev/charts/gravitino --target-branch ${{ github.event.pull_request.base.ref }} --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino"
+        run: ct install --charts dev/charts/gravitino --target-branch "${{ github.event.pull_request.base.ref }}" --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino"
 
       - name: Run chart-testing (install default,gravitino-iceberg-rest-server)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct install --charts dev/charts/gravitino-iceberg-rest-server --target-branch ${{ github.event.pull_request.base.ref }} --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino-iceberg-rest"
+        run: ct install --charts dev/charts/gravitino-iceberg-rest-server --target-branch "${{ github.event.pull_request.base.ref }}" --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino-iceberg-rest"
 
       - name: Run chart-testing (install gravitino with mysql enable,replicas 2)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct install --charts=dev/charts/gravitino --helm-extra-set-args "--values dev/charts/gravitino/resources/scenarios/ci-values.yaml --set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino" --target-branch ${{ github.event.pull_request.base.ref }}
+        run: ct install --charts=dev/charts/gravitino --helm-extra-set-args "--values dev/charts/gravitino/resources/scenarios/ci-values.yaml --set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino" --target-branch "${{ github.event.pull_request.base.ref }}"
 
       - name: Run chart-testing (install gravitino with postgresql enable)
         if: steps.list-changed.outputs.changed == 'true'
-        run: ct install --charts=dev/charts/gravitino --helm-extra-set-args "--values dev/charts/gravitino/resources/scenarios/pg-values.yaml --set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino" --target-branch ${{ github.event.pull_request.base.ref }}
+        run: ct install --charts=dev/charts/gravitino --helm-extra-set-args "--values dev/charts/gravitino/resources/scenarios/pg-values.yaml --set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino" --target-branch "${{ github.event.pull_request.base.ref }}"
 
       - name: Run chart-testing (install default,gravitino-lance-rest-server)
         if: steps.list-changed.outputs.changed == 'true'
         run: |
-          helm install gravitino dev/charts/gravitino -n test --create-namespace --set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino --wait --timeout 5m
+          helm install gravitino dev/charts/gravitino -n test --create-namespace --set image.registry="" --set image.repository="${KIND_REGISTRY}/gravitino" --wait --timeout 5m
           kubectl run -n test --rm -i --restart=Never --image=curlimages/curl:latest metalake-setup \
           --command -- curl -X POST \
           -H "Content-Type: application/json" \
           -H "Accept: application/vnd.gravitino.v1+json" \
           -d '{"name":"lrs_test","comment":"Quick setup"}' \
           http://gravitino.test:8090/api/metalakes
-          ct install --charts dev/charts/gravitino-lance-rest-server --target-branch ${{ github.event.pull_request.base.ref }} --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino-lance-rest --set lanceRest.gravitinoUri=http://gravitino.test:8090 --set lanceRest.gravitinoMetalake=lrs_test"
+          ct install --charts dev/charts/gravitino-lance-rest-server --target-branch "${{ github.event.pull_request.base.ref }}" --helm-extra-set-args "--set image.registry="" --set image.repository=${KIND_REGISTRY}/gravitino-lance-rest --set lanceRest.gravitinoUri=http://gravitino.test:8090 --set lanceRest.gravitinoMetalake=lrs_test"

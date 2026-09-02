@@ -1,0 +1,38 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# actionlint project config. Keep this file small: it is for repository facts
+# actionlint cannot infer, not for silencing findings.
+#
+# Why this shape:
+# - No paths.ignore. An ignore list is how other Apache repos went green
+#   without fixing run: quoting. If a finding is a linter limit, disable it
+#   next to that line (see chart-test.yaml SC1090), not here.
+# - config-variables: null. This repo does not use vars.*, and an empty list
+#   would forbid every vars.FOO. null turns that check off.
+# - self-hosted-runner.labels: []. Required CI uses GitHub-hosted
+#   ubuntu-latest. Unknown labels should still fail.
+# - ShellCheck stays on (actionlint default when `shellcheck` is on PATH).
+#   ubuntu-latest images ship it. Do not pass -shellcheck= in CI.
+# - Do not use rhysd/actionlint-action or docker://rhysd/actionlint; neither
+#   is on the ASF org allowlist. CI downloads a pinned linux tarball instead.
+#
+# See https://github.com/rhysd/actionlint/blob/v1.7.12/docs/config.md
+self-hosted-runner:
+  labels: []
+
+config-variables: null

@@ -52,97 +52,132 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Syntax/schema lint before any suite starts. Fail fast so a broken
+  # workflow does not consume 16 reusable calls. The report is uploaded
+  # even on failure.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run actionlint
+        run: bash dev/ci/run_actionlint.sh
+      - name: Upload actionlint report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: actionlint-report
+          path: actionlint-report.txt
+          if-no-files-found: warn
+
   build:
+    needs: [actionlint]
     uses: ./.github/workflows/build.yml
     with:
       required_ci: true
     secrets: inherit
 
   backend:
+    needs: [actionlint]
     uses: ./.github/workflows/backend-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   spark:
+    needs: [actionlint]
     uses: ./.github/workflows/spark-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   flink:
+    needs: [actionlint]
     uses: ./.github/workflows/flink-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   trino:
+    needs: [actionlint]
     uses: ./.github/workflows/trino-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   iceberg_rest_trino:
+    needs: [actionlint]
     uses: ./.github/workflows/iceberg-rest-trino-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   python:
+    needs: [actionlint]
     uses: ./.github/workflows/python-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   frontend:
+    needs: [actionlint]
     uses: ./.github/workflows/frontend-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   access_control:
+    needs: [actionlint]
     uses: ./.github/workflows/access-control-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   idp_basic:
+    needs: [actionlint]
     uses: ./.github/workflows/idp-basic-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   mcp:
+    needs: [actionlint]
     uses: ./.github/workflows/mcp-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   maintenance:
+    needs: [actionlint]
     uses: ./.github/workflows/maintenance-integration-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   contrib_catalog:
+    needs: [actionlint]
     uses: ./.github/workflows/contrib-catalog-test.yml
     with:
       required_ci: true
     secrets: inherit
 
   web_ui:
+    needs: [actionlint]
     uses: ./.github/workflows/web-ui-tests.yml
     with:
       required_ci: true
     secrets: inherit
 
   charts:
+    needs: [actionlint]
     uses: ./.github/workflows/chart-test.yaml
     with:
       required_ci: true
     secrets: inherit
 
   asf_allowlist:
+    needs: [actionlint]
     uses: ./.github/workflows/asf-allowlist-check.yml
     with:
       required_ci: true
@@ -150,6 +185,7 @@ jobs:
 
   contract:
     name: Required CI contract
+    needs: [actionlint]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -170,6 +206,7 @@ jobs:
     name: Required CI
     if: always()
     needs:
+      - actionlint
       - build
       - backend
       - spark

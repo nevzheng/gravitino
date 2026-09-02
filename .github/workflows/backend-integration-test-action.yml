@@ -61,9 +61,9 @@ jobs:
       - name: Backend Integration Test (JDK${{ inputs.java-version }}-${{ inputs.test-mode }}-${{ inputs.backend }})
         id: integrationTest
         run: |
-          EXCLUDE_CONTRIB_TESTS=""
+          exclude_contrib_tests=()
           for module in $(find catalogs-contrib -mindepth 1 -maxdepth 1 -type d -name 'catalog-*' -exec basename {} \; | sort); do
-            EXCLUDE_CONTRIB_TESTS="$EXCLUDE_CONTRIB_TESTS -x :catalogs-contrib:$module:test"
+            exclude_contrib_tests+=("-x" ":catalogs-contrib:${module}:test")
           done
 
           ./gradlew test -PskipTests -PtestMode=${{ inputs.test-mode }} -PjdbcBackend=${{ inputs.backend }} -PskipDockerTests=false -PskipWeb=true \
@@ -80,7 +80,7 @@ jobs:
             -x :plugins:idp-basic:test \
             -x :authorizations:authorization-chain:test -x :authorizations:authorization-ranger:test \
             -x :clients:cli:test -x :maintenance:jobs:test -x :maintenance:optimizer:test \
-            $EXCLUDE_CONTRIB_TESTS
+            "${exclude_contrib_tests[@]}"
 
       - name: Upload integrate tests reports
         uses: actions/upload-artifact@v7

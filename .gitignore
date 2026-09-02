@@ -67,6 +67,9 @@ web/.next
 .worktrees/
 .claude/settings.local.json
 
+# Local actionlint report (CI uploads this as an artifact)
+/actionlint-report.txt
+
 # Vim swap files
 *.swp
 *.swo
