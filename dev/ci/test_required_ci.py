@@ -32,6 +32,7 @@ sources and asserts the contract this PR relies on:
 - the parent cancels superseded PR runs
 - web-ui and charts path-filter inside the called workflow
 - the contract script runs from Required CI
+- actionlint runs first, uploads a report artifact, and is in the aggregate
 - coverage-comment listens for the Required CI parent, not a standalone build run
 - coverage-comment runs the Python skip/post model, not inline github-script
 - coverage-comment rejects cancelled runs and does not trust a fork PR-number artifact
@@ -204,6 +205,31 @@ def verify_parent():
         raise AssertionError(
             "required-ci.yml: must run the build-relevant path model tests in CI"
         )
+    if "bash dev/ci/run_actionlint.sh" not in source:
+        raise AssertionError("required-ci.yml: must run pinned actionlint in CI")
+    if "name: actionlint-report" not in source:
+        raise AssertionError("required-ci.yml: must upload the actionlint report")
+    if "rhysd/actionlint" in source or "docker://rhysd/actionlint" in source:
+        raise AssertionError(
+            "required-ci.yml: actionlint must be a pinned binary, not an "
+            "unallowlisted action"
+        )
+    if "- actionlint" not in required_ci:
+        raise AssertionError("required-ci.yml: Required CI does not need actionlint")
+    for job_id in SUITE_WORKFLOWS:
+        marker = f"  {job_id}:\n    needs: [actionlint]\n    uses:"
+        if marker not in source:
+            raise AssertionError(
+                f"required-ci.yml: {job_id} must wait for actionlint"
+            )
+    actionlint_config = REPO_ROOT / ".github" / "actionlint.yaml"
+    if not actionlint_config.is_file():
+        raise AssertionError("missing .github/actionlint.yaml")
+    config_text = actionlint_config.read_text(encoding="utf-8")
+    if "config-variables: null" not in config_text:
+        raise AssertionError("actionlint.yaml: leave vars.* unchecked")
+    if "SC2086" in config_text:
+        raise AssertionError("actionlint.yaml: do not ignore SC2086 globally")
     if "- contract" not in required_ci:
         raise AssertionError("required-ci.yml: Required CI does not need contract")
 

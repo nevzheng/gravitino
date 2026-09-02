@@ -56,9 +56,9 @@ jobs:
         run: |
           INPUT_CHARTS="${{ github.event.inputs.charts }}"
           if [[ "${INPUT_CHARTS}" == "all" ]]; then
-            echo "charts=gravitino,iceberg,lance" >> $GITHUB_OUTPUT
+            echo "charts=gravitino,iceberg,lance" >> "$GITHUB_OUTPUT"
           else
-            echo "charts=${INPUT_CHARTS}" >> $GITHUB_OUTPUT
+            echo "charts=${INPUT_CHARTS}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Package and publish Gravitino chart
@@ -66,22 +66,22 @@ jobs:
         run: |
           cd dev/charts/gravitino
           helm dependency update
-          helm package . --version ${{ github.event.inputs.version }}
-          helm push gravitino-helm-${{ github.event.inputs.version }}.tgz oci://${DOCKER_REPO}
+          helm package . --version "${{ github.event.inputs.version }}"
+          helm push "gravitino-helm-${{ github.event.inputs.version }}.tgz" "oci://${DOCKER_REPO}"
 
       - name: Package and publish Gravitino Iceberg REST Server chart
         if: contains(steps.charts.outputs.charts, 'iceberg')
         run: |
           cd dev/charts/gravitino-iceberg-rest-server
-          helm package . --version ${{ github.event.inputs.version }}
-          helm push gravitino-iceberg-rest-server-helm-${{ github.event.inputs.version }}.tgz oci://${DOCKER_REPO}
+          helm package . --version "${{ github.event.inputs.version }}"
+          helm push "gravitino-iceberg-rest-server-helm-${{ github.event.inputs.version }}.tgz" "oci://${DOCKER_REPO}"
 
       - name: Package and publish Gravitino Lance REST Server chart
         if: contains(steps.charts.outputs.charts, 'lance')
         run: |
           cd dev/charts/gravitino-lance-rest-server
-          helm package . --version ${{ github.event.inputs.version }}
-          helm push gravitino-lance-rest-server-helm-${{ github.event.inputs.version }}.tgz oci://${DOCKER_REPO}
+          helm package . --version "${{ github.event.inputs.version }}"
+          helm push "gravitino-lance-rest-server-helm-${{ github.event.inputs.version }}.tgz" "oci://${DOCKER_REPO}"
 
       - name: Logout from Docker Hub
         if: always()
