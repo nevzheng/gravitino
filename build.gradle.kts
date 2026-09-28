@@ -184,7 +184,7 @@ allprojects {
 
       // Default use MiniGravitino to run integration tests
       param.environment("GRAVITINO_ROOT_DIR", project.rootDir.path)
-      param.environment("IT_PROJECT_DIR", project.buildDir.path)
+      param.environment("IT_PROJECT_DIR", project.layout.buildDirectory.get().asFile.path)
       // If the environment variable `HADOOP_USER_NAME` is not customized in submodule,
       // then set it to "anonymous"
       if (param.environment["HADOOP_USER_NAME"] == null) {
@@ -862,7 +862,7 @@ tasks {
             }
           }
         }
-        fileMode = 0b111101101
+        filePermissions { unix("755") }
       }
       copy {
         from(projectDir.dir("licenses")) { into("package/licenses") }
@@ -936,7 +936,7 @@ tasks {
             }
           }
         }
-        fileMode = 0b111101101
+        filePermissions { unix("755") }
       }
 
       copy {
@@ -981,7 +981,7 @@ tasks {
             }
           }
         }
-        fileMode = 0b111101101
+        filePermissions { unix("755") }
       }
 
       copy {
@@ -1355,9 +1355,11 @@ fun checkMacDockerConnector() {
     val processName = "docker-connector"
     val command = "pgrep -x -q $processName"
 
-    val execResult = project.exec {
+    // ProviderFactory.exec() is lazy, unlike the removed Project.exec(); resolve the result
+    // right away so the probe still runs eagerly at configuration time.
+    val execResult = project.providers.exec {
       commandLine("bash", "-c", command)
-    }
+    }.result.get()
     if (execResult.exitValue == 0) {
       project.extra["macDockerConnector"] = true
     }

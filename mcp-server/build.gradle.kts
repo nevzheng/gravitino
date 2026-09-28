@@ -20,8 +20,22 @@
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.Exec
+import org.gradle.kotlin.dsl.newInstance
 import org.gradle.kotlin.dsl.register
+import org.gradle.process.ExecOperations
 import java.io.File
+import javax.inject.Inject
+
+// Project.exec() is deprecated and removed in Gradle 9. ExecOperations is its eager drop-in
+// replacement (same synchronous semantics, and child output still streams to the console,
+// which matters for the isort/black diagnostics below). Build scripts obtain it through an
+// injected holder object.
+interface InjectedExecOps {
+  @get:Inject
+  val execOps: ExecOperations
+}
+
+val execOps = project.objects.newInstance<InjectedExecOps>().execOps
 
 val pythonProjectDir = project.projectDir
 val venvDir = pythonProjectDir.resolve(".venv")
@@ -66,7 +80,7 @@ tasks {
         false
       } else {
         try {
-          exec {
+          execOps.exec {
             commandLine(globalUvExecutable, "--version")
             isIgnoreExitValue = true
           }.exitValue != 0
@@ -97,7 +111,7 @@ tasks {
     }
 
     doLast {
-      val uvCheck = exec {
+      val uvCheck = execOps.exec {
         commandLine(uvExecutable.absolutePath, "--version")
         isIgnoreExitValue = true
       }
@@ -211,13 +225,13 @@ tasks {
 
     doLast {
       // Apply isort
-      exec {
+      execOps.exec {
         workingDir = pythonProjectDir
         commandLine(venvPython, "-m", "isort", "mcp_server", "tests")
       }
 
       // Apply Black
-      exec {
+      execOps.exec {
         workingDir = pythonProjectDir
         commandLine(venvPython, "-m", "black", "mcp_server", "tests")
       }
@@ -232,7 +246,7 @@ tasks {
     dependsOn("installFormatTools")
 
     doLast {
-      val isortExitCode = exec {
+      val isortExitCode = execOps.exec {
         workingDir = pythonProjectDir
         commandLine(venvPython, "-m", "isort", "--check", "mcp_server", "tests")
         isIgnoreExitValue = false
@@ -242,7 +256,7 @@ tasks {
         throw GradleException("Python isort formatting check failed")
       }
 
-      val blackExitCode = exec {
+      val blackExitCode = execOps.exec {
         workingDir = pythonProjectDir
         commandLine(venvPython, "-m", "black", "--check", "mcp_server", "tests")
         isIgnoreExitValue = false

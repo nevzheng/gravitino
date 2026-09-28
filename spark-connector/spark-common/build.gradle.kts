@@ -168,7 +168,11 @@ dependencies {
 // Only set when AWS_ACCESS_KEY_ID is present so version-specific modules can skip the download
 // when Glue tests are not enabled.
 val glueHiveJarsDir: String? =
-  if (System.getenv("AWS_ACCESS_KEY_ID") != null) "$buildDir/tmp/glue-hive-jars" else null
+  if (System.getenv("AWS_ACCESS_KEY_ID") != null) {
+    layout.buildDirectory.dir("tmp/glue-hive-jars").get().asFile.path
+  } else {
+    null
+  }
 extra["glueHiveJarsDir"] = glueHiveJarsDir
 val glueLibsApiUrl =
   "https://api.github.com/repos/datastrato/spark-hive-glue-libs/contents/spark3/glue-3.4.0"

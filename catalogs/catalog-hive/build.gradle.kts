@@ -163,7 +163,7 @@ tasks {
       details.file.isDirectory()
     }
 
-    fileMode = 0b111101101
+    filePermissions { unix("755") }
   }
 
   register("copyLibAndConfig", Copy::class) {

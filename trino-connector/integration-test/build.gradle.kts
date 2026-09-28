@@ -108,7 +108,7 @@ tasks.test {
       copy {
         from("${project.rootDir}/dev/docker/trino/conf")
         into("build/trino-conf")
-        fileMode = 0b111101101
+        filePermissions { unix("755") }
       }
 
       // Get current project version
@@ -116,7 +116,7 @@ tasks.test {
       println("Current project version: $version")
 
       // Check whether this module has already built
-      val trinoConnectorBuildDir = project(":trino-connector:trino-connector").buildDir
+      val trinoConnectorBuildDir = project(":trino-connector:trino-connector").layout.buildDirectory.get().asFile
       if (trinoConnectorBuildDir.exists()) {
         // Check the version Gravitino related jars in build equal to the current project version
         val invalidGravitinoJars = trinoConnectorBuildDir.resolve("libs").listFiles { _, name -> name.startsWith("gravitino") }?.filter {
