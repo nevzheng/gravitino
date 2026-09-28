@@ -396,9 +396,9 @@ subprojects {
 
       val testJvmArgs = tasks.withType<Test>().firstOrNull()?.jvmArgs ?: listOf()
 
-      val targetJvmVersion = (java.targetCompatibility?.majorVersion ?: "undefined")
+      val targetJvmVersion = java.targetCompatibility.majorVersion
 
-      val sourceJvmVersion = (java.sourceCompatibility?.majorVersion ?: "undefined")
+      val sourceJvmVersion = java.sourceCompatibility.majorVersion
 
       println(
         """
