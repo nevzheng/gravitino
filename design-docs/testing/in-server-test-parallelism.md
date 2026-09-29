@@ -21,7 +21,7 @@
 
 | | |
 |---|---|
-| **Status** | Partial: container sharing + DB tuning implemented on PR [apache/gravitino#13553](https://github.com/apache/gravitino/pull/13553); thread/classloader-scoped parallelism still a spike, no PR yet |
+| **Status** | Closed. Container sharing + DB tuning shipped on PR [apache/gravitino#13553](https://github.com/apache/gravitino/pull/13553) (7m04s vs. 26m25s baseline). Thread-scoped (ScopedReference) and classloader-scoped parallelism were both spiked, measured, and rejected — see Q4/Q7 for why. No further work planned on either concurrency mechanism; the resource-scaling knob in Q8 stays documented as a future option. |
 | **Scope** | `core` module database test execution: `buildSrc/.../SharedDbContainerService.java`, `core/build.gradle.kts` (`coreDatabaseThreaded`, `coreDatabaseForks` properties), DB container tuning |
 | **Format** | Apache Spark SPIP (Heilmeier Catechism) |
 
@@ -86,8 +86,11 @@ health-check), not a speed win — measured 5.6% *slower* untuned (27m53s)
 because forks now contend for one server's fsync-per-commit path that used
 to be parallel across dedicated containers. Adding DB tuning (durability
 flags off, buffer pool sized up, `--tmpfs` for the data directory) removes
-that contention source directly rather than just reducing startup overhead:
-**22m15s, 15.8% faster than the original two-container baseline**, 520/520.
+that contention source directly rather than just reducing startup overhead.
+Two rounds of measurement: an initial 4-flag pass landed **22m15s** (15.8%
+faster than baseline); adding `--tmpfs` plus 3 more durability flags on top
+landed **7m04s** (3.7x faster than baseline), independently reproduced on
+CI-matched hardware. 520/520 on every run.
 
 ```
 --innodb-flush-log-at-trx-commit=0
@@ -99,45 +102,66 @@ that contention source directly rather than just reducing startup overhead:
 --tmpfs /var/lib/mysql:rw
 ```
 
-### Thread-scoped parallelism, ScopedReference (spike)
+### Thread-scoped parallelism, ScopedReference (spike, rejected)
 
-- H2: **1.7x faster** (54.85s → 31s), 520/520 both.
-- MySQL: roughly matches forked speed, 520/520, after fixing a real
-  cross-thread DB-corruption bug that surfaced in 5 legacy test classes.
-- Cost: 4 production singletons permanently modified to be scope-aware, plus
-  a new public class in the published `gravitino-core` artifact. Two
-  independent reviews (correctness/thread-safety, production-risk/
-  maintainability) landed real fixes (save/restore instead of blind
-  `unbind()`, `finally`-block leak protection on the error path, thread-local
-  H2 file paths to close a shared-file race) but the maintainability
-  objection below is why this hasn't shipped.
+- H2: **1.7x faster** (54.85s → 31s), 520/520 both — the only backend where
+  this mechanism showed a real win.
+- MySQL, on the tuned baseline above (7m04s / 3m27s at fork=2 depending on
+  exact CI hardware): a concurrency sweep at parallelism 2/4/6/8 was run to
+  find where threading nets out. **Parallelism=2 failed at 35m54s** — 5x
+  *slower* than the tuned-fork baseline it was supposed to beat, with 17
+  real test failures, all in `TestRoleMembershipWrites` /
+  `TestOwnerAssignmentWrites` (concurrency-serialization tests: "waits for
+  uncommitted delete," "serializes on the owner row," etc.). Parallelism
+  4/6/8 all fast-failed in ~5s each, never completing a real run. Verdict:
+  **rejected**. Root cause: collapsing per-fork process isolation into
+  per-thread isolation inside one JVM breaks the transactional wait/lock
+  semantics those tests depend on — a genuine correctness bug in the
+  mechanism, not a tuning problem, and it's slower besides.
+- Cost already paid before rejection: 4 production singletons permanently
+  modified to be scope-aware, plus a new public class in the published
+  `gravitino-core` artifact. Two independent reviews (correctness/
+  thread-safety, production-risk/maintainability) landed real fixes
+  (save/restore instead of blind `unbind()`, `finally`-block leak protection
+  on the error path, thread-local H2 file paths to close a shared-file race)
+  — evidence this class of mechanism is easy to get subtly wrong even before
+  the fatal MySQL concurrency-correctness finding above.
 
-### Classloader-scoped parallelism (spike)
+### Classloader-scoped parallelism (spike, rejected)
 
 - H2: measured **57.91s vs 54.85s default — a wash**, 520/520 both. Same
   isolation guarantee as ScopedReference (no cross-test DB state leakage),
-  no speed win on this backend: classloader isolation doesn't eliminate the
-  cost ScopedReference eliminates (JVM boot per fork) — each lane still pays
-  real classloading cost, just inside one JVM instead of across processes.
-- MySQL: validation in progress as of this writing. Open question: whether
-  the JDBC driver's `DriverManager`/`ServiceLoader` registration,
-  Testcontainers' Docker client plumbing, and MyBatis's per-classloader
-  dynamic-proxy generation survive the classloader boundary cleanly — a
-  classic failure mode for this mechanism, not yet ruled out.
-- Zero production code changes — the isolation is a test-harness property
-  instead of a source-code property, which is the whole reason it's being
-  evaluated as an alternative to ScopedReference rather than accepted as
-  strictly worse just because H2 alone shows no speedup.
+  no speed win on this backend.
+- MySQL: **rejected.** `NoClassDefFoundError:
+  com/github/dockerjava/api/model/PruneType` inside Testcontainers'
+  `JVMHookResourceReaper`, reproduced on a clean checkout (no confounders).
+  The failure is nondeterministic — it's a race between the shutdown-hook
+  crash and the test task's result-collection: most runs fail the build
+  outright (520 tests, 1 failure); one run happened to finish collecting
+  results before the crash fired, so the build reported 520/520 green while
+  the identical `NoClassDefFoundError` still fired in both lanes' shutdown
+  threads. That is a worse failure mode than a deterministic one — it means
+  a build can go green while its container resource-cleanup silently didn't
+  happen cleanly (Testcontainers' external Ryuk reaper is the only
+  remaining backstop in that case, not the in-JVM hook). Root cause:
+  Testcontainers' Docker-client plumbing (`docker-java`'s `PruneType` class,
+  loaded by the reaper's shutdown thread) does not reliably resolve across
+  the per-lane classloader boundary.
+- Zero production code changes — the isolation was a test-harness property
+  instead of a source-code property, which was the whole reason it was
+  evaluated as an alternative to ScopedReference. Rejected anyway: a
+  zero-production-diff mechanism that flakily corrupts CI signal and only
+  works on the one backend (H2) that doesn't touch Testcontainers/Docker is
+  not a viable general solution.
 
 ## Q5. Who cares? If you are successful, what difference will it make?
 
 Every contributor running `:core:coreMySQLTest` locally or in CI pays the
 current wall-clock cost on every run. The tuning alone (Q4, shipped) is a
-15.8% reduction on the slowest backend lane with zero code risk. If either
-thread- or classloader-scoped parallelism ships on top of it, concurrency
-stops being capped at 2 regardless of hardware — meaningful for anyone
-running on a larger box, and meaningful for CI cost if the team scales
-runner size later (see Q8/future-work note below).
+**3.7x reduction** (26m25s → 7m04s) on the slowest backend lane with zero
+production-code risk — that is the actual, delivered outcome of this
+investigation. Neither concurrency mechanism shipped on top of it (Q4); the
+memory-budget fork cap (Q2) stays as today's concurrency ceiling.
 
 ## Q6. What are the risks?
 
@@ -151,37 +175,43 @@ runner size later (see Q8/future-work note below).
   be a data-loss risk on any persistent deployment. Confined entirely to
   `SharedDbContainerService.java` (test-only build code), never referenced
   from production configuration.
-- **ScopedReference's production-code surface** is a standing maintenance
-  cost for as long as it ships — the two independent reviews already found
-  real bugs in the first draft (unbind-scope errors, an error-path leak, a
-  shared-file race), which is itself evidence this class of mechanism is
-  easy to get subtly wrong.
-- **Classloader isolation's MySQL risk is unresolved.** If the JDBC driver
-  registration doesn't survive the boundary, this approach may simply not
-  be viable for any Docker-backed backend, only for H2 — which would make it
-  a non-starter regardless of its zero-production-diff appeal.
+- **Both concurrency mechanisms were rejected on correctness grounds, not
+  just performance.** ScopedReference broke real transactional-serialization
+  tests under concurrency; classloader isolation broke Testcontainers'
+  resource cleanup nondeterministically. Neither failure mode is something
+  more engineering time would likely paper over cheaply — both are structural
+  mismatches between "share DB test infrastructure across concurrent units
+  smaller than a process" and libraries (JDBC connection semantics,
+  Testcontainers' Docker client) that were not designed for that.
 
 ## Q7. How long will it take?
 
-- Container sharing + DB tuning: **done**, shipped on #13553.
-- Thread-scoped parallelism: spike complete, 2 review passes applied; not
-  scheduled to ship pending the classloader-isolation comparison below.
-- Classloader-scoped parallelism: H2 validated; MySQL validation in
-  progress. A tuned-DB concurrency sweep (2/4/6/8 lanes) on CI-class
-  hardware is the remaining step for whichever mechanism is chosen, to
-  answer "what concurrency level is actually achievable" empirically instead
-  of by estimate.
+All work here is complete; nothing further is scheduled.
+
+- Container sharing + DB tuning: **done and shipped**, #13553 (7m04s vs.
+  26m25s baseline, 3.7x).
+- Thread-scoped parallelism (ScopedReference): spiked, measured, **rejected**
+  — real correctness failures under concurrency, and slower than the tuned
+  baseline besides (35m54s vs. ~3-7min).
+- Classloader-scoped parallelism: spiked, measured, **rejected** — breaks
+  Testcontainers' Docker-client resource cleanup nondeterministically for any
+  Docker-backed backend (MySQL, PostgreSQL); only viable on H2, which doesn't
+  need it (no speed win there either).
 
 ## Q8. What are the mid-term and final "exams" to check for success?
 
-- **Mid-term**: classloader isolation either passes or fails its MySQL
-  validation cleanly (JDBC/Testcontainers/MyBatis boundary survives or it
-  doesn't) — this alone resolves whether Q4's "thread vs. classloader"
-  choice is even live for Docker-backed backends.
-- **Final**: a tuned-DB concurrency sweep on matched CI-class hardware,
-  same box for every leg, ≥2 repetitions per data point, pass/fail counts
-  reported alongside every wall-clock number — producing the actual
-  diminishing-returns curve rather than an estimate.
+Both exams below were run to completion; this section is now a record of
+what was checked, not a forward-looking plan.
+
+- **Mid-term** (classloader isolation's MySQL validation): **failed
+  cleanly** — see Q4. Resolved the "thread vs. classloader" choice by
+  rejecting both.
+- **Final** (tuned-DB concurrency sweep on matched CI-class hardware,
+  parallelism 2/4/6/8, ≥2 repetitions, pass/fail reported alongside every
+  wall-clock number): **run to completion** — parallelism=2 failed with
+  real correctness bugs at 35m54s, parallelism 4/6/8 never got a clean run.
+  No diminishing-returns curve to report because the mechanism doesn't work
+  at any concurrency level tested.
 - **Resource-scaling exam (forward-looking, not yet run)**: the three
   mechanisms respond to different resource axes, so "buy a bigger machine"
   does not uniformly help.
