@@ -45,6 +45,16 @@ if (hasProperty("excludePackagesForSparkConnector")) {
   configureFunc?.invoke(project)
 }
 
+// See hive2TestRuntimeExcludes in spark-connector/build.gradle.kts.
+// log4j-slf4j-impl is new here too (it was already on the spark-common / 3.3 classpaths).
+@Suppress("UNCHECKED_CAST")
+val hive2TestRuntimeExcludes =
+  project(":spark-connector").extra["hive2TestRuntimeExcludes"] as List<String> + listOf("org.apache.logging.log4j:log4j-slf4j-impl")
+configurations.testRuntimeClasspath {
+  hive2TestRuntimeExcludes.forEach { module ->
+    exclude(group = module.substringBefore(':'), module = module.substringAfter(':'))
+  }
+}
 dependencies {
   implementation(project(":spark-connector:spark-common"))
   compileOnly("org.apache.kyuubi:kyuubi-spark-connector-hive_$scalaVersion:$kyuubiVersion")

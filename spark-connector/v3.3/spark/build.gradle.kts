@@ -54,6 +54,15 @@ configurations.matching { it.name in setOf("testRuntimeClasspath", "testCompileC
     exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j2-impl")
   }
 
+// See hive2TestRuntimeExcludes in spark-connector/build.gradle.kts.
+@Suppress("UNCHECKED_CAST")
+val hive2TestRuntimeExcludes =
+  project(":spark-connector").extra["hive2TestRuntimeExcludes"] as List<String>
+configurations.testRuntimeClasspath {
+  hive2TestRuntimeExcludes.forEach { module ->
+    exclude(group = module.substringBefore(':'), module = module.substringAfter(':'))
+  }
+}
 dependencies {
   implementation(project(":spark-connector:spark-common"))
   compileOnly("org.apache.kyuubi:kyuubi-spark-connector-hive_$scalaVersion:$kyuubiVersion")

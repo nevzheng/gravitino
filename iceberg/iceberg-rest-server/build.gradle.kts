@@ -166,7 +166,7 @@ tasks {
       }
     }
 
-    fileMode = 0b111101101
+    filePermissions { unix("755") }
   }
 
   register("copyConfigsToStandalonePackage", Copy::class) {
@@ -184,7 +184,7 @@ tasks {
       }
     }
 
-    fileMode = 0b111101101
+    filePermissions { unix("755") }
   }
 
   register("copyLibAndConfigs", Copy::class) {

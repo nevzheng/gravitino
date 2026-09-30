@@ -142,5 +142,5 @@ jmh {
   fork = 1
   threads = 10
   resultFormat = "csv"
-  resultsFile = file("$buildDir/reports/jmh/results.csv")
+  resultsFile = layout.buildDirectory.file("reports/jmh/results.csv")
 }
