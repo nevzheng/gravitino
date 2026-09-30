@@ -44,14 +44,14 @@ if (hasProperty("excludePackagesForSparkConnector")) {
   configureFunc?.invoke(project)
 }
 
-// Jetty 7's jetty-all and the orbit javax.servlet (pulled in through Hive 2) break the embedded
-// Gravitino server in ITs ("ContainerLifeCycle can not implement ... Container"). The per-
-// dependency excludes below do not cover every path: spark-hive -> hive-metastore -> hive-serde ->
-// hive-common still reaches them, and Gradle 8.14+ resolves that path where 8.2 did not.
-// Exclude them from the whole test runtime classpath instead.
+// See hive2TestRuntimeExcludes in spark-connector/build.gradle.kts.
+@Suppress("UNCHECKED_CAST")
+val hive2TestRuntimeExcludes =
+  project(":spark-connector").extra["hive2TestRuntimeExcludes"] as List<String>
 configurations.testRuntimeClasspath {
-  exclude(group = "org.eclipse.jetty.aggregate", module = "jetty-all")
-  exclude(group = "org.eclipse.jetty.orbit", module = "javax.servlet")
+  hive2TestRuntimeExcludes.forEach { module ->
+    exclude(group = module.substringBefore(':'), module = module.substringAfter(':'))
+  }
 }
 dependencies {
   implementation(project(":catalogs:catalog-common")) {
