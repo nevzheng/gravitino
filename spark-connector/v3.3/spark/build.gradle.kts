@@ -54,6 +54,15 @@ configurations.matching { it.name in setOf("testRuntimeClasspath", "testCompileC
     exclude(group = "org.apache.logging.log4j", module = "log4j-slf4j2-impl")
   }
 
+// Jetty 7's jetty-all and the orbit javax.servlet (pulled in through Hive 2) break the embedded
+// Gravitino server in ITs ("ContainerLifeCycle can not implement ... Container"). The per-
+// dependency excludes below do not cover every path: spark-hive -> hive-metastore -> hive-serde ->
+// hive-common still reaches them, and Gradle 8.14+ resolves that path where 8.2 did not.
+// Exclude them from the whole test runtime classpath instead.
+configurations.testRuntimeClasspath {
+  exclude(group = "org.eclipse.jetty.aggregate", module = "jetty-all")
+  exclude(group = "org.eclipse.jetty.orbit", module = "javax.servlet")
+}
 dependencies {
   implementation(project(":spark-connector:spark-common"))
   compileOnly("org.apache.kyuubi:kyuubi-spark-connector-hive_$scalaVersion:$kyuubiVersion")
