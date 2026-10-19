@@ -48,10 +48,10 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.auth.AuthenticatorType;
@@ -62,8 +62,7 @@ import org.apache.gravitino.config.ConfigConstants;
 import org.apache.gravitino.integration.test.MiniGravitino;
 import org.apache.gravitino.integration.test.MiniGravitinoContext;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
-import org.apache.gravitino.integration.test.container.MySQLContainer;
-import org.apache.gravitino.integration.test.container.PostgreSQLContainer;
+import org.apache.gravitino.integration.test.container.DatabaseEndpoint;
 import org.apache.gravitino.server.GravitinoServer;
 import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.web.JettyServerConfig;
@@ -132,8 +131,7 @@ public class BaseIT {
           "sqlite", Pattern.compile("sqlite-jdbc-([\\d.]+)\\.jar"));
 
   private TestDatabaseName META_DATA;
-  private MySQLContainer MYSQL_CONTAINER;
-  private PostgreSQLContainer POSTGRESQL_CONTAINER;
+  private DatabaseEndpoint backendDatabase;
 
   protected String serverUri;
 
@@ -242,20 +240,26 @@ public class BaseIT {
     }
   }
 
+  /**
+   * Returns the database server of the last {@link #startAndInitMySQLBackend()} or {@link
+   * #startAndInitPGBackend()} call, or {@code null} before either.
+   */
+  @Nullable
+  public DatabaseEndpoint getBackendDatabase() {
+    return backendDatabase;
+  }
+
   public String startAndInitPGBackend() {
     META_DATA = PG_JDBC_BACKEND;
-    containerSuite.startPostgreSQLContainer(META_DATA);
-    POSTGRESQL_CONTAINER = containerSuite.getPostgreSQLContainer();
+    backendDatabase = containerSuite.startPostgreSQLDatabase(META_DATA);
 
-    String pgUrlWithoutSchema = POSTGRESQL_CONTAINER.getJdbcUrl(META_DATA);
+    String pgUrlWithoutSchema = backendDatabase.getJdbcUrl(META_DATA);
     String randomSchemaName = RandomStringUtils.random(10, true, false);
     // Connect to the PostgreSQL docker and create a schema
     String currentExecuteSql = "";
     try (Connection connection =
         DriverManager.getConnection(
-            pgUrlWithoutSchema,
-            POSTGRESQL_CONTAINER.getUsername(),
-            POSTGRESQL_CONTAINER.getPassword())) {
+            pgUrlWithoutSchema, backendDatabase.getUsername(), backendDatabase.getPassword())) {
       connection.setCatalog(PG_CATALOG_POSTGRESQL_IT.toString());
       final Statement statement = connection.createStatement();
       statement.execute("drop schema if exists " + randomSchemaName);
@@ -286,7 +290,11 @@ public class BaseIT {
       throw new RuntimeException(e);
     }
 
-    pgUrlWithoutSchema = pgUrlWithoutSchema + "?currentSchema=" + randomSchemaName;
+    pgUrlWithoutSchema =
+        pgUrlWithoutSchema
+            + (pgUrlWithoutSchema.contains("?") ? "&" : "?")
+            + "currentSchema="
+            + randomSchemaName;
     customConfigs.put(Configs.ENTITY_RELATIONAL_JDBC_BACKEND_URL_KEY, pgUrlWithoutSchema);
 
     LOG.info("PG URL: {}", pgUrlWithoutSchema);
@@ -295,18 +303,18 @@ public class BaseIT {
 
   public String startAndInitMySQLBackend() {
     META_DATA = TestDatabaseName.MYSQL_JDBC_BACKEND;
-    containerSuite.startMySQLContainer(META_DATA);
-    MYSQL_CONTAINER = containerSuite.getMySQLContainer();
+    backendDatabase = containerSuite.startMySQLDatabase(META_DATA);
 
-    String mysqlUrl = MYSQL_CONTAINER.getJdbcUrl(META_DATA);
+    String mysqlUrl = backendDatabase.getJdbcUrl(META_DATA);
+    String databaseName = backendDatabase.getDatabaseName(META_DATA);
     LOG.info("MySQL URL: {}", mysqlUrl);
-    // Connect to the mysql docker and create a databases
+    // Recreate the database, so the schema script starts from an empty one
     try (Connection connection =
             DriverManager.getConnection(
-                StringUtils.substring(mysqlUrl, 0, mysqlUrl.lastIndexOf("/")), "root", "root");
+                mysqlUrl, backendDatabase.getUsername(), backendDatabase.getPassword());
         final Statement statement = connection.createStatement()) {
-      statement.execute("drop database if exists " + META_DATA);
-      statement.execute("create database " + META_DATA);
+      statement.execute("drop database if exists `" + databaseName + "`");
+      statement.execute("create database `" + databaseName + "`");
       String gravitinoHome = System.getenv("GRAVITINO_ROOT_DIR");
       String mysqlContent =
           FileUtils.readFileToString(
@@ -323,7 +331,8 @@ public class BaseIT {
               .filter(s -> !s.isEmpty())
               .toArray(String[]::new);
 
-      initMySQLBackendSqls = ArrayUtils.addFirst(initMySQLBackendSqls, "use " + META_DATA + ";");
+      initMySQLBackendSqls =
+          ArrayUtils.addFirst(initMySQLBackendSqls, "use `" + databaseName + "`;");
       for (String sql : initMySQLBackendSqls) {
         statement.execute(sql);
       }
@@ -356,8 +365,10 @@ public class BaseIT {
       customConfigs.put(Configs.ENTITY_RELATIONAL_JDBC_BACKEND_URL_KEY, jdbcURL);
       customConfigs.put(
           Configs.ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER_KEY, "com.mysql.cj.jdbc.Driver");
-      customConfigs.put(Configs.ENTITY_RELATIONAL_JDBC_BACKEND_USER_KEY, "root");
-      customConfigs.put(Configs.ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD_KEY, "root");
+      customConfigs.put(
+          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_USER_KEY, backendDatabase.getUsername());
+      customConfigs.put(
+          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD_KEY, backendDatabase.getPassword());
     } else if ("PostgreSQL".equalsIgnoreCase(getJDBCBackend())) {
       // Start PostgreSQL docker instance.
       String pgJdbcUrl = startAndInitPGBackend();
@@ -366,11 +377,11 @@ public class BaseIT {
       customConfigs.put(Configs.ENTITY_RELATIONAL_JDBC_BACKEND_URL_KEY, pgJdbcUrl);
       customConfigs.put(
           Configs.ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER_KEY,
-          POSTGRESQL_CONTAINER.getDriverClassName(META_DATA));
+          backendDatabase.getDriverClassName(META_DATA));
       customConfigs.put(
-          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_USER_KEY, POSTGRESQL_CONTAINER.getUsername());
+          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_USER_KEY, backendDatabase.getUsername());
       customConfigs.put(
-          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD_KEY, POSTGRESQL_CONTAINER.getPassword());
+          Configs.ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD_KEY, backendDatabase.getPassword());
     }
 
     File baseDir = new File(System.getProperty("java.io.tmpdir"));
