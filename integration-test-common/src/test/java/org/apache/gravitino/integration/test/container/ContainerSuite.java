@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.ServiceLoader;
 import java.util.Set;
 import org.apache.gravitino.integration.test.container.DatabaseContainer.Durability;
 import org.apache.gravitino.integration.test.util.CloseableGroup;
@@ -95,6 +96,7 @@ public class ContainerSuite implements Closeable {
   private static volatile ClickHouseContainer clickHouseContainer;
   private static volatile ClickHouseContainer clickHouseClusterContainer;
   private static volatile List<ClickHouseContainer> clickHouseClusterContainers = List.of();
+  private static volatile ServiceResolver serviceResolver;
   private static volatile ZooKeeperContainer zooKeeperContainer;
 
   private static volatile GravitinoLocalStackContainer gravitinoLocalStackContainer;
@@ -383,6 +385,14 @@ public class ContainerSuite implements Closeable {
   }
 
   public void startMySQLContainer(TestDatabaseName testDatabaseName) {
+    startMySQLServer();
+    synchronized (MySQLContainer.class) {
+      mySQLContainer.createDatabase(testDatabaseName);
+    }
+  }
+
+  /** Starts the shared MySQL container if needed and returns it. */
+  MySQLContainer startMySQLServer() {
     if (mySQLContainer == null) {
       synchronized (ContainerSuite.class) {
         if (mySQLContainer == null) {
@@ -402,9 +412,25 @@ public class ContainerSuite implements Closeable {
         }
       }
     }
+    return mySQLContainer;
+  }
+
+  /**
+   * Returns the endpoint of {@code spec} from the first {@link ServiceProvider} that supplies it:
+   * providers listed through {@link ServiceLoader}, then services the environment names by {@code
+   * gravitino.test.<service>.*} properties, then this suite's containers.
+   */
+  public <E extends ServiceEndpoint> E getService(ServiceSpec<E> spec) {
+    return resolver().resolve(spec);
+  }
+
+  /** Returns a MySQL server from {@link #getService} with the database for {@code name} created. */
+  public DatabaseEndpoint startMySQLDatabase(TestDatabaseName name) {
+    DatabaseEndpoint mysql = getService(ServiceSpec.MYSQL);
     synchronized (MySQLContainer.class) {
-      mySQLContainer.createDatabase(testDatabaseName);
+      mysql.createDatabase(name);
     }
+    return mysql;
   }
 
   public void startMySQLVersion5Container(TestDatabaseName testDatabaseName) {
@@ -434,6 +460,14 @@ public class ContainerSuite implements Closeable {
   }
 
   public void startPostgreSQLContainer(TestDatabaseName testDatabaseName, PGImageName pgImageName) {
+    PostgreSQLContainer container = startPostgreSQLServer(pgImageName);
+    synchronized (PostgreSQLContainer.class) {
+      container.createDatabase(testDatabaseName);
+    }
+  }
+
+  /** Starts the shared PostgreSQL container of {@code pgImageName} if needed and returns it. */
+  PostgreSQLContainer startPostgreSQLServer(PGImageName pgImageName) {
     if (!pgContainerMap.containsKey(pgImageName)) {
       synchronized (ContainerSuite.class) {
         if (!pgContainerMap.containsKey(pgImageName)) {
@@ -454,14 +488,24 @@ public class ContainerSuite implements Closeable {
         }
       }
     }
-    synchronized (PostgreSQLContainer.class) {
-      pgContainerMap.get(pgImageName).createDatabase(testDatabaseName);
-    }
+    return pgContainerMap.get(pgImageName);
   }
 
   public void startPostgreSQLContainer(TestDatabaseName testDatabaseName) {
     // Apply default image
     startPostgreSQLContainer(testDatabaseName, PGImageName.VERSION_13);
+  }
+
+  /**
+   * Returns a PostgreSQL server from {@link #getService} with the database for {@code name}
+   * created.
+   */
+  public DatabaseEndpoint startPostgreSQLDatabase(TestDatabaseName name) {
+    DatabaseEndpoint postgresql = getService(ServiceSpec.POSTGRESQL);
+    synchronized (PostgreSQLContainer.class) {
+      postgresql.createDatabase(name);
+    }
+    return postgresql;
   }
 
   public void startOceanBaseContainer() {
@@ -973,9 +1017,27 @@ public class ContainerSuite implements Closeable {
       kerberosHiveContainer = null;
       sqlBaseHiveContainer = null;
       pgContainerMap.clear();
+      if (serviceResolver != null) {
+        serviceResolver.clear();
+      }
     } catch (Exception e) {
       LOG.error("Failed to close ContainerEnvironment", e);
     }
+  }
+
+  private ServiceResolver resolver() {
+    if (serviceResolver == null) {
+      synchronized (ContainerSuite.class) {
+        if (serviceResolver == null) {
+          List<ServiceProvider> providers = new ArrayList<>();
+          ServiceLoader.load(ServiceProvider.class).forEach(providers::add);
+          providers.add(new ExternalServiceProvider(System::getProperty, closer));
+          providers.add(new ContainerServiceProvider(this));
+          serviceResolver = new ServiceResolver(providers);
+        }
+      }
+    }
+    return serviceResolver;
   }
 
   private static String resolveClickHouseImage() {

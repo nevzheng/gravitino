@@ -92,6 +92,7 @@ public class MySQLContainer extends DatabaseContainer {
         "SELECT @@datadir, @@innodb_flush_log_at_trx_commit, @@log_bin, @@innodb_doublewrite");
   }
 
+  @Override
   public void createDatabase(TestDatabaseName testDatabaseName) {
     // validate database name to ensure it only contains safe characters
     String databaseName = testDatabaseName.toString();
@@ -126,10 +127,12 @@ public class MySQLContainer extends DatabaseContainer {
     return format("jdbc:mysql://%s:%d", getContainerIpAddress(), MYSQL_PORT);
   }
 
+  @Override
   public String getJdbcUrl(TestDatabaseName testDatabaseName) {
     return format("jdbc:mysql://%s:%d/%s", getContainerIpAddress(), MYSQL_PORT, testDatabaseName);
   }
 
+  @Override
   public String getDriverClassName(TestDatabaseName testDatabaseName) throws SQLException {
     return DriverManager.getDriver(getJdbcUrl(testDatabaseName)).getClass().getName();
   }

@@ -59,6 +59,18 @@ If the class is not in that lane, Gradle fails with "No tests found for given in
 
 `coreMySQLTest` and `corePostgreSQLTest` run their test JVM with the system property `gravitino.test.db.disposableData=true`, so the MySQL and PostgreSQL containers keep their data in memory (`tmpfs`, 2 GB) and skip syncing commits to disk. No other task sets it. Other tasks run MySQL with the image's default settings and PostgreSQL with the Testcontainers module's default, `fsync=off`.
 
+#### External databases
+
+`coreMySQLTest` and `corePostgreSQLTest` can use a MySQL or PostgreSQL server you already have, such as a Kubernetes service or a CI service container, instead of starting a container. Set the server's admin connection in the environment; the URL names the server, not a database:
+
+```shell
+export GRAVITINO_TEST_MYSQL_URL='jdbc:mysql://mysql:3306/?useSSL=false&allowPublicKeyRetrieval=true'
+export GRAVITINO_TEST_MYSQL_USER=root GRAVITINO_TEST_MYSQL_PASSWORD=secret
+./gradlew :core:coreMySQLTest
+```
+
+`GRAVITINO_TEST_POSTGRESQL_URL`, `_USER` and `_PASSWORD` work the same way. The task then needs no Docker and logs `[CORE-DB-SOURCE] ... source=external`. The user must be allowed to create and drop databases. Each test JVM adds a random token to its database names and drops the databases it created when it ends, so several runs can share one server. The durability settings above do not apply to an external server.
+
 #### Database reuse and reset
 
 In a database lane, each test class shares one database per backend. `@DatabaseFixture(resetStrategy = ...)` picks how much is rebuilt before each test, from cheapest to most isolated:

@@ -199,8 +199,10 @@ abstract class AbstractEntityStorageTest {
       } else if (type.equalsIgnoreCase("mysql")) {
         String mysqlJdbcUrl = baseIT.startAndInitMySQLBackend();
         Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_URL)).thenReturn(mysqlJdbcUrl);
-        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_USER)).thenReturn("root");
-        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD)).thenReturn("root");
+        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_USER))
+            .thenReturn(baseIT.getBackendDatabase().getUsername());
+        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD))
+            .thenReturn(baseIT.getBackendDatabase().getPassword());
         Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER))
             .thenReturn("com.mysql.cj.jdbc.Driver");
         Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_MAX_CONNECTIONS)).thenReturn(100);
@@ -213,8 +215,10 @@ abstract class AbstractEntityStorageTest {
       } else if (type.equalsIgnoreCase("postgresql")) {
         String postgreSQLJdbcUrl = baseIT.startAndInitPGBackend();
         Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_URL)).thenReturn(postgreSQLJdbcUrl);
-        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_USER)).thenReturn("root");
-        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD)).thenReturn("root");
+        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_USER))
+            .thenReturn(baseIT.getBackendDatabase().getUsername());
+        Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_PASSWORD))
+            .thenReturn(baseIT.getBackendDatabase().getPassword());
         Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER))
             .thenReturn("org.postgresql.Driver");
 

@@ -324,6 +324,76 @@ jobs:
             build/reports/tests/core
             core/build/test-results
 
+  # The core MySQL and PostgreSQL lanes against a database the job provides as a service
+  # container, the way a Kubernetes pod would use a sidecar. Gradle starts no container here.
+  core-test-external-db:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: mysql
+            task: coreMySQLTest
+            image: mysql:8.0
+            port: 3306
+            url: jdbc:mysql://127.0.0.1:3306/?useSSL=false&allowPublicKeyRetrieval=true
+            health: --health-cmd="mysqladmin ping -h 127.0.0.1 -proot" --health-interval=5s --health-timeout=5s --health-retries=30
+          - backend: postgresql
+            task: corePostgreSQLTest
+            image: postgres:13
+            port: 5432
+            url: jdbc:postgresql://127.0.0.1:5432/postgres
+            health: --health-cmd="pg_isready -U root" --health-interval=5s --health-timeout=5s --health-retries=30
+    timeout-minutes: 120
+    needs: changes
+    if: >-
+      needs.changes.outputs.source_changes == 'true' &&
+      needs.changes.outputs.maintenance_module_only_changes != 'true'
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: root
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: ${{ matrix.health }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-java-toolchains
+        with:
+          java-version: 17
+
+      - name: Run core ${{ matrix.backend }} lane against the external database
+        env:
+          GRAVITINO_TEST_MYSQL_URL: ${{ matrix.backend == 'mysql' && matrix.url || '' }}
+          GRAVITINO_TEST_POSTGRESQL_URL: ${{ matrix.backend == 'postgresql' && matrix.url || '' }}
+          GRAVITINO_TEST_MYSQL_USER: root
+          GRAVITINO_TEST_MYSQL_PASSWORD: root
+          GRAVITINO_TEST_POSTGRESQL_USER: root
+          GRAVITINO_TEST_POSTGRESQL_PASSWORD: root
+        run: |
+          set -o pipefail
+          ./gradlew :core:${{ matrix.task }} -PskipWeb=true -PskipITs -PskipDockerTests=true \
+            | tee core-external-db.log
+
+      - name: Check the lane used the external database
+        run: |
+          grep -q "\[CORE-DB-SOURCE\] task=:core:${{ matrix.task }} backend=${{ matrix.backend }} source=external" core-external-db.log
+          # Only the service container may exist: the tests must not have started their own.
+          test "$(docker ps -aq | wc -l)" -eq 1
+
+      - name: Upload core external database test report
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: core external db test report ${{ matrix.backend }}
+          path: |
+            build/reports/tests/core
+            core/build/test-results
+
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 30

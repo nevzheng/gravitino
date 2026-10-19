@@ -35,7 +35,7 @@ import org.testcontainers.containers.Network;
  * the readiness check. This class adds Gravitino's network, logging and {@link Durability} settings
  * on top.
  */
-public abstract class DatabaseContainer extends BaseContainer {
+public abstract class DatabaseContainer extends BaseContainer implements DatabaseEndpoint {
   private static final Logger LOG = LoggerFactory.getLogger(DatabaseContainer.class);
 
   /**
@@ -97,12 +97,12 @@ public abstract class DatabaseContainer extends BaseContainer {
     }
   }
 
-  /** The user tests connect as. */
+  @Override
   public String getUsername() {
     return db.getUsername();
   }
 
-  /** The password of {@link #getUsername()}. */
+  @Override
   public String getPassword() {
     return db.getPassword();
   }

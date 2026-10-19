@@ -117,6 +117,13 @@ val coreBackendTestTags =
   )
 val coreTestBackendProperty = "gravitino.core.test.backend"
 
+// A MySQL or PostgreSQL server the environment provides, such as a Kubernetes service:
+// GRAVITINO_TEST_<MYSQL|POSTGRESQL>_URL, _USER and _PASSWORD. The URL names the server, not a
+// database. When set, the lane starts no container; ExternalDatabase reads the values as
+// gravitino.test.<backend>.url, .user and .password.
+fun externalDatabaseEnv(backend: String, suffix: String) =
+  providers.environmentVariable("GRAVITINO_TEST_${backend.uppercase()}_$suffix")
+
 fun registerCoreTestTask(
   taskName: String,
   backend: String? = null
@@ -162,14 +169,28 @@ fun registerCoreTestTask(
     systemProperty("junit.jupiter.execution.parallel.enabled", "false")
 
     if (backend != "h2") {
+      val externalUrl = externalDatabaseEnv(backend, "URL").orNull?.takeIf { it.isNotBlank() }
+      val externalUser = externalDatabaseEnv(backend, "USER")
+      val externalPassword = externalDatabaseEnv(backend, "PASSWORD")
+      // Keeps a container run's results from standing in for an external run's, and back.
+      inputs.property("databaseSource", if (externalUrl == null) "container" else "external")
       // The test databases are thrown away, so their containers can skip durability work.
       // Read by DatabaseContainer.Durability.fromSystemProperty(); keep the name in sync.
       systemProperty("gravitino.test.db.disposableData", "true")
       doFirst {
-        if (rootProject.extra["dockerTest"] != true) {
+        if (externalUrl != null) {
+          // Set at execution time, so the credentials stay out of the task's cache key.
+          systemProperty("gravitino.test.$backend.url", externalUrl)
+          systemProperty("gravitino.test.$backend.user", externalUser.orNull ?: "")
+          systemProperty("gravitino.test.$backend.password", externalPassword.orNull ?: "")
+          logger.lifecycle("[CORE-DB-SOURCE] task=$path backend=$backend source=external")
+        } else if (rootProject.extra["dockerTest"] != true) {
           throw GradleException(
-            "$path requires Docker; use -PskipDockerTests=false with Docker running."
+            "$path requires Docker or an external database; use -PskipDockerTests=false with " +
+              "Docker running, or set GRAVITINO_TEST_${backend.uppercase()}_URL."
           )
+        } else {
+          logger.lifecycle("[CORE-DB-SOURCE] task=$path backend=$backend source=container")
         }
       }
     }

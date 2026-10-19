@@ -47,9 +47,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
-import org.apache.gravitino.integration.test.container.MySQLContainer;
-import org.apache.gravitino.integration.test.container.PGImageName;
-import org.apache.gravitino.integration.test.container.PostgreSQLContainer;
+import org.apache.gravitino.integration.test.container.DatabaseEndpoint;
 import org.apache.gravitino.integration.test.util.TestDatabaseName;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.stats.PartitionRange;
@@ -593,25 +591,24 @@ public class TestJdbcPartitionStatisticStorageIT {
 
     private static final ContainerSuite containerSuite = ContainerSuite.getInstance();
     private static final TestDatabaseName TEST_DB_NAME = TestDatabaseName.MYSQL_MYSQL_ABSTRACT_IT;
-    private MySQLContainer mySQLContainer;
+    private DatabaseEndpoint mySQLDatabase;
 
     @Override
     protected void setupStorage() throws Exception {
       LOG.info("Starting MySQL container for partition statistics integration tests");
 
       // Start MySQL container
-      containerSuite.startMySQLContainer(TEST_DB_NAME);
-      mySQLContainer = containerSuite.getMySQLContainer();
+      mySQLDatabase = containerSuite.startMySQLDatabase(TEST_DB_NAME);
 
       // Create database schema
       createMySQLSchema();
 
       // Create storage factory with MySQL container connection
       Map<String, String> properties = Maps.newHashMap();
-      properties.put("jdbcUrl", mySQLContainer.getJdbcUrl(TEST_DB_NAME));
-      properties.put("jdbcUser", mySQLContainer.getUsername());
-      properties.put("jdbcPassword", mySQLContainer.getPassword());
-      properties.put("jdbcDriver", mySQLContainer.getDriverClassName(TEST_DB_NAME));
+      properties.put("jdbcUrl", mySQLDatabase.getJdbcUrl(TEST_DB_NAME));
+      properties.put("jdbcUser", mySQLDatabase.getUsername());
+      properties.put("jdbcPassword", mySQLDatabase.getPassword());
+      properties.put("jdbcDriver", mySQLDatabase.getDriverClassName(TEST_DB_NAME));
 
       JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
       storage = (JdbcPartitionStatisticStorage) factory.create(properties);
@@ -629,9 +626,9 @@ public class TestJdbcPartitionStatisticStorageIT {
 
     /** Creates the partition_statistic_meta table in the MySQL test database. */
     private void createMySQLSchema() throws SQLException {
-      String jdbcUrl = mySQLContainer.getJdbcUrl(TEST_DB_NAME);
-      String username = mySQLContainer.getUsername();
-      String password = mySQLContainer.getPassword();
+      String jdbcUrl = mySQLDatabase.getJdbcUrl(TEST_DB_NAME);
+      String username = mySQLDatabase.getUsername();
+      String password = mySQLDatabase.getPassword();
 
       try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
           Statement stmt = conn.createStatement()) {
@@ -664,25 +661,24 @@ public class TestJdbcPartitionStatisticStorageIT {
 
     private static final ContainerSuite containerSuite = ContainerSuite.getInstance();
     private static final TestDatabaseName TEST_DB_NAME = TestDatabaseName.PG_TEST_PARTITION_STATS;
-    private PostgreSQLContainer postgreSQLContainer;
+    private DatabaseEndpoint postgreSQLDatabase;
 
     @Override
     protected void setupStorage() throws Exception {
       LOG.info("Starting PostgreSQL container for partition statistics integration tests");
 
       // Start PostgreSQL container
-      containerSuite.startPostgreSQLContainer(TEST_DB_NAME, PGImageName.VERSION_13);
-      postgreSQLContainer = containerSuite.getPostgreSQLContainer(PGImageName.VERSION_13);
+      postgreSQLDatabase = containerSuite.startPostgreSQLDatabase(TEST_DB_NAME);
 
       // Create database schema
       createPostgreSQLSchema();
 
       // Create storage factory with PostgreSQL container connection
       Map<String, String> properties = Maps.newHashMap();
-      properties.put("jdbcUrl", postgreSQLContainer.getJdbcUrl(TEST_DB_NAME));
-      properties.put("jdbcUser", postgreSQLContainer.getUsername());
-      properties.put("jdbcPassword", postgreSQLContainer.getPassword());
-      properties.put("jdbcDriver", postgreSQLContainer.getDriverClassName(TEST_DB_NAME));
+      properties.put("jdbcUrl", postgreSQLDatabase.getJdbcUrl(TEST_DB_NAME));
+      properties.put("jdbcUser", postgreSQLDatabase.getUsername());
+      properties.put("jdbcPassword", postgreSQLDatabase.getPassword());
+      properties.put("jdbcDriver", postgreSQLDatabase.getDriverClassName(TEST_DB_NAME));
 
       JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
       storage = (JdbcPartitionStatisticStorage) factory.create(properties);
@@ -700,9 +696,9 @@ public class TestJdbcPartitionStatisticStorageIT {
 
     /** Creates the partition_statistic_meta table in the PostgreSQL test database. */
     private void createPostgreSQLSchema() throws SQLException {
-      String jdbcUrl = postgreSQLContainer.getJdbcUrl(TEST_DB_NAME);
-      String username = postgreSQLContainer.getUsername();
-      String password = postgreSQLContainer.getPassword();
+      String jdbcUrl = postgreSQLDatabase.getJdbcUrl(TEST_DB_NAME);
+      String username = postgreSQLDatabase.getUsername();
+      String password = postgreSQLDatabase.getPassword();
 
       try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
           Statement stmt = conn.createStatement()) {

@@ -109,6 +109,7 @@ public class PostgreSQLContainer extends DatabaseContainer {
             + " current_setting('synchronous_commit'), current_setting('full_page_writes')");
   }
 
+  @Override
   public void createDatabase(TestDatabaseName testDatabaseName) {
     try (Connection connection = db.createConnection("");
         Statement statement = connection.createStatement()) {
@@ -130,10 +131,12 @@ public class PostgreSQLContainer extends DatabaseContainer {
   }
 
   /** getJdbcUrl with database name. */
+  @Override
   public String getJdbcUrl(TestDatabaseName testDatabaseName) {
     return format("jdbc:postgresql://%s:%d/%s", getContainerIpAddress(), PG_PORT, testDatabaseName);
   }
 
+  @Override
   public String getDriverClassName(TestDatabaseName testDatabaseName) throws SQLException {
     return DriverManager.getDriver(getJdbcUrl(testDatabaseName)).getClass().getName();
   }
