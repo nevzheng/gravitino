@@ -67,7 +67,18 @@ public interface CatalogContext {
   IdGenerator idGenerator();
 
   /**
-   * Creates a context from host services.
+   * Returns whether a catalog adds the plaintext credentials of its credential providers to the
+   * properties it returns, as the server configuration {@code
+   * gravitino.catalog.credential.backfillToProperties} asks for legacy connectors.
+   *
+   * @return true if credentials are added to catalog properties; false unless the host enables it
+   */
+  default boolean credentialBackfillToProperties() {
+    return false;
+  }
+
+  /**
+   * Creates a context from host services that does not add credentials to catalog properties.
    *
    * @param entityStore the entity store
    * @param secretManager the secret manager
@@ -80,6 +91,26 @@ public interface CatalogContext {
       SecretManager secretManager,
       @Nullable MetricsSystem metricsSystem,
       IdGenerator idGenerator) {
+    return of(entityStore, secretManager, metricsSystem, idGenerator, false);
+  }
+
+  /**
+   * Creates a context from host services.
+   *
+   * @param entityStore the entity store
+   * @param secretManager the secret manager
+   * @param metricsSystem the metrics system, or null when the host has none
+   * @param idGenerator the id generator
+   * @param credentialBackfillToProperties whether catalogs add the plaintext credentials of their
+   *     credential providers to their properties
+   * @return a context that returns the given services
+   */
+  static CatalogContext of(
+      EntityStore entityStore,
+      SecretManager secretManager,
+      @Nullable MetricsSystem metricsSystem,
+      IdGenerator idGenerator,
+      boolean credentialBackfillToProperties) {
     return new CatalogContext() {
       @Override
       public EntityStore entityStore() {
@@ -99,6 +130,11 @@ public interface CatalogContext {
       @Override
       public IdGenerator idGenerator() {
         return idGenerator;
+      }
+
+      @Override
+      public boolean credentialBackfillToProperties() {
+        return credentialBackfillToProperties;
       }
     };
   }

@@ -19,6 +19,8 @@
 package org.apache.gravitino.connector;
 
 import javax.annotation.Nullable;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
@@ -71,6 +73,13 @@ public final class EnvironmentCatalogContext implements CatalogContext {
   @Override
   public IdGenerator idGenerator() {
     return env().idGenerator();
+  }
+
+  @Override
+  public boolean credentialBackfillToProperties() {
+    Config serverConfig = env().config();
+    return serverConfig != null
+        && Boolean.TRUE.equals(serverConfig.get(Configs.CATALOG_CREDENTIAL_BACKFILL_TO_PROPERTIES));
   }
 
   @LegacyEnvAccess
