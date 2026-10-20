@@ -192,7 +192,7 @@ public class TestOwnerManager {
             .build();
     entityStore.put(groupEntity, false /* overwritten*/);
 
-    ownerManager = new OwnerManager(entityStore);
+    ownerManager = new OwnerManager(entityStore, EnvironmentAuthorizationServices.INSTANCE);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
     Mockito.when(catalogManager.listCatalogs(Mockito.any()))

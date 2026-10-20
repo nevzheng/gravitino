@@ -221,7 +221,12 @@ public class TestAccessControlManager {
     entityStore.put(anotherCatalogEntity, true);
 
     accessControlManager =
-        new AccessControlManager(entityStore, new RandomIdGenerator(), config, lockManager);
+        new AccessControlManager(
+            entityStore,
+            new RandomIdGenerator(),
+            config,
+            lockManager,
+            EnvironmentAuthorizationServices.INSTANCE);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "accessControlDispatcher", accessControlManager, true);

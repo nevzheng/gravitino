@@ -117,6 +117,20 @@ public class TestAuthorizationModule {
   }
 
   @Test
+  public void testManagersUseTheComponentAuthorizationServices() throws Exception {
+    Object accessControlManager = component.internalAccessControlDispatcher();
+    assertSame(
+        component.authorizationServices(),
+        field(field(accessControlManager, "roleManager"), "authorizationServices"));
+    assertSame(
+        component.authorizationServices(),
+        field(field(accessControlManager, "permissionManager"), "authorizationServices"));
+    assertSame(
+        component.authorizationServices(),
+        field(component.internalOwnerDispatcher(), "authorizationServices"));
+  }
+
+  @Test
   public void testManagersAreSingletons() {
     assertSame(component.bulkManager(), component.bulkManager());
     assertSame(component.futureGrantManager(), component.futureGrantManager());
