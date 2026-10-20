@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.utils.IsolatedClassLoader;
@@ -63,6 +64,25 @@ public class AuxiliaryServiceManager {
   private Map<String, IsolatedClassLoader> auxServiceClassLoaders = new HashMap<>();
 
   private Exception firstException;
+
+  @Nullable private final AuxiliaryContext context;
+
+  /**
+   * Creates a manager that initializes every service it loads with the given host services.
+   *
+   * @param context the host services the auxiliary services may use
+   */
+  public AuxiliaryServiceManager(AuxiliaryContext context) {
+    this.context = Preconditions.checkNotNull(context, "context");
+  }
+
+  /**
+   * Creates a manager that initializes its services without an {@link AuxiliaryContext}, through
+   * {@link GravitinoAuxiliaryService#serviceInit(Map, boolean)}.
+   */
+  public AuxiliaryServiceManager() {
+    this.context = null;
+  }
 
   private Class<? extends GravitinoAuxiliaryService> lookupAuxService(
       String provider, ClassLoader cl) {
@@ -222,9 +242,15 @@ public class AuxiliaryServiceManager {
         (auxServiceName, auxService) -> {
           doWithClassLoader(
               auxServiceName,
-              cl ->
-                  auxService.serviceInit(
-                      MapUtils.getPrefixMap(serviceConfigs, DOT.join(auxServiceName, "")), true));
+              cl -> {
+                Map<String, String> config =
+                    MapUtils.getPrefixMap(serviceConfigs, DOT.join(auxServiceName, ""));
+                if (context != null) {
+                  auxService.serviceInit(config, true, context);
+                } else {
+                  auxService.serviceInit(config, true);
+                }
+              });
         });
   }
 

@@ -24,6 +24,7 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
@@ -56,6 +57,7 @@ final class BuiltServices {
   static final Key<StatisticDispatcher> INTERNAL_STATISTIC_DISPATCHER = new Key<>();
   static final Key<StatisticDispatcher> STATISTIC_DISPATCHER = new Key<>();
   static final Key<JobOperationDispatcher> JOB_OPERATION_DISPATCHER = new Key<>();
+  static final Key<AuxiliaryServiceManager> AUXILIARY_SERVICE_MANAGER = new Key<>();
   static final Key<LockManager> LOCK_MANAGER = new Key<>();
 
   private final Map<Key<?>, Object> built = new HashMap<>();

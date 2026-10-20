@@ -29,6 +29,8 @@ import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -71,9 +73,11 @@ import org.apache.gravitino.tag.TagDispatcher;
  * schema, table, partition and view chains, {@link FilesetTopicModelModule} the fileset, topic,
  * model, function and semantic model chains, {@link GovernanceModule} the tag, policy, owner and
  * statistic chains, {@link AuthorizationModule} the access-control components, {@link JobModule}
- * the job manager and chains, and {@link LifecycleModule} the lifecycle that starts and stops them.
- * The authorizer, which the server installs later, reaches the graph through {@link LegacyBridge}
- * and {@link LegacyModule}, so every object is built by exactly one side.
+ * the job manager and chains, {@link AuxiliaryModule} an auxiliary service manager, not used yet,
+ * and the context it hands to the auxiliary services, and {@link LifecycleModule} the lifecycle
+ * that starts and stops them. The authorizer, which the server installs later, reaches the graph
+ * through {@link LegacyBridge} and {@link LegacyModule}, so every object is built by exactly one
+ * side.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
@@ -506,6 +510,23 @@ public interface GravitinoComponent {
    * @return the built-in job template listener
    */
   BuiltInJobTemplateEventListener builtInJobTemplateEventListener();
+
+  /**
+   * Returns the host services the auxiliary services may use. Building it builds nothing: each
+   * service is resolved when an auxiliary service asks for it.
+   *
+   * @return the auxiliary context
+   */
+  AuxiliaryContext auxiliaryContext();
+
+  /**
+   * Returns the auxiliary service manager, with the services the configuration names loaded and
+   * initialized with the {@link #auxiliaryContext()}. The {@link #lifecycle()} starts and stops
+   * them.
+   *
+   * @return the auxiliary service manager
+   */
+  AuxiliaryServiceManager auxiliaryServiceManager();
 
   /**
    * Returns the authorizer the server installed; never null. When none is installed, it is {@code
