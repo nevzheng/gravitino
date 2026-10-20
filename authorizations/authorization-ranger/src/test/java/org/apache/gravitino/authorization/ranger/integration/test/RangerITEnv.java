@@ -39,8 +39,9 @@ import org.apache.gravitino.authorization.ranger.RangerAuthorizationPlugin;
 import org.apache.gravitino.authorization.ranger.RangerHelper;
 import org.apache.gravitino.authorization.ranger.RangerPrivileges;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
+import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
 import org.apache.gravitino.integration.test.container.HiveContainer;
 import org.apache.gravitino.integration.test.container.RangerContainer;
@@ -90,6 +91,11 @@ public class RangerITEnv {
   public static final String SEARCH_FILTER_PATH = SearchFilter.RESOURCE_PREFIX + RESOURCE_PATH;
   public static RangerAuthorizationHadoopSQLPlugin rangerAuthHivePlugin;
   public static RangerAuthorizationHDFSPlugin rangerAuthHDFSPlugin;
+
+  /** The internal catalog dispatcher that {@link #rangerAuthHDFSPlugin} lists catalogs through. */
+  public static final CatalogDispatcher hdfsCatalogDispatcher =
+      Mockito.mock(CatalogDispatcher.class);
+
   protected static RangerHelper rangerHelper;
   protected static RangerHelper rangerHDFSHelper;
   public static String RANGER_ADMIN_URL = null;
@@ -154,7 +160,8 @@ public class RangerITEnv {
                     METALAKE_ID,
                     BaseAuthorization.CATALOG_ID,
                     CATALOG_ID),
-                EnvironmentAuthorizationPluginContext.INSTANCE));
+                AuthorizationPluginContext.of(
+                    () -> false, () -> hdfsCatalogDispatcher, () -> null, () -> null, () -> null)));
     rangerAuthHDFSPlugin = spyRangerAuthorizationHDFSPlugin;
 
     rangerHelper =
