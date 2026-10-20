@@ -23,19 +23,25 @@ import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.NoopOwnerDispatcher;
+import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metrics.MetricsSystem;
+import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.tag.TagDispatcher;
 
 /**
  * The root object graph of the Gravitino server.
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
  * this component. Objects the component owns are built by its modules; {@link ConfigModule} owns
- * the id generator and the metrics system, and {@link LockModule} owns the lock manager. Objects
+ * the id generator and the metrics system, {@link LockModule} owns the lock manager, and {@link
+ * GovernanceModule} owns the tag, policy, owner and statistic managers and their chains. Objects
  * that {@code GravitinoEnv} still builds reach the graph through {@link LegacyBridge} and {@link
  * LegacyModule}, so every object is built by exactly one side.
  *
@@ -43,7 +49,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * generator and metrics system, lazily, the first time one is requested.
  */
 @Singleton
-@Component(modules = {ConfigModule.class, LockModule.class, LegacyModule.class})
+@Component(
+    modules = {ConfigModule.class, LockModule.class, GovernanceModule.class, LegacyModule.class})
 public interface GravitinoComponent {
 
   /**
@@ -73,6 +80,74 @@ public interface GravitinoComponent {
    * @return the lock manager
    */
   LockManager lockManager();
+
+  /**
+   * Returns the tag manager, the internal tag chain.
+   *
+   * @return the internal tag dispatcher
+   */
+  @Internal
+  TagDispatcher internalTagDispatcher();
+
+  /**
+   * Returns the public tag chain: event, hook, then the {@link #internalTagDispatcher()} manager.
+   *
+   * @return the public tag dispatcher
+   */
+  @Public
+  TagDispatcher tagDispatcher();
+
+  /**
+   * Returns the policy manager, the internal policy chain.
+   *
+   * @return the internal policy dispatcher
+   */
+  @Internal
+  PolicyDispatcher internalPolicyDispatcher();
+
+  /**
+   * Returns the public policy chain: event, hook, then the {@link #internalPolicyDispatcher()}
+   * manager.
+   *
+   * @return the public policy dispatcher
+   */
+  @Public
+  PolicyDispatcher policyDispatcher();
+
+  /**
+   * Returns the internal owner chain: the owner manager, or {@link NoopOwnerDispatcher} while
+   * authorization is disabled.
+   *
+   * @return the internal owner dispatcher
+   */
+  @Internal
+  OwnerDispatcher internalOwnerDispatcher();
+
+  /**
+   * Returns the public owner chain: event, then the owner manager, or {@link NoopOwnerDispatcher}
+   * while authorization is disabled.
+   *
+   * @return the public owner dispatcher
+   */
+  @Public
+  OwnerDispatcher ownerDispatcher();
+
+  /**
+   * Returns the statistic manager, the internal statistic chain.
+   *
+   * @return the internal statistic dispatcher
+   */
+  @Internal
+  StatisticDispatcher internalStatisticDispatcher();
+
+  /**
+   * Returns the public statistic chain: event, then the {@link #internalStatisticDispatcher()}
+   * manager.
+   *
+   * @return the public statistic dispatcher
+   */
+  @Public
+  StatisticDispatcher statisticDispatcher();
 
   /**
    * Returns the entity store that {@code GravitinoEnv} still builds, seeded through {@link
