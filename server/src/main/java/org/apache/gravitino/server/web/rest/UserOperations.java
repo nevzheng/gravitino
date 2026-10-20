@@ -47,7 +47,6 @@ import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.dto.responses.UserListResponse;
 import org.apache.gravitino.dto.responses.UserResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
@@ -135,7 +134,7 @@ public class UserOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new UserResponse(
                     DTOConverters.toDTO(accessControlManager.getUser(metalake, user))));
@@ -158,7 +157,7 @@ public class UserOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             if (verbose) {
               User[] users = accessControlManager.listUsers(metalake);
               users =
@@ -211,7 +210,7 @@ public class UserOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             User addedUser = accessControlManager.addUser(metalake, request.getName());
             return Utils.ok(new UserResponse(DTOConverters.toDTO(addedUser)));
           });
@@ -234,7 +233,7 @@ public class UserOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             ownerManager
                 .getOwner(

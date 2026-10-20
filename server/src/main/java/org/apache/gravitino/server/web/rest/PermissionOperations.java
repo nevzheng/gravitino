@@ -55,8 +55,8 @@ import org.apache.gravitino.dto.responses.GroupResponse;
 import org.apache.gravitino.dto.responses.RoleResponse;
 import org.apache.gravitino.dto.responses.UserResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -69,27 +69,47 @@ import org.jvnet.hk2.annotations.Optional;
 public class PermissionOperations {
 
   @Nullable private final AccessControlDispatcher accessControlManager;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
   /**
    * Creates a permission REST resource from the process environment.
    *
-   * @deprecated Use {@link #PermissionOperations(AccessControlDispatcher)}.
+   * @deprecated Use {@link #PermissionOperations(AccessControlDispatcher, MetadataAccessChecker)}.
    */
   @Deprecated
   public PermissionOperations() {
-    this(EnvironmentServices.processEnv().accessControlDispatcher());
+    this(
+        EnvironmentServices.processEnv().accessControlDispatcher(),
+        EnvironmentServices.metadataAccessChecker());
   }
 
   /**
    * Creates a permission REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata and that a metalake is in use
    */
   @Inject
-  public PermissionOperations(@Optional @Nullable AccessControlDispatcher accessControlManager) {
+  public PermissionOperations(
+      @Optional @Nullable AccessControlDispatcher accessControlManager,
+      MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates a permission REST resource. The service is absent when authorization is disabled.
+   *
+   * @param accessControlManager the access-control dispatcher, or null.
+   * @deprecated Use {@link #PermissionOperations(AccessControlDispatcher, MetadataAccessChecker)};
+   *     the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public PermissionOperations(@Nullable AccessControlDispatcher accessControlManager) {
+    this(accessControlManager, EnvironmentServices.metadataAccessChecker());
   }
 
   @PUT
@@ -116,7 +136,7 @@ public class PermissionOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             request.validate();
             return Utils.ok(
                 new UserResponse(
@@ -154,7 +174,7 @@ public class PermissionOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             request.validate();
             return Utils.ok(
                 new GroupResponse(
@@ -193,7 +213,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new UserResponse(
                     DTOConverters.toDTO(
@@ -231,7 +251,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new GroupResponse(
                     DTOConverters.toDTO(
@@ -276,7 +296,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             privilegeGrantRequest.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeGrantRequest.getPrivileges()) {
               AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
@@ -332,7 +352,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             privilegeRevokeRequest.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeRevokeRequest.getPrivileges()) {
               AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
@@ -381,7 +401,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             // Check update objects
             List<SecurableObject> updatedObjects = Lists.newArrayList();
 
