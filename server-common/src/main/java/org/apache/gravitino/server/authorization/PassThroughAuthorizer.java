@@ -43,9 +43,16 @@ public class PassThroughAuthorizer implements GravitinoAuthorizer {
   @Override
   public void initialize() {}
 
+  /**
+   * Sets the host services and calls {@link #initialize()}, so a subclass that overrides it still
+   * runs its own initialization.
+   *
+   * @param context the host services.
+   */
   @Override
   public void initialize(AuthorizerContext context) {
     this.context = context;
+    initialize();
   }
 
   @Override

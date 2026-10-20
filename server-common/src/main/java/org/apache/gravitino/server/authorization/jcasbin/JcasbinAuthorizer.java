@@ -263,18 +263,23 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   private AuthorizerContext context = EnvironmentAuthorizerContext.INSTANCE;
 
   /**
-   * Initializes the authorizer with the host services of {@code GravitinoEnv}.
+   * Sets the host services and initializes the authorizer through {@link #initialize()}, so a
+   * subclass that overrides {@link #initialize()} still runs its own initialization.
    *
-   * <p>The Gravitino server calls {@link #initialize(AuthorizerContext)} instead.
+   * @param context the host services.
    */
-  @Override
-  public void initialize() {
-    initialize(EnvironmentAuthorizerContext.INSTANCE);
-  }
-
   @Override
   public void initialize(AuthorizerContext context) {
     this.context = context;
+    initialize();
+  }
+
+  /**
+   * Initializes the authorizer with the host services set by {@link
+   * #initialize(AuthorizerContext)}, or those of {@code GravitinoEnv} when none were set.
+   */
+  @Override
+  public void initialize() {
     Config config = context.config();
     long cacheExpirationSecs = config.get(Configs.GRAVITINO_AUTHORIZATION_CACHE_EXPIRATION_SECS);
     long roleCacheSize = config.get(Configs.GRAVITINO_AUTHORIZATION_ROLE_CACHE_SIZE);

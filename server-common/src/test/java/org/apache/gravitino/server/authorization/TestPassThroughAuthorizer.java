@@ -23,6 +23,7 @@ import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.security.Principal;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
@@ -39,6 +40,22 @@ import org.junit.jupiter.api.Test;
 
 /** Test of {@link PassThroughAuthorizer} */
 public class TestPassThroughAuthorizer {
+
+  @Test
+  public void testInitializeWithContextRunsTheOverridableInitialize() {
+    AtomicBoolean initialized = new AtomicBoolean();
+    PassThroughAuthorizer authorizer =
+        new PassThroughAuthorizer() {
+          @Override
+          public void initialize() {
+            initialized.set(true);
+          }
+        };
+
+    authorizer.initialize(mock(AuthorizerContext.class));
+
+    Assertions.assertTrue(initialized.get());
+  }
 
   @Test
   public void testPassThroughAuthorizerDefaults() throws IOException {
