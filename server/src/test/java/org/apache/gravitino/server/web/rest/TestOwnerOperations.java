@@ -60,6 +60,7 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -339,11 +340,16 @@ class TestOwnerOperations extends BaseOperationsTest {
   public void testRoleObject() {
     MetadataObject role = MetadataObjects.of(null, "role", MetadataObject.Type.ROLE);
     when(accessControlDispatcher.getRole(any(), any())).thenReturn(mock(Role.class));
-    Assertions.assertDoesNotThrow(() -> MetadataObjectUtil.checkMetadataObject("metalake", role));
+    Assertions.assertDoesNotThrow(
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", role));
 
     doThrow(new NoSuchRoleException("test")).when(accessControlDispatcher).getRole(any(), any());
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", role));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", role));
   }
 }

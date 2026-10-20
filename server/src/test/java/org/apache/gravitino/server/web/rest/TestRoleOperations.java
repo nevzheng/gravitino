@@ -81,6 +81,7 @@ import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -551,11 +552,19 @@ public class TestRoleOperations extends BaseOperationsTest {
         SecurableObjects.ofCatalog("catalog", Lists.newArrayList(Privileges.UseCatalog.allow()));
     when(catalogDispatcher.catalogExists(any())).thenReturn(true);
     Assertions.assertDoesNotThrow(
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(catalog)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(catalog)));
     when(catalogDispatcher.catalogExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(catalog)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(catalog)));
 
     // check the schema
     SecurableObject schema =
@@ -563,11 +572,19 @@ public class TestRoleOperations extends BaseOperationsTest {
             catalog, "schema", Lists.newArrayList(Privileges.UseSchema.allow()));
     when(schemaDispatcher.schemaExists(any())).thenReturn(true);
     Assertions.assertDoesNotThrow(
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(schema)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(schema)));
     when(schemaDispatcher.schemaExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(schema)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(schema)));
 
     // check the table
     SecurableObject table =
@@ -575,11 +592,19 @@ public class TestRoleOperations extends BaseOperationsTest {
             schema, "table", Lists.newArrayList(Privileges.SelectTable.allow()));
     when(tableDispatcher.tableExists(any())).thenReturn(true);
     Assertions.assertDoesNotThrow(
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(table)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(table)));
     when(tableDispatcher.tableExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(table)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(table)));
 
     // check the topic
     SecurableObject topic =
@@ -587,11 +612,19 @@ public class TestRoleOperations extends BaseOperationsTest {
             schema, "topic", Lists.newArrayList(Privileges.ConsumeTopic.allow()));
     when(topicDispatcher.topicExists(any())).thenReturn(true);
     Assertions.assertDoesNotThrow(
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(topic)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(topic)));
     when(topicDispatcher.topicExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(topic)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(topic)));
 
     // check the fileset
     SecurableObject fileset =
@@ -599,11 +632,19 @@ public class TestRoleOperations extends BaseOperationsTest {
             schema, "fileset", Lists.newArrayList(Privileges.ReadFileset.allow()));
     when(filesetDispatcher.filesetExists(any())).thenReturn(true);
     Assertions.assertDoesNotThrow(
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(fileset)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(fileset)));
     when(filesetDispatcher.filesetExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", DTOConverters.toDTO(fileset)));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE,
+                "metalake",
+                DTOConverters.toDTO(fileset)));
 
     AtomicReference<String> wrongParent = new AtomicReference<>();
     AtomicReference<String> wrongName = new AtomicReference<>();
@@ -634,35 +675,45 @@ public class TestRoleOperations extends BaseOperationsTest {
     wrongType.set(MetadataObject.Type.CATALOG);
     Assertions.assertThrows(
         IllegalNamespaceException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", wrongMetadataObject));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
 
     // Test schema object
     wrongType.set(MetadataObject.Type.CATALOG);
     wrongParent.set("catalog1.schema1");
     Assertions.assertThrows(
         IllegalNamespaceException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", wrongMetadataObject));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
 
     // Test table object
     wrongType.set(MetadataObject.Type.TABLE);
     wrongParent.set("catalog1");
     Assertions.assertThrows(
         IllegalNamespaceException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", wrongMetadataObject));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
 
     // Test fileset object
     wrongType.set(MetadataObject.Type.FILESET);
     wrongParent.set("catalog1");
     Assertions.assertThrows(
         IllegalNamespaceException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", wrongMetadataObject));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
 
     // Test topic object
     wrongType.set(MetadataObject.Type.TOPIC);
     wrongParent.set("catalog1");
     Assertions.assertThrows(
         IllegalNamespaceException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", wrongMetadataObject));
+        () ->
+            MetadataObjectUtil.checkMetadataObject(
+                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
   }
 
   @Test

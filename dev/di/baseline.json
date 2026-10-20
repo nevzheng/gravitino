@@ -26,8 +26,8 @@
     "meta_service_get_instance.test.occurrences": 1219,
     "mock_static_gravitino_env.production.files": 0,
     "mock_static_gravitino_env.production.occurrences": 0,
-    "mock_static_gravitino_env.test.files": 14,
-    "mock_static_gravitino_env.test.occurrences": 36,
+    "mock_static_gravitino_env.test.files": 13,
+    "mock_static_gravitino_env.test.occurrences": 35,
     "singleton_get_instance.production.files": 41,
     "singleton_get_instance.production.occurrences": 41,
     "singleton_get_instance.test.files": 2,
@@ -39,5 +39,5 @@
   },
   "migrated_packages": [],
   "schema_version": 1,
-  "source_revision": "47b9e0379"
+  "source_revision": "f36f655a6"
 }
