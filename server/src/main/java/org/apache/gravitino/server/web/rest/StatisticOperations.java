@@ -73,6 +73,8 @@ import org.apache.gravitino.stats.PartitionStatisticsModification;
 import org.apache.gravitino.stats.Statistic;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticValue;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,10 +89,33 @@ public class StatisticOperations {
   @Context private HttpServletRequest httpRequest;
 
   private final StatisticDispatcher statisticDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
 
+  /**
+   * Creates a statistic REST resource.
+   *
+   * @param statisticDispatcher the statistic dispatcher
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
+   */
   @Inject
-  public StatisticOperations(StatisticDispatcher statisticDispatcher) {
+  public StatisticOperations(
+      StatisticDispatcher statisticDispatcher, MetadataObjectDispatchers objectDispatchers) {
     this.statisticDispatcher = statisticDispatcher;
+    this.objectDispatchers = objectDispatchers;
+  }
+
+  /**
+   * Creates a statistic REST resource that asks {@code GravitinoEnv} whether a metadata object
+   * exists.
+   *
+   * @param statisticDispatcher the statistic dispatcher
+   * @deprecated Use {@link #StatisticOperations(StatisticDispatcher, MetadataObjectDispatchers)};
+   *     the server binds the dispatchers.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public StatisticOperations(StatisticDispatcher statisticDispatcher) {
+    this(statisticDispatcher, EnvironmentMetadataObjectDispatchers.INSTANCE);
   }
 
   @GET
@@ -123,7 +148,7 @@ public class StatisticOperations {
                   "Listing statistics is only supported for tables now.");
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             List<Statistic> statistics = statisticDispatcher.listStatistics(metalake, object);
             return Utils.ok(
@@ -181,7 +206,7 @@ public class StatisticOperations {
               statisticMaps.put(entry.getKey(), entry.getValue());
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             statisticDispatcher.updateStatistics(metalake, object, statisticMaps);
             return Utils.ok(new BaseResponse(0));
@@ -234,7 +259,7 @@ public class StatisticOperations {
                   "Dropping statistics is only supported for tables now.");
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             boolean dropped =
                 statisticDispatcher.dropStatistics(
@@ -287,7 +312,7 @@ public class StatisticOperations {
                   "Listing partition statistics is only supported for tables now.");
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             PartitionRange range;
             PartitionRange.BoundType fromBoundType = getFromBoundType(fromInclusive);
@@ -377,7 +402,7 @@ public class StatisticOperations {
               update.statistics().keySet().forEach(StatisticOperations::validateStatisticName);
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             statisticDispatcher.updatePartitionStatistics(
                 metalake,
@@ -439,7 +464,7 @@ public class StatisticOperations {
                   "Dropping partition statistics is only supported for tables now.");
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
 
             return Utils.ok(
                 new DropResponse(

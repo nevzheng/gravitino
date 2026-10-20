@@ -82,6 +82,8 @@ import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -101,6 +103,7 @@ public class BulkOperations {
   @Nullable private final BulkManager bulkManager;
   @Nullable private final AccessControlDispatcher accessControlDispatcher;
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -116,6 +119,7 @@ public class BulkOperations {
         EnvironmentServices.processEnv().bulkManager(),
         EnvironmentServices.processEnv().accessControlDispatcher(),
         EnvironmentServices.processEnv().internalOwnerDispatcher(),
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
         EnvironmentServices.metadataAccessChecker());
   }
 
@@ -125,6 +129,7 @@ public class BulkOperations {
    * @param bulkManager the bulk manager, or null.
    * @param accessControlDispatcher the access-control dispatcher, or null.
    * @param ownerDispatcher the internal owner dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata
    */
   @Inject
@@ -132,10 +137,12 @@ public class BulkOperations {
       @org.jvnet.hk2.annotations.Optional @Nullable BulkManager bulkManager,
       @org.jvnet.hk2.annotations.Optional @Nullable AccessControlDispatcher accessControlDispatcher,
       @org.jvnet.hk2.annotations.Optional @Internal @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.bulkManager = bulkManager;
     this.accessControlDispatcher = accessControlDispatcher;
     this.ownerDispatcher = ownerDispatcher;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -146,7 +153,7 @@ public class BulkOperations {
    * @param accessControlDispatcher the access-control dispatcher, or null.
    * @param ownerDispatcher the internal owner dispatcher, or null.
    * @deprecated Use {@link #BulkOperations(BulkManager, AccessControlDispatcher, OwnerDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
+   *     MetadataObjectDispatchers, MetadataAccessChecker)}; the server binds the checker.
    */
   @Deprecated
   @SuppressWarnings("InlineMeSuggester")
@@ -158,6 +165,7 @@ public class BulkOperations {
         bulkManager,
         accessControlDispatcher,
         ownerDispatcher,
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
         EnvironmentServices.metadataAccessChecker());
   }
 
@@ -548,7 +556,7 @@ public class BulkOperations {
         for (Privilege privilege : object.privileges()) {
           AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilege, object, metalake);
         }
-        MetadataObjectUtil.checkMetadataObject(metalake, object);
+        MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
       } catch (NoSuchMetadataObjectException nsm) {
         throw new IllegalMetadataObjectException(nsm);
       }

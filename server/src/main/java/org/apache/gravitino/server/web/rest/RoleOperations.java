@@ -60,6 +60,8 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationExpres
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.jvnet.hk2.annotations.Optional;
@@ -72,6 +74,7 @@ public class RoleOperations {
   private static final Logger LOG = LoggerFactory.getLogger(RoleOperations.class);
 
   @Nullable private final AccessControlDispatcher accessControlManager;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -85,6 +88,7 @@ public class RoleOperations {
   public RoleOperations() {
     this(
         EnvironmentServices.processEnv().accessControlDispatcher(),
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
         EnvironmentServices.metadataAccessChecker());
   }
 
@@ -92,13 +96,16 @@ public class RoleOperations {
    * Creates a role REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public RoleOperations(
       @Optional @Nullable AccessControlDispatcher accessControlManager,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -106,13 +113,16 @@ public class RoleOperations {
    * Creates a role REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
-   * @deprecated Use {@link #RoleOperations(AccessControlDispatcher, MetadataAccessChecker)}; the
-   *     server binds the checker.
+   * @deprecated Use {@link #RoleOperations(AccessControlDispatcher, MetadataObjectDispatchers,
+   *     MetadataAccessChecker)}; the server binds the checker.
    */
   @Deprecated
   @SuppressWarnings("InlineMeSuggester")
   public RoleOperations(@Nullable AccessControlDispatcher accessControlManager) {
-    this(accessControlManager, EnvironmentServices.metadataAccessChecker());
+    this(
+        accessControlManager,
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
+        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -213,7 +223,7 @@ public class RoleOperations {
                 for (Privilege privilege : object.privileges()) {
                   AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilege, object, metalake);
                 }
-                MetadataObjectUtil.checkMetadataObject(metalake, object);
+                MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
               } catch (NoSuchMetadataObjectException nsm) {
                 throw new IllegalMetadataObjectException(nsm);
               }

@@ -50,6 +50,8 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.JerseyTest;
@@ -122,6 +124,7 @@ public class TestMetadataObjectRoleOperations extends JerseyTest {
           @Override
           protected void configure() {
             bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
+            bind(EnvironmentMetadataObjectDispatchers.INSTANCE).to(MetadataObjectDispatchers.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
             bind(manager).to(AccessControlDispatcher.class);
           }

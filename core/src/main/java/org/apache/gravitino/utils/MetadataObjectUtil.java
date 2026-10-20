@@ -216,10 +216,11 @@ public class MetadataObjectUtil {
    * @param metalake The metalake name
    * @param object The metadata object
    * @throws NoSuchMetadataObjectException if the metadata object type doesn't exist.
-   *     <p>It asks the internal dispatchers of {@code GravitinoEnv}; {@link
-   *     #checkMetadataObject(MetadataObjectDispatchers, String, MetadataObject)} asks the given
-   *     ones.
+   * @deprecated Use {@link #checkMetadataObject(MetadataObjectDispatchers, String,
+   *     MetadataObject)}, which asks the given dispatchers instead of {@code GravitinoEnv}.
    */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public static void checkMetadataObject(String metalake, MetadataObject object) {
     checkMetadataObject(EnvironmentMetadataObjectDispatchers.INSTANCE, metalake, object);
   }

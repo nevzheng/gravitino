@@ -73,6 +73,8 @@ import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.stats.StatisticValue;
 import org.apache.gravitino.stats.StatisticValues;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -130,6 +132,7 @@ public class TestStatisticOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(manager).to(StatisticDispatcher.class).ranked(2);
+            bind(EnvironmentMetadataObjectDispatchers.INSTANCE).to(MetadataObjectDispatchers.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });
