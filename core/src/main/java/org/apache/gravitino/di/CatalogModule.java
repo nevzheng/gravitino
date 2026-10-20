@@ -64,8 +64,11 @@ abstract class CatalogModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
-      LockManager lockManager) {
-    return new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
+      LockManager lockManager,
+      BuiltServices built) {
+    return built.add(
+        BuiltServices.CATALOG_MANAGER,
+        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager));
   }
 
   /**
@@ -78,8 +81,11 @@ abstract class CatalogModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       CatalogManager catalogManager,
-      LockManager lockManager) {
-    return new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager);
+      LockManager lockManager,
+      BuiltServices built) {
+    return built.add(
+        BuiltServices.METALAKE_MANAGER,
+        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager));
   }
 
   @Provides

@@ -46,6 +46,7 @@ import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
@@ -70,10 +71,10 @@ import org.apache.gravitino.tag.TagDispatcher;
  * CatalogModule} the catalog and metalake managers and chains, {@link SchemaTableModule} the
  * schema, table, partition and view chains, {@link FilesetTopicModelModule} the fileset, topic,
  * model, function and semantic model chains, {@link GovernanceModule} the tag, policy, owner and
- * statistic chains, {@link AuthorizationModule} the access-control components, and {@link
- * JobModule} the job manager and chains. The authorizer, which the server installs later, reaches
- * the graph through {@link LegacyBridge} and {@link LegacyModule}, so every object is built by
- * exactly one side.
+ * statistic chains, {@link AuthorizationModule} the access-control components, {@link JobModule}
+ * the job manager and chains, and {@link LifecycleModule} the lifecycle that starts and stops them.
+ * The authorizer, which the server installs later, reaches the graph through {@link LegacyBridge}
+ * and {@link LegacyModule}, so every object is built by exactly one side.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The component builds nothing until it is asked: {@code GravitinoEnv}
@@ -95,6 +96,7 @@ import org.apache.gravitino.tag.TagDispatcher;
       GovernanceModule.class,
       AuthorizationModule.class,
       JobModule.class,
+      LifecycleModule.class,
       LegacyModule.class
     })
 public interface GravitinoComponent {
@@ -121,7 +123,8 @@ public interface GravitinoComponent {
   MetricsSystem metricsSystem();
 
   /**
-   * Returns the tree lock manager owned by this component.
+   * Returns the tree lock manager owned by this component. The {@link #lifecycle()} closes it,
+   * which stops its background threads.
    *
    * @return the lock manager
    */
@@ -525,6 +528,15 @@ public interface GravitinoComponent {
    * @return the authorizer
    */
   GravitinoAuthorizer gravitinoAuthorizer();
+
+  /**
+   * Returns the lifecycle that starts and stops the services this component has built, and the
+   * auxiliary services of the {@link LegacyBridge}, in the order {@code GravitinoEnv} has always
+   * used. See {@link LifecycleModule}.
+   *
+   * @return the lifecycle
+   */
+  Lifecycle lifecycle();
 
   /** Creates {@link GravitinoComponent} instances. */
   @Component.Factory

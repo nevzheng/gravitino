@@ -57,9 +57,9 @@ abstract class ConfigModule {
   @SuppressWarnings("CloseableProvides")
   @Provides
   @Singleton
-  static MetricsSystem metricsSystem() {
+  static MetricsSystem metricsSystem(BuiltServices built) {
     MetricsSystem metricsSystem = new MetricsSystem();
     metricsSystem.register(new JVMMetricsSource());
-    return metricsSystem;
+    return built.add(BuiltServices.METRICS_SYSTEM, metricsSystem);
   }
 }

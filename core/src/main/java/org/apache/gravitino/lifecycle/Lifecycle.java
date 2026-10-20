@@ -34,8 +34,13 @@ import java.util.List;
  *       already started are stopped in reverse order and the start failure is rethrown.
  *   <li>{@link #close()} stops every started service in reverse order. It keeps going when a stop
  *       fails, and throws the first failure with the others attached as suppressed exceptions.
- *   <li>{@link #close()} is idempotent, and closing a lifecycle that never started does nothing.
+ *   <li>{@link #close()} is idempotent, and closing a lifecycle that never started does nothing,
+ *       unless it was built with {@link Builder#alwaysStop()}.
  * </ul>
+ *
+ * <p>A lifecycle built with {@link Builder#alwaysStop()} is for services that hold resources from
+ * the moment they are built rather than from the moment they start. It stops every service, started
+ * or not, when it closes or when a start fails.
  */
 public final class Lifecycle implements AutoCloseable {
 
@@ -61,11 +66,13 @@ public final class Lifecycle implements AutoCloseable {
   }
 
   private final List<Service> services;
+  private final boolean alwaysStop;
   private final List<Service> started = new ArrayList<>();
   private State state = State.NEW;
 
-  private Lifecycle(List<Service> services) {
+  private Lifecycle(List<Service> services, boolean alwaysStop) {
     this.services = services;
+    this.alwaysStop = alwaysStop;
   }
 
   /**
@@ -89,6 +96,9 @@ public final class Lifecycle implements AutoCloseable {
   /**
    * Starts every service in the order it was added.
    *
+   * <p>If a service fails to start, the services already started are stopped in reverse order; with
+   * {@link Builder#alwaysStop()}, every service is stopped in reverse order.
+   *
    * @throws Exception the failure of the service that could not start, with any rollback failures
    *     attached as suppressed exceptions.
    */
@@ -111,7 +121,7 @@ public final class Lifecycle implements AutoCloseable {
   }
 
   /**
-   * Stops every started service in reverse order.
+   * Stops every started service in reverse order; with {@link Builder#alwaysStop()}, every service.
    *
    * @throws Exception the first stop failure, with later failures attached as suppressed.
    */
@@ -128,9 +138,10 @@ public final class Lifecycle implements AutoCloseable {
   }
 
   private Exception stopStarted() {
+    List<Service> toStop = alwaysStop ? services : started;
     Exception first = null;
-    for (int i = started.size() - 1; i >= 0; i--) {
-      Service service = started.get(i);
+    for (int i = toStop.size() - 1; i >= 0; i--) {
+      Service service = toStop.get(i);
       try {
         service.stop.run();
       } catch (Exception e) {
@@ -149,6 +160,7 @@ public final class Lifecycle implements AutoCloseable {
   /** Builds a {@link Lifecycle}. */
   public static final class Builder {
     private final ImmutableList.Builder<Service> services = ImmutableList.builder();
+    private boolean alwaysStop;
 
     private Builder() {}
 
@@ -180,12 +192,25 @@ public final class Lifecycle implements AutoCloseable {
     }
 
     /**
+     * Makes the lifecycle stop every service, whether or not it was started, when it closes or when
+     * a start fails. Use it when the services hold resources from the moment they are built, so the
+     * resources are released even if {@link Lifecycle#start()} never ran or failed. Every stop
+     * action must then be safe to run on a service that was not started.
+     *
+     * @return this builder.
+     */
+    public Builder alwaysStop() {
+      this.alwaysStop = true;
+      return this;
+    }
+
+    /**
      * Builds the lifecycle.
      *
      * @return a new lifecycle in state {@link State#NEW}.
      */
     public Lifecycle build() {
-      return new Lifecycle(services.build());
+      return new Lifecycle(services.build(), alwaysStop);
     }
   }
 

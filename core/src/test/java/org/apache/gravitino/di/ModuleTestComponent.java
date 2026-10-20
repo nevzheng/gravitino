@@ -38,6 +38,7 @@ import org.apache.gravitino.Config;
       GovernanceModule.class,
       AuthorizationModule.class,
       JobModule.class,
+      LifecycleModule.class,
       FakeLeavesModule.class
     })
 interface ModuleTestComponent extends GravitinoComponent {

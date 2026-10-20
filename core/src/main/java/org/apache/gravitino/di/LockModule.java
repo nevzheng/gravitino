@@ -32,11 +32,15 @@ abstract class LockModule {
 
   /**
    * Builds the lock manager. Its constructor starts the lock cleaner and deadlock checker threads,
-   * so it is built only when first requested.
+   * so it is built only when first requested; it is recorded in {@link BuiltServices}, and the
+   * {@link LifecycleModule lifecycle} closes it, which stops those threads, after every other
+   * service has stopped.
    */
+  // The lifecycle closes the lock manager.
+  @SuppressWarnings("CloseableProvides")
   @Provides
   @Singleton
-  static LockManager lockManager(Config config) {
-    return new LockManager(config);
+  static LockManager lockManager(Config config, BuiltServices built) {
+    return built.add(BuiltServices.LOCK_MANAGER, new LockManager(config));
   }
 }
