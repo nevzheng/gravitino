@@ -27,10 +27,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.Collections;
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -38,7 +36,6 @@ import org.apache.gravitino.authorization.Role;
 import org.apache.gravitino.authorization.User;
 import org.apache.gravitino.bulk.BulkItemResult;
 import org.apache.gravitino.bulk.RoleAdd;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,30 +46,18 @@ public class TestAccessControlHookDispatcher {
   private AccessControlDispatcher mockDispatcher;
   private OwnerDispatcher mockOwnerDispatcher;
   private GravitinoAuthorizer mockAuthorizer;
-  // Save the original ownerDispatcher before each test and restore it in tearDown so we do not
-  // leak null state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
-  private GravitinoAuthorizer savedAuthorizer;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(AccessControlDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     mockAuthorizer = mock(GravitinoAuthorizer.class);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-    savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", mockAuthorizer, true);
     hookDispatcher =
-        new AccessControlHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", savedAuthorizer, true);
+        new AccessControlHookDispatcher(
+            mockDispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(mockOwnerDispatcher)
+                .withAuthorizer(mockAuthorizer));
   }
 
   @Test

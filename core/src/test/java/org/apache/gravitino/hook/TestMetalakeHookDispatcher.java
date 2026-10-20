@@ -26,16 +26,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Metalake;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.UserAlreadyExistsException;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,38 +43,18 @@ public class TestMetalakeHookDispatcher {
   private MetalakeDispatcher mockDispatcher;
   private OwnerDispatcher mockOwnerDispatcher;
   private AccessControlDispatcher mockAccessControlDispatcher;
-  // Save the originals before each test and restore them in tearDown so we do not leak null
-  // state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
-  private AccessControlDispatcher savedAccessControlDispatcher;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(MetalakeDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     mockAccessControlDispatcher = mock(AccessControlDispatcher.class);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-    savedAccessControlDispatcher = GravitinoEnv.getInstance().internalAccessControlDispatcher();
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalAccessControlDispatcher",
-        mockAccessControlDispatcher,
-        true);
     hookDispatcher =
-        new MetalakeHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalAccessControlDispatcher",
-        savedAccessControlDispatcher,
-        true);
+        new MetalakeHookDispatcher(
+            mockDispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(mockOwnerDispatcher)
+                .withAccessControlDispatcher(mockAccessControlDispatcher));
   }
 
   @Test

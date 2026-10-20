@@ -33,6 +33,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -65,7 +66,7 @@ public class TestTableHookDispatcher {
     TableDispatcher dispatcher = Mockito.mock(TableDispatcher.class);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "table");
     List<String> locations = ImmutableList.of("/test");
     Mockito.when(dispatcher.dropTable(ident)).thenReturn(true);
@@ -98,7 +99,7 @@ public class TestTableHookDispatcher {
     TableDispatcher dispatcher = Mockito.mock(TableDispatcher.class);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "table");
     // false means the table was renamed or dropped out of band: the registration is kept, so the
     // plugin privileges of the entity that is still alive under another name must be kept too.
@@ -145,7 +146,7 @@ public class TestTableHookDispatcher {
     TableDispatcher hook =
         new TableNormalizeDispatcher(
             new TableHookDispatcher(
-                dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher)),
+                dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher)),
             catalogManager);
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "SCHEMA_NORM", "MY_TABLE");
 
@@ -177,7 +178,7 @@ public class TestTableHookDispatcher {
         .thenReturn(createdTable);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
 
     assertSame(
         createdTable,
@@ -209,7 +210,7 @@ public class TestTableHookDispatcher {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher));
 
     RuntimeException thrown =
         assertThrows(
@@ -233,7 +234,7 @@ public class TestTableHookDispatcher {
     TableDispatcher dispatcher = Mockito.mock(TableDispatcher.class);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "table");
     Table alteredTable = Mockito.mock(Table.class);
     TableChange setChange = TableChange.setProperty("key", "value");
@@ -273,7 +274,7 @@ public class TestTableHookDispatcher {
     TableDispatcher dispatcher = Mockito.mock(TableDispatcher.class);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "table");
     Table alteredTable = Mockito.mock(Table.class);
     TableChange renameChange = TableChange.rename("newName", "newSchema");
@@ -308,7 +309,7 @@ public class TestTableHookDispatcher {
     TableDispatcher dispatcher = Mockito.mock(TableDispatcher.class);
     TableHookDispatcher hook =
         new TableHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "table");
     Table alteredTable = Mockito.mock(Table.class);
     // The table dispatcher moves the table to the last schema set by any rename.

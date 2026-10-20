@@ -29,7 +29,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.RelationalEntity;
 import org.apache.gravitino.SupportsRelationOperations;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.listener.api.event.AddPolicyForTagEvent;
@@ -66,7 +66,7 @@ public class TestPolicyTagDispatcherChain {
     TagDispatcher dispatcher =
         new TagHookDispatcher(
             new TagEventDispatcher(new EventBus(Collections.emptyList()), delegate),
-            EnvironmentAuthorizationServices.INSTANCE);
+            new FakeAuthorizationServices());
 
     Assertions.assertArrayEquals(
         new String[] {POLICY}, dispatcher.listPoliciesForTag(METALAKE, TAG));
@@ -83,7 +83,7 @@ public class TestPolicyTagDispatcherChain {
     TagDispatcher dispatcher =
         new TagHookDispatcher(
             new TagEventDispatcher(new EventBus(Collections.singletonList(listener)), delegate),
-            EnvironmentAuthorizationServices.INSTANCE);
+            new FakeAuthorizationServices());
 
     dispatcher.addPolicyForTag(METALAKE, TAG, POLICY, AllValuesSelector.get());
     dispatcher.removePolicyFromTag(METALAKE, TAG, POLICY);
@@ -114,7 +114,7 @@ public class TestPolicyTagDispatcherChain {
     PolicyDispatcher dispatcher =
         new PolicyHookDispatcher(
             new PolicyEventDispatcher(new EventBus(Collections.emptyList()), delegate),
-            EnvironmentAuthorizationServices.INSTANCE);
+            new FakeAuthorizationServices());
 
     Assertions.assertArrayEquals(
         new String[] {TAG}, dispatcher.listTagsForPolicy(METALAKE, POLICY));

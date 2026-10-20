@@ -32,6 +32,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -73,7 +74,7 @@ public class TestViewHookDispatcher {
     ViewDispatcher hook =
         new ViewNormalizeDispatcher(
             new ViewHookDispatcher(
-                dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher)),
+                dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher)),
             catalogManager);
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "SCHEMA_NORM", "MY_VIEW");
 
@@ -99,7 +100,7 @@ public class TestViewHookDispatcher {
         .thenReturn(createdView);
     ViewHookDispatcher hook =
         new ViewHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
 
     assertSame(
         createdView, createView(hook, NameIdentifier.of(METALAKE, CATALOG, "schema", "view")));
@@ -122,7 +123,7 @@ public class TestViewHookDispatcher {
         .thenReturn(Mockito.mock(View.class));
     ViewHookDispatcher hook =
         new ViewHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher));
 
     RuntimeException thrown =
         assertThrows(
@@ -138,7 +139,7 @@ public class TestViewHookDispatcher {
     ViewDispatcher dispatcher = Mockito.mock(ViewDispatcher.class);
     ViewHookDispatcher hook =
         new ViewHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "view");
     View alteredView = Mockito.mock(View.class);
     ViewChange setChange = ViewChange.setProperty("key", "value");
@@ -167,7 +168,7 @@ public class TestViewHookDispatcher {
     ViewDispatcher dispatcher = Mockito.mock(ViewDispatcher.class);
     ViewHookDispatcher hook =
         new ViewHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     NameIdentifier dropped = NameIdentifier.of(METALAKE, CATALOG, "schema", "view");
     NameIdentifier missing = NameIdentifier.of(METALAKE, CATALOG, "schema", "missing");
     Mockito.when(dispatcher.dropView(dropped)).thenReturn(true);
