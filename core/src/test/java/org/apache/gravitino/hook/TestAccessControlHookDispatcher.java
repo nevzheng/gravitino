@@ -30,6 +30,7 @@ import java.util.List;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -63,7 +64,8 @@ public class TestAccessControlHookDispatcher {
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", mockAuthorizer, true);
-    hookDispatcher = new AccessControlHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new AccessControlHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @AfterEach

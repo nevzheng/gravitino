@@ -24,14 +24,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
@@ -56,35 +56,59 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class SchemaHookDispatcher implements SchemaDispatcher {
   private final SchemaDispatcher dispatcher;
   private final Supplier<LockManager> lockManagerSupplier;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates a schema hook dispatcher.
    *
    * @param dispatcher The schema dispatcher to delegate to.
    * @param lockManager The lock manager that serializes schema creation on the catalog.
+   * @param authorizationServices The services that keep authorization in step with schema changes.
    */
+  public SchemaHookDispatcher(
+      SchemaDispatcher dispatcher,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
+    this(dispatcher, () -> lockManager, authorizationServices);
+  }
+
+  /**
+   * Creates a schema hook dispatcher that reads the authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher The schema dispatcher to delegate to.
+   * @param lockManager The lock manager that serializes schema creation on the catalog.
+   * @deprecated Use {@link #SchemaHookDispatcher(SchemaDispatcher, LockManager,
+   *     AuthorizationServices)}, which takes the authorization services explicitly.
+   */
+  @Deprecated
   public SchemaHookDispatcher(SchemaDispatcher dispatcher, LockManager lockManager) {
-    this(dispatcher, () -> lockManager);
+    this(dispatcher, () -> lockManager, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   /**
    * Creates a schema hook dispatcher.
    *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken, and so
+   * are the authorization services.
    *
    * @param dispatcher The schema dispatcher to delegate to.
-   * @deprecated Use {@link #SchemaHookDispatcher(SchemaDispatcher, LockManager)}, which takes the
-   *     lock manager explicitly.
+   * @deprecated Use {@link #SchemaHookDispatcher(SchemaDispatcher, LockManager,
+   *     AuthorizationServices)}, which takes the lock manager and the authorization services
+   *     explicitly.
    */
   @Deprecated
   public SchemaHookDispatcher(SchemaDispatcher dispatcher) {
-    this(dispatcher, TreeLockUtils.legacyLockManager());
+    this(dispatcher, TreeLockUtils.legacyLockManager(), EnvironmentAuthorizationServices.INSTANCE);
   }
 
   private SchemaHookDispatcher(
-      SchemaDispatcher dispatcher, Supplier<LockManager> lockManagerSupplier) {
+      SchemaDispatcher dispatcher,
+      Supplier<LockManager> lockManagerSupplier,
+      AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.lockManagerSupplier = lockManagerSupplier;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -98,7 +122,6 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
     return createSchema(ident, comment, properties, Collections.emptyMap(), Collections.emptyMap());
   }
 
-  @LegacyEnvAccess
   @Override
   public Schema createSchema(
       NameIdentifier ident,
@@ -133,7 +156,7 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
           // mirrors IcebergNamespaceHookDispatcher.createNamespace so ownership-based
           // authorization -- which treats ownership of an ancestor schema as ownership of the
           // whole subtree -- behaves the same on the Gravitino and Iceberg REST surfaces.
-          OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+          OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
           if (ownerManager != null) {
             List<MetadataObject> ownedObjects = new ArrayList<>(newAncestors.size() + 1);
             for (NameIdentifier ancestor : newAncestors) {
@@ -206,13 +229,14 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
   @Override
   public boolean dropSchema(NameIdentifier ident, boolean cascade) throws NonEmptySchemaException {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.SCHEMA);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.SCHEMA);
     boolean dropped = dispatcher.dropSchema(ident, cascade);
     // Only a schema that was really dropped loses its privileges; a false result means the
     // registration was kept.
     if (dropped) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.SCHEMA, locations);
+          authorizationServices, ident, Entity.EntityType.SCHEMA, locations);
     }
     return dropped;
   }

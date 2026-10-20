@@ -20,11 +20,11 @@ package org.apache.gravitino.hook;
 import java.util.Arrays;
 import java.util.Map;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.NoSuchTagException;
@@ -41,9 +41,30 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class TagHookDispatcher implements TagDispatcher {
 
   private final TagDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public TagHookDispatcher(TagDispatcher dispatcher) {
+  /**
+   * Creates a tag hook dispatcher.
+   *
+   * @param dispatcher the underlying tag dispatcher
+   * @param authorizationServices the services that keep authorization in step with tag changes
+   */
+  public TagHookDispatcher(TagDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a tag hook dispatcher that reads the authorization services from {@code GravitinoEnv}.
+   *
+   * @param dispatcher the underlying tag dispatcher
+   * @deprecated Use {@link #TagHookDispatcher(TagDispatcher, AuthorizationServices)}, which takes
+   *     the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public TagHookDispatcher(TagDispatcher dispatcher) {
+    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -67,7 +88,6 @@ public class TagHookDispatcher implements TagDispatcher {
     return createTag(metalake, name, comment, properties, TagValueConstraint.anyValue());
   }
 
-  @LegacyEnvAccess
   @Override
   public Tag createTag(
       String metalake,
@@ -78,7 +98,7 @@ public class TagHookDispatcher implements TagDispatcher {
     Tag tag = dispatcher.createTag(metalake, name, comment, properties, valueConstraint);
 
     // Set the creator as the owner of the tag.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerDispatcher = authorizationServices.internalOwnerDispatcher();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
@@ -97,7 +117,9 @@ public class TagHookDispatcher implements TagDispatcher {
     Tag alteredTag = dispatcher.alterTag(metalake, name, changes);
     if (Arrays.stream(changes).anyMatch(change -> change instanceof TagChange.RenameTag)) {
       AuthorizationUtils.notifyEntityNameIdMappingChange(
-          NameIdentifierUtil.ofTag(metalake, name), Entity.EntityType.TAG);
+          authorizationServices.gravitinoAuthorizer(),
+          NameIdentifierUtil.ofTag(metalake, name),
+          Entity.EntityType.TAG);
     }
     return alteredTag;
   }
@@ -108,7 +130,9 @@ public class TagHookDispatcher implements TagDispatcher {
     if (deleted) {
       // A tag created later under the same name gets a new id, so drop the cached mapping.
       AuthorizationUtils.notifyEntityNameIdMappingChange(
-          NameIdentifierUtil.ofTag(metalake, name), Entity.EntityType.TAG);
+          authorizationServices.gravitinoAuthorizer(),
+          NameIdentifierUtil.ofTag(metalake, name),
+          Entity.EntityType.TAG);
     }
     return deleted;
   }

@@ -25,6 +25,7 @@ import java.util.Set;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.hook.JobHookDispatcher;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
@@ -92,13 +93,15 @@ abstract class JobModule {
   static JobOperationDispatcher jobOperationDispatcher(
       EventBus eventBus,
       @Undecorated JobTemplateValidationDispatcher validation,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<JobOperationDispatcher>> decorators,
       BuiltServices built) {
     return built.add(
         BuiltServices.JOB_OPERATION_DISPATCHER,
         Decorators.apply(
             "@Public JobOperationDispatcher",
-            new JobEventDispatcher(eventBus, new JobHookDispatcher(validation)),
+            new JobEventDispatcher(
+                eventBus, new JobHookDispatcher(validation, authorizationServices)),
             decorators));
   }
 

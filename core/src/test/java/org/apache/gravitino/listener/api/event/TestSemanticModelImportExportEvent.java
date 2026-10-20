@@ -62,6 +62,7 @@ import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalSemanticModelException;
 import org.apache.gravitino.exceptions.NoSuchSemanticModelException;
 import org.apache.gravitino.exceptions.SemanticModelAlreadyExistsException;
+import org.apache.gravitino.hook.HookAuthorizationServices;
 import org.apache.gravitino.hook.SemanticModelHookDispatcher;
 import org.apache.gravitino.listener.DummyEventListener;
 import org.apache.gravitino.listener.EventBus;
@@ -120,7 +121,11 @@ class TestSemanticModelImportExportEvent {
     when(catalog.capability()).thenReturn(new ParentNormalizingCapability());
     CatalogTestUtils.mockDoWithCatalog(catalogs, catalog);
     hook =
-        spy(new SemanticModelHookDispatcher(operation, () -> authorizationEnabled ? owners : null));
+        spy(
+            new SemanticModelHookDispatcher(
+                operation,
+                HookAuthorizationServices.withOwnerDispatcher(
+                    () -> authorizationEnabled ? owners : null)));
     normalizer = spy(new SemanticModelNormalizeDispatcher(hook, catalogs));
     listener = new DummyEventListener();
     dispatcher = new SemanticModelEventDispatcher(new EventBus(List.of(listener)), normalizer);

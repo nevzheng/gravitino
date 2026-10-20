@@ -28,6 +28,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.junit.jupiter.api.Test;
@@ -67,7 +68,8 @@ public class TestCatalogHookDispatcher {
     FieldUtils.writeField(gravitinoEnv, "futureGrantManager", null, true);
 
     try {
-      CatalogHookDispatcher hookDispatcher = new CatalogHookDispatcher(dispatcher);
+      CatalogHookDispatcher hookDispatcher =
+          new CatalogHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
       RuntimeException thrown =
           assertThrowsExactly(
               RuntimeException.class,
@@ -121,7 +123,8 @@ public class TestCatalogHookDispatcher {
     FieldUtils.writeField(gravitinoEnv, "futureGrantManager", null, true);
 
     try {
-      CatalogHookDispatcher hookDispatcher = new CatalogHookDispatcher(dispatcher);
+      CatalogHookDispatcher hookDispatcher =
+          new CatalogHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
       RuntimeException thrown =
           assertThrowsExactly(
               RuntimeException.class,

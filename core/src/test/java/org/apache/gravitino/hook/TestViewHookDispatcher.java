@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -71,7 +72,9 @@ public class TestViewHookDispatcher {
         .thenReturn(createdView);
     ViewDispatcher hook =
         new ViewNormalizeDispatcher(
-            new ViewHookDispatcher(dispatcher, () -> ownerDispatcher), catalogManager);
+            new ViewHookDispatcher(
+                dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher)),
+            catalogManager);
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "SCHEMA_NORM", "MY_VIEW");
 
     try (MockedStatic<PrincipalUtils> principalUtils = Mockito.mockStatic(PrincipalUtils.class)) {
@@ -94,7 +97,9 @@ public class TestViewHookDispatcher {
     View createdView = Mockito.mock(View.class);
     Mockito.when(dispatcher.createView(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(createdView);
-    ViewHookDispatcher hook = new ViewHookDispatcher(dispatcher, () -> null);
+    ViewHookDispatcher hook =
+        new ViewHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
 
     assertSame(
         createdView, createView(hook, NameIdentifier.of(METALAKE, CATALOG, "schema", "view")));
@@ -115,7 +120,9 @@ public class TestViewHookDispatcher {
     ViewDispatcher dispatcher = Mockito.mock(ViewDispatcher.class);
     Mockito.when(dispatcher.createView(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(Mockito.mock(View.class));
-    ViewHookDispatcher hook = new ViewHookDispatcher(dispatcher, () -> ownerDispatcher);
+    ViewHookDispatcher hook =
+        new ViewHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
 
     RuntimeException thrown =
         assertThrows(
@@ -129,7 +136,9 @@ public class TestViewHookDispatcher {
   @Test
   public void testRenameViewUpdatesAuthorizationMapping() {
     ViewDispatcher dispatcher = Mockito.mock(ViewDispatcher.class);
-    ViewHookDispatcher hook = new ViewHookDispatcher(dispatcher, () -> null);
+    ViewHookDispatcher hook =
+        new ViewHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
     NameIdentifier ident = NameIdentifier.of(METALAKE, CATALOG, "schema", "view");
     View alteredView = Mockito.mock(View.class);
     ViewChange setChange = ViewChange.setProperty("key", "value");
@@ -146,14 +155,19 @@ public class TestViewHookDispatcher {
       authorizationUtils.verify(
           () ->
               AuthorizationUtils.authorizationPluginRenamePrivileges(
-                  ident, Entity.EntityType.VIEW, "newName"));
+                  Mockito.any(AuthorizationServices.class),
+                  Mockito.eq(ident),
+                  Mockito.eq(Entity.EntityType.VIEW),
+                  Mockito.eq("newName")));
     }
   }
 
   @Test
   public void testDropViewInvalidatesNameIdMappingOnlyWhenDropped() {
     ViewDispatcher dispatcher = Mockito.mock(ViewDispatcher.class);
-    ViewHookDispatcher hook = new ViewHookDispatcher(dispatcher, () -> null);
+    ViewHookDispatcher hook =
+        new ViewHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
     NameIdentifier dropped = NameIdentifier.of(METALAKE, CATALOG, "schema", "view");
     NameIdentifier missing = NameIdentifier.of(METALAKE, CATALOG, "schema", "missing");
     Mockito.when(dispatcher.dropView(dropped)).thenReturn(true);
@@ -167,7 +181,8 @@ public class TestViewHookDispatcher {
       assertTrue(hook.dropView(dropped));
       authorizationUtils.verify(
           () ->
-              AuthorizationUtils.notifyEntityNameIdMappingChange(dropped, Entity.EntityType.VIEW));
+              AuthorizationUtils.notifyEntityNameIdMappingChange(
+                  Mockito.any(), Mockito.eq(dropped), Mockito.eq(Entity.EntityType.VIEW)));
     }
   }
 

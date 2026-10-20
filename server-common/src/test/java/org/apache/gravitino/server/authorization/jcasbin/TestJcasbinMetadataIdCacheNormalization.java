@@ -53,6 +53,7 @@ import org.apache.gravitino.Schema;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -237,7 +238,9 @@ public class TestJcasbinMetadataIdCacheNormalization {
     assertEquals(Optional.of(100L), resolve(object(MetadataObject.Type.TABLE, true)));
     TableDispatcher dispatcher = mock(TableDispatcher.class);
     when(dispatcher.dropTable(ident(table))).thenReturn(true);
-    assertTrue(new TableHookDispatcher(dispatcher, () -> null).dropTable(ident(table)));
+    assertTrue(
+        new TableHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE)
+            .dropTable(ident(table)));
     assertEquals(0L, metadataCache.size());
     put(table, 300L);
     assertEquals(Optional.of(300L), resolve(object(MetadataObject.Type.TABLE, true)));
@@ -257,7 +260,8 @@ public class TestJcasbinMetadataIdCacheNormalization {
     TableDispatcher dispatcher = mock(TableDispatcher.class);
     TableChange rename = TableChange.rename("renamed");
     when(dispatcher.alterTable(ident(old), rename)).thenReturn(mock(Table.class));
-    new TableHookDispatcher(dispatcher, () -> null).alterTable(ident(old), rename);
+    new TableHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE)
+        .alterTable(ident(old), rename);
     entities.remove(ident(old));
     put(renamed, 100L);
     assertEquals(Optional.empty(), resolve(alias));
@@ -279,7 +283,8 @@ public class TestJcasbinMetadataIdCacheNormalization {
     SchemaDispatcher dispatcher = mock(SchemaDispatcher.class);
     when(dispatcher.dropSchema(ident(schema), true)).thenReturn(true);
     assertTrue(
-        new SchemaHookDispatcher(dispatcher, mock(LockManager.class))
+        new SchemaHookDispatcher(
+                dispatcher, mock(LockManager.class), EnvironmentAuthorizationServices.INSTANCE)
             .dropSchema(ident(schema), true));
     assertEquals(0L, metadataCache.size());
     assertEquals(Optional.of(200L), resolve(object(MetadataObject.Type.TABLE, true)));

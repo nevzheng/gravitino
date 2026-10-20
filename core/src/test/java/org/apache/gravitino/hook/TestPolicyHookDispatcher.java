@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.meta.PolicyEntity;
@@ -61,7 +62,8 @@ public class TestPolicyHookDispatcher {
     mockAuthorizer = mock(GravitinoAuthorizer.class);
     savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
-    hookDispatcher = new PolicyHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new PolicyHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @AfterEach

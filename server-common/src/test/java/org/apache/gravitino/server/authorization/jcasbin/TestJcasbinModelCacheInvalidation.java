@@ -38,6 +38,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CapabilityHelpers;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -109,7 +110,9 @@ public class TestJcasbinModelCacheInvalidation {
       metadataIdCache.put(otherKey, 50L);
 
       ModelDispatcher dispatcher =
-          new ModelNormalizeDispatcher(new ModelHookDispatcher(delegate), catalogManager);
+          new ModelNormalizeDispatcher(
+              new ModelHookDispatcher(delegate, EnvironmentAuthorizationServices.INSTANCE),
+              catalogManager);
       if (rename) {
         Assertions.assertSame(
             renamedModel, dispatcher.alterModel(normalizedIdent, ModelChange.rename("renamed")));

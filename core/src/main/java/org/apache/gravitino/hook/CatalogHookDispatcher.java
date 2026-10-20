@@ -24,11 +24,11 @@ import java.util.Map;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -54,9 +54,32 @@ import org.slf4j.LoggerFactory;
 public class CatalogHookDispatcher implements CatalogDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(CatalogHookDispatcher.class);
   private final CatalogDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public CatalogHookDispatcher(CatalogDispatcher dispatcher) {
+  /**
+   * Creates a catalog hook dispatcher.
+   *
+   * @param dispatcher the underlying catalog dispatcher
+   * @param authorizationServices the services that keep authorization in step with catalog changes
+   */
+  public CatalogHookDispatcher(
+      CatalogDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a catalog hook dispatcher that reads the authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher the underlying catalog dispatcher
+   * @deprecated Use {@link #CatalogHookDispatcher(CatalogDispatcher, AuthorizationServices)}, which
+   *     takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public CatalogHookDispatcher(CatalogDispatcher dispatcher) {
+    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -86,7 +109,6 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
         ident, type, provider, comment, properties, Collections.emptyMap(), Collections.emptyMap());
   }
 
-  @LegacyEnvAccess
   @Override
   public Catalog createCatalog(
       NameIdentifier ident,
@@ -103,7 +125,7 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
 
     try {
       // Set the creator as the owner of the catalog.
-      OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
+      OwnerDispatcher ownerDispatcher = authorizationServices.internalOwnerDispatcher();
       if (ownerDispatcher != null) {
         ownerDispatcher.setOwner(
             ident.namespace().level(0),
@@ -113,9 +135,9 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
       }
 
       // Apply the metalake securable object privileges to authorization plugin
-      FutureGrantManager futureGrantManager = GravitinoEnv.getInstance().futureGrantManager();
+      FutureGrantManager futureGrantManager = authorizationServices.futureGrantManager();
       if (futureGrantManager != null) {
-        GravitinoEnv.getInstance()
+        authorizationServices
             .catalogManager()
             .doWithCatalog(
                 ident,
@@ -153,7 +175,7 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
     }
     if (lastRenameChange != null) {
       AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.CATALOG, lastRenameChange.getNewName());
+          authorizationServices, ident, Entity.EntityType.CATALOG, lastRenameChange.getNewName());
     }
     return alteredCatalog;
   }
@@ -171,8 +193,9 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
     }
 
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.CATALOG);
-    AuthorizationUtils.removeCatalogPrivileges(ident, locations);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.CATALOG);
+    AuthorizationUtils.removeCatalogPrivileges(authorizationServices, ident, locations);
 
     // We should call the authorization plugin before dropping the catalog, because the dropping
     // catalog will close the authorization plugin. Child schema/fileset write-through secrets are

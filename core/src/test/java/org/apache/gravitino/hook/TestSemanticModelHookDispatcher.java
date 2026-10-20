@@ -76,7 +76,8 @@ public class TestSemanticModelHookDispatcher {
     FieldUtils.writeField(env, "catalogManager", mockCatalogManager(Capability.DEFAULT), true);
     try {
       SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(dispatcher, env::ownerDispatcher);
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
       SemanticModel result =
           hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
 
@@ -107,7 +108,8 @@ public class TestSemanticModelHookDispatcher {
         .thenReturn(imported);
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
     SemanticModelHookDispatcher hook =
-        new SemanticModelHookDispatcher(dispatcher, () -> ownerDispatcher);
+        new SemanticModelHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
 
     assertSame(imported, hook.importSemanticModel(IDENT, "comment", definition, properties));
 
@@ -149,7 +151,8 @@ public class TestSemanticModelHookDispatcher {
         env, "catalogManager", mockCatalogManager(new CaseInsensitiveCapability()), true);
     try {
       SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(dispatcher, env::ownerDispatcher);
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
       new SemanticModelNormalizeDispatcher(hook, env.catalogManager())
           .createSemanticModel(ident, "comment", definition, ImmutableMap.of());
 
@@ -183,7 +186,8 @@ public class TestSemanticModelHookDispatcher {
     FieldUtils.writeField(env, "ownerDispatcher", null, true);
     try {
       SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(dispatcher, env::ownerDispatcher);
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
       SemanticModel result =
           hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
 
@@ -216,7 +220,8 @@ public class TestSemanticModelHookDispatcher {
     FieldUtils.writeField(env, "catalogManager", mockCatalogManager(Capability.DEFAULT), true);
     try {
       SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(dispatcher, env::ownerDispatcher);
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
       RuntimeException thrown =
           assertThrows(
               RuntimeException.class,
@@ -251,7 +256,8 @@ public class TestSemanticModelHookDispatcher {
     FieldUtils.writeField(env, "ownerDispatcher", ownerDispatcher, true);
     try {
       SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(dispatcher, env::ownerDispatcher);
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
 
       assertSame(listed, hook.listSemanticModels(namespace));
       assertSame(loaded, hook.loadSemanticModel(IDENT));
@@ -276,7 +282,9 @@ public class TestSemanticModelHookDispatcher {
         .thenThrow(new IllegalArgumentException("rejected"));
     try (MockedStatic<GravitinoEnv> mocked = Mockito.mockStatic(GravitinoEnv.class)) {
       mocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      SemanticModelHookDispatcher hook = new SemanticModelHookDispatcher(dispatcher, () -> null);
+      SemanticModelHookDispatcher hook =
+          new SemanticModelHookDispatcher(
+              dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
       assertThrows(IllegalArgumentException.class, () -> hook.alterSemanticModel(IDENT, rename));
       hook.alterSemanticModel(IDENT, SemanticModelChange.setProperty("key", "value"));
       Mockito.when(dispatcher.dropSemanticModel(IDENT)).thenReturn(false);

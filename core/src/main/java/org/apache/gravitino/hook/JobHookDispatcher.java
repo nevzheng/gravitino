@@ -24,9 +24,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.InUseException;
@@ -42,9 +42,31 @@ import org.apache.gravitino.utils.PrincipalUtils;
 
 public class JobHookDispatcher implements JobOperationDispatcher {
   private final JobOperationDispatcher jobOperationDispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public JobHookDispatcher(JobOperationDispatcher jobOperationDispatcher) {
+  /**
+   * Creates a job hook dispatcher.
+   *
+   * @param jobOperationDispatcher the underlying job dispatcher
+   * @param authorizationServices the services that keep authorization in step with job changes
+   */
+  public JobHookDispatcher(
+      JobOperationDispatcher jobOperationDispatcher, AuthorizationServices authorizationServices) {
     this.jobOperationDispatcher = jobOperationDispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a job hook dispatcher that reads the authorization services from {@code GravitinoEnv}.
+   *
+   * @param jobOperationDispatcher the underlying job dispatcher
+   * @deprecated Use {@link #JobHookDispatcher(JobOperationDispatcher, AuthorizationServices)},
+   *     which takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public JobHookDispatcher(JobOperationDispatcher jobOperationDispatcher) {
+    this(jobOperationDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -52,14 +74,13 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     return jobOperationDispatcher.listJobTemplates(metalake);
   }
 
-  @LegacyEnvAccess
   @Override
   public void registerJobTemplate(String metalake, JobTemplateEntity jobTemplateEntity)
       throws JobTemplateAlreadyExistsException {
     jobOperationDispatcher.registerJobTemplate(metalake, jobTemplateEntity);
 
     // Set the creator as the owner of the job template.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           metalake,
@@ -83,6 +104,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
       // A job template registered later under the same name gets a new id, so drop the cached
       // mapping.
       AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(),
           NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateName),
           Entity.EntityType.JOB_TEMPLATE);
     }
@@ -98,6 +120,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     if (Arrays.stream(changes)
         .anyMatch(change -> change instanceof JobTemplateChange.RenameJobTemplate)) {
       AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(),
           NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateName),
           Entity.EntityType.JOB_TEMPLATE);
     }
@@ -117,14 +140,13 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     return jobOperationDispatcher.getJob(metalake, jobId, includeOutput, maxLines, maxBytes);
   }
 
-  @LegacyEnvAccess
   @Override
   public JobEntity runJob(String metalake, String jobTemplateName, Map<String, String> jobConf)
       throws NoSuchJobTemplateException {
     JobEntity jobEntity = jobOperationDispatcher.runJob(metalake, jobTemplateName, jobConf);
 
     // Set the creator as the owner of the job.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           metalake,

@@ -30,6 +30,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
@@ -64,7 +65,8 @@ public class TestJobHookDispatcher {
     mockAuthorizer = mock(GravitinoAuthorizer.class);
     savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
-    hookDispatcher = new JobHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new JobHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @AfterEach

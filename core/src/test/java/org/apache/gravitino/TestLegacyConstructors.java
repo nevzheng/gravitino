@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
@@ -155,7 +156,10 @@ public class TestLegacyConstructors {
                 this::schemaDispatcher,
                 secretManager,
                 lockManager),
-            new SchemaHookDispatcher(mock(SchemaDispatcher.class), lockManager));
+            new SchemaHookDispatcher(
+                mock(SchemaDispatcher.class),
+                lockManager,
+                EnvironmentAuthorizationServices.INSTANCE));
 
     setEnvLockManager(mock(LockManager.class));
     for (Object dispatcher : injected) {

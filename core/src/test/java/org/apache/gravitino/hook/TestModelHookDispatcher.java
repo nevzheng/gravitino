@@ -32,6 +32,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -85,7 +86,9 @@ public class TestModelHookDispatcher {
     savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
     hookDispatcher =
-        new ModelNormalizeDispatcher(new ModelHookDispatcher(mockDispatcher), mockCatalogManager);
+        new ModelNormalizeDispatcher(
+            new ModelHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE),
+            mockCatalogManager);
   }
 
   @AfterEach

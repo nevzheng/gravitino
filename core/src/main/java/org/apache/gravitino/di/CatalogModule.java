@@ -26,6 +26,7 @@ import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
@@ -154,8 +155,10 @@ abstract class CatalogModule {
   static MetalakeDispatcher metalakeDispatcher(
       EventBus eventBus,
       MetalakeManager metalakeManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<MetalakeDispatcher>> decorators) {
-    MetalakeHookDispatcher hook = new MetalakeHookDispatcher(metalakeManager);
+    MetalakeHookDispatcher hook =
+        new MetalakeHookDispatcher(metalakeManager, authorizationServices);
     return Decorators.apply(
         "@Public MetalakeDispatcher",
         new MetalakeEventDispatcher(eventBus, new MetalakeNormalizeDispatcher(hook)),
@@ -178,8 +181,9 @@ abstract class CatalogModule {
   static CatalogDispatcher catalogDispatcher(
       EventBus eventBus,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<CatalogDispatcher>> decorators) {
-    CatalogHookDispatcher hook = new CatalogHookDispatcher(catalogManager);
+    CatalogHookDispatcher hook = new CatalogHookDispatcher(catalogManager, authorizationServices);
     return Decorators.apply(
         "@Public CatalogDispatcher",
         new CatalogEventDispatcher(eventBus, new CatalogNormalizeDispatcher(hook)),
