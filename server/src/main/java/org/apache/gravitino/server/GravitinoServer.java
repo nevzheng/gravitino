@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.server;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
@@ -42,6 +43,7 @@ import org.apache.gravitino.catalog.TopicDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
 import org.apache.gravitino.lineage.LineageDispatcher;
 import org.apache.gravitino.lineage.LineageService;
@@ -118,13 +120,49 @@ public class GravitinoServer extends ResourceConfig {
 
   private final LineageService lineageService;
 
+  private final GravitinoAuthorizerProvider authorizerProvider;
+
+  private final Lifecycle lifecycle;
+
+  // The stop actions of the lifecycle, in stop order. Each runs at most once, whether the
+  // lifecycle or stop() runs it.
+  private final List<Lifecycle.Action> stopActions;
+
   private final AtomicBoolean isStopped = new AtomicBoolean(false);
 
   public GravitinoServer(ServerConfig config, GravitinoEnv gravitinoEnv) {
+    this(
+        config,
+        gravitinoEnv,
+        new JettyServer(),
+        new LineageService(),
+        GravitinoAuthorizerProvider.getInstance());
+  }
+
+  @VisibleForTesting
+  GravitinoServer(
+      ServerConfig config,
+      GravitinoEnv gravitinoEnv,
+      JettyServer server,
+      LineageService lineageService,
+      GravitinoAuthorizerProvider authorizerProvider) {
     this.serverConfig = config;
-    this.server = new JettyServer();
+    this.server = server;
     this.gravitinoEnv = gravitinoEnv;
-    this.lineageService = new LineageService();
+    this.lineageService = lineageService;
+    this.authorizerProvider = authorizerProvider;
+    Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
+    Lifecycle.Action closeAuthorizer = once(authorizerProvider::close);
+    Lifecycle.Action stopJetty = once(server::stop);
+    this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
+    // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
+    // requests before the authorizer closes and before the environment shuts down.
+    this.lifecycle =
+        Lifecycle.builder()
+            .add("Gravitino environment", gravitinoEnv::start, shutdownEnv)
+            .addStopOnly("Gravitino authorizer", closeAuthorizer)
+            .add("Jetty server", server::start, stopJetty)
+            .build();
   }
 
   public void initialize() {
@@ -137,7 +175,7 @@ public class GravitinoServer extends ResourceConfig {
 
     ServerAuthenticator.getInstance().initialize(serverConfig);
 
-    GravitinoAuthorizerProvider.getInstance().initialize(serverConfig);
+    authorizerProvider.initialize(serverConfig);
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -270,8 +308,7 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void start() throws Exception {
-    gravitinoEnv.start();
-    server.start();
+    lifecycle.start();
   }
 
   public void join() {
@@ -279,11 +316,30 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void stop() throws IOException {
-    GravitinoAuthorizerProvider.getInstance().close();
-    server.stop();
-    gravitinoEnv.shutdown();
-    if (lineageService != null) {
+    Exception failure = null;
+    try {
+      if (lifecycle.state() != Lifecycle.State.STARTED) {
+        // Never started, for example when initialize() failed, or a failed start stopped only
+        // what it had started: still release the rest. No stop action runs twice.
+        failure = runAll(stopActions);
+      }
+      lifecycle.close();
+    } catch (Exception e) {
+      failure = addFailure(failure, e);
+    }
+
+    try {
       lineageService.close();
+    } catch (Exception e) {
+      failure = addFailure(failure, e);
+    }
+
+    if (failure instanceof IOException) {
+      throw (IOException) failure;
+    } else if (failure instanceof RuntimeException) {
+      throw (RuntimeException) failure;
+    } else if (failure != null) {
+      throw new IOException("Failed to stop Gravitino server", failure);
     }
   }
 
@@ -350,5 +406,35 @@ public class GravitinoServer extends ResourceConfig {
       throw new IllegalArgumentException("Failed to load conf from file " + confPath, exception);
     }
     return serverConfig;
+  }
+
+  /** Returns an action that runs {@code action} the first time it is run, and then does nothing. */
+  private static Lifecycle.Action once(Lifecycle.Action action) {
+    AtomicBoolean ran = new AtomicBoolean();
+    return () -> {
+      if (ran.compareAndSet(false, true)) {
+        action.run();
+      }
+    };
+  }
+
+  private static Exception runAll(List<Lifecycle.Action> actions) {
+    Exception failure = null;
+    for (Lifecycle.Action action : actions) {
+      try {
+        action.run();
+      } catch (Exception e) {
+        failure = addFailure(failure, e);
+      }
+    }
+    return failure;
+  }
+
+  private static Exception addFailure(Exception first, Exception next) {
+    if (first == null) {
+      return next;
+    }
+    first.addSuppressed(next);
+    return first;
   }
 }
