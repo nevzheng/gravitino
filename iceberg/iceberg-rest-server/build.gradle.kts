@@ -132,6 +132,9 @@ dependencies {
   implementation(libs.commons.dbcp2)
   implementation(libs.commons.lang3)
   implementation(libs.concurrent.trees)
+  // ":core" comes without its dependencies; the standalone server builds the Dagger component,
+  // so it needs the Dagger runtime.
+  implementation(libs.dagger)
   implementation(libs.guava)
   implementation(libs.jackson.annotations)
   implementation(libs.jackson.databind)

@@ -235,6 +235,7 @@
    Jackson Xml Compatibility Extensions
    Caffeine
    Dropwizard Hadoop Metrics
+   Dagger
    Dropwizard Metrics Annotation
    Dropwizard Metrics Core
    Dropwizard Metrics Healthchecks
