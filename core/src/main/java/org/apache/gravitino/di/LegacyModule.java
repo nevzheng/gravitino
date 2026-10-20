@@ -22,6 +22,7 @@ import dagger.Module;
 import dagger.Provides;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.secret.SecretManager;
 
@@ -52,6 +53,12 @@ abstract class LegacyModule {
   @Provides
   static SecretManager secretManager(LegacyBridge legacy) {
     return legacy.secretManager();
+  }
+
+  @Provides
+  @Internal
+  static FilesetDispatcher internalFilesetDispatcher(LegacyBridge legacy) {
+    return legacy.internalFilesetDispatcher();
   }
 
   @Provides

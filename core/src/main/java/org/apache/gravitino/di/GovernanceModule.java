@@ -56,8 +56,8 @@ import org.apache.gravitino.tag.TagManager;
  *
  * <p>The public bindings need the event bus, so they are only requested by the full server profile.
  * The owner manager is only built when authorization is {@link AuthorizationEnabled enabled}; while
- * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, so they never yield {@code
- * null} and never need the relational store the owner manager requires.
+ * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, wrapped in their decorators,
+ * so they never yield {@code null} and never need the relational store the owner manager requires.
  */
 // The statistic manager is closed by GravitinoEnv.shutdown(), not by the graph.
 @SuppressWarnings("CloseableProvides")

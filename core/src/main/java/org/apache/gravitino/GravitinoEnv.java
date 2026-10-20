@@ -511,6 +511,7 @@ public class GravitinoEnv implements LegacyBridge {
    *
    * @return The internal FilesetDispatcher instance.
    */
+  @Override
   public FilesetDispatcher internalFilesetDispatcher() {
     Preconditions.checkArgument(
         internalFilesetDispatcher != null, "GravitinoEnv is not initialized.");

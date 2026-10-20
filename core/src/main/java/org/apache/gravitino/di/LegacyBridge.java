@@ -20,6 +20,7 @@ package org.apache.gravitino.di;
 
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.secret.SecretManager;
 
@@ -57,6 +58,14 @@ public interface LegacyBridge {
    * @return the secret manager
    */
   SecretManager secretManager();
+
+  /**
+   * Returns the internal fileset dispatcher, which the schema operation dispatcher uses to drop the
+   * filesets of a schema.
+   *
+   * @return the internal fileset dispatcher
+   */
+  FilesetDispatcher internalFilesetDispatcher();
 
   /**
    * Returns the event bus.

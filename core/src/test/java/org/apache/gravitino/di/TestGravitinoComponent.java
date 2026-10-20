@@ -32,6 +32,7 @@ import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.secret.SecretManager;
@@ -99,6 +100,10 @@ public class TestGravitinoComponent {
   public void testDispatcherChainsAreSingletonsAndPublicIsNotInternal() throws Exception {
     List<List<Supplier<Object>>> chains =
         List.of(
+            List.of(component::schemaDispatcher, component::internalSchemaDispatcher),
+            List.of(component::tableDispatcher, component::internalTableDispatcher),
+            List.of(component::partitionDispatcher, component::internalPartitionDispatcher),
+            List.of(component::viewDispatcher, component::internalViewDispatcher),
             List.of(component::tagDispatcher, component::internalTagDispatcher),
             List.of(component::policyDispatcher, component::internalPolicyDispatcher),
             List.of(component::statisticDispatcher, component::internalStatisticDispatcher));
@@ -128,6 +133,7 @@ public class TestGravitinoComponent {
         mock(EntityStore.class, withSettings().extraInterfaces(SupportsRelationOperations.class));
     CatalogManager catalogManager = mock(CatalogManager.class);
     SecretManager secretManager = mock(SecretManager.class);
+    FilesetDispatcher internalFilesetDispatcher = mock(FilesetDispatcher.class);
     EventBus eventBus = mock(EventBus.class);
 
     @Override
@@ -143,6 +149,11 @@ public class TestGravitinoComponent {
     @Override
     public SecretManager secretManager() {
       return secretManager;
+    }
+
+    @Override
+    public FilesetDispatcher internalFilesetDispatcher() {
+      return internalFilesetDispatcher;
     }
 
     @Override
