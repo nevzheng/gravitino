@@ -32,13 +32,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthProperties;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -76,18 +76,45 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
 
   private static final Logger LOG = LoggerFactory.getLogger(GravitinoLanceNamespaceWrapper.class);
 
+  private final AuxiliaryContext auxiliaryContext;
   private String metalakeName;
   private CatalogOperator catalogOperator;
   private LanceNamespaceOperations namespaceOperations;
   private LanceTableOperations tableOperations;
 
   @VisibleForTesting
-  GravitinoLanceNamespaceWrapper() {
+  GravitinoLanceNamespaceWrapper(AuxiliaryContext auxiliaryContext) {
     super(null);
+    this.auxiliaryContext = auxiliaryContext;
   }
 
+  /**
+   * Creates a wrapper that reads the host services from {@code GravitinoEnv}.
+   *
+   * @param config the Lance REST service configuration
+   * @param auxMode whether the service runs inside the Gravitino server
+   * @deprecated Use {@link #GravitinoLanceNamespaceWrapper(LanceConfig, boolean,
+   *     AuxiliaryContext)}.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public GravitinoLanceNamespaceWrapper(LanceConfig config, boolean auxMode) {
+    this(config, auxMode, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  /**
+   * Creates a wrapper.
+   *
+   * @param config the Lance REST service configuration
+   * @param auxMode whether the service runs inside the Gravitino server; the wrapper then calls the
+   *     server's dispatchers instead of its REST API
+   * @param auxiliaryContext the host services
+   */
+  public GravitinoLanceNamespaceWrapper(
+      LanceConfig config, boolean auxMode, AuxiliaryContext auxiliaryContext) {
     super(config, auxMode);
+    this.auxiliaryContext = auxiliaryContext;
   }
 
   @Override
@@ -162,10 +189,9 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     return loadSchema(loadCatalog(catalogName), schemaName).supportsSecrets().getSecrets();
   }
 
-  @LegacyEnvAccess
   private SecretPropertyOperationDispatcher secretDispatcher() {
     try {
-      return GravitinoEnv.getInstance().secretPropertyOperationDispatcher();
+      return auxiliaryContext.secretPropertyOperationDispatcher();
     } catch (Exception e) {
       return null;
     }
@@ -296,28 +322,26 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     return Namespace.of(metalakeName, catalogName, namespace.level(0));
   }
 
-  @LegacyEnvAccess
   private SchemaDispatcher currentSchemaDispatcher() {
     if (!isAuxMode()) {
       return null;
     }
 
-    return GravitinoEnv.getInstance().schemaDispatcher();
+    return auxiliaryContext.schemaDispatcher();
   }
 
-  @LegacyEnvAccess
   private TableDispatcher currentTableDispatcher() {
     if (!isAuxMode()) {
       return null;
     }
 
-    return GravitinoEnv.getInstance().tableDispatcher();
+    return auxiliaryContext.tableDispatcher();
   }
 
   @VisibleForTesting
   CatalogOperator createCatalogOperator(String metalakeName) {
     return isAuxMode()
-        ? new InternalCatalogOperator(metalakeName)
+        ? new InternalCatalogOperator(metalakeName, auxiliaryContext.catalogDispatcher())
         : new HttpCatalogOperator(
             config().get(NAMESPACE_BACKEND_URI), metalakeName, config(), extractClientProperties());
   }
@@ -432,10 +456,8 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     private final String metalakeName;
     private final CatalogDispatcher catalogDispatcher;
 
-    @LegacyEnvAccess
-    private InternalCatalogOperator(String metalakeName) {
+    private InternalCatalogOperator(String metalakeName, CatalogDispatcher dispatcher) {
       this.metalakeName = metalakeName;
-      CatalogDispatcher dispatcher = GravitinoEnv.getInstance().catalogDispatcher();
       Preconditions.checkState(
           dispatcher != null,
           "CatalogDispatcher is not available. Internal catalog operator requires Gravitino server mode.");

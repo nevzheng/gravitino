@@ -27,11 +27,12 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SupportsSchemas;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -41,21 +42,13 @@ import org.apache.gravitino.rel.TableCatalog;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SupportsSecrets;
 import org.apache.gravitino.utils.NameIdentifierUtil;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class TestGravitinoLanceNamespaceWrapper {
 
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogDispatcher", null, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", null, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "schemaDispatcher", null, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", null, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "secretPropertyOperationDispatcher", null, true);
-  }
+  private final AuxiliaryContext context = Mockito.mock(AuxiliaryContext.class);
 
   @Test
   public void testClientPropertiesExtraction() {
@@ -261,13 +254,58 @@ public class TestGravitinoLanceNamespaceWrapper {
   }
 
   @Test
+  @SuppressWarnings("deprecation")
+  public void testWrapperWithoutContextUsesTheEnvironment() throws IllegalAccessException {
+    LanceConfig lanceConfig =
+        new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
+
+    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, true);
+
+    Assertions.assertTrue(wrapper.isAuxMode());
+    Assertions.assertSame(
+        EnvironmentAuxiliaryContext.INSTANCE,
+        FieldUtils.readField(wrapper, "auxiliaryContext", true));
+  }
+
+  @Test
+  public void testInternalCatalogOperatorUsesTheCatalogDispatcherOfTheContext() {
+    AtomicReference<NameIdentifier> loadedCatalogIdent = new AtomicReference<>();
+    Catalog expectedCatalog = createCatalogProxy(Catalog.Type.RELATIONAL, "lakehouse-generic");
+    CatalogDispatcher catalogDispatcher =
+        (CatalogDispatcher)
+            Proxy.newProxyInstance(
+                CatalogDispatcher.class.getClassLoader(),
+                new Class<?>[] {CatalogDispatcher.class},
+                (proxy, method, args) -> {
+                  if ("loadCatalog".equals(method.getName())) {
+                    loadedCatalogIdent.set((NameIdentifier) args[0]);
+                    return expectedCatalog;
+                  }
+                  return null;
+                });
+    Mockito.when(context.catalogDispatcher()).thenReturn(catalogDispatcher);
+    LanceConfig lanceConfig =
+        new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(lanceConfig, true, context);
+
+    GravitinoLanceNamespaceWrapper.CatalogOperator operator =
+        wrapper.createCatalogOperator("test_metalake");
+
+    Assertions.assertSame(expectedCatalog, operator.loadCatalog("test_catalog"));
+    Assertions.assertEquals(
+        NameIdentifierUtil.ofCatalog("test_metalake", "test_catalog"), loadedCatalogIdent.get());
+  }
+
+  @Test
   public void testCreateCatalogOperatorUsesHttpClientInStandaloneMode() {
     LanceConfig lanceConfig =
         new LanceConfig(
             ImmutableMap.of(
                 LanceConfig.METALAKE_NAME.getKey(), "test_metalake",
                 LanceConfig.NAMESPACE_BACKEND_URI.getKey(), "http://localhost:8090"));
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, false);
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(lanceConfig, false, context);
 
     GravitinoLanceNamespaceWrapper.CatalogOperator operator =
         wrapper.createCatalogOperator("test_metalake");
@@ -278,7 +316,7 @@ public class TestGravitinoLanceNamespaceWrapper {
 
   @Test
   public void testLoadAndValidateLakehouseCatalogUsesCatalogOperator() {
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper();
+    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(context);
     Catalog expectedCatalog = createCatalogProxy(Catalog.Type.RELATIONAL, "lakehouse-generic");
     wrapper.setCatalogOperator(
         new GravitinoLanceNamespaceWrapper.CatalogOperator() {
@@ -318,7 +356,7 @@ public class TestGravitinoLanceNamespaceWrapper {
 
   @Test
   public void testPropsWithSecrets() {
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper();
+    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(context);
     Catalog catalog =
         createCatalogProxy(
             Catalog.Type.RELATIONAL,
@@ -372,7 +410,8 @@ public class TestGravitinoLanceNamespaceWrapper {
     GravitinoLanceNamespaceWrapper wrapper =
         new GravitinoLanceNamespaceWrapper(
             new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake")),
-            false);
+            false,
+            context);
     wrapper.setCatalogOperator(catalogOperatorReturning(catalog));
 
     Map<String, String> merged = wrapper.schemaPropsWithSecrets(catalog, "test_schema");
@@ -404,8 +443,7 @@ public class TestGravitinoLanceNamespaceWrapper {
             return Map.of();
           }
         };
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "secretPropertyOperationDispatcher", dispatcher, true);
+    Mockito.when(context.secretPropertyOperationDispatcher()).thenReturn(dispatcher);
 
     SchemaDispatcher schemaDispatcher =
         (SchemaDispatcher)
@@ -425,19 +463,19 @@ public class TestGravitinoLanceNamespaceWrapper {
                   }
                   return null;
                 });
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "catalogDispatcher",
-        Proxy.newProxyInstance(
-            CatalogDispatcher.class.getClassLoader(),
-            new Class<?>[] {CatalogDispatcher.class},
-            (proxy, method, args) -> null),
-        true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "schemaDispatcher", schemaDispatcher, true);
+    Mockito.when(context.catalogDispatcher())
+        .thenReturn(
+            (CatalogDispatcher)
+                Proxy.newProxyInstance(
+                    CatalogDispatcher.class.getClassLoader(),
+                    new Class<?>[] {CatalogDispatcher.class},
+                    (proxy, method, args) -> null));
+    Mockito.when(context.schemaDispatcher()).thenReturn(schemaDispatcher);
 
     LanceConfig lanceConfig =
         new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, true);
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(lanceConfig, true, context);
     wrapper.asNamespaceOps();
     wrapper.setCatalogOperator(catalogOperatorReturning(catalog));
 
@@ -474,19 +512,19 @@ public class TestGravitinoLanceNamespaceWrapper {
                   }
                   return null;
                 });
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "catalogDispatcher",
-        Proxy.newProxyInstance(
-            CatalogDispatcher.class.getClassLoader(),
-            new Class<?>[] {CatalogDispatcher.class},
-            (proxy, method, args) -> null),
-        true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "schemaDispatcher", schemaDispatcher, true);
+    Mockito.when(context.catalogDispatcher())
+        .thenReturn(
+            (CatalogDispatcher)
+                Proxy.newProxyInstance(
+                    CatalogDispatcher.class.getClassLoader(),
+                    new Class<?>[] {CatalogDispatcher.class},
+                    (proxy, method, args) -> null));
+    Mockito.when(context.schemaDispatcher()).thenReturn(schemaDispatcher);
 
     LanceConfig lanceConfig =
         new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, true);
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(lanceConfig, true, context);
     wrapper.asNamespaceOps();
 
     Schema actualSchema =
@@ -528,19 +566,19 @@ public class TestGravitinoLanceNamespaceWrapper {
                   }
                   return null;
                 });
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "catalogDispatcher",
-        Proxy.newProxyInstance(
-            CatalogDispatcher.class.getClassLoader(),
-            new Class<?>[] {CatalogDispatcher.class},
-            (proxy, method, args) -> null),
-        true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", tableDispatcher, true);
+    Mockito.when(context.catalogDispatcher())
+        .thenReturn(
+            (CatalogDispatcher)
+                Proxy.newProxyInstance(
+                    CatalogDispatcher.class.getClassLoader(),
+                    new Class<?>[] {CatalogDispatcher.class},
+                    (proxy, method, args) -> null));
+    Mockito.when(context.tableDispatcher()).thenReturn(tableDispatcher);
 
     LanceConfig lanceConfig =
         new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, true);
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(lanceConfig, true, context);
     wrapper.asTableOps();
 
     TableCatalog tableCatalog =

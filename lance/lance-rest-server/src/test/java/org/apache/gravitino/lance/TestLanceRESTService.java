@@ -19,14 +19,58 @@
 package org.apache.gravitino.lance;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
+import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
+import java.util.Map;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.lance.common.config.LanceConfig;
+import org.apache.gravitino.lance.common.ops.NamespaceWrapper;
+import org.apache.gravitino.lance.common.ops.gravitino.GravitinoLanceNamespaceWrapper;
 import org.apache.gravitino.server.web.JettyServerConfig;
 import org.junit.jupiter.api.Test;
 
 public class TestLanceRESTService {
+
+  @Test
+  public void testInitWithoutContextUsesTheEnvironment() {
+    LanceRESTService service = spy(new LanceRESTService());
+    doNothing().when(service).serviceInit(any(), anyBoolean(), any(AuxiliaryContext.class));
+    Map<String, String> properties = Collections.emptyMap();
+
+    service.serviceInit(properties, true);
+
+    verify(service).serviceInit(properties, true, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  @Test
+  public void testNamespaceWrapperReceivesTheContext() throws Exception {
+    AuxiliaryContext context = mock(AuxiliaryContext.class);
+    LanceConfig lanceConfig =
+        new LanceConfig(
+            ImmutableMap.of(
+                LanceConfig.NAMESPACE_BACKEND.getKey(),
+                LanceConfig.GRAVITINO_NAMESPACE_BACKEND,
+                LanceConfig.METALAKE_NAME.getKey(),
+                "metalake"));
+
+    NamespaceWrapper wrapper = LanceRESTService.loadNamespaceImpl(lanceConfig, true, context);
+
+    assertInstanceOf(GravitinoLanceNamespaceWrapper.class, wrapper);
+    assertTrue(wrapper.isAuxMode());
+    assertSame(context, FieldUtils.readField(wrapper, "auxiliaryContext", true));
+  }
 
   /** The documented Lance REST key reaches the value the service passes to its error builder. */
   @Test
