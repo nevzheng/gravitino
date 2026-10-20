@@ -27,34 +27,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
-import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.FunctionDispatcher;
-import org.apache.gravitino.catalog.ModelDispatcher;
-import org.apache.gravitino.catalog.PartitionDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.SemanticModelDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
-import org.apache.gravitino.catalog.TopicDispatcher;
-import org.apache.gravitino.catalog.ViewDispatcher;
-import org.apache.gravitino.credential.CredentialOperationDispatcher;
-import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
-import org.apache.gravitino.lineage.LineageDispatcher;
 import org.apache.gravitino.lineage.LineageService;
 import org.apache.gravitino.listener.api.event.EventSource;
-import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
-import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
-import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.ConfigServlet;
@@ -68,7 +50,6 @@ import org.apache.gravitino.server.web.OutOfMemoryErrorListener;
 import org.apache.gravitino.server.web.RequestContextFilter;
 import org.apache.gravitino.server.web.VersioningFilter;
 import org.apache.gravitino.server.web.filter.AccessControlNotAllowedFilter;
-import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.mapper.ErrorExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonMappingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonParseExceptionMapper;
@@ -76,12 +57,7 @@ import org.apache.gravitino.server.web.mapper.JsonProcessingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.NotFoundExceptionMapper;
 import org.apache.gravitino.server.web.mapper.ParamExceptionMapper;
 import org.apache.gravitino.server.web.mapper.WebApplicationExceptionMapper;
-import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.server.web.ui.WebUIFilter;
-import org.apache.gravitino.stats.StatisticDispatcher;
-import org.apache.gravitino.tag.TagDispatcher;
-import org.glassfish.hk2.api.InterceptionService;
-import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.CommonProperties;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -198,43 +174,7 @@ public class GravitinoServer extends ResourceConfig {
     packages(restApiPackagesSet.toArray(new String[0]));
 
     boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-    register(
-        new AbstractBinder() {
-          @Override
-          protected void configure() {
-            if (serverConfig.get(Configs.ENABLE_AUTHORIZATION)) {
-              bind(GravitinoInterceptionService.class)
-                  .to(InterceptionService.class)
-                  .in(Singleton.class);
-            }
-            bind(gravitinoEnv.metalakeDispatcher()).to(MetalakeDispatcher.class).ranked(1);
-            bind(gravitinoEnv.catalogDispatcher()).to(CatalogDispatcher.class).ranked(1);
-            bind(gravitinoEnv.schemaDispatcher()).to(SchemaDispatcher.class).ranked(1);
-            bindAsContract(SemanticModelSourceValidator.class);
-            bind(gravitinoEnv.tableDispatcher()).to(TableDispatcher.class).ranked(1);
-            bind(gravitinoEnv.viewDispatcher()).to(ViewDispatcher.class).ranked(1);
-            bind(gravitinoEnv.partitionDispatcher()).to(PartitionDispatcher.class).ranked(1);
-            bind(gravitinoEnv.filesetDispatcher()).to(FilesetDispatcher.class).ranked(1);
-            bind(gravitinoEnv.topicDispatcher()).to(TopicDispatcher.class).ranked(1);
-            bind(gravitinoEnv.tagDispatcher()).to(TagDispatcher.class).ranked(1);
-            bind(gravitinoEnv.policyDispatcher()).to(PolicyDispatcher.class).ranked(1);
-            bind(gravitinoEnv.credentialOperationDispatcher())
-                .to(CredentialOperationDispatcher.class)
-                .ranked(1);
-            bind(gravitinoEnv.secretPropertyOperationDispatcher())
-                .to(SecretPropertyOperationDispatcher.class)
-                .ranked(1);
-            bind(gravitinoEnv.secretProviderRegistry()).to(SecretProviderRegistry.class).ranked(1);
-            bind(gravitinoEnv.modelDispatcher()).to(ModelDispatcher.class).ranked(1);
-            bind(gravitinoEnv.functionDispatcher()).to(FunctionDispatcher.class).ranked(1);
-            bind(gravitinoEnv.semanticModelDispatcher())
-                .to(SemanticModelDispatcher.class)
-                .ranked(1);
-            bind(lineageService).to(LineageDispatcher.class).ranked(1);
-            bind(gravitinoEnv.jobOperationDispatcher()).to(JobOperationDispatcher.class).ranked(1);
-            bind(gravitinoEnv.statisticDispatcher()).to(StatisticDispatcher.class).ranked(1);
-          }
-        });
+    register(new GravitinoEnvBinder(gravitinoEnv, enableAuthorization, lineageService));
     register(JsonProcessingExceptionMapper.class);
     register(new OutOfMemoryErrorListener());
     register(ErrorExceptionMapper.class);
