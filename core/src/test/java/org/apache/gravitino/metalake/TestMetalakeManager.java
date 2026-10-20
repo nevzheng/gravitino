@@ -89,7 +89,8 @@ public class TestMetalakeManager {
 
     lockManager = new LockManager(config);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
-    metalakeManager = new MetalakeManager(entityStore, new RandomIdGenerator(), lockManager);
+    metalakeManager =
+        new MetalakeManager(entityStore, new RandomIdGenerator(), null, new LockManager(config));
   }
 
   @AfterAll
@@ -232,7 +233,8 @@ public class TestMetalakeManager {
   public void testDropMetalakeReturnsFalseWhenConcurrentDeleteWins() throws IOException {
     InMemoryEntityStore store = Mockito.spy(new InMemoryEntityStore());
     store.initialize(config);
-    MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator(), lockManager);
+    MetalakeManager manager =
+        new MetalakeManager(store, new RandomIdGenerator(), null, new LockManager(config));
     NameIdentifier ident = NameIdentifier.of("concurrently_deleted_metalake");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     Mockito.doThrow(
@@ -362,6 +364,35 @@ public class TestMetalakeManager {
         .dropCatalog(NameIdentifier.of(metalakeIdent.name(), "leftover_catalog"), true);
 
     store.close();
+  }
+
+  @Test
+  public void testEnableAndDisableMarkTheCatalogsThroughTheGivenCatalogManager() throws Exception {
+    CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
+    MetalakeManager manager =
+        new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
+    NameIdentifier ident = NameIdentifier.of("metalake_in_use_catalogs");
+    manager.createMetalake(ident, "comment", ImmutableMap.of());
+    NameIdentifier catalogIdent = NameIdentifier.of(ident.name(), "catalog1");
+    entityStore.put(
+        CatalogEntity.builder()
+            .withId(new RandomIdGenerator().nextId())
+            .withName(catalogIdent.name())
+            .withNamespace(Namespace.of(ident.name()))
+            .withType(Catalog.Type.RELATIONAL)
+            .withProvider("hive")
+            .withAuditInfo(
+                AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build())
+            .build(),
+        false);
+
+    manager.disableMetalake(ident);
+    Mockito.verify(catalogManager).setMetalakeInUseStatus(catalogIdent, false);
+    manager.enableMetalake(ident);
+    Mockito.verify(catalogManager).setMetalakeInUseStatus(catalogIdent, true);
+
+    manager.disableMetalake(ident);
+    manager.dropMetalake(ident, true);
   }
 
   @Test
