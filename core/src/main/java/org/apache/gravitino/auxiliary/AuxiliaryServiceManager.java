@@ -79,7 +79,11 @@ public class AuxiliaryServiceManager {
   /**
    * Creates a manager that initializes its services without an {@link AuxiliaryContext}, through
    * {@link GravitinoAuxiliaryService#serviceInit(Map, boolean)}.
+   *
+   * @deprecated The services of this manager get no context, so they read host services from {@code
+   *     GravitinoEnv}. Use {@link #AuxiliaryServiceManager(AuxiliaryContext)}.
    */
+  @Deprecated
   public AuxiliaryServiceManager() {
     this.context = null;
   }

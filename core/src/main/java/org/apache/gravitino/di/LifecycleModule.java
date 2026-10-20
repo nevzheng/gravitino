@@ -30,6 +30,7 @@ import java.util.Set;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
@@ -80,8 +81,7 @@ abstract class LifecycleModule {
 
   @Provides
   @Singleton
-  static Lifecycle lifecycle(
-      BuiltServices built, LegacyBridge legacy, Provider<Set<ManagedService>> managedServices) {
+  static Lifecycle lifecycle(BuiltServices built, Provider<Set<ManagedService>> managedServices) {
     // Services are listed in start order and stop in reverse.
     Lifecycle.Builder lifecycle = Lifecycle.builder();
     lifecycle
@@ -120,7 +120,17 @@ abstract class LifecycleModule {
                     () ->
                         built.ifBuilt(
                             BuiltServices.EVENT_LISTENER_MANAGER, EventListenerManager::stop)))
-        .add("auxiliary services", legacy::startAuxiliaryServices, legacy::stopAuxiliaryServices)
+        .add(
+            "auxiliary services",
+            () ->
+                built.ifBuilt(
+                    BuiltServices.AUXILIARY_SERVICE_MANAGER, AuxiliaryServiceManager::serviceStart),
+            logFailure(
+                "Failed to stop AuxServiceManager",
+                () ->
+                    built.ifBuilt(
+                        BuiltServices.AUXILIARY_SERVICE_MANAGER,
+                        AuxiliaryServiceManager::serviceStop)))
         .addStopOnly(
             "catalog manager",
             () -> built.ifBuilt(BuiltServices.CATALOG_MANAGER, CatalogManager::close))

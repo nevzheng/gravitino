@@ -22,6 +22,7 @@ package org.apache.gravitino.auxiliary;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,6 +40,8 @@ import org.junit.jupiter.api.Test;
 
 public class TestAuxiliaryServiceManager {
 
+  private final AuxiliaryContext context = mock(AuxiliaryContext.class);
+
   static class DummyConfig extends Config {
 
     public static DummyConfig of(Map<String, String> m) {
@@ -50,7 +53,7 @@ public class TestAuxiliaryServiceManager {
 
   @Test
   public void testGravitinoAuxServiceManagerEmptyServiceName() throws Exception {
-    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager();
+    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager(context);
     auxServiceManager.serviceInit(
         DummyConfig.of(
             ImmutableMap.of(
@@ -63,7 +66,7 @@ public class TestAuxiliaryServiceManager {
 
   @Test
   public void testGravitinoAuxServiceNotSetClassPath() {
-    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager();
+    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager(context);
     Assertions.assertThrowsExactly(
         IllegalArgumentException.class,
         () ->
@@ -84,7 +87,7 @@ public class TestAuxiliaryServiceManager {
         new IsolatedClassLoader(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
-    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager();
+    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager(context);
     AuxiliaryServiceManager spyAuxManager = spy(auxServiceManager);
 
     doReturn(isolatedClassLoader).when(spyAuxManager).getIsolatedClassLoader(anyList());
@@ -101,8 +104,8 @@ public class TestAuxiliaryServiceManager {
                 "/tmp",
                 "gravitino.mock2." + AuxiliaryServiceManager.AUX_SERVICE_CLASSPATH,
                 "/tmp")));
-    verify(auxService, times(1)).serviceInit(any(), anyBoolean());
-    verify(auxService2, times(1)).serviceInit(any(), anyBoolean());
+    verify(auxService, times(1)).serviceInit(any(), anyBoolean(), same(context));
+    verify(auxService2, times(1)).serviceInit(any(), anyBoolean(), same(context));
 
     spyAuxManager.serviceStart();
     verify(auxService, times(1)).serviceStart();
@@ -116,7 +119,6 @@ public class TestAuxiliaryServiceManager {
   @Test
   public void testServicesAreInitializedWithTheContext() throws Exception {
     GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);
-    AuxiliaryContext context = mock(AuxiliaryContext.class);
     IsolatedClassLoader isolatedClassLoader =
         new IsolatedClassLoader(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
@@ -141,6 +143,31 @@ public class TestAuxiliaryServiceManager {
     verify(auxService, never()).serviceInit(any(), anyBoolean());
   }
 
+  @SuppressWarnings("deprecation")
+  @Test
+  public void testManagerWithoutContextUsesTheTwoArgumentInit() throws Exception {
+    GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);
+    IsolatedClassLoader isolatedClassLoader =
+        new IsolatedClassLoader(
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    AuxiliaryServiceManager spyAuxManager = spy(new AuxiliaryServiceManager());
+    doReturn(isolatedClassLoader).when(spyAuxManager).getIsolatedClassLoader(anyList());
+    doReturn(auxService).when(spyAuxManager).loadAuxService("mock1", isolatedClassLoader);
+
+    spyAuxManager.serviceInit(
+        DummyConfig.of(
+            ImmutableMap.of(
+                AuxiliaryServiceManager.GRAVITINO_AUX_SERVICE_PREFIX
+                    + AuxiliaryServiceManager.AUX_SERVICE_NAMES,
+                "mock1",
+                "gravitino.mock1." + AuxiliaryServiceManager.AUX_SERVICE_CLASSPATH,
+                "/tmp")));
+
+    verify(auxService).serviceInit(ImmutableMap.of("classpath", "/tmp"), true);
+    verify(auxService, never()).serviceInit(any(), anyBoolean(), any());
+  }
+
   @Test
   public void testIsAuxServiceRegistered() throws Exception {
     GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);
@@ -148,7 +175,7 @@ public class TestAuxiliaryServiceManager {
         new IsolatedClassLoader(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
-    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager();
+    AuxiliaryServiceManager auxServiceManager = new AuxiliaryServiceManager(context);
     AuxiliaryServiceManager spyAuxManager = spy(auxServiceManager);
     doReturn(isolatedClassLoader).when(spyAuxManager).getIsolatedClassLoader(anyList());
     doReturn(auxService).when(spyAuxManager).loadAuxService("iceberg-rest", isolatedClassLoader);
