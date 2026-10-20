@@ -25,10 +25,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -44,7 +44,6 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
@@ -52,8 +51,8 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -83,7 +82,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.MockedStatic;
 
 /** Verifies capability-normalized authorization cache keys through local and peer invalidation. */
 public class TestJcasbinMetadataIdCacheNormalization {
@@ -102,17 +100,16 @@ public class TestJcasbinMetadataIdCacheNormalization {
   private CatalogManager catalogs;
   private BaseCatalog<?> catalog;
   private EntityStore store;
-  private GravitinoEnv env;
+  private AuthorizationServices services;
   private JcasbinAuthorizationLookups lookups;
   private MetadataIdResolver resolver;
   private GravitinoAuthorizer authorizer;
-  private MockedStatic<GravitinoEnv> envMock;
 
   @BeforeEach
   void setup() throws Exception {
     metadataCache = new CaffeineGravitinoCache<>(60_000L, 100L);
     ownerCache = new CaffeineGravitinoCache<>(60_000L, 100L);
-    resolver = new MetadataIdResolver(() -> env.catalogManager(), () -> env.entityStore());
+    resolver = new MetadataIdResolver(() -> catalogs, () -> store);
     lookups = new JcasbinAuthorizationLookups(metadataCache, ownerCache, resolver);
     JcasbinAuthorizer localAuthorizer = new JcasbinAuthorizer(resolver);
     // The name-ID hook only needs the same cache owned by the initialized authorizer.
@@ -141,26 +138,22 @@ public class TestJcasbinMetadataIdCacheNormalization {
               }
               return entity;
             });
-    env = mock(GravitinoEnv.class);
-    when(env.entityStore()).thenReturn(store);
-    when(env.catalogManager()).thenReturn(catalogs);
-    when(env.gravitinoAuthorizer()).thenReturn(authorizer);
-    when(env.internalAccessControlDispatcher()).thenReturn(mock(AccessControlDispatcher.class));
+    // The services the hooks read; the default authorizationEnabled() sees the dispatcher.
+    services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
+    when(services.catalogManager()).thenReturn(catalogs);
+    when(services.gravitinoAuthorizer()).thenReturn(authorizer);
+    when(services.internalAccessControlDispatcher())
+        .thenReturn(mock(AccessControlDispatcher.class));
     CatalogDispatcher catalogDispatcher = mock(CatalogDispatcher.class);
     when(catalogDispatcher.loadCatalog(any())).thenReturn(catalog);
-    when(env.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
+    when(services.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
     SchemaDispatcher schemaDispatcher = mock(SchemaDispatcher.class);
     when(schemaDispatcher.loadSchema(any())).thenReturn(mock(Schema.class));
-    when(env.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
-    envMock = mockStatic(GravitinoEnv.class);
-    envMock.when(GravitinoEnv::getInstance).thenReturn(env);
+    when(services.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
   }
 
   @AfterEach
   void cleanup() {
-    if (envMock != null) {
-      envMock.close();
-    }
     metadataCache.close();
     ownerCache.close();
   }
@@ -180,7 +173,8 @@ public class TestJcasbinMetadataIdCacheNormalization {
     MetadataObject normalized = object(type, false);
     put(normalized, 100L);
     assertAliasesShareBothCacheTiers(alias, normalized);
-    AuthorizationUtils.notifyEntityNameIdMappingChange(ident(normalized), entityType(type));
+    AuthorizationUtils.notifyEntityNameIdMappingChange(
+        authorizer, ident(normalized), entityType(type));
     assertEquals(0L, metadataCache.size());
     entities.remove(ident(normalized));
     assertEquals(Optional.empty(), resolve(alias));
@@ -221,7 +215,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     assertEquals(Optional.of(100L), resolve(upper));
     assertEquals(Optional.of(200L), resolve(lower));
     assertEquals(2L, metadataCache.size());
-    AuthorizationUtils.notifyEntityNameIdMappingChange(ident(upper), entityType(type));
+    AuthorizationUtils.notifyEntityNameIdMappingChange(authorizer, ident(upper), entityType(type));
     put(upper, 300L);
     assertEquals(Optional.of(300L), resolve(upper));
     assertEquals(Optional.of(200L), resolve(lower));
@@ -238,9 +232,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     assertEquals(Optional.of(100L), resolve(object(MetadataObject.Type.TABLE, true)));
     TableDispatcher dispatcher = mock(TableDispatcher.class);
     when(dispatcher.dropTable(ident(table))).thenReturn(true);
-    assertTrue(
-        new TableHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE)
-            .dropTable(ident(table)));
+    assertTrue(new TableHookDispatcher(dispatcher, services).dropTable(ident(table)));
     assertEquals(0L, metadataCache.size());
     put(table, 300L);
     assertEquals(Optional.of(300L), resolve(object(MetadataObject.Type.TABLE, true)));
@@ -260,8 +252,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     TableDispatcher dispatcher = mock(TableDispatcher.class);
     TableChange rename = TableChange.rename("renamed");
     when(dispatcher.alterTable(ident(old), rename)).thenReturn(mock(Table.class));
-    new TableHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE)
-        .alterTable(ident(old), rename);
+    new TableHookDispatcher(dispatcher, services).alterTable(ident(old), rename);
     entities.remove(ident(old));
     put(renamed, 100L);
     assertEquals(Optional.empty(), resolve(alias));
@@ -283,8 +274,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     SchemaDispatcher dispatcher = mock(SchemaDispatcher.class);
     when(dispatcher.dropSchema(ident(schema), true)).thenReturn(true);
     assertTrue(
-        new SchemaHookDispatcher(
-                dispatcher, mock(LockManager.class), EnvironmentAuthorizationServices.INSTANCE)
+        new SchemaHookDispatcher(dispatcher, mock(LockManager.class), services)
             .dropSchema(ident(schema), true));
     assertEquals(0L, metadataCache.size());
     assertEquals(Optional.of(200L), resolve(object(MetadataObject.Type.TABLE, true)));

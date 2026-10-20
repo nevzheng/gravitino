@@ -45,7 +45,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -62,7 +61,6 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -73,39 +71,32 @@ import org.mockito.MockedStatic;
 /** Test of {@link MetadataAccessChecker} */
 public class TestMetadataAccessChecker {
 
-  private static MockedStatic<GravitinoEnv> mockedStaticGravitinoEnv;
-  private static GravitinoEnv gravitinoEnv;
+  /** The host services the checker reads; each test can change them. */
+  private static final class HostServices {
+    private Config config;
+    private boolean cacheEnabled;
+    private AccessControlDispatcher internalAccessControlDispatcher;
+    private EntityStore entityStore;
+    private SchemaDispatcher internalSchemaDispatcher;
+  }
 
-  // Reads the mocked environment and authorizer provider on every check, so each test can change
-  // them.
+  private static final HostServices services = new HostServices();
+
+  // Reads the host services and authorizer provider on every check, so each test can change them.
   private static final MetadataAccessChecker checker =
       new MetadataAccessChecker(
-          () -> {
-            Config config = gravitinoEnv.config();
-            return config != null && config.get(Configs.ENABLE_AUTHORIZATION);
-          },
-          () ->
-              gravitinoEnv.cacheEnabled() && gravitinoEnv.internalAccessControlDispatcher() != null,
+          () -> services.config != null && services.config.get(Configs.ENABLE_AUTHORIZATION),
+          () -> services.cacheEnabled && services.internalAccessControlDispatcher != null,
           () -> 2,
           () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
-          () -> gravitinoEnv.entityStore(),
-          () -> gravitinoEnv.internalSchemaDispatcher());
+          () -> services.entityStore,
+          () -> services.internalSchemaDispatcher);
 
   @BeforeAll
   public static void setup() {
-    mockedStaticGravitinoEnv = mockStatic(GravitinoEnv.class);
-    gravitinoEnv = mock(GravitinoEnv.class);
-    mockedStaticGravitinoEnv.when(GravitinoEnv::getInstance).thenReturn(gravitinoEnv);
     Config configMock = mock(Config.class);
-    when(gravitinoEnv.config()).thenReturn(configMock);
+    services.config = configMock;
     when(configMock.get(eq(Configs.ENABLE_AUTHORIZATION))).thenReturn(true);
-  }
-
-  @AfterAll
-  public static void stop() {
-    if (mockedStaticGravitinoEnv != null) {
-      mockedStaticGravitinoEnv.close();
-    }
   }
 
   @Test
@@ -169,7 +160,7 @@ public class TestMetadataAccessChecker {
 
   @Test
   public void testFilterPreservesDottedExternalObjectNameWithoutAuthorization() {
-    Config config = gravitinoEnv.config();
+    Config config = services.config;
     when(config.get(eq(Configs.ENABLE_AUTHORIZATION))).thenReturn(false);
     NameIdentifier[] identifiers = {
       NameIdentifier.of("testMetalake", "testCatalog", "testSchema", "object.with.dot")
@@ -192,9 +183,9 @@ public class TestMetadataAccessChecker {
     NameIdentifier tableIdentifier = NameIdentifier.of("metalake", "catalog", "schema", "table");
     NameIdentifier schemaIdentifier = NameIdentifier.of("metalake", "catalog", "schema");
 
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
-    when(gravitinoEnv.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    when(gravitinoEnv.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
+    services.cacheEnabled = true;
+    services.internalAccessControlDispatcher = accessControlDispatcher;
+    services.internalSchemaDispatcher = schemaDispatcher;
     when(schemaDispatcher.schemaExists(schemaIdentifier)).thenReturn(false);
 
     Method preload =
@@ -206,9 +197,9 @@ public class TestMetadataAccessChecker {
           checker, new Object[] {Entity.EntityType.TABLE, new NameIdentifier[] {tableIdentifier}});
       verify(schemaDispatcher).schemaExists(schemaIdentifier);
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.internalAccessControlDispatcher()).thenReturn(null);
-      when(gravitinoEnv.internalSchemaDispatcher()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.internalAccessControlDispatcher = null;
+      services.internalSchemaDispatcher = null;
     }
   }
 
@@ -307,8 +298,8 @@ public class TestMetadataAccessChecker {
       names = {"USER", "GROUP"})
   public void testPrincipalListDoesNotPreloadOwners(Entity.EntityType type) {
     EntityStore store = mock(EntityStore.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
+    services.entityStore = store;
+    services.cacheEnabled = true;
     GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
     NameIdentifier[] identifiers = principalIdentifiers(type, 1003);
     when(authorizer.isSelf(eq(type), eq(identifiers[1]), any())).thenReturn(true);
@@ -323,8 +314,8 @@ public class TestMetadataAccessChecker {
             verifyNoInteractions(store);
           });
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
     }
   }
 
@@ -335,8 +326,8 @@ public class TestMetadataAccessChecker {
       names = {"USER", "GROUP", "ROLE"})
   public void testPrincipalListManagementGrantSkipsPerObjectWork(Entity.EntityType type) {
     EntityStore store = mock(EntityStore.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
+    services.entityStore = store;
+    services.cacheEnabled = true;
     Privilege.Name privilege = principalManagementPrivilege(type);
     GravitinoAuthorizer authorizer =
         mockParentGrantAuthorizer(MetadataObject.Type.METALAKE, privilege);
@@ -354,8 +345,8 @@ public class TestMetadataAccessChecker {
             verifyNoInteractions(store);
           });
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
     }
   }
 
@@ -440,8 +431,8 @@ public class TestMetadataAccessChecker {
   public void testRoleListFallbackDoesNotPreloadOwners() {
     EntityStore store = mock(EntityStore.class);
     SupportsRelationOperations relations = mock(SupportsRelationOperations.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
+    services.entityStore = store;
+    services.cacheEnabled = true;
     lenient().when(store.relationOperations()).thenReturn(relations);
     NameIdentifier[] identifiers = principalIdentifiers(Entity.EntityType.ROLE, 3);
     try {
@@ -458,8 +449,8 @@ public class TestMetadataAccessChecker {
                       .length));
       verifyNoInteractions(relations);
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
     }
   }
 
@@ -470,10 +461,9 @@ public class TestMetadataAccessChecker {
   @Test
   public void testListShortCircuitModelViaSchemaGrant() {
     EntityStore store = mock(EntityStore.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
-    when(gravitinoEnv.internalAccessControlDispatcher())
-        .thenReturn(mock(AccessControlDispatcher.class));
+    services.entityStore = store;
+    services.cacheEnabled = true;
+    services.internalAccessControlDispatcher = mock(AccessControlDispatcher.class);
     GravitinoAuthorizer authorizer =
         mockParentGrantAuthorizer(MetadataObject.Type.SCHEMA, Privilege.Name.USE_MODEL);
     NameIdentifier[] models = models(2000);
@@ -498,9 +488,9 @@ public class TestMetadataAccessChecker {
             verifyNoInteractions(store);
           });
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
-      when(gravitinoEnv.internalAccessControlDispatcher()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
+      services.internalAccessControlDispatcher = null;
     }
   }
 
@@ -537,10 +527,9 @@ public class TestMetadataAccessChecker {
   @Test
   public void testModelListFallbackDoesNotBatchLoadEntities() {
     EntityStore store = mock(EntityStore.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
-    when(gravitinoEnv.internalAccessControlDispatcher())
-        .thenReturn(mock(AccessControlDispatcher.class));
+    services.entityStore = store;
+    services.cacheEnabled = true;
+    services.internalAccessControlDispatcher = mock(AccessControlDispatcher.class);
     NameIdentifier[] models = models(3);
     try {
       withAuthorizer(
@@ -557,9 +546,9 @@ public class TestMetadataAccessChecker {
             verifyNoInteractions(store);
           });
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
-      when(gravitinoEnv.internalAccessControlDispatcher()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
+      services.internalAccessControlDispatcher = null;
     }
   }
 
@@ -567,8 +556,8 @@ public class TestMetadataAccessChecker {
   @Test
   public void testListShortCircuitJobTemplateViaMetalakeGrant() {
     EntityStore store = mock(EntityStore.class);
-    when(gravitinoEnv.entityStore()).thenReturn(store);
-    when(gravitinoEnv.cacheEnabled()).thenReturn(true);
+    services.entityStore = store;
+    services.cacheEnabled = true;
     GravitinoAuthorizer authorizer =
         mockParentGrantAuthorizer(MetadataObject.Type.METALAKE, Privilege.Name.USE_JOB_TEMPLATE);
     NameIdentifier[] templates =
@@ -592,8 +581,8 @@ public class TestMetadataAccessChecker {
             verifyNoInteractions(store);
           });
     } finally {
-      when(gravitinoEnv.cacheEnabled()).thenReturn(false);
-      when(gravitinoEnv.entityStore()).thenReturn(null);
+      services.cacheEnabled = false;
+      services.entityStore = null;
     }
   }
 
