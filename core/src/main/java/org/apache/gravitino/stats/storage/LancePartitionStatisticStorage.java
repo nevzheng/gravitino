@@ -70,7 +70,6 @@ import org.lance.ipc.ScanOptions;
 import org.lance.operation.Append;
 
 /** LancePartitionStatisticStorage is based on Lance format files. */
-@LegacyEnvAccess
 public class LancePartitionStatisticStorage implements PartitionStatisticStorage {
 
   private static final String LOCATION = "location";
@@ -119,9 +118,29 @@ public class LancePartitionStatisticStorage implements PartitionStatisticStorage
   private final long indexCacheSize;
   private final int maxStatisticsPerUpdate;
 
-  private final EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+  private final EntityStore entityStore;
 
+  /**
+   * Creates a Lance partition statistics storage that reads tables from the entity store of {@code
+   * GravitinoEnv}.
+   *
+   * @param properties the storage configuration
+   * @deprecated Use {@link #LancePartitionStatisticStorage(Map, EntityStore)}.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public LancePartitionStatisticStorage(Map<String, String> properties) {
+    this(properties, envEntityStore());
+  }
+
+  /**
+   * Creates a Lance partition statistics storage.
+   *
+   * @param properties the storage configuration
+   * @param entityStore the entity store that holds the tables whose statistics are stored
+   */
+  public LancePartitionStatisticStorage(Map<String, String> properties, EntityStore entityStore) {
+    this.entityStore = entityStore;
     this.allocator = new RootAllocator();
     this.location = properties.getOrDefault(LOCATION, DEFAULT_LOCATION);
     this.maxRowsPerFile =
@@ -522,5 +541,10 @@ public class LancePartitionStatisticStorage implements PartitionStatisticStorage
         throw illegalArgumentException;
       }
     }
+  }
+
+  @LegacyEnvAccess
+  private static EntityStore envEntityStore() {
+    return GravitinoEnv.getInstance().entityStore();
   }
 }

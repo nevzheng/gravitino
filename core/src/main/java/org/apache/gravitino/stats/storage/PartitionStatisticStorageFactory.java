@@ -19,6 +19,7 @@
 package org.apache.gravitino.stats.storage;
 
 import java.util.Map;
+import org.apache.gravitino.EntityStore;
 
 /**
  * Factory interface for creating instances of {@link
@@ -33,4 +34,20 @@ public interface PartitionStatisticStorageFactory {
    * @return an instance of {@link org.apache.gravitino.stats.storage.PartitionStatisticStorage}
    */
   PartitionStatisticStorage create(Map<String, String> properties);
+
+  /**
+   * Creates an instance of {@link org.apache.gravitino.stats.storage.PartitionStatisticStorage}
+   * that reads table metadata from the given entity store.
+   *
+   * <p>The default ignores the store and calls {@link #create(Map)}, for factories that do not read
+   * table metadata.
+   *
+   * @param properties additional properties for the storage configuration
+   * @param entityStore the entity store that holds the tables whose statistics are stored
+   * @return an instance of {@link org.apache.gravitino.stats.storage.PartitionStatisticStorage}
+   */
+  default PartitionStatisticStorage create(
+      Map<String, String> properties, EntityStore entityStore) {
+    return create(properties);
+  }
 }

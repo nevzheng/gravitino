@@ -104,7 +104,7 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
       PartitionStatisticStorageFactory factory =
           (PartitionStatisticStorageFactory)
               Class.forName(className).getDeclaredConstructor().newInstance();
-      this.partitionStorage = factory.create(options);
+      this.partitionStorage = factory.create(options, store);
     } catch (Exception e) {
       LOG.error(
           "Failed to create and initialize partition statistics storage factory by name {}.",

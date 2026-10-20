@@ -19,10 +19,24 @@
 package org.apache.gravitino.stats.storage;
 
 import java.util.Map;
+import org.apache.gravitino.EntityStore;
 
 public class LancePartitionStatisticStorageFactory implements PartitionStatisticStorageFactory {
+  /**
+   * Creates the storage, which reads table metadata from the entity store of {@code GravitinoEnv}.
+   * The server calls {@link #create(Map, EntityStore)} instead.
+   *
+   * @param properties the storage configuration
+   * @return the storage
+   */
   @Override
+  @SuppressWarnings("deprecation")
   public PartitionStatisticStorage create(Map<String, String> properties) {
     return new LancePartitionStatisticStorage(properties);
+  }
+
+  @Override
+  public PartitionStatisticStorage create(Map<String, String> properties, EntityStore entityStore) {
+    return new LancePartitionStatisticStorage(properties, entityStore);
   }
 }

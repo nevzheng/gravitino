@@ -272,7 +272,8 @@ public class TestLancePartitionStatisticStorage {
 
       IllegalArgumentException exception =
           Assertions.assertThrows(
-              IllegalArgumentException.class, () -> new LancePartitionStatisticStorage(properties));
+              IllegalArgumentException.class,
+              () -> new LancePartitionStatisticStorage(properties, mock(EntityStore.class)));
       Assertions.assertTrue(
           exception.getMessage().contains("maxStatisticsPerUpdate must be positive"));
 
@@ -281,7 +282,8 @@ public class TestLancePartitionStatisticStorage {
 
       exception =
           Assertions.assertThrows(
-              IllegalArgumentException.class, () -> new LancePartitionStatisticStorage(properties));
+              IllegalArgumentException.class,
+              () -> new LancePartitionStatisticStorage(properties, mock(EntityStore.class)));
       Assertions.assertTrue(
           exception.getMessage().contains("maxStatisticsPerUpdate must be positive"));
     } finally {
