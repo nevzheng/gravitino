@@ -22,6 +22,7 @@ import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -144,6 +145,7 @@ class GravitinoComponentBinder extends AbstractBinder {
         .to(MetadataAccessChecker.class)
         .ranked(1);
     bind(component.metadataObjectDispatchers()).to(MetadataObjectDispatchers.class).ranked(1);
+    bind(component.authorizationServices()).to(AuthorizationServices.class).ranked(1);
     bind(new MetadataIdResolver(component::catalogAccess, component::entityStore))
         .to(MetadataIdResolver.class)
         .ranked(1);

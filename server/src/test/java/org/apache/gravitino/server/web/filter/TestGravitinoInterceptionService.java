@@ -55,6 +55,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
@@ -150,6 +151,7 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
+                      ArgumentMatchers.any(),
                       ArgumentMatchers.eq("metalake"),
                       ArgumentMatchers.eq("tester"),
                       any(AuthorizationRequestContext.class)))
@@ -160,6 +162,32 @@ public class TestGravitinoInterceptionService {
 
       assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
       verify(malformedRequest, never()).getName();
+      verify(invocation, never()).proceed();
+    }
+  }
+
+  @Test
+  public void testChecksMetalakeMembershipWithTheInjectedAuthorizer() throws Throwable {
+    try (MockedStatic<PrincipalUtils> principalUtils = mockStatic(PrincipalUtils.class)) {
+      principalUtils.when(PrincipalUtils::getCurrentUserName).thenReturn("outsider");
+      GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
+      when(authorizer.isMetalakeUser(ArgumentMatchers.eq("testMetalake"), any())).thenReturn(false);
+      AuthorizationServices services = mock(AuthorizationServices.class);
+      when(services.gravitinoAuthorizer()).thenReturn(authorizer);
+      Method method = TestOperations.class.getMethods()[0];
+      MethodInterceptor interceptor =
+          new GravitinoInterceptionService(
+                  mock(EventBus.class), mock(TableDispatcher.class), services)
+              .getMethodInterceptors(method)
+              .get(0);
+      MethodInvocation invocation = mock(MethodInvocation.class);
+      when(invocation.getMethod()).thenReturn(method);
+      when(invocation.getArguments()).thenReturn(new Object[] {"testMetalake"});
+
+      Response response = (Response) interceptor.invoke(invocation);
+
+      assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+      verify(authorizer).isMetalakeUser(ArgumentMatchers.eq("testMetalake"), any());
       verify(invocation, never()).proceed();
     }
   }
@@ -299,7 +327,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider provider = mock(GravitinoAuthorizerProvider.class);
@@ -349,10 +380,10 @@ public class TestGravitinoInterceptionService {
       when(authorizer.isOwner(any(), any(), any(), any())).thenReturn(true);
       AtomicReference<AuthorizationRequestContext> entry = new AtomicReference<>();
       authorization
-          .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any()))
+          .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any(), any()))
           .thenAnswer(
               call -> {
-                entry.set(call.getArgument(2));
+                entry.set(call.getArgument(3));
                 return null;
               });
       Method method =
@@ -626,7 +657,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider provider = mock(GravitinoAuthorizerProvider.class);
@@ -665,7 +699,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenThrow(new NoSuchMetalakeException("Metalake target does not exist"))
           .thenThrow(new ForbiddenException("User is not a member of target"));
       authorizationUtilsMocked
@@ -776,7 +813,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       TagValuesAssociateRequest request =
@@ -925,7 +965,10 @@ public class TestGravitinoInterceptionService {
             .when(
                 () ->
                     AuthorizationUtils.checkCurrentUser(
-                        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                        ArgumentMatchers.any(),
+                        ArgumentMatchers.any(),
+                        ArgumentMatchers.any(),
+                        ArgumentMatchers.any()))
             .thenThrow(forbiddenException);
 
         GravitinoEnv mockEnv = mock(GravitinoEnv.class);
@@ -982,7 +1025,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1031,7 +1077,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1079,7 +1128,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1099,7 +1151,8 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+          new GravitinoInterceptionService(
+                  mockEventBus, mock(TableDispatcher.class), noopMembership())
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1138,7 +1191,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1189,7 +1245,8 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+          new GravitinoInterceptionService(
+                  mockEventBus, mock(TableDispatcher.class), noopMembership())
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1237,7 +1294,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1283,7 +1343,7 @@ public class TestGravitinoInterceptionService {
           TableOperations.class.getMethod(
               "loadTable", String.class, String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, tableDispatcher)
+          new GravitinoInterceptionService(mockEventBus, tableDispatcher, noopMembership())
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1339,7 +1399,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenThrow(new NoSuchMetalakeException("Metalake gone does not exist"));
 
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
@@ -1472,7 +1535,7 @@ public class TestGravitinoInterceptionService {
     Method method =
         TestTableLoadOperations.class.getMethod(
             "loadTable", String.class, String.class, String.class, String.class, String.class);
-    return new GravitinoInterceptionService(eventBus, tableDispatcher)
+    return new GravitinoInterceptionService(eventBus, tableDispatcher, noopMembership())
         .getMethodInterceptors(method)
         .get(0);
   }
@@ -1541,7 +1604,10 @@ public class TestGravitinoInterceptionService {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any(),
+                      ArgumentMatchers.any()))
           .thenAnswer(ignored -> null);
 
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
@@ -1695,11 +1761,19 @@ public class TestGravitinoInterceptionService {
     }
   }
 
+  /** Returns services whose authorizer accepts every metalake user, as the process env did. */
+  private static AuthorizationServices noopMembership() {
+    AuthorizationServices services = mock(AuthorizationServices.class);
+    when(services.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
+    return services;
+  }
+
   private static GravitinoInterceptionService newService() {
     return newService(mock(EventBus.class));
   }
 
   private static GravitinoInterceptionService newService(EventBus eventBus) {
-    return new GravitinoInterceptionService(eventBus, mock(TableDispatcher.class));
+    return new GravitinoInterceptionService(
+        eventBus, mock(TableDispatcher.class), noopMembership());
   }
 }

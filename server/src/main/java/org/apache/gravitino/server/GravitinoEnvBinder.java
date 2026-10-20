@@ -24,6 +24,8 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -165,6 +167,9 @@ class GravitinoEnvBinder extends AbstractBinder {
     }
     bind(EnvironmentMetadataObjectDispatchers.of(gravitinoEnv))
         .to(MetadataObjectDispatchers.class)
+        .ranked(1);
+    bind(EnvironmentAuthorizationServices.of(gravitinoEnv))
+        .to(AuthorizationServices.class)
         .ranked(1);
     bind(new MetadataIdResolver(gravitinoEnv::catalogManager, gravitinoEnv::entityStore))
         .to(MetadataIdResolver.class)
