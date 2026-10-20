@@ -64,6 +64,7 @@ web/dist
 web/.next
 
 .venv/
+__pycache__/
 .worktrees/
 .claude/settings.local.json
 
