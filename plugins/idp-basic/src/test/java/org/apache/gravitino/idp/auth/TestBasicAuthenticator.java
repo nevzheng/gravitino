@@ -39,6 +39,7 @@ import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.model.IdpUser;
 import org.apache.gravitino.idp.web.rest.feature.IdpRESTFeature;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.junit.jupiter.api.Test;
 
 class TestBasicAuthenticator {
@@ -54,10 +55,23 @@ class TestBasicAuthenticator {
         .thenReturn(new IdpUser("alice", Arrays.asList("group-a")));
 
     BasicAuthenticator authenticator = new BasicAuthenticator(userGroupManager);
-    authenticator.initialize(config);
+    authenticator.initialize(
+        config,
+        AuthenticatorContext.of(
+            () -> {
+              throw new IllegalStateException("A given manager needs no id generator");
+            }));
 
     String authHeader = basicAuthHeader("alice", "Passw0rd-For-Alice");
     assertEquals("alice", authenticator.authenticateToken(basicAuthBytes(authHeader)).getName());
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  void testDeprecatedInitializeStillValidatesTheExtensionPackage() {
+    BasicAuthenticator authenticator = new BasicAuthenticator(mock(IdpUserGroupManager.class));
+
+    assertThrows(IllegalStateException.class, () -> authenticator.initialize(new Config(false) {}));
   }
 
   @Test

@@ -39,6 +39,7 @@ import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.model.IdpUser;
 import org.apache.gravitino.idp.web.rest.feature.IdpRESTFeature;
 import org.apache.gravitino.server.authentication.Authenticator;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.storage.IdGenerator;
 
 /** Authenticates HTTP Basic credentials against built-in IdP user metadata. */
@@ -74,11 +75,32 @@ public class BasicAuthenticator implements Authenticator {
     return authenticate(credentials, authData);
   }
 
+  /**
+   * Initializes the authenticator, taking the id generator from the process environment.
+   *
+   * @param config The server configuration.
+   * @deprecated Use {@link #initialize(Config, AuthenticatorContext)}; the server passes the id
+   *     generator in the context.
+   */
+  @Deprecated
   @Override
+  @SuppressWarnings("InlineMeSuggester")
   public void initialize(Config config) {
+    initialize(config, AuthenticatorContext.of(BasicAuthenticator::processIdGenerator));
+  }
+
+  /**
+   * Initializes the authenticator. Unless a manager was given to the constructor, the shared
+   * built-in IdP manager is built with the context's id generator.
+   *
+   * @param config The server configuration.
+   * @param context The server services.
+   */
+  @Override
+  public void initialize(Config config, AuthenticatorContext context) {
     validateExtensionPackage(config);
     if (userGroupManager == null) {
-      this.userGroupManager = IdpUserGroupManager.getInstance(config, processIdGenerator());
+      this.userGroupManager = IdpUserGroupManager.getInstance(config, context.idGenerator());
     }
   }
 
@@ -185,8 +207,8 @@ public class BasicAuthenticator implements Authenticator {
     }
   }
 
-  // AuthenticatorFactory builds authenticators reflectively and hands them only the Config, so an
-  // authenticator built that way has no other source for the id generator.
+  // Only the deprecated initialize(Config) reads the process environment: a caller of it hands the
+  // authenticator nothing but the Config.
   @LegacyEnvAccess
   private static IdGenerator processIdGenerator() {
     return GravitinoEnv.getInstance().idGenerator();
