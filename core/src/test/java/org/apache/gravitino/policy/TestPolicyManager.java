@@ -104,6 +104,7 @@ import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.tag.TagValue;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.gravitino.utils.RaceTestUtils;
@@ -145,8 +146,10 @@ public class TestPolicyManager {
     Config config = mockConfig();
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
-    policyManager = new PolicyManager(idGenerator, entityStore);
-    tagManager = new TagManager(idGenerator, entityStore);
+    policyManager =
+        new PolicyManager(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
+    tagManager =
+        new TagManager(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
 
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(
@@ -798,7 +801,9 @@ public class TestPolicyManager {
             Mockito.eq(PolicyEntity.class),
             Mockito.eq(Entity.EntityType.POLICY),
             Mockito.any());
-    PolicyManager racingManager = new PolicyManager(new RandomIdGenerator(), racingStore);
+    PolicyManager racingManager =
+        new PolicyManager(
+            new RandomIdGenerator(), racingStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
 
     NoSuchPolicyException e =
         Assertions.assertThrows(

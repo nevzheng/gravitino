@@ -118,6 +118,7 @@ import org.apache.gravitino.rel.SQLRepresentation;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.RaceTestUtils;
 import org.junit.jupiter.api.AfterAll;
@@ -299,7 +300,8 @@ public class TestTagManager {
             .build();
     entityStore.put(function, false /* overwritten */);
 
-    tagManager = new TagManager(idGenerator, entityStore);
+    tagManager =
+        new TagManager(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);

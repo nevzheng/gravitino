@@ -35,6 +35,8 @@ import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.tag.EffectiveTagResolver;
 import org.apache.gravitino.tag.TagAssignment;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,9 +58,23 @@ public class ObjectPolicyResolver {
    * Creates an object policy resolver.
    *
    * @param entityStore The entity store used to read policy-to-tag relations.
+   * @deprecated Use {@link #ObjectPolicyResolver(EntityStore, MetadataObjectDispatchers)}, which
+   *     does not ask {@code GravitinoEnv} whether a metadata object exists.
    */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public ObjectPolicyResolver(EntityStore entityStore) {
-    this(entityStore, new EffectiveTagResolver(entityStore));
+    this(entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
+  }
+
+  /**
+   * Creates an object policy resolver.
+   *
+   * @param entityStore The entity store used to read policy-to-tag relations.
+   * @param metadataObjects The internal dispatchers asked whether a metadata object exists.
+   */
+  public ObjectPolicyResolver(EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
+    this(entityStore, new EffectiveTagResolver(entityStore, metadataObjects));
   }
 
   ObjectPolicyResolver(EntityStore entityStore, EffectiveTagResolver effectiveTagResolver) {

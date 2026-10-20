@@ -41,6 +41,8 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.policy.rego.RestrictedRegoExpressionParserFacade;
 import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -53,9 +55,31 @@ public class PolicyManager implements PolicyDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(PolicyManager.class);
   private final IdGenerator idGenerator;
   private final EntityStore entityStore;
+  private final MetadataObjectDispatchers metadataObjects;
   private final ObjectPolicyResolver objectPolicyResolver;
 
+  /**
+   * Creates a policy manager that asks {@code GravitinoEnv} whether a metadata object exists.
+   *
+   * @param idGenerator the id generator for new policies
+   * @param entityStore the entity store, which must support relation operations
+   * @deprecated Use {@link #PolicyManager(IdGenerator, EntityStore, MetadataObjectDispatchers)}.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public PolicyManager(IdGenerator idGenerator, EntityStore entityStore) {
+    this(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
+  }
+
+  /**
+   * Creates a policy manager.
+   *
+   * @param idGenerator the id generator for new policies
+   * @param entityStore the entity store, which must support relation operations
+   * @param metadataObjects the internal dispatchers asked whether a metadata object exists
+   */
+  public PolicyManager(
+      IdGenerator idGenerator, EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
     if (!(entityStore instanceof SupportsRelationOperations)) {
       String errorMsg =
           "PolicyManager cannot run with entity store that does not support policy operations, "
@@ -66,7 +90,8 @@ public class PolicyManager implements PolicyDispatcher {
 
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
-    this.objectPolicyResolver = new ObjectPolicyResolver(entityStore);
+    this.metadataObjects = metadataObjects;
+    this.objectPolicyResolver = new ObjectPolicyResolver(entityStore, metadataObjects);
   }
 
   @Override
@@ -220,7 +245,7 @@ public class PolicyManager implements PolicyDispatcher {
   @Override
   public PolicyEntity[] listPolicyInfosForMetadataObject(
       String metalake, MetadataObject metadataObject) {
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    MetadataObjectUtil.checkMetadataObject(metadataObjects, metalake, metadataObject);
     checkMetalake(NameIdentifier.of(metalake), entityStore);
 
     // Tag-derived policy reads are best-effort across the object and its ancestors.

@@ -19,7 +19,6 @@
 package org.apache.gravitino.utils;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,7 +47,6 @@ import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 
 public class TestMetadataObjectUtil {
 
@@ -303,45 +301,62 @@ public class TestMetadataObjectUtil {
     when(viewDispatcher.viewExists(viewIdent)).thenReturn(true);
     when(semanticModelDispatcher.semanticModelExists(modelIdent)).thenReturn(true);
 
-    try (MockedStatic<GravitinoEnv> mockedEnv = mockStatic(GravitinoEnv.class)) {
-      mockedEnv.when(GravitinoEnv::getInstance).thenReturn(env);
+    MetadataObjectDispatchers dispatchers = EnvironmentMetadataObjectDispatchers.of(env);
 
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "metalake", MetadataObject.Type.METALAKE));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "catalog", MetadataObject.Type.CATALOG));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog", "schema", MetadataObject.Type.SCHEMA));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog.schema", "fileset", MetadataObject.Type.FILESET));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog.schema", "table", MetadataObject.Type.TABLE));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake",
-          MetadataObjects.of("catalog.schema.table", "column", MetadataObject.Type.COLUMN));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog.schema", "topic", MetadataObject.Type.TOPIC));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog.schema", "model", MetadataObject.Type.MODEL));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake",
-          MetadataObjects.of("catalog.schema", "function", MetadataObject.Type.FUNCTION));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of("catalog.schema", "view", MetadataObject.Type.VIEW));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake",
-          MetadataObjects.of("catalog.schema", "model", MetadataObject.Type.SEMANTIC_MODEL));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "role", MetadataObject.Type.ROLE));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "tag", MetadataObject.Type.TAG));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "policy", MetadataObject.Type.POLICY));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "job", MetadataObject.Type.JOB));
-      MetadataObjectUtil.checkMetadataObject(
-          "metalake", MetadataObjects.of(null, "template", MetadataObject.Type.JOB_TEMPLATE));
-    }
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of(null, "metalake", MetadataObject.Type.METALAKE));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers, "metalake", MetadataObjects.of(null, "catalog", MetadataObject.Type.CATALOG));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog", "schema", MetadataObject.Type.SCHEMA));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "fileset", MetadataObject.Type.FILESET));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "table", MetadataObject.Type.TABLE));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema.table", "column", MetadataObject.Type.COLUMN));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "topic", MetadataObject.Type.TOPIC));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "model", MetadataObject.Type.MODEL));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "function", MetadataObject.Type.FUNCTION));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "view", MetadataObject.Type.VIEW));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of("catalog.schema", "model", MetadataObject.Type.SEMANTIC_MODEL));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers, "metalake", MetadataObjects.of(null, "role", MetadataObject.Type.ROLE));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers, "metalake", MetadataObjects.of(null, "tag", MetadataObject.Type.TAG));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers, "metalake", MetadataObjects.of(null, "policy", MetadataObject.Type.POLICY));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers, "metalake", MetadataObjects.of(null, "job", MetadataObject.Type.JOB));
+    MetadataObjectUtil.checkMetadataObject(
+        dispatchers,
+        "metalake",
+        MetadataObjects.of(null, "template", MetadataObject.Type.JOB_TEMPLATE));
 
     verify(metalakeDispatcher).metalakeExists(metalakeIdent);
     verify(catalogDispatcher).catalogExists(catalogIdent);
