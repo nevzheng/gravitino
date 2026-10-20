@@ -368,6 +368,15 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.internalTableDispatcher(), singleton.internalTableDispatcher());
       assertSame(component.internalPartitionDispatcher(), singleton.internalPartitionDispatcher());
       assertSame(component.internalViewDispatcher(), singleton.internalViewDispatcher());
+      assertSame(component.internalFilesetDispatcher(), singleton.internalFilesetDispatcher());
+      assertSame(component.internalTopicDispatcher(), singleton.internalTopicDispatcher());
+      assertSame(component.internalModelDispatcher(), singleton.internalModelDispatcher());
+      assertSame(component.internalFunctionDispatcher(), singleton.internalFunctionDispatcher());
+      assertSame(
+          component.internalSemanticModelDispatcher(), singleton.internalSemanticModelDispatcher());
+      assertSame(component.internalSemanticModelDispatcher(), singleton.semanticModelDispatcher());
+      assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
+      assertSame(component.internalCatalogDispatcher(), singleton.internalCatalogDispatcher());
       assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
       assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
       assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
@@ -418,16 +427,43 @@ class TestGravitinoEnvMetadataComponents {
       assertNull(singleton.ownerDispatcher());
       assertNull(singleton.internalOwnerDispatcher());
 
-      // Built by the environment, seeded into the component.
       assertSame(entityStore, component.entityStore());
       assertSame(singleton.entityStore(), component.entityStore());
-      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(singleton.kmsClientRegistry(), component.kmsClientRegistry());
       assertSame(singleton.secretManager(), component.secretManager());
+      assertSame(singleton.eventListenerManager(), component.eventListenerManager());
       assertSame(singleton.eventBus(), component.eventBus());
+      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(component.metalakeDispatcher(), singleton.metalakeDispatcher());
+      assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
+      assertSame(component.catalogDispatcher(), singleton.catalogDispatcher());
+      assertSame(component.internalCatalogDispatcher(), singleton.internalCatalogDispatcher());
+      assertSame(
+          component.credentialOperationDispatcher(), singleton.credentialOperationDispatcher());
+      assertSame(
+          component.secretPropertyOperationDispatcher(),
+          singleton.secretPropertyOperationDispatcher());
+      assertSame(component.filesetDispatcher(), singleton.filesetDispatcher());
+      assertSame(component.internalFilesetDispatcher(), singleton.internalFilesetDispatcher());
+      assertSame(component.topicDispatcher(), singleton.topicDispatcher());
+      assertSame(component.internalTopicDispatcher(), singleton.internalTopicDispatcher());
+      assertSame(component.modelDispatcher(), singleton.modelDispatcher());
+      assertSame(component.internalModelDispatcher(), singleton.internalModelDispatcher());
+      assertSame(component.functionDispatcher(), singleton.functionDispatcher());
+      assertSame(component.internalFunctionDispatcher(), singleton.internalFunctionDispatcher());
+      assertSame(component.semanticModelDispatcher(), singleton.semanticModelDispatcher());
+      assertSame(
+          component.internalSemanticModelDispatcher(), singleton.internalSemanticModelDispatcher());
+      assertSame(component.jobOperationDispatcher(), singleton.jobOperationDispatcher());
+      assertSame(
+          component.internalJobOperationDispatcher(), singleton.internalJobOperationDispatcher());
+      // Only the auxiliary service manager is still built by the environment.
+      assertNotNull(singleton.auxServiceManager());
     } finally {
       singleton.shutdown();
     }
 
+    verify(entityStore).initialize(config);
     verify(entityStore).close();
   }
 

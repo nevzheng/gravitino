@@ -23,23 +23,38 @@ import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.FilesetDispatcher;
+import org.apache.gravitino.catalog.FunctionDispatcher;
+import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.PartitionDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.TopicDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
+import org.apache.gravitino.credential.CredentialOperationDispatcher;
+import org.apache.gravitino.encryption.kms.KmsClientRegistry;
+import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
+import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
+import org.apache.gravitino.metalake.MetalakeDispatcher;
+import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
@@ -48,25 +63,38 @@ import org.apache.gravitino.tag.TagDispatcher;
  * The root object graph of the Gravitino server.
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
- * this component. Objects the component owns are built by its modules; {@link ConfigModule} owns
- * the id generator and the metrics system, {@link LockModule} owns the lock manager, {@link
- * SchemaTableModule} owns the schema, table, partition and view chains, {@link GovernanceModule}
- * owns the tag, policy, owner and statistic managers and their chains, and {@link
- * AuthorizationModule} owns the access-control components. Objects that {@code GravitinoEnv} still
- * builds reach the graph through {@link LegacyBridge} and {@link LegacyModule}, so every object is
- * built by exactly one side.
+ * this component. Its modules build every component {@code GravitinoEnv} holds except the auxiliary
+ * service manager: {@link ConfigModule} the id generator and the metrics system, {@link
+ * StorageModule} the entity store and the secret stores, {@link LockModule} the lock manager,
+ * {@link EventModule} the event listener manager, the event bus and the audit log manager, {@link
+ * CatalogModule} the catalog and metalake managers and chains, {@link SchemaTableModule} the
+ * schema, table, partition and view chains, {@link FilesetTopicModelModule} the fileset, topic,
+ * model, function and semantic model chains, {@link GovernanceModule} the tag, policy, owner and
+ * statistic chains, {@link AuthorizationModule} the access-control components, and {@link
+ * JobModule} the job manager and chains. The authorizer, which the server installs later, reaches
+ * the graph through {@link LegacyBridge} and {@link LegacyModule}, so every object is built by
+ * exactly one side.
  *
- * <p>Singletons are per component: each component instance builds its own lock manager, id
- * generator and metrics system, lazily, the first time one is requested.
+ * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
+ * chain for REST resources. The component builds nothing until it is asked: {@code GravitinoEnv}
+ * asks for each object at the point of its initialization sequence where it used to build it.
+ *
+ * <p>Singletons are per component: each component instance builds its own objects, each one the
+ * first time it is requested.
  */
 @Singleton
 @Component(
     modules = {
       ConfigModule.class,
+      StorageModule.class,
       LockModule.class,
+      EventModule.class,
+      CatalogModule.class,
       SchemaTableModule.class,
+      FilesetTopicModelModule.class,
       GovernanceModule.class,
       AuthorizationModule.class,
+      JobModule.class,
       LegacyModule.class
     })
 public interface GravitinoComponent {
@@ -100,10 +128,114 @@ public interface GravitinoComponent {
   LockManager lockManager();
 
   /**
+   * Returns the entity store, created from the configuration and initialized on first request.
+   *
+   * @return the entity store
+   */
+  EntityStore entityStore();
+
+  /**
+   * Returns the KMS client registry. {@code GravitinoEnv} closes it.
+   *
+   * @return the KMS client registry
+   */
+  KmsClientRegistry kmsClientRegistry();
+
+  /**
+   * Returns the secret manager. {@code GravitinoEnv} closes it.
+   *
+   * @return the secret manager
+   */
+  SecretManager secretManager();
+
+  /**
+   * Returns the event listener manager, with the listeners named by the configuration loaded.
+   * {@code GravitinoEnv} starts and stops it.
+   *
+   * @return the event listener manager
+   */
+  EventListenerManager eventListenerManager();
+
+  /**
+   * Returns the event bus created by the {@link #eventListenerManager()}.
+   *
+   * @return the event bus
+   */
+  EventBus eventBus();
+
+  /**
+   * Returns the audit log manager. Building it registers the audit listener with the {@link
+   * #eventListenerManager()} when audit logging is enabled; the {@link #eventBus()} depends on it,
+   * so it is built before the bus.
+   *
+   * @return the audit log manager
+   */
+  AuditLogManager auditLogManager();
+
+  /**
+   * Returns the catalog manager.
+   *
+   * @return the catalog manager
+   */
+  CatalogManager catalogManager();
+
+  /**
+   * Returns the metalake manager.
+   *
+   * @return the metalake manager
+   */
+  MetalakeManager metalakeManager();
+
+  /**
+   * Returns the internal metalake chain: normalize, then the {@link #metalakeManager()}.
+   *
+   * @return the internal metalake dispatcher
+   */
+  @Internal
+  MetalakeDispatcher internalMetalakeDispatcher();
+
+  /**
+   * Returns the public metalake chain: event, normalize, hook, then the {@link #metalakeManager()}.
+   *
+   * @return the public metalake dispatcher
+   */
+  @Public
+  MetalakeDispatcher metalakeDispatcher();
+
+  /**
+   * Returns the internal catalog chain: normalize, then the {@link #catalogManager()}.
+   *
+   * @return the internal catalog dispatcher
+   */
+  @Internal
+  CatalogDispatcher internalCatalogDispatcher();
+
+  /**
+   * Returns the public catalog chain: event, normalize, hook, then the {@link #catalogManager()}.
+   *
+   * @return the public catalog dispatcher
+   */
+  @Public
+  CatalogDispatcher catalogDispatcher();
+
+  /**
+   * Returns the credential operation dispatcher.
+   *
+   * @return the credential operation dispatcher
+   */
+  CredentialOperationDispatcher credentialOperationDispatcher();
+
+  /**
+   * Returns the secret property operation dispatcher.
+   *
+   * @return the secret property operation dispatcher
+   */
+  SecretPropertyOperationDispatcher secretPropertyOperationDispatcher();
+
+  /**
    * Returns the schema operation dispatcher shared by the internal and public schema chains.
    *
-   * <p>Transitional: {@code GravitinoEnv} still builds the function and semantic model operation
-   * dispatchers, which take it directly.
+   * <p>The function and semantic model operation dispatchers also work on schemas through it.
    *
    * @return the schema operation dispatcher
    */
@@ -173,6 +305,87 @@ public interface GravitinoComponent {
    */
   @Public
   ViewDispatcher viewDispatcher();
+
+  /**
+   * Returns the internal fileset chain: normalize, then operation.
+   *
+   * @return the internal fileset dispatcher
+   */
+  @Internal
+  FilesetDispatcher internalFilesetDispatcher();
+
+  /**
+   * Returns the public fileset chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public fileset dispatcher
+   */
+  @Public
+  FilesetDispatcher filesetDispatcher();
+
+  /**
+   * Returns the internal topic chain: normalize, then operation.
+   *
+   * @return the internal topic dispatcher
+   */
+  @Internal
+  TopicDispatcher internalTopicDispatcher();
+
+  /**
+   * Returns the public topic chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public topic dispatcher
+   */
+  @Public
+  TopicDispatcher topicDispatcher();
+
+  /**
+   * Returns the internal model chain: normalize, then operation.
+   *
+   * @return the internal model dispatcher
+   */
+  @Internal
+  ModelDispatcher internalModelDispatcher();
+
+  /**
+   * Returns the public model chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public model dispatcher
+   */
+  @Public
+  ModelDispatcher modelDispatcher();
+
+  /**
+   * Returns the internal function chain: normalize, then operation.
+   *
+   * @return the internal function dispatcher
+   */
+  @Internal
+  FunctionDispatcher internalFunctionDispatcher();
+
+  /**
+   * Returns the public function chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public function dispatcher
+   */
+  @Public
+  FunctionDispatcher functionDispatcher();
+
+  /**
+   * Returns the internal semantic model chain: normalize, then operation.
+   *
+   * @return the internal semantic model dispatcher
+   */
+  @Internal
+  SemanticModelDispatcher internalSemanticModelDispatcher();
+
+  /**
+   * Returns the public semantic model chain: event, normalize, hook, then its own operation
+   * dispatcher.
+   *
+   * @return the public semantic model dispatcher
+   */
+  @Public
+  SemanticModelDispatcher semanticModelDispatcher();
 
   /**
    * Returns the tag manager, the internal tag chain.
@@ -279,46 +492,39 @@ public interface GravitinoComponent {
   FutureGrantManager futureGrantManager();
 
   /**
+   * Returns the internal job chain: template validation, then the job manager.
+   *
+   * @return the internal job dispatcher
+   */
+  @Internal
+  JobOperationDispatcher internalJobOperationDispatcher();
+
+  /**
+   * Returns the public job chain: event, hook, then the {@link #internalJobOperationDispatcher()}
+   * validation.
+   *
+   * @return the public job dispatcher
+   */
+  @Public
+  JobOperationDispatcher jobOperationDispatcher();
+
+  /**
+   * Returns the listener that registers the built-in job templates of new metalakes. {@code
+   * GravitinoEnv} adds it to the {@link #eventListenerManager()}.
+   *
+   * @return the built-in job template listener
+   */
+  BuiltInJobTemplateEventListener builtInJobTemplateEventListener();
+
+  /**
    * Returns the authorizer the server installed; never null. When none is installed, it is {@code
    * DenyAllGravitinoAuthorizer.INSTANCE} if authorization is enabled and {@code
-   * NoopGravitinoAuthorizer.INSTANCE} otherwise. The server still builds and installs it, so it is
-   * seeded through {@link LegacyBridge} and read again on every request.
+   * NoopGravitinoAuthorizer.INSTANCE} otherwise. The server still builds and installs it, so it
+   * reaches the graph through {@link LegacyBridge} and is read again on every request.
    *
    * @return the authorizer
    */
   GravitinoAuthorizer gravitinoAuthorizer();
-
-  /**
-   * Returns the entity store that {@code GravitinoEnv} still builds, seeded through {@link
-   * LegacyBridge}.
-   *
-   * @return the entity store
-   */
-  EntityStore entityStore();
-
-  /**
-   * Returns the catalog manager that {@code GravitinoEnv} still builds, seeded through {@link
-   * LegacyBridge}.
-   *
-   * @return the catalog manager
-   */
-  CatalogManager catalogManager();
-
-  /**
-   * Returns the secret manager that {@code GravitinoEnv} still builds, seeded through {@link
-   * LegacyBridge}.
-   *
-   * @return the secret manager
-   */
-  SecretManager secretManager();
-
-  /**
-   * Returns the event bus that {@code GravitinoEnv} still builds, seeded through {@link
-   * LegacyBridge}.
-   *
-   * @return the event bus
-   */
-  EventBus eventBus();
 
   /** Creates {@link GravitinoComponent} instances. */
   @Component.Factory
@@ -328,8 +534,8 @@ public interface GravitinoComponent {
      * Creates a component.
      *
      * @param config the server configuration, the only leaf the graph does not build itself
-     * @param legacy the source of the objects {@code GravitinoEnv} still builds; removed when the
-     *     migration is complete
+     * @param legacy the source of the objects the graph does not build; removed when the migration
+     *     is complete
      * @return a new component
      */
     GravitinoComponent create(@BindsInstance Config config, @BindsInstance LegacyBridge legacy);

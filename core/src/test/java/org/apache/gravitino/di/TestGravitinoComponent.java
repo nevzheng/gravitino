@@ -22,37 +22,33 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.withSettings;
 
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
-import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metrics.source.MetricsSource;
-import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TestGravitinoComponent {
+
+  @TempDir Path stagingDir;
 
   private Config config;
   private FakeLegacyBridge legacy;
   private GravitinoComponent component;
 
   /**
-   * Returns a configuration under which every object the component owns can be built against the
-   * fake legacy objects.
+   * Returns a configuration under which every object the component owns can be built against fake
+   * leaves.
    *
    * @return the configuration
    */
@@ -83,6 +79,11 @@ public class TestGravitinoComponent {
     assertSame(component.lockManager(), component.lockManager());
     assertSame(component.idGenerator(), component.idGenerator());
     assertSame(component.metricsSystem(), component.metricsSystem());
+    assertSame(component.kmsClientRegistry(), component.kmsClientRegistry());
+    assertSame(component.secretManager(), component.secretManager());
+    assertSame(component.eventListenerManager(), component.eventListenerManager());
+    assertSame(component.eventBus(), component.eventBus());
+    assertSame(component.auditLogManager(), component.auditLogManager());
   }
 
   @Test
@@ -98,20 +99,36 @@ public class TestGravitinoComponent {
     assertNotSame(component.lockManager(), other.lockManager());
     assertNotSame(component.idGenerator(), other.idGenerator());
     assertNotSame(component.metricsSystem(), other.metricsSystem());
+    assertNotSame(component.secretManager(), other.secretManager());
+    assertNotSame(component.eventBus(), other.eventBus());
   }
 
   @Test
   public void testDispatcherChainsAreSingletonsAndPublicIsNotInternal() throws Exception {
+    Config graphConfig = testConfig();
+    graphConfig.set(Configs.JOB_STAGING_DIR, stagingDir.toString());
+    // While authorization is disabled both owner chains are the one no-op dispatcher.
+    graphConfig.set(Configs.ENABLE_AUTHORIZATION, true);
+    ModuleTestComponent graph = ModuleTestComponent.create(graphConfig, new FakeLeaves());
     List<List<Supplier<Object>>> chains =
         List.of(
-            List.of(component::schemaDispatcher, component::internalSchemaDispatcher),
-            List.of(component::tableDispatcher, component::internalTableDispatcher),
-            List.of(component::partitionDispatcher, component::internalPartitionDispatcher),
-            List.of(component::viewDispatcher, component::internalViewDispatcher),
-            List.of(component::tagDispatcher, component::internalTagDispatcher),
-            List.of(component::accessControlDispatcher, component::internalAccessControlDispatcher),
-            List.of(component::policyDispatcher, component::internalPolicyDispatcher),
-            List.of(component::statisticDispatcher, component::internalStatisticDispatcher));
+            List.of(graph::metalakeDispatcher, graph::internalMetalakeDispatcher),
+            List.of(graph::catalogDispatcher, graph::internalCatalogDispatcher),
+            List.of(graph::schemaDispatcher, graph::internalSchemaDispatcher),
+            List.of(graph::tableDispatcher, graph::internalTableDispatcher),
+            List.of(graph::partitionDispatcher, graph::internalPartitionDispatcher),
+            List.of(graph::viewDispatcher, graph::internalViewDispatcher),
+            List.of(graph::filesetDispatcher, graph::internalFilesetDispatcher),
+            List.of(graph::topicDispatcher, graph::internalTopicDispatcher),
+            List.of(graph::modelDispatcher, graph::internalModelDispatcher),
+            List.of(graph::functionDispatcher, graph::internalFunctionDispatcher),
+            List.of(graph::semanticModelDispatcher, graph::internalSemanticModelDispatcher),
+            List.of(graph::tagDispatcher, graph::internalTagDispatcher),
+            List.of(graph::policyDispatcher, graph::internalPolicyDispatcher),
+            List.of(graph::ownerDispatcher, graph::internalOwnerDispatcher),
+            List.of(graph::statisticDispatcher, graph::internalStatisticDispatcher),
+            List.of(graph::accessControlDispatcher, graph::internalAccessControlDispatcher),
+            List.of(graph::jobOperationDispatcher, graph::internalJobOperationDispatcher));
     try {
       for (List<Supplier<Object>> chain : chains) {
         Object publicChain = chain.get(0).get();
@@ -121,56 +138,24 @@ public class TestGravitinoComponent {
         assertNotSame(publicChain, internalChain);
       }
     } finally {
-      component.internalStatisticDispatcher().close();
+      graph.jobOperationDispatcher().close();
+      graph.internalStatisticDispatcher().close();
+      graph.metalakeManager().close();
+      graph.catalogManager().close();
     }
   }
 
   @Test
-  public void testLegacyObjectsComeFromTheBridge() {
-    assertSame(legacy.entityStore, component.entityStore());
-    assertSame(legacy.catalogManager, component.catalogManager());
-    assertSame(legacy.secretManager, component.secretManager());
-    assertSame(legacy.eventBus, component.eventBus());
+  public void testAuthorizerComesFromTheBridge() {
     assertSame(legacy.gravitinoAuthorizer, component.gravitinoAuthorizer());
   }
 
   static class FakeLegacyBridge implements LegacyBridge {
-    EntityStore entityStore =
-        mock(EntityStore.class, withSettings().extraInterfaces(SupportsRelationOperations.class));
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    SecretManager secretManager = mock(SecretManager.class);
-    FilesetDispatcher internalFilesetDispatcher = mock(FilesetDispatcher.class);
     GravitinoAuthorizer gravitinoAuthorizer = NoopGravitinoAuthorizer.INSTANCE;
-    EventBus eventBus = mock(EventBus.class);
-
-    @Override
-    public EntityStore entityStore() {
-      return entityStore;
-    }
-
-    @Override
-    public CatalogManager catalogManager() {
-      return catalogManager;
-    }
-
-    @Override
-    public SecretManager secretManager() {
-      return secretManager;
-    }
-
-    @Override
-    public FilesetDispatcher internalFilesetDispatcher() {
-      return internalFilesetDispatcher;
-    }
 
     @Override
     public GravitinoAuthorizer gravitinoAuthorizer() {
       return gravitinoAuthorizer;
-    }
-
-    @Override
-    public EventBus eventBus() {
-      return eventBus;
     }
   }
 }

@@ -22,21 +22,6 @@ import dagger.BindsInstance;
 import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
-import org.apache.gravitino.audit.AuditLogManager;
-import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.FunctionDispatcher;
-import org.apache.gravitino.catalog.ModelDispatcher;
-import org.apache.gravitino.catalog.SemanticModelDispatcher;
-import org.apache.gravitino.catalog.TopicDispatcher;
-import org.apache.gravitino.credential.CredentialOperationDispatcher;
-import org.apache.gravitino.encryption.kms.KmsClientRegistry;
-import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
-import org.apache.gravitino.job.JobOperationDispatcher;
-import org.apache.gravitino.listener.EventListenerManager;
-import org.apache.gravitino.metalake.MetalakeDispatcher;
-import org.apache.gravitino.metalake.MetalakeManager;
-import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 
 /**
  * A graph with the production modules and fake leaves: {@link FakeLeavesModule} replaces the
@@ -56,68 +41,6 @@ import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
       FakeLeavesModule.class
     })
 interface ModuleTestComponent extends GravitinoComponent {
-
-  KmsClientRegistry kmsClientRegistry();
-
-  EventListenerManager eventListenerManager();
-
-  AuditLogManager auditLogManager();
-
-  MetalakeManager metalakeManager();
-
-  @Internal
-  MetalakeDispatcher internalMetalakeDispatcher();
-
-  @Public
-  MetalakeDispatcher metalakeDispatcher();
-
-  @Internal
-  CatalogDispatcher internalCatalogDispatcher();
-
-  @Public
-  CatalogDispatcher catalogDispatcher();
-
-  CredentialOperationDispatcher credentialOperationDispatcher();
-
-  SecretPropertyOperationDispatcher secretPropertyOperationDispatcher();
-
-  @Internal
-  FilesetDispatcher internalFilesetDispatcher();
-
-  @Public
-  FilesetDispatcher filesetDispatcher();
-
-  @Internal
-  TopicDispatcher internalTopicDispatcher();
-
-  @Public
-  TopicDispatcher topicDispatcher();
-
-  @Internal
-  ModelDispatcher internalModelDispatcher();
-
-  @Public
-  ModelDispatcher modelDispatcher();
-
-  @Internal
-  FunctionDispatcher internalFunctionDispatcher();
-
-  @Public
-  FunctionDispatcher functionDispatcher();
-
-  @Internal
-  SemanticModelDispatcher internalSemanticModelDispatcher();
-
-  @Public
-  SemanticModelDispatcher semanticModelDispatcher();
-
-  @Internal
-  JobOperationDispatcher internalJobOperationDispatcher();
-
-  @Public
-  JobOperationDispatcher jobOperationDispatcher();
-
-  BuiltInJobTemplateEventListener builtInJobTemplateEventListener();
 
   /**
    * Builds a test graph.
