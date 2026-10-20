@@ -18,15 +18,17 @@
  */
 package org.apache.gravitino.server.authorization.jcasbin;
 
+import com.google.common.base.Preconditions;
 import java.util.Optional;
 import java.util.function.Function;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.cache.GravitinoCache;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NotFoundException;
-import org.apache.gravitino.server.authorization.MetadataIdConverter;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
 import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
@@ -53,6 +55,7 @@ public class JcasbinAuthorizationLookups {
 
   private final GravitinoCache<String, Long> metadataIdCache;
   private final GravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache;
+  private final MetadataIdResolver metadataIdResolver;
 
   /**
    * Creates a new lookups facade around the supplied caches. The caches are owned by the caller and
@@ -60,18 +63,42 @@ public class JcasbinAuthorizationLookups {
    *
    * @param metadataIdCache path-based metadata object key → entity id
    * @param ownerRelCache {@code metadataObjectId} → {@link Optional} of {@link OwnerInfo}
+   * @param metadataIdResolver resolves metadata objects to entity IDs on a cache miss
    */
   public JcasbinAuthorizationLookups(
       GravitinoCache<String, Long> metadataIdCache,
-      GravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache) {
+      GravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache,
+      MetadataIdResolver metadataIdResolver) {
     this.metadataIdCache = metadataIdCache;
     this.ownerRelCache = ownerRelCache;
+    this.metadataIdResolver = Preconditions.checkNotNull(metadataIdResolver, "metadataIdResolver");
+  }
+
+  /**
+   * Creates a new lookups facade that resolves metadata IDs through the process environment.
+   *
+   * @param metadataIdCache path-based metadata object key → entity id
+   * @param ownerRelCache {@code metadataObjectId} → {@link Optional} of {@link OwnerInfo}
+   * @deprecated Use {@link #JcasbinAuthorizationLookups(GravitinoCache, GravitinoCache,
+   *     MetadataIdResolver)} with a resolver over the authorizer's host services.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public JcasbinAuthorizationLookups(
+      GravitinoCache<String, Long> metadataIdCache,
+      GravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache) {
+    this(
+        metadataIdCache,
+        ownerRelCache,
+        new MetadataIdResolver(
+            EnvironmentAuthorizerContext.INSTANCE::catalogManager,
+            EnvironmentAuthorizerContext.INSTANCE::entityStore));
   }
 
   /**
    * Two-tier name→id lookup: the per-request map in {@code requestContext} dedups calls within the
    * same HTTP request; on a miss, the long-lived {@code metadataIdCache} is consulted, and finally
-   * we fall back to a DB query via {@link MetadataIdConverter#getIdForNormalizedObject}. Returns
+   * we fall back to a DB query via {@link MetadataIdResolver#getIdForNormalizedObject}. Returns
    * {@link Optional#empty()} when the metadata object does not exist or normalization fails so
    * callers can deny authorization. Missing metadata objects are never cached as negative results:
    * a later create for the same name can be observed without waiting for cache eviction. Existing
@@ -113,7 +140,7 @@ public class JcasbinAuthorizationLookups {
       Function<String, MetadataObject> normalizer =
           ignored -> {
             try {
-              return MetadataIdConverter.normalizeMetadataObject(metadataObject, metalake);
+              return metadataIdResolver.normalizeMetadataObject(metadataObject, metalake);
             } catch (NotFoundException e) {
               throw e;
             } catch (RuntimeException e) {
@@ -126,7 +153,7 @@ public class JcasbinAuthorizationLookups {
               throw e;
             }
           };
-      if (MetadataIdConverter.catalogScopedTypes().contains(metadataObject.type())) {
+      if (MetadataIdResolver.catalogScopedTypes().contains(metadataObject.type())) {
         NameIdentifier catalogIdentifier =
             NameIdentifierUtil.getCatalogIdentifier(
                 MetadataObjectUtil.toEntityIdent(metalake, metadataObject));
@@ -161,8 +188,9 @@ public class JcasbinAuthorizationLookups {
     }
   }
 
-  private static Long loadMetadataId(MetadataObject metadataObject, String metalake) {
-    return MetadataIdConverter.getIdForNormalizedObject(metadataObject, metalake)
+  private Long loadMetadataId(MetadataObject metadataObject, String metalake) {
+    return metadataIdResolver
+        .getIdForNormalizedObject(metadataObject, metalake)
         .orElseThrow(
             () ->
                 new NoSuchMetadataObjectException(
