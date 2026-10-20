@@ -693,6 +693,7 @@ public class AuthorizationUtils {
   // Compare the connector-visible states before choosing the callback and its payload. A
   // Semantic Model-only change must neither contact a connector nor leak into its role snapshot.
   static void notifyRolePrivilegesUpdated(
+      CatalogManager catalogManager,
       String metalake,
       RoleEntity role,
       @Nullable SecurableObject before,
@@ -721,6 +722,7 @@ public class AuthorizationUtils {
       affectedPrivileges.addAll(previous.privileges());
     }
     callAuthorizationPluginForSecurableObjects(
+        catalogManager,
         metalake,
         List.of(
             SecurableObjects.parse(
