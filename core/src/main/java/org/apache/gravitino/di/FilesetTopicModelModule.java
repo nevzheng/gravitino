@@ -22,6 +22,7 @@ import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
 import java.util.Set;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AuthorizationServices;
@@ -35,6 +36,7 @@ import org.apache.gravitino.catalog.FunctionOperationDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.ModelNormalizeDispatcher;
 import org.apache.gravitino.catalog.ModelOperationDispatcher;
+import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.catalog.SemanticModelNormalizeDispatcher;
@@ -161,10 +163,16 @@ abstract class FilesetTopicModelModule {
       CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
+      @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
       LockManager lockManager) {
     return new TopicOperationDispatcher(
-        catalogManager, entityStore, idGenerator, secretManager, lockManager);
+        catalogManager,
+        entityStore,
+        idGenerator,
+        schemaDispatcher::get,
+        secretManager,
+        lockManager);
   }
 
   @Provides

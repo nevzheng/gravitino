@@ -99,6 +99,10 @@ public class TestFilesetTopicModelModule {
             TopicHookDispatcher.class,
             TopicOperationDispatcher.class);
     assertSame(internal, publicOperations);
+    // The topic operations check and import schemas through the internal schema chain.
+    assertSame(
+        component.internalSchemaDispatcher(),
+        ((Supplier<?>) field(internal, "schemaDispatcherSupplier")).get());
   }
 
   @Test

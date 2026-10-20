@@ -77,7 +77,12 @@ public class TestPartitionOperationDispatcher extends TestOperationDispatcher {
             catalogManager, entityStore, idGenerator, secretManager, lockManager);
     tableOperationDispatcher =
         new TableOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            () -> schemaOperationDispatcher,
+            secretManager,
+            lockManager);
     partitionOperationDispatcher =
         new PartitionOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
 

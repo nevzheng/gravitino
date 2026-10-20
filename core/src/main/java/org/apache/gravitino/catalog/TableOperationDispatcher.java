@@ -106,7 +106,10 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    * @param idGenerator The IdGenerator instance to be used for table operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @param lockManager The LockManager that guards table operations with tree locks.
+   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
    */
+  @Deprecated
   public TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
