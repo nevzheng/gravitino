@@ -332,6 +332,10 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.internalSchemaDispatcher(), singleton.internalSchemaDispatcher());
+      assertSame(component.internalTableDispatcher(), singleton.internalTableDispatcher());
+      assertSame(component.internalPartitionDispatcher(), singleton.internalPartitionDispatcher());
+      assertSame(component.internalViewDispatcher(), singleton.internalViewDispatcher());
       assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
       assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
       assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
@@ -364,6 +368,14 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.schemaDispatcher(), singleton.schemaDispatcher());
+      assertSame(component.internalSchemaDispatcher(), singleton.internalSchemaDispatcher());
+      assertSame(component.tableDispatcher(), singleton.tableDispatcher());
+      assertSame(component.internalTableDispatcher(), singleton.internalTableDispatcher());
+      assertSame(component.partitionDispatcher(), singleton.partitionDispatcher());
+      assertSame(component.internalPartitionDispatcher(), singleton.internalPartitionDispatcher());
+      assertSame(component.viewDispatcher(), singleton.viewDispatcher());
+      assertSame(component.internalViewDispatcher(), singleton.internalViewDispatcher());
       assertSame(component.tagDispatcher(), singleton.tagDispatcher());
       assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
       assertSame(component.policyDispatcher(), singleton.policyDispatcher());
