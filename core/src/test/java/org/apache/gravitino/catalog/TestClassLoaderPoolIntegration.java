@@ -68,6 +68,8 @@ public class TestClassLoaderPoolIntegration {
           .withVersion(SchemaVersion.V_0_1)
           .build();
 
+  private static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws IOException, IllegalAccessException {
     config = new Config(false) {};
@@ -77,7 +79,8 @@ public class TestClassLoaderPoolIntegration {
     entityStore.initialize(config);
     entityStore.put(metalakeEntity, true);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
   }
 
   @AfterAll
@@ -93,7 +96,8 @@ public class TestClassLoaderPoolIntegration {
   @BeforeEach
   public void beforeEach() throws IOException {
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
   }
 
   @AfterEach
@@ -250,7 +254,8 @@ public class TestClassLoaderPoolIntegration {
             noSharingConfig,
             entityStore,
             new RandomIdGenerator(),
-            new SecretManager(noSharingConfig));
+            new SecretManager(noSharingConfig),
+            lockManager);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");
@@ -303,7 +308,8 @@ public class TestClassLoaderPoolIntegration {
             noSharingConfig,
             entityStore,
             new RandomIdGenerator(),
-            new SecretManager(noSharingConfig));
+            new SecretManager(noSharingConfig),
+            lockManager);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");

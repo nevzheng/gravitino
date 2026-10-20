@@ -44,6 +44,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.listener.api.EventListenerPlugin;
 import org.apache.gravitino.listener.api.event.CreateMetalakeEvent;
 import org.apache.gravitino.listener.api.event.Event;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -75,12 +76,43 @@ public class BuiltInJobTemplateEventListener implements EventListenerPlugin {
   private final JobManager jobManager;
   private final EntityStore entityStore;
   private final IdGenerator idGenerator;
+  private final LockManager lockManager;
 
+  /**
+   * Creates the listener. The lock manager is read from {@code GravitinoEnv} each time a tree lock
+   * is taken.
+   *
+   * @param jobManager The job manager that registers the built-in job templates.
+   * @param entityStore The entity store that holds the metalakes and job templates.
+   * @param idGenerator The id generator for new job template entities.
+   * @deprecated Use {@link #BuiltInJobTemplateEventListener(JobManager, EntityStore, IdGenerator,
+   *     LockManager)}, which takes the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public BuiltInJobTemplateEventListener(
       JobManager jobManager, EntityStore entityStore, IdGenerator idGenerator) {
+    this(jobManager, entityStore, idGenerator, TreeLockUtils.legacyForwardingLockManager());
+  }
+
+  /**
+   * Creates the listener.
+   *
+   * @param jobManager The job manager that registers the built-in job templates.
+   * @param entityStore The entity store that holds the metalakes and job templates.
+   * @param idGenerator The id generator for new job template entities.
+   * @param lockManager The lock manager that guards template registration with tree locks.
+   */
+  public BuiltInJobTemplateEventListener(
+      JobManager jobManager,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      LockManager lockManager) {
     this.jobManager = jobManager;
     this.entityStore = entityStore;
     this.idGenerator = idGenerator;
+    this.lockManager = lockManager;
   }
 
   @Override
@@ -93,7 +125,7 @@ public class BuiltInJobTemplateEventListener implements EventListenerPlugin {
   public void start() throws RuntimeException {
     // Register built-in job templates for all existing metalakes on first startup
     try {
-      List<String> existingMetalakes = MetalakeManager.listInUseMetalakes(entityStore);
+      List<String> existingMetalakes = MetalakeManager.listInUseMetalakes(entityStore, lockManager);
       if (existingMetalakes.isEmpty()) {
         return;
       }
@@ -321,6 +353,7 @@ public class BuiltInJobTemplateEventListener implements EventListenerPlugin {
     NameIdentifier identifier = NameIdentifierUtil.ofJobTemplate(metalake, existing.name());
 
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         identifier,
         LockType.WRITE,
         () -> {

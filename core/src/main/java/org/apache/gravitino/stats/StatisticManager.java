@@ -39,6 +39,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -65,10 +66,38 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
 
   private final IdGenerator idGenerator;
   private final PartitionStatisticStorage partitionStorage;
+  private final LockManager lockManager;
 
+  /**
+   * Creates a statistic manager that reads the lock manager from {@code GravitinoEnv} each time a
+   * tree lock is taken.
+   *
+   * @param store The entity store that holds the statistics.
+   * @param idGenerator The id generator for new statistic entities.
+   * @param config The server configuration, which names the partition statistics storage.
+   * @deprecated Use {@link #StatisticManager(EntityStore, IdGenerator, Config, LockManager)}, which
+   *     takes the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public StatisticManager(EntityStore store, IdGenerator idGenerator, Config config) {
+    this(store, idGenerator, config, TreeLockUtils.legacyForwardingLockManager());
+  }
+
+  /**
+   * Creates a statistic manager.
+   *
+   * @param store The entity store that holds the statistics.
+   * @param idGenerator The id generator for new statistic entities.
+   * @param config The server configuration, which names the partition statistics storage.
+   * @param lockManager The lock manager that guards statistic operations with tree locks.
+   */
+  public StatisticManager(
+      EntityStore store, IdGenerator idGenerator, Config config, LockManager lockManager) {
     this.store = store;
     this.idGenerator = idGenerator;
+    this.lockManager = lockManager;
     String className = config.get(Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS);
     Map<String, String> options = buildStorageOptions(config);
     try {
@@ -258,6 +287,7 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
       NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
 
       return TreeLockUtils.doWithTreeLock(
+              lockManager,
               identifier,
               LockType.WRITE,
               () -> partitionStorage.dropStatistics(metalake, partitionStatisticsToDrop))
@@ -288,6 +318,7 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
       // and then appends in two commits, so two concurrent updates of one table could leave
       // duplicates.
       TreeLockUtils.doWithTreeLock(
+          lockManager,
           identifier,
           LockType.WRITE,
           (Executable<Void, IOException>)
@@ -313,6 +344,7 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
 
       List<PersistedPartitionStatistics> partitionStats =
           TreeLockUtils.doWithTreeLock(
+              lockManager,
               identifier,
               LockType.READ,
               () -> partitionStorage.listStatistics(metalake, metadataObject, range));

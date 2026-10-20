@@ -66,6 +66,7 @@ import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.rel.TableChange;
 import org.apache.gravitino.server.authorization.MetadataIdConverter;
@@ -276,7 +277,9 @@ public class TestJcasbinMetadataIdCacheNormalization {
     resolve(object(MetadataObject.Type.TABLE, true));
     SchemaDispatcher dispatcher = mock(SchemaDispatcher.class);
     when(dispatcher.dropSchema(ident(schema), true)).thenReturn(true);
-    assertTrue(new SchemaHookDispatcher(dispatcher).dropSchema(ident(schema), true));
+    assertTrue(
+        new SchemaHookDispatcher(dispatcher, mock(LockManager.class))
+            .dropSchema(ident(schema), true));
     assertEquals(0L, metadataCache.size());
     assertEquals(Optional.of(200L), resolve(object(MetadataObject.Type.TABLE, true)));
     metadataCache.put(JcasbinAuthorizationCacheKeys.metadataIdCacheKey(METALAKE, column), 300L);

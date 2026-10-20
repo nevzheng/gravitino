@@ -44,6 +44,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchGroupException;
 import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.NoSuchUserException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -63,10 +64,12 @@ class PermissionManager {
 
   private final EntityStore store;
   private final RoleManager roleManager;
+  private final LockManager lockManager;
 
-  PermissionManager(EntityStore store, RoleManager roleManager) {
+  PermissionManager(EntityStore store, RoleManager roleManager, LockManager lockManager) {
     this.store = store;
     this.roleManager = roleManager;
+    this.lockManager = lockManager;
   }
 
   User grantRolesToUser(String metalake, List<String> roles, String user) {
@@ -74,6 +77,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToGrant = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToGrant.add(roleManager.getRole(metalake, role)));
@@ -158,6 +162,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToGrant = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToGrant.add(roleManager.getRole(metalake, role)));
@@ -242,6 +247,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToRevoke = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToRevoke.add(roleManager.getRole(metalake, role)));
@@ -328,6 +334,7 @@ class PermissionManager {
       List<RoleEntity> roleEntitiesToRevoke = Lists.newArrayList();
       for (String role : roles) {
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             AuthorizationUtils.ofRole(metalake, role),
             LockType.READ,
             () -> roleEntitiesToRevoke.add(roleManager.getRole(metalake, role)));

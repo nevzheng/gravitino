@@ -98,7 +98,8 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
     filesetHookDispatcher =
         new FilesetHookDispatcher(TestFilesetOperationDispatcher.getFilesetOperationDispatcher());
     schemaHookDispatcher =
-        new SchemaHookDispatcher(TestFilesetOperationDispatcher.getSchemaOperationDispatcher());
+        new SchemaHookDispatcher(
+            TestFilesetOperationDispatcher.getSchemaOperationDispatcher(), lockManager);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalAccessControlDispatcher", accessControlManager, true);

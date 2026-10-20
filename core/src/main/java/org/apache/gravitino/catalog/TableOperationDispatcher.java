@@ -65,6 +65,7 @@ import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.exceptions.TableAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -93,26 +94,32 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
 
   private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
 
+  private final Supplier<LockManager> lockManagerSupplier;
+
   /**
    * Creates a new TableOperationDispatcher instance.
+   *
+   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
    *
    * @param catalogManager The CatalogManager instance to be used for table operations.
    * @param store The EntityStore instance to be used for table operations.
    * @param idGenerator The IdGenerator instance to be used for table operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards table operations with tree locks.
    */
-  @LegacyEnvAccess
   public TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
-      SecretManager secretManager) {
+      SecretManager secretManager,
+      LockManager lockManager) {
     this(
         catalogManager,
         store,
         idGenerator,
-        () -> GravitinoEnv.getInstance().internalSchemaDispatcher(),
-        secretManager);
+        TableOperationDispatcher::envSchemaDispatcher,
+        secretManager,
+        () -> lockManager);
   }
 
   /**
@@ -123,17 +130,94 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    * @param idGenerator The IdGenerator instance to be used for table operations.
    * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards table operations with tree locks.
    */
   public TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
       Supplier<SchemaDispatcher> schemaDispatcherSupplier,
+      SecretManager secretManager,
+      LockManager lockManager) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        schemaDispatcherSupplier,
+        secretManager,
+        () -> lockManager);
+  }
+
+  /**
+   * Creates a new TableOperationDispatcher instance.
+   *
+   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for table operations.
+   * @param store The EntityStore instance to be used for table operations.
+   * @param idGenerator The IdGenerator instance to be used for table operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public TableOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
       SecretManager secretManager) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        TableOperationDispatcher::envSchemaDispatcher,
+        secretManager,
+        TreeLockUtils.legacyLockManager());
+  }
+
+  /**
+   * Creates a new TableOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for table operations.
+   * @param store The EntityStore instance to be used for table operations.
+   * @param idGenerator The IdGenerator instance to be used for table operations.
+   * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     Supplier, SecretManager, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public TableOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
+      SecretManager secretManager) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        schemaDispatcherSupplier,
+        secretManager,
+        TreeLockUtils.legacyLockManager());
+  }
+
+  private TableOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
+      SecretManager secretManager,
+      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
     this.schemaDispatcherSupplier =
         Preconditions.checkNotNull(
             schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   /**
@@ -147,6 +231,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   @Override
   public NameIdentifier[] listTables(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -166,7 +251,8 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   @Override
   public Table loadTable(NameIdentifier ident) throws NoSuchTableException {
     EntityCombinedTable entityCombinedTable =
-        TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadTable(ident));
+        TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTable(ident));
 
     if (!entityCombinedTable.imported()) {
       // Load the schema to make sure the schema is imported.
@@ -177,14 +263,16 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
       // Import the table.
       try {
         entityCombinedTable =
-            TreeLockUtils.doWithTreeLock(schemaIdent, LockType.WRITE, () -> importTable(ident));
+            TreeLockUtils.doWithTreeLock(
+                lockManagerSupplier.get(), schemaIdent, LockType.WRITE, () -> importTable(ident));
       } catch (EntityAlreadyExistsException e) {
         // HA race: another Gravitino node concurrently imported this table. Reload from the
         // entity store to pick up the entity stored by the winning node.
         LOG.info(
             "Table {} was concurrently imported by another node; reloading from store.", ident);
         entityCombinedTable =
-            TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadTable(ident));
+            TreeLockUtils.doWithTreeLock(
+                lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTable(ident));
         if (!entityCombinedTable.imported()) {
           throw new UnsupportedOperationException(
               "Table managed by multiple catalogs. This may cause unexpected issues such as privilege conflicts. "
@@ -242,6 +330,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     // (schema WRITE); a same-name create, load or alter contends on the table node.
     // Trade-off: listTables may briefly observe a table whose creation has not committed yet.
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         ident,
         LockType.WRITE,
         () ->
@@ -299,6 +388,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     }
 
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         nameIdentifierForLock,
         nameIdentifierForLock.equals(ident) ? LockType.READ : LockType.WRITE,
         () -> {
@@ -415,6 +505,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   public boolean dropTable(NameIdentifier ident) {
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -471,6 +562,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -1060,6 +1152,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     // alterTable and loadTable to exclude each other, which is tracked separately.
     Table tableFromCatalog = combinedTable.tableFromCatalog();
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         tableIdent,
         LockType.WRITE,
         () ->
@@ -1123,6 +1216,11 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         ColumnEntity.COMMENT.validate(updateComment.getNewComment(), COLUMN);
       }
     }
+  }
+
+  @LegacyEnvAccess
+  private static SchemaDispatcher envSchemaDispatcher() {
+    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 
   private static class TableCatalogResult {

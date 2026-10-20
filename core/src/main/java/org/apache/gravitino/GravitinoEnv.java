@@ -948,7 +948,8 @@ public class GravitinoEnv implements LegacyBridge {
   private MetadataOperations initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager = new MetalakeManager(entityStore, idGenerator, catalogManager);
+    this.metalakeManager =
+        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager);
     this.internalMetalakeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
     this.internalCatalogDispatcher = new CatalogNormalizeDispatcher(catalogManager);
 
@@ -970,7 +971,8 @@ public class GravitinoEnv implements LegacyBridge {
     initInternalViewDispatcher();
     initSemanticModelDispatcher(schemaOperationDispatcher);
 
-    this.internalStatisticDispatcher = new StatisticManager(entityStore, idGenerator, config);
+    this.internalStatisticDispatcher =
+        new StatisticManager(entityStore, idGenerator, config, lockManager);
     initInternalAuthorizationComponents();
 
     this.internalTagDispatcher = new TagManager(idGenerator, entityStore);
@@ -986,7 +988,8 @@ public class GravitinoEnv implements LegacyBridge {
 
   private FilesetOperationDispatcher initInternalFilesetDispatcher() {
     FilesetOperationDispatcher filesetOperationDispatcher =
-        new FilesetOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new FilesetOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     this.internalFilesetDispatcher =
         new FilesetNormalizeDispatcher(filesetOperationDispatcher, catalogManager);
     return filesetOperationDispatcher;
@@ -995,7 +998,12 @@ public class GravitinoEnv implements LegacyBridge {
   private SchemaOperationDispatcher initInternalSchemaDispatcher() {
     SchemaOperationDispatcher schemaOperationDispatcher =
         new SchemaOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, internalFilesetDispatcher);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            secretManager,
+            internalFilesetDispatcher,
+            lockManager);
     this.internalSchemaDispatcher =
         new SchemaNormalizeDispatcher(schemaOperationDispatcher, catalogManager);
     return schemaOperationDispatcher;
@@ -1008,7 +1016,8 @@ public class GravitinoEnv implements LegacyBridge {
             entityStore,
             idGenerator,
             () -> internalSchemaDispatcher,
-            secretManager);
+            secretManager,
+            lockManager);
     this.internalTableDispatcher =
         new TableNormalizeDispatcher(internalTableOperationDispatcher, catalogManager);
   }
@@ -1022,7 +1031,8 @@ public class GravitinoEnv implements LegacyBridge {
 
   private TopicOperationDispatcher initInternalTopicDispatcher() {
     TopicOperationDispatcher topicOperationDispatcher =
-        new TopicOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new TopicOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     this.internalTopicDispatcher =
         new TopicNormalizeDispatcher(topicOperationDispatcher, catalogManager);
     return topicOperationDispatcher;
@@ -1040,7 +1050,12 @@ public class GravitinoEnv implements LegacyBridge {
       SchemaOperationDispatcher schemaOperationDispatcher) {
     FunctionOperationDispatcher functionOperationDispatcher =
         new FunctionOperationDispatcher(
-            catalogManager, schemaOperationDispatcher, entityStore, idGenerator, secretManager);
+            catalogManager,
+            schemaOperationDispatcher,
+            entityStore,
+            idGenerator,
+            secretManager,
+            lockManager);
     this.internalFunctionDispatcher =
         new FunctionNormalizeDispatcher(functionOperationDispatcher, catalogManager);
     return functionOperationDispatcher;
@@ -1053,7 +1068,8 @@ public class GravitinoEnv implements LegacyBridge {
             entityStore,
             idGenerator,
             () -> internalSchemaDispatcher,
-            secretManager);
+            secretManager,
+            lockManager);
     this.internalViewDispatcher =
         new ViewNormalizeDispatcher(internalViewOperationDispatcher, catalogManager);
   }
@@ -1070,7 +1086,7 @@ public class GravitinoEnv implements LegacyBridge {
   private void initInternalAuthorizationComponents() {
     if (config.get(Configs.ENABLE_AUTHORIZATION)) {
       this.internalAccessControlDispatcher =
-          new AccessControlManager(entityStore, idGenerator, config);
+          new AccessControlManager(entityStore, idGenerator, config, lockManager);
       this.internalOwnerDispatcher = new OwnerManager(entityStore);
       this.bulkManager = new BulkManager(config);
       this.futureGrantManager = new FutureGrantManager(entityStore, internalOwnerDispatcher);
@@ -1093,7 +1109,8 @@ public class GravitinoEnv implements LegacyBridge {
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
-    this.catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager);
+    this.catalogManager =
+        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
   }
 
   private void initGravitinoServerComponents() {
@@ -1103,7 +1120,7 @@ public class GravitinoEnv implements LegacyBridge {
     this.auxServiceManager = new AuxiliaryServiceManager();
     this.auxServiceManager.serviceInit(config);
 
-    JobManager jobManager = new JobManager(config, entityStore, idGenerator);
+    JobManager jobManager = new JobManager(config, entityStore, idGenerator, lockManager);
     JobTemplateValidationDispatcher validationDispatcher =
         new JobTemplateValidationDispatcher(jobManager);
     this.internalJobOperationDispatcher = validationDispatcher;
@@ -1113,7 +1130,7 @@ public class GravitinoEnv implements LegacyBridge {
     // Register built-in job template event listener to automatically register templates
     // when metalakes are created
     BuiltInJobTemplateEventListener builtInJobTemplateListener =
-        new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator);
+        new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator, lockManager);
     eventListenerManager.addEventListener("builtin-job-template", builtInJobTemplateListener);
   }
 
@@ -1140,13 +1157,14 @@ public class GravitinoEnv implements LegacyBridge {
     this.filesetDispatcher = new FilesetEventDispatcher(eventBus, filesetNormalizeDispatcher);
 
     SchemaHookDispatcher schemaHookDispatcher =
-        new SchemaHookDispatcher(metadataOperations.schemaOperationDispatcher);
+        new SchemaHookDispatcher(metadataOperations.schemaOperationDispatcher, lockManager);
     SchemaNormalizeDispatcher schemaNormalizeDispatcher =
         new SchemaNormalizeDispatcher(schemaHookDispatcher, catalogManager);
     this.schemaDispatcher = new SchemaEventDispatcher(eventBus, schemaNormalizeDispatcher);
 
     TableOperationDispatcher tableOperationDispatcher =
-        new TableOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new TableOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     TableHookDispatcher tableHookDispatcher =
         new TableHookDispatcher(tableOperationDispatcher, this::internalOwnerDispatcher);
     TableNormalizeDispatcher tableNormalizeDispatcher =
@@ -1182,7 +1200,8 @@ public class GravitinoEnv implements LegacyBridge {
     // View operation chain: ViewEventDispatcher -> ViewNormalizeDispatcher -> ViewHookDispatcher
     // -> ViewOperationDispatcher.
     ViewOperationDispatcher viewOperationDispatcher =
-        new ViewOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new ViewOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     ViewHookDispatcher viewHookDispatcher =
         new ViewHookDispatcher(viewOperationDispatcher, this::internalOwnerDispatcher);
     ViewNormalizeDispatcher viewNormalizeDispatcher =

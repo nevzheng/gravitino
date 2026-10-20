@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
@@ -40,6 +41,7 @@ import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.file.FileInfo;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.file.FilesetChange;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.FilesetEntity;
@@ -53,6 +55,8 @@ import org.apache.gravitino.secret.SecretReference;
 import org.apache.gravitino.storage.IdGenerator;
 
 public class FilesetOperationDispatcher extends OperationDispatcher implements FilesetDispatcher {
+  private final Supplier<LockManager> lockManagerSupplier;
+
   /**
    * Creates a new FilesetOperationDispatcher instance.
    *
@@ -60,13 +64,46 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
    * @param store The EntityStore instance to be used for fileset operations.
    * @param idGenerator The IdGenerator instance to be used for fileset operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards fileset operations with tree locks.
    */
   public FilesetOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager) {
+    this(catalogManager, store, idGenerator, secretManager, () -> lockManager);
+  }
+
+  /**
+   * Creates a new FilesetOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for fileset operations.
+   * @param store The EntityStore instance to be used for fileset operations.
+   * @param idGenerator The IdGenerator instance to be used for fileset operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @deprecated Use {@link #FilesetOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public FilesetOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
       SecretManager secretManager) {
+    this(catalogManager, store, idGenerator, secretManager, TreeLockUtils.legacyLockManager());
+  }
+
+  private FilesetOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   /**
@@ -79,6 +116,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
   @Override
   public NameIdentifier[] listFilesets(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -100,6 +138,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     Fileset fileset =
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             ident,
             LockType.READ,
             () ->
@@ -121,6 +160,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
       throws NoSuchFilesetException {
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         ident,
         LockType.READ,
         () ->
@@ -188,6 +228,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
     try {
       Fileset createdFileset =
           TreeLockUtils.doWithTreeLock(
+              lockManagerSupplier.get(),
               // Lock at fileset level (not schema level) to allow concurrent fileset creation.
               // Trade-off: listFilesets() may temporarily miss in-progress creations until
               // complete.
@@ -242,6 +283,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
 
     Fileset alteredFileset =
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             nameIdentifierForLock,
             LockType.WRITE,
             () -> alterFilesetUnderLock(ident, catalogIdent, changes));
@@ -338,6 +380,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
   @Override
   public boolean dropFileset(NameIdentifier ident) {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(ident.namespace().levels()),
         LockType.WRITE,
         () -> {
@@ -382,6 +425,7 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
   public String getFileLocation(NameIdentifier ident, String subPath, String locationName)
       throws NoSuchFilesetException {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         ident,
         LockType.READ,
         () ->

@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.catalog;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.Entity.EntityType.SCHEMA;
 import static org.apache.gravitino.Entity.EntityType.VIEW;
 import static org.apache.gravitino.StringIdentifier.ID_KEY;
@@ -28,9 +25,7 @@ import static org.apache.gravitino.TestBasePropertiesMetadata.COMMENT_KEY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 
 import com.google.common.collect.ImmutableMap;
@@ -48,7 +43,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
@@ -59,7 +53,6 @@ import org.apache.gravitino.exceptions.GravitinoRuntimeException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchViewException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.SchemaEntity;
@@ -80,20 +73,17 @@ public class TestViewOperationDispatcher extends TestOperationDispatcher {
   @BeforeAll
   public static void initialize() throws IOException, IllegalAccessException {
     schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new SchemaOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     viewOperationDispatcher =
         new ViewOperationDispatcher(
             catalogManager,
             entityStore,
             idGenerator,
             () -> schemaOperationDispatcher,
-            secretManager);
+            secretManager,
+            lockManager);
 
-    Config config = mock(Config.class);
-    doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
   }
@@ -223,7 +213,7 @@ public class TestViewOperationDispatcher extends TestOperationDispatcher {
         NullPointerException.class,
         () ->
             new ViewOperationDispatcher(
-                catalogManager, entityStore, idGenerator, null, secretManager));
+                catalogManager, entityStore, idGenerator, null, secretManager, lockManager));
   }
 
   @Test
@@ -235,7 +225,12 @@ public class TestViewOperationDispatcher extends TestOperationDispatcher {
     Supplier<SchemaDispatcher> nullSchemaDispatcherSupplier = () -> null;
     ViewOperationDispatcher dispatcher =
         new ViewOperationDispatcher(
-            catalogManager, entityStore, idGenerator, nullSchemaDispatcherSupplier, secretManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            nullSchemaDispatcherSupplier,
+            secretManager,
+            lockManager);
     NameIdentifier viewIdent = NameIdentifier.of(viewNs, "view_null_dispatcher");
     Representation[] representations =
         new Representation[] {

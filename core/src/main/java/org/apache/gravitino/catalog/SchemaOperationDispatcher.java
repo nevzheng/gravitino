@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.EntityAlreadyExistsException;
@@ -47,6 +48,7 @@ import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NonEmptySchemaException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -71,6 +73,8 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
 
   @Nullable private final FilesetDispatcher filesetDispatcher;
 
+  private final Supplier<LockManager> lockManagerSupplier;
+
   /**
    * Creates a new SchemaOperationDispatcher instance.
    *
@@ -78,13 +82,15 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
    * @param store The EntityStore instance to be used for schema operations.
    * @param idGenerator The IdGenerator instance to be used for schema operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards schema operations with tree locks.
    */
   public SchemaOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(catalogManager, store, idGenerator, secretManager, null);
+      SecretManager secretManager,
+      LockManager lockManager) {
+    this(catalogManager, store, idGenerator, secretManager, null, () -> lockManager);
   }
 
   /**
@@ -95,15 +101,79 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
    * @param idGenerator The IdGenerator instance to be used for schema operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @param filesetDispatcher The fileset dispatcher used to drop filesets on cascade schema drop.
+   * @param lockManager The LockManager that guards schema operations with tree locks.
    */
   public SchemaOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
       SecretManager secretManager,
-      FilesetDispatcher filesetDispatcher) {
+      @Nullable FilesetDispatcher filesetDispatcher,
+      LockManager lockManager) {
+    this(catalogManager, store, idGenerator, secretManager, filesetDispatcher, () -> lockManager);
+  }
+
+  /**
+   * Creates a new SchemaOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for schema operations.
+   * @param store The EntityStore instance to be used for schema operations.
+   * @param idGenerator The IdGenerator instance to be used for schema operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @deprecated Use {@link #SchemaOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public SchemaOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager) {
+    this(
+        catalogManager, store, idGenerator, secretManager, null, TreeLockUtils.legacyLockManager());
+  }
+
+  /**
+   * Creates a new SchemaOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for schema operations.
+   * @param store The EntityStore instance to be used for schema operations.
+   * @param idGenerator The IdGenerator instance to be used for schema operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param filesetDispatcher The fileset dispatcher used to drop filesets on cascade schema drop.
+   * @deprecated Use {@link #SchemaOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     SecretManager, FilesetDispatcher, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public SchemaOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      @Nullable FilesetDispatcher filesetDispatcher) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        secretManager,
+        filesetDispatcher,
+        TreeLockUtils.legacyLockManager());
+  }
+
+  private SchemaOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      @Nullable FilesetDispatcher filesetDispatcher,
+      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
     this.filesetDispatcher = filesetDispatcher;
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   /**
@@ -117,6 +187,7 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
   @Override
   public NameIdentifier[] listSchemas(Namespace namespace) throws NoSuchCatalogException {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -186,6 +257,7 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
     secretManager.writeSecrets(secretMaterials);
     try {
       return TreeLockUtils.doWithTreeLock(
+          lockManagerSupplier.get(),
           catalogIdent,
           LockType.WRITE,
           () -> {
@@ -262,11 +334,13 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
   public Schema loadSchema(NameIdentifier ident) throws NoSuchSchemaException {
     // Load the schema and check if this schema is already imported.
     EntityCombinedSchema schema =
-        TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadSchema(ident));
+        TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadSchema(ident));
 
     if (!schema.imported()) {
       try {
         TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(),
             NameIdentifier.of(ident.namespace().levels()),
             LockType.WRITE,
             () -> {
@@ -279,7 +353,8 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
         LOG.info(
             "Schema {} was concurrently imported by another node; reloading from store.", ident);
         EntityCombinedSchema reloaded =
-            TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadSchema(ident));
+            TreeLockUtils.doWithTreeLock(
+                lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadSchema(ident));
         if (!reloaded.imported()) {
           throw new UnsupportedOperationException(
               "Schema managed by multiple catalogs. This may cause unexpected issues such as privilege conflicts. "
@@ -308,6 +383,7 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
     // Gravitino does not support alter schema currently, so we do not need to check whether there
     // exists SchemaChange.renameSchema in the changes and can lock schema directly.
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         ident,
         LockType.WRITE,
         () -> {
@@ -543,6 +619,7 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
     }
 
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         catalogIdent,
         LockType.WRITE,
         () -> {

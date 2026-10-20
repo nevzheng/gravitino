@@ -169,6 +169,8 @@ public class TestCatalogManager {
 
   private static Config config;
 
+  private static LockManager lockManager;
+
   private static String metalake = "metalake";
 
   private static String provider = "test";
@@ -192,9 +194,11 @@ public class TestCatalogManager {
 
     entityStore.put(metalakeEntity, true);
 
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
     catalogManager = Mockito.spy(catalogManager);
   }
 
@@ -577,7 +581,8 @@ public class TestCatalogManager {
     Mockito.doThrow(missingMetalake).when(store).put(any(CatalogEntity.class), eq(false));
 
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
     NameIdentifier ident = NameIdentifier.of(metalake, "concurrent_parent_drop");
     Map<String, String> props =
         ImmutableMap.of(
@@ -1046,7 +1051,8 @@ public class TestCatalogManager {
     store.initialize(config);
     store.put(metalakeEntity, true);
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "late_local_marker");
     Map<String, String> props =
         ImmutableMap.of(
@@ -1161,7 +1167,8 @@ public class TestCatalogManager {
   void testCloseUnregistersCatalogChangeLogListener() {
     ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
 
     EntityChangeLogListener registeredListener = store.listener.get();
     Assertions.assertNotNull(registeredListener);
@@ -1176,7 +1183,8 @@ public class TestCatalogManager {
     ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
     store.throwOnUnregister = true;
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
 
     Assertions.assertDoesNotThrow(manager::close);
     Assertions.assertThrows(
@@ -1191,7 +1199,8 @@ public class TestCatalogManager {
     store.put(metalakeEntity, true);
 
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "delete_returns_false");
     Map<String, String> props =
         ImmutableMap.of(
@@ -1235,7 +1244,8 @@ public class TestCatalogManager {
     store.put(metalakeEntity, true);
 
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "concurrently_deleted");
     Map<String, String> props =
         ImmutableMap.of(
@@ -1255,7 +1265,8 @@ public class TestCatalogManager {
     store.put(metalakeEntity, true);
 
     CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "failed_create_cleanup");
 
     // A creation that fails validation (key1 is required but missing) stores the entity and then
@@ -1886,6 +1897,7 @@ public class TestCatalogManager {
               () -> {
                 writerStarted.countDown();
                 TreeLockUtils.doWithTreeLock(
+                    lockManager,
                     ident,
                     LockType.WRITE,
                     () -> {
@@ -2000,7 +2012,8 @@ public class TestCatalogManager {
     store.put(metalakeEntity, true);
 
     try (CatalogManager manager =
-        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config))) {
+        new CatalogManager(
+            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager)) {
       // Create a catalog
       manager.createCatalog(ident, Catalog.Type.RELATIONAL, provider, "comment", props);
 
@@ -2046,7 +2059,8 @@ public class TestCatalogManager {
   void testSecrets() throws Exception {
     try (SecretManager secrets = memorySecretManager();
         CatalogManager manager =
-            new CatalogManager(config, entityStore, new RandomIdGenerator(), secrets)) {
+            new CatalogManager(
+                config, entityStore, new RandomIdGenerator(), secrets, lockManager)) {
       NameIdentifier ident = NameIdentifier.of("metalake", "secret_ok");
       Catalog catalog =
           manager.createCatalog(
@@ -2087,7 +2101,8 @@ public class TestCatalogManager {
     try (SecretManager secrets = memorySecretManager();
         CatalogManager manager =
             Mockito.spy(
-                new CatalogManager(config, entityStore, new RandomIdGenerator(), secrets))) {
+                new CatalogManager(
+                    config, entityStore, new RandomIdGenerator(), secrets, lockManager))) {
       NameIdentifier ident = NameIdentifier.of("metalake", "secret_connection_test");
       manager.createCatalog(
           ident,
@@ -2158,7 +2173,8 @@ public class TestCatalogManager {
   void testSecretRollback() throws Exception {
     try (SecretManager secrets = memorySecretManager()) {
       IdGenerator ids = new AtomicLong(4242L)::getAndIncrement;
-      CatalogManager manager = Mockito.spy(new CatalogManager(config, entityStore, ids, secrets));
+      CatalogManager manager =
+          Mockito.spy(new CatalogManager(config, entityStore, ids, secrets, lockManager));
       NameIdentifier ident = NameIdentifier.of("metalake", "secret_fail");
       Mockito.doThrow(new RuntimeException("init failed"))
           .when(manager)
@@ -2186,7 +2202,11 @@ public class TestCatalogManager {
     try (SecretManager secrets = memorySecretManager();
         CatalogManager manager =
             new CatalogManager(
-                config, entityStore, new AtomicLong(4343L)::getAndIncrement, secrets)) {
+                config,
+                entityStore,
+                new AtomicLong(4343L)::getAndIncrement,
+                secrets,
+                lockManager)) {
       NameIdentifier ident = NameIdentifier.of("missing_metalake", "secret_catalog");
       SecretUrn urn = writeThroughUrn("catalog", 4343L, PROPERTY_KEY4);
       Assertions.assertThrows(

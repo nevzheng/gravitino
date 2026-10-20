@@ -24,6 +24,8 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -31,6 +33,7 @@ import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.function.FunctionChange;
 import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.function.FunctionType;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -64,9 +67,19 @@ public class TestFunctionOperationDispatcher {
     mockCatalogWrapper(NameIdentifier.of(METALAKE, ICEBERG_CATALOG), icebergWrapper);
     mockCatalogWrapper(NameIdentifier.of(METALAKE, HIVE_CATALOG), hiveWrapper);
 
+    Config lockConfig = mock(Config.class);
+    when(lockConfig.get(Configs.TREE_LOCK_MAX_NODE_IN_MEMORY)).thenReturn(100000L);
+    when(lockConfig.get(Configs.TREE_LOCK_MIN_NODE_IN_MEMORY)).thenReturn(1000L);
+    when(lockConfig.get(Configs.TREE_LOCK_CLEAN_INTERVAL)).thenReturn(36000L);
+
     dispatcher =
         new FunctionOperationDispatcher(
-            catalogManager, schemaOps, store, idGenerator, mock(SecretManager.class));
+            catalogManager,
+            schemaOps,
+            store,
+            idGenerator,
+            mock(SecretManager.class),
+            new LockManager(lockConfig));
   }
 
   @Test
