@@ -17,14 +17,62 @@
 
 package org.apache.gravitino.server.authorization;
 
+import java.io.IOException;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.server.ServerConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /** Test of {@link GravitinoAuthorizerProvider} */
 public class TestGravitinoAuthorizerProvider {
+
+  @AfterEach
+  public void tearDown() throws IOException {
+    GravitinoAuthorizerProvider.getInstance().close();
+    RecordingAuthorizer.context = null;
+  }
+
+  @Test
+  public void testInitializeWithContextPassesItToTheAuthorizer() {
+    ServerConfig serverConfig = new ServerConfig();
+    serverConfig.set(Configs.ENABLE_AUTHORIZATION, true);
+    serverConfig.set(Configs.AUTHORIZATION_IMPL, RecordingAuthorizer.class.getName());
+    AuthorizerContext context = Mockito.mock(AuthorizerContext.class);
+
+    GravitinoAuthorizerProvider.getInstance().initialize(serverConfig, context);
+
+    Assertions.assertInstanceOf(
+        RecordingAuthorizer.class,
+        GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
+    Assertions.assertSame(context, RecordingAuthorizer.context);
+  }
+
+  @Test
+  public void testInitializeWithContextUsesThePassThroughAuthorizerWhenDisabled() {
+    ServerConfig serverConfig = new ServerConfig();
+    serverConfig.set(Configs.ENABLE_AUTHORIZATION, false);
+
+    GravitinoAuthorizerProvider.getInstance()
+        .initialize(serverConfig, Mockito.mock(AuthorizerContext.class));
+
+    Assertions.assertInstanceOf(
+        PassThroughAuthorizer.class,
+        GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
+  }
+
+  /** An authorizer that records the context it is initialized with. */
+  public static class RecordingAuthorizer extends PassThroughAuthorizer {
+    static AuthorizerContext context;
+
+    @Override
+    public void initialize(AuthorizerContext context) {
+      RecordingAuthorizer.context = context;
+    }
+  }
 
   @Test
   public void testInitializeAllowAuthorizer() {

@@ -18,9 +18,17 @@
  */
 package org.apache.gravitino.server;
 
+import javax.annotation.Nullable;
 import javax.inject.Singleton;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
+import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -33,6 +41,7 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lineage.LineageDispatcher;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
@@ -40,6 +49,7 @@ import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
@@ -103,5 +113,43 @@ class GravitinoEnvBinder extends AbstractBinder {
     bind(lineageDispatcher).to(LineageDispatcher.class).ranked(1);
     bind(gravitinoEnv.jobOperationDispatcher()).to(JobOperationDispatcher.class).ranked(1);
     bind(gravitinoEnv.statisticDispatcher()).to(StatisticDispatcher.class).ranked(1);
+    bindHostServices();
+  }
+
+  /**
+   * Binds the host services the REST resources and filters inject besides the dispatchers. A getter
+   * that returns {@code null}, such as an access-control service when authorization is disabled, is
+   * not bound; a resource that runs without it injects it as {@code @Optional}.
+   */
+  private void bindHostServices() {
+    bindIfPresent(gravitinoEnv.config(), Config.class);
+    bindIfPresent(gravitinoEnv.eventBus(), EventBus.class);
+    bindIfPresent(gravitinoEnv.idGenerator(), IdGenerator.class);
+    bindIfPresent(gravitinoEnv.entityStore(), EntityStore.class);
+    bindIfPresent(gravitinoEnv.catalogManager(), CatalogManager.class);
+    bindIfPresent(gravitinoEnv.auxServiceManager(), AuxiliaryServiceManager.class);
+    TableDispatcher internalTableDispatcher = gravitinoEnv.internalTableDispatcher();
+    if (internalTableDispatcher != null) {
+      bind(internalTableDispatcher)
+          .to(TableDispatcher.class)
+          .qualifiedBy(InternalQualifier.INSTANCE)
+          .ranked(InternalQualifier.RANK);
+    }
+    bindIfPresent(gravitinoEnv.accessControlDispatcher(), AccessControlDispatcher.class);
+    bindIfPresent(gravitinoEnv.ownerDispatcher(), OwnerDispatcher.class);
+    OwnerDispatcher internalOwnerDispatcher = gravitinoEnv.internalOwnerDispatcher();
+    if (internalOwnerDispatcher != null) {
+      bind(internalOwnerDispatcher)
+          .to(OwnerDispatcher.class)
+          .qualifiedBy(InternalQualifier.INSTANCE)
+          .ranked(InternalQualifier.RANK);
+    }
+    bindIfPresent(gravitinoEnv.bulkManager(), BulkManager.class);
+  }
+
+  private <T> void bindIfPresent(@Nullable T service, Class<? super T> contract) {
+    if (service != null) {
+      bind(service).to(contract).ranked(1);
+    }
   }
 }

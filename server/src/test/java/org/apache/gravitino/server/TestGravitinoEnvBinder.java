@@ -19,14 +19,22 @@
 package org.apache.gravitino.server;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.apache.gravitino.Config;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
+import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -39,11 +47,13 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lineage.LineageDispatcher;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.stats.StatisticDispatcher;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.api.ServiceLocator;
@@ -124,6 +134,52 @@ public class TestGravitinoEnvBinder {
       assertNull(
           locator.getBestDescriptor(
               BuilderHelper.createContractFilter(InterceptionService.class.getName())));
+    } finally {
+      locator.shutdown();
+    }
+  }
+
+  @Test
+  public void testBindsTheHostServicesTheEnvironmentHas() {
+    GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
+    Config config = mock(Config.class);
+    EventBus eventBus = mock(EventBus.class);
+    IdGenerator idGenerator = mock(IdGenerator.class);
+    EntityStore entityStore = mock(EntityStore.class);
+    CatalogManager catalogManager = mock(CatalogManager.class);
+    AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
+    TableDispatcher internalTables = mock(TableDispatcher.class);
+    OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
+    when(env.config()).thenReturn(config);
+    when(env.eventBus()).thenReturn(eventBus);
+    when(env.idGenerator()).thenReturn(idGenerator);
+    when(env.entityStore()).thenReturn(entityStore);
+    when(env.catalogManager()).thenReturn(catalogManager);
+    when(env.auxServiceManager()).thenReturn(auxiliaryServiceManager);
+    when(env.internalTableDispatcher()).thenReturn(internalTables);
+    when(env.internalOwnerDispatcher()).thenReturn(internalOwners);
+    when(env.accessControlDispatcher()).thenReturn(null);
+    when(env.bulkManager()).thenReturn(null);
+
+    ServiceLocator locator =
+        ServiceLocatorUtilities.bind(
+            new GravitinoEnvBinder(env, false, mock(LineageDispatcher.class)));
+    try {
+      assertSame(config, locator.getService(Config.class));
+      assertSame(eventBus, locator.getService(EventBus.class));
+      assertSame(idGenerator, locator.getService(IdGenerator.class));
+      assertSame(entityStore, locator.getService(EntityStore.class));
+      assertSame(catalogManager, locator.getService(CatalogManager.class));
+      assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
+      assertSame(
+          internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
+      assertSame(
+          internalOwners, locator.getService(OwnerDispatcher.class, InternalQualifier.INSTANCE));
+      // An unqualified injection point gets the public chain, not the internal one.
+      assertNotSame(internalOwners, locator.getService(OwnerDispatcher.class));
+      // The getters that return null are not bound.
+      assertNull(locator.getService(AccessControlDispatcher.class));
+      assertNull(locator.getService(BulkManager.class));
     } finally {
       locator.shutdown();
     }
