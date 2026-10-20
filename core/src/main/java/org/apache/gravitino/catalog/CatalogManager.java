@@ -659,7 +659,14 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         idGenerator,
         secretManager,
         lockManager,
-        CatalogContext.of(store, secretManager, metricsSystem, idGenerator),
+        CatalogContext.of(
+            store,
+            secretManager,
+            metricsSystem,
+            idGenerator,
+            config != null
+                && Boolean.TRUE.equals(
+                    config.get(Configs.CATALOG_CREDENTIAL_BACKFILL_TO_PROPERTIES))),
         authorizationPluginContext);
   }
 

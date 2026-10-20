@@ -19,8 +19,10 @@
 package org.apache.gravitino.connector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.google.common.collect.ImmutableMap;
@@ -52,6 +54,22 @@ public class TestCatalogContext {
     assertSame(metrics, context.metricsSystem());
     assertSame(ids, context.idGenerator());
     assertNull(CatalogContext.of(store, secrets, null, ids).metricsSystem());
+  }
+
+  @Test
+  public void testCredentialBackfillComesFromTheContext() {
+    EntityStore store = mock(EntityStore.class);
+    SecretManager secrets = mock(SecretManager.class);
+    IdGenerator ids = mock(IdGenerator.class);
+
+    assertFalse(CatalogContext.of(store, secrets, null, ids).credentialBackfillToProperties());
+    CatalogContext backfill = CatalogContext.of(store, secrets, null, ids, true);
+    assertTrue(backfill.credentialBackfillToProperties());
+    assertTrue(new TestCatalog().withCatalogContext(backfill).shouldBackfillCredential());
+    assertFalse(
+        new TestCatalog()
+            .withCatalogContext(CatalogContext.of(store, secrets, null, ids, false))
+            .shouldBackfillCredential());
   }
 
   @Test
