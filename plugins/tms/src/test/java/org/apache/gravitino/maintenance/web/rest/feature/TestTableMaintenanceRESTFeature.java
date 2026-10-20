@@ -18,12 +18,31 @@
  */
 package org.apache.gravitino.maintenance.web.rest.feature;
 
+import javax.ws.rs.core.FeatureContext;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.glassfish.jersey.server.monitoring.ApplicationEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class TestTableMaintenanceRESTFeature {
+
+  @Test
+  void testConfigureReadsTheInjectedConfig() {
+    TableMaintenanceRESTFeature.stopSchedulers();
+    Config config = Mockito.mock(Config.class);
+    Mockito.when(config.get(Configs.ENTITY_STORE)).thenReturn("kv");
+
+    IllegalStateException exception =
+        Assertions.assertThrows(
+            IllegalStateException.class,
+            () ->
+                new TableMaintenanceRESTFeature(config)
+                    .configure(Mockito.mock(FeatureContext.class)));
+    Assertions.assertEquals(
+        "Table maintenance requires gravitino.entity.store = relational", exception.getMessage());
+  }
 
   @Test
   void testDestroyFinishedStopsSchedulers() {
