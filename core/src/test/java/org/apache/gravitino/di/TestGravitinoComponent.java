@@ -23,13 +23,19 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.withSettings;
 
+import java.util.List;
+import java.util.function.Supplier;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,9 +46,23 @@ public class TestGravitinoComponent {
   private FakeLegacyBridge legacy;
   private GravitinoComponent component;
 
+  /**
+   * Returns a configuration under which every object the component owns can be built against the
+   * fake legacy objects.
+   *
+   * @return the configuration
+   */
+  static Config testConfig() {
+    Config config = new Config(false) {};
+    config.set(
+        Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS,
+        MemoryPartitionStatsStorageFactory.class.getCanonicalName());
+    return config;
+  }
+
   @BeforeEach
   public void setUp() {
-    config = new Config(false) {};
+    config = testConfig();
     legacy = new FakeLegacyBridge();
     component = DaggerGravitinoComponent.factory().create(config, legacy);
   }
@@ -76,6 +96,26 @@ public class TestGravitinoComponent {
   }
 
   @Test
+  public void testDispatcherChainsAreSingletonsAndPublicIsNotInternal() throws Exception {
+    List<List<Supplier<Object>>> chains =
+        List.of(
+            List.of(component::tagDispatcher, component::internalTagDispatcher),
+            List.of(component::policyDispatcher, component::internalPolicyDispatcher),
+            List.of(component::statisticDispatcher, component::internalStatisticDispatcher));
+    try {
+      for (List<Supplier<Object>> chain : chains) {
+        Object publicChain = chain.get(0).get();
+        Object internalChain = chain.get(1).get();
+        assertSame(publicChain, chain.get(0).get());
+        assertSame(internalChain, chain.get(1).get());
+        assertNotSame(publicChain, internalChain);
+      }
+    } finally {
+      component.internalStatisticDispatcher().close();
+    }
+  }
+
+  @Test
   public void testLegacyObjectsComeFromTheBridge() {
     assertSame(legacy.entityStore, component.entityStore());
     assertSame(legacy.catalogManager, component.catalogManager());
@@ -84,7 +124,8 @@ public class TestGravitinoComponent {
   }
 
   static class FakeLegacyBridge implements LegacyBridge {
-    EntityStore entityStore = mock(EntityStore.class);
+    EntityStore entityStore =
+        mock(EntityStore.class, withSettings().extraInterfaces(SupportsRelationOperations.class));
     CatalogManager catalogManager = mock(CatalogManager.class);
     SecretManager secretManager = mock(SecretManager.class);
     EventBus eventBus = mock(EventBus.class);

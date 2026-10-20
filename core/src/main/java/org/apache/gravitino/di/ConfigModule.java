@@ -21,14 +21,17 @@ package org.apache.gravitino.di;
 import dagger.Module;
 import dagger.Provides;
 import javax.inject.Singleton;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
 
 /**
- * Binds the process-wide services that depend only on configuration: the id generator and the
- * metrics system. The {@code Config} itself is bound by the component factory.
+ * Binds the process-wide services that depend only on configuration: the id generator, the metrics
+ * system and whether authorization is enabled. The {@code Config} itself is bound by the component
+ * factory.
  */
 @Module
 abstract class ConfigModule {
@@ -39,6 +42,12 @@ abstract class ConfigModule {
   @Singleton
   static IdGenerator idGenerator() {
     return new RandomIdGenerator();
+  }
+
+  @Provides
+  @AuthorizationEnabled
+  static boolean authorizationEnabled(Config config) {
+    return config.get(Configs.ENABLE_AUTHORIZATION);
   }
 
   /**
