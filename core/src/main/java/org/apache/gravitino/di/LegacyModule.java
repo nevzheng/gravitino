@@ -21,6 +21,7 @@ package org.apache.gravitino.di;
 import dagger.Module;
 import dagger.Provides;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
@@ -59,6 +60,11 @@ abstract class LegacyModule {
   @Internal
   static FilesetDispatcher internalFilesetDispatcher(LegacyBridge legacy) {
     return legacy.internalFilesetDispatcher();
+  }
+
+  @Provides
+  static GravitinoAuthorizer gravitinoAuthorizer(LegacyBridge legacy) {
+    return legacy.gravitinoAuthorizer();
   }
 
   @Provides

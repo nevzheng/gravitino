@@ -142,7 +142,7 @@ public class AuthorizationUtils {
   public static void checkCurrentUser(
       String metalake, String user, AuthorizationRequestContext requestContext) {
     GravitinoAuthorizer authorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (authorizer != null && !authorizer.isMetalakeUser(metalake, requestContext)) {
+    if (!authorizer.isMetalakeUser(metalake, requestContext)) {
       throw new ForbiddenException("%s", metalakeMembershipFailureMessage(metalake, user));
     }
   }
@@ -466,9 +466,6 @@ public class AuthorizationUtils {
   @LegacyEnvAccess
   public static void notifyEntityNameIdMappingChange(NameIdentifier ident, Entity.EntityType type) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer == null) {
-      return;
-    }
     String metalake =
         type == Entity.EntityType.METALAKE ? ident.name() : ident.namespace().level(0);
     try {

@@ -26,6 +26,7 @@ import static org.mockito.Mockito.mock;
 
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.secret.SecretManager;
@@ -46,12 +47,14 @@ public class TestLegacyBridge {
     legacy.catalogManager = mock(CatalogManager.class);
     legacy.secretManager = mock(SecretManager.class);
     legacy.eventBus = mock(EventBus.class);
+    legacy.gravitinoAuthorizer = mock(GravitinoAuthorizer.class);
 
     // The bridge owns these objects, so the graph must not cache what it read before.
     assertSame(replacement, component.entityStore());
     assertSame(legacy.catalogManager, component.catalogManager());
     assertSame(legacy.secretManager, component.secretManager());
     assertSame(legacy.eventBus, component.eventBus());
+    assertSame(legacy.gravitinoAuthorizer, component.gravitinoAuthorizer());
     assertNotSame(first, component.entityStore());
   }
 

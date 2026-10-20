@@ -216,12 +216,44 @@ class TestGravitinoEnvMetadataComponents {
       assertNotNull(env.internalAccessControlDispatcher());
       assertNotNull(env.internalOwnerDispatcher());
       assertSame(env.component().internalOwnerDispatcher(), env.internalOwnerDispatcher());
+      assertSame(
+          env.component().internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
       assertNotNull(env.bulkManager());
+      assertSame(env.component().bulkManager(), env.bulkManager());
       assertNotNull(env.futureGrantManager());
+      assertSame(env.component().futureGrantManager(), env.futureGrantManager());
       assertNull(env.accessControlDispatcher());
       assertNull(env.ownerDispatcher());
     } finally {
       env.shutdown();
+    }
+
+    verify(entityStore).close();
+  }
+
+  @Test
+  void testFullProfileTakesAuthorizationComponentsFromTheComponent() throws Exception {
+    Config config = metadataConfig(true);
+    EntityStore entityStore = relationStore();
+
+    try (MockedStatic<EntityStoreFactory> entityStoreFactory =
+        mockStatic(EntityStoreFactory.class)) {
+      entityStoreFactory
+          .when(() -> EntityStoreFactory.createEntityStore(config))
+          .thenReturn(entityStore);
+
+      singleton.initializeFullComponents(config);
+      GravitinoComponent component = singleton.component();
+
+      assertSame(component.accessControlDispatcher(), singleton.accessControlDispatcher());
+      assertSame(
+          component.internalAccessControlDispatcher(), singleton.internalAccessControlDispatcher());
+      assertSame(component.ownerDispatcher(), singleton.ownerDispatcher());
+      assertSame(component.internalOwnerDispatcher(), singleton.internalOwnerDispatcher());
+      assertSame(component.bulkManager(), singleton.bulkManager());
+      assertSame(component.futureGrantManager(), singleton.futureGrantManager());
+    } finally {
+      singleton.shutdown();
     }
 
     verify(entityStore).close();

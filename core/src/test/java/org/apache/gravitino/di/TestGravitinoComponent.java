@@ -32,6 +32,8 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.SupportsRelationOperations;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
@@ -129,6 +131,7 @@ public class TestGravitinoComponent {
     assertSame(legacy.catalogManager, component.catalogManager());
     assertSame(legacy.secretManager, component.secretManager());
     assertSame(legacy.eventBus, component.eventBus());
+    assertSame(legacy.gravitinoAuthorizer, component.gravitinoAuthorizer());
   }
 
   static class FakeLegacyBridge implements LegacyBridge {
@@ -137,6 +140,7 @@ public class TestGravitinoComponent {
     CatalogManager catalogManager = mock(CatalogManager.class);
     SecretManager secretManager = mock(SecretManager.class);
     FilesetDispatcher internalFilesetDispatcher = mock(FilesetDispatcher.class);
+    GravitinoAuthorizer gravitinoAuthorizer = NoopGravitinoAuthorizer.INSTANCE;
     EventBus eventBus = mock(EventBus.class);
 
     @Override
@@ -157,6 +161,11 @@ public class TestGravitinoComponent {
     @Override
     public FilesetDispatcher internalFilesetDispatcher() {
       return internalFilesetDispatcher;
+    }
+
+    @Override
+    public GravitinoAuthorizer gravitinoAuthorizer() {
+      return gravitinoAuthorizer;
     }
 
     @Override

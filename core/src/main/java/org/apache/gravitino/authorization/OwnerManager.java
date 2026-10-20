@@ -217,9 +217,6 @@ public class OwnerManager implements OwnerDispatcher {
   private void notifyOwnerChange(
       @Nullable Owner oldOwner, String metalake, MetadataObject metadataObject) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer == null) {
-      return;
-    }
 
     Long oldOwnerId;
     try {
@@ -252,25 +249,20 @@ public class OwnerManager implements OwnerDispatcher {
     }
   }
 
-  @LegacyEnvAccess
   private Long getOwnerId(String metalake, Owner owner) throws IOException {
     if (owner.type() == Owner.Type.USER) {
       UserEntity userEntity =
-          GravitinoEnv.getInstance()
-              .entityStore()
-              .get(
-                  NameIdentifierUtil.ofUser(metalake, owner.name()),
-                  Entity.EntityType.USER,
-                  UserEntity.class);
+          store.get(
+              NameIdentifierUtil.ofUser(metalake, owner.name()),
+              Entity.EntityType.USER,
+              UserEntity.class);
       return userEntity.id();
     } else if (owner.type() == Owner.Type.GROUP) {
       GroupEntity groupEntity =
-          GravitinoEnv.getInstance()
-              .entityStore()
-              .get(
-                  NameIdentifierUtil.ofGroup(metalake, owner.name()),
-                  Entity.EntityType.GROUP,
-                  GroupEntity.class);
+          store.get(
+              NameIdentifierUtil.ofGroup(metalake, owner.name()),
+              Entity.EntityType.GROUP,
+              GroupEntity.class);
       return groupEntity.id();
     } else {
       throw new IllegalArgumentException("Unsupported owner type: " + owner.type());

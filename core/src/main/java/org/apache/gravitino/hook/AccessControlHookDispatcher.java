@@ -347,9 +347,6 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
   private static void notifyUserRoleBindingChange(
       String metalake, List<String> roles, String user) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer == null) {
-      return;
-    }
     for (String role : roles) {
       gravitinoAuthorizer.handleRolePrivilegeChange(metalake, role);
     }
@@ -364,9 +361,6 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
   private static void notifyGroupRoleBindingChange(
       String metalake, List<String> roles, String group) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer == null) {
-      return;
-    }
     for (String role : roles) {
       gravitinoAuthorizer.handleRolePrivilegeChange(metalake, role);
     }
@@ -376,16 +370,12 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
   @LegacyEnvAccess
   private static void notifyRoleUserRelChange(String metalake, String role) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer != null) {
-      gravitinoAuthorizer.handleRolePrivilegeChange(metalake, role);
-    }
+    gravitinoAuthorizer.handleRolePrivilegeChange(metalake, role);
   }
 
   @LegacyEnvAccess
   private static void notifyRoleUserRelChange(Long role) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    if (gravitinoAuthorizer != null) {
-      gravitinoAuthorizer.handleRolePrivilegeChange(role);
-    }
+    gravitinoAuthorizer.handleRolePrivilegeChange(role);
   }
 }

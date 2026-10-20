@@ -19,6 +19,7 @@
 package org.apache.gravitino.di;
 
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.listener.EventBus;
@@ -66,6 +67,16 @@ public interface LegacyBridge {
    * @return the internal fileset dispatcher
    */
   FilesetDispatcher internalFilesetDispatcher();
+
+  /**
+   * Returns the authorizer the server installed. When none is installed, it returns {@code
+   * DenyAllGravitinoAuthorizer.INSTANCE} if authorization is enabled, so a check fails closed, and
+   * {@code NoopGravitinoAuthorizer.INSTANCE} otherwise. The server installs it after the component
+   * is built, so this is read on every request.
+   *
+   * @return the authorizer, never null
+   */
+  GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
    * Returns the event bus.
