@@ -59,8 +59,10 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.dto.responses.ErrorResponse;
@@ -93,7 +95,8 @@ class TestLineageAuthorizationExecutor {
   @Test
   void testRegisterWithStandardInterceptionFlow() throws Exception {
     GravitinoInterceptionService service =
-        new GravitinoInterceptionService(mock(EventBus.class), mock(TableDispatcher.class));
+        new GravitinoInterceptionService(
+            mock(EventBus.class), mock(TableDispatcher.class), authorizationServices());
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(LineageOperations.class.getName());
     Method method = lineageMethod();
@@ -128,7 +131,10 @@ class TestLineageAuthorizationExecutor {
           .when(
               () ->
                   AuthorizationUtils.checkCurrentUser(
-                      eq(METALAKE), eq("tester"), any(AuthorizationRequestContext.class)))
+                      any(GravitinoAuthorizer.class),
+                      eq(METALAKE),
+                      eq("tester"),
+                      any(AuthorizationRequestContext.class)))
           .thenThrow(new NoSuchMetalakeException("Metalake does not exist"))
           .thenThrow(new ForbiddenException("User tester is not a member"));
       authorizationUtils
@@ -178,7 +184,10 @@ class TestLineageAuthorizationExecutor {
       authorizationUtils.verify(
           () ->
               AuthorizationUtils.checkCurrentUser(
-                  eq(METALAKE), eq("tester"), any(AuthorizationRequestContext.class)));
+                  any(GravitinoAuthorizer.class),
+                  eq(METALAKE),
+                  eq("tester"),
+                  any(AuthorizationRequestContext.class)));
     }
   }
 
@@ -380,7 +389,10 @@ class TestLineageAuthorizationExecutor {
         authorizationUtils.verify(
             () ->
                 AuthorizationUtils.checkCurrentUser(
-                    eq(METALAKE), eq("tester"), any(AuthorizationRequestContext.class)));
+                    any(GravitinoAuthorizer.class),
+                    eq(METALAKE),
+                    eq("tester"),
+                    any(AuthorizationRequestContext.class)));
       }
     }
   }
@@ -445,12 +457,19 @@ class TestLineageAuthorizationExecutor {
         mock(TableDispatcher.class));
   }
 
+  private static AuthorizationServices authorizationServices() {
+    AuthorizationServices services = mock(AuthorizationServices.class);
+    when(services.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
+    return services;
+  }
+
   private static Method lineageMethod() throws NoSuchMethodException {
     return LineageOperations.class.getMethod("postLineage", RunEvent.class);
   }
 
   private static MethodInterceptor lineageInterceptor() throws NoSuchMethodException {
-    return new GravitinoInterceptionService(mock(EventBus.class), mock(TableDispatcher.class))
+    return new GravitinoInterceptionService(
+            mock(EventBus.class), mock(TableDispatcher.class), authorizationServices())
         .getMethodInterceptors(lineageMethod())
         .get(0);
   }

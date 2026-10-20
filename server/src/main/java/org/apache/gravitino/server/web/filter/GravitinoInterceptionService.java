@@ -46,7 +46,9 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.exceptions.BadRequestException;
@@ -112,15 +114,34 @@ public class GravitinoInterceptionService implements InterceptionService {
 
   private final Supplier<EventBus> eventBus;
   private final Supplier<TableDispatcher> internalTableDispatcher;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates the interception service from the process environment, resolved at request time.
    *
-   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher)}.
+   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher,
+   *     AuthorizationServices)}.
    */
   @Deprecated
   public GravitinoInterceptionService() {
-    this(() -> processEnv().eventBus(), () -> processEnv().internalTableDispatcher());
+    this(
+        () -> processEnv().eventBus(),
+        () -> processEnv().internalTableDispatcher(),
+        EnvironmentAuthorizationServices.INSTANCE);
+  }
+
+  /**
+   * Creates the interception service. It checks metalake membership with the authorizer of the
+   * process environment.
+   *
+   * @param eventBus the event bus that receives authorization denial events.
+   * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher,
+   *     AuthorizationServices)}; the server binds the authorization services.
+   */
+  @Deprecated
+  public GravitinoInterceptionService(EventBus eventBus, TableDispatcher internalTableDispatcher) {
+    this(() -> eventBus, () -> internalTableDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   /**
@@ -128,17 +149,24 @@ public class GravitinoInterceptionService implements InterceptionService {
    *
    * @param eventBus the event bus that receives authorization denial events.
    * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   * @param authorizationServices the services whose authorizer checks that the current user is a
+   *     user of the metalake.
    */
   @Inject
   public GravitinoInterceptionService(
-      EventBus eventBus, @Internal TableDispatcher internalTableDispatcher) {
-    this(() -> eventBus, () -> internalTableDispatcher);
+      EventBus eventBus,
+      @Internal TableDispatcher internalTableDispatcher,
+      AuthorizationServices authorizationServices) {
+    this(() -> eventBus, () -> internalTableDispatcher, authorizationServices);
   }
 
   private GravitinoInterceptionService(
-      Supplier<EventBus> eventBus, Supplier<TableDispatcher> internalTableDispatcher) {
+      Supplier<EventBus> eventBus,
+      Supplier<TableDispatcher> internalTableDispatcher,
+      AuthorizationServices authorizationServices) {
     this.eventBus = eventBus;
     this.internalTableDispatcher = internalTableDispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -177,7 +205,8 @@ public class GravitinoInterceptionService implements InterceptionService {
   @Override
   public List<MethodInterceptor> getMethodInterceptors(Method method) {
     return ImmutableList.of(
-        new MetadataAuthorizationMethodInterceptor(eventBus, internalTableDispatcher));
+        new MetadataAuthorizationMethodInterceptor(
+            eventBus, internalTableDispatcher, authorizationServices));
   }
 
   @Override
@@ -195,11 +224,15 @@ public class GravitinoInterceptionService implements InterceptionService {
 
     private final Supplier<EventBus> eventBus;
     private final Supplier<TableDispatcher> internalTableDispatcher;
+    private final AuthorizationServices authorizationServices;
 
     private MetadataAuthorizationMethodInterceptor(
-        Supplier<EventBus> eventBus, Supplier<TableDispatcher> internalTableDispatcher) {
+        Supplier<EventBus> eventBus,
+        Supplier<TableDispatcher> internalTableDispatcher,
+        AuthorizationServices authorizationServices) {
       this.eventBus = eventBus;
       this.internalTableDispatcher = internalTableDispatcher;
+      this.authorizationServices = authorizationServices;
     }
 
     /**
@@ -370,7 +403,10 @@ public class GravitinoInterceptionService implements InterceptionService {
       String currentUser = PrincipalUtils.getCurrentUserName();
       try {
         AuthorizationUtils.checkCurrentUser(
-            metalakeIdent.name(), currentUser, authorizationRequestContext);
+            authorizationServices.gravitinoAuthorizer(),
+            metalakeIdent.name(),
+            currentUser,
+            authorizationRequestContext);
       } catch (NoSuchMetalakeException e) {
         // A custom authorizer may report a missing metalake directly; JCasbin reports it as
         // non-membership instead.
