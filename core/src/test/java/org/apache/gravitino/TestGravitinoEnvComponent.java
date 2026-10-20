@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
@@ -57,7 +58,11 @@ public class TestGravitinoEnvComponent {
       assertNull(env.lockManager());
       assertNull(env.idGenerator());
       assertSame(env.secretManager(), component.secretManager());
+      assertSame(env.kmsClientRegistry(), component.kmsClientRegistry());
+      assertSame(env.eventListenerManager(), component.eventListenerManager());
       assertSame(env.eventBus(), component.eventBus());
+      // Nor an entity store.
+      assertThrows(IllegalArgumentException.class, env::entityStore);
     } finally {
       env.shutdown();
     }

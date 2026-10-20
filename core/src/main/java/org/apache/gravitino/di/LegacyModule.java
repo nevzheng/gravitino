@@ -20,21 +20,16 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
-import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.listener.EventBus;
-import org.apache.gravitino.secret.SecretManager;
 
 /**
- * Binds the objects {@code GravitinoEnv} still builds, read through {@link LegacyBridge}.
+ * Binds the objects the graph does not build, read through {@link LegacyBridge}.
  *
  * <p>The bindings are unscoped on purpose: the bridge owns these objects, so every request reads
  * the bridge again instead of caching a copy in the graph. This module shrinks as areas move into
  * their own modules, and is deleted when the migration is complete.
  */
-// GravitinoEnv builds and closes these objects; the graph only hands them out.
+// The server closes the authorizer; the graph only hands it out.
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class LegacyModule {
@@ -42,33 +37,7 @@ abstract class LegacyModule {
   private LegacyModule() {}
 
   @Provides
-  static EntityStore entityStore(LegacyBridge legacy) {
-    return legacy.entityStore();
-  }
-
-  @Provides
-  static CatalogManager catalogManager(LegacyBridge legacy) {
-    return legacy.catalogManager();
-  }
-
-  @Provides
-  static SecretManager secretManager(LegacyBridge legacy) {
-    return legacy.secretManager();
-  }
-
-  @Provides
-  @Internal
-  static FilesetDispatcher internalFilesetDispatcher(LegacyBridge legacy) {
-    return legacy.internalFilesetDispatcher();
-  }
-
-  @Provides
   static GravitinoAuthorizer gravitinoAuthorizer(LegacyBridge legacy) {
     return legacy.gravitinoAuthorizer();
-  }
-
-  @Provides
-  static EventBus eventBus(LegacyBridge legacy) {
-    return legacy.eventBus();
   }
 }

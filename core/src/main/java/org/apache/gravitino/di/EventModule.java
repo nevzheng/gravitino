@@ -47,9 +47,17 @@ abstract class EventModule {
     return eventListenerManager;
   }
 
+  /**
+   * Creates the event bus. It depends on the audit log manager, so the audit listener is registered
+   * before anything can post an event, whichever object asks for the bus first; no caller has to
+   * build the audit log manager for its side effect.
+   */
   @Provides
   @Singleton
-  static EventBus eventBus(EventListenerManager eventListenerManager) {
+  static EventBus eventBus(
+      EventListenerManager eventListenerManager,
+      // A dependency only for its order: building it registers the audit listener.
+      @SuppressWarnings("UnusedVariable") AuditLogManager auditLog) {
     return eventListenerManager.createEventBus();
   }
 

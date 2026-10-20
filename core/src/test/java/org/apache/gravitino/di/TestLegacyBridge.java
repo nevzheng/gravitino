@@ -25,11 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 import org.apache.gravitino.Config;
-import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.listener.EventBus;
-import org.apache.gravitino.secret.SecretManager;
 import org.junit.jupiter.api.Test;
 
 /** Checks how {@link LegacyModule} exposes the objects of a {@link LegacyBridge}. */
@@ -40,56 +36,45 @@ public class TestLegacyBridge {
     TestGravitinoComponent.FakeLegacyBridge legacy = new TestGravitinoComponent.FakeLegacyBridge();
     GravitinoComponent component =
         DaggerGravitinoComponent.factory().create(new Config(false) {}, legacy);
-    EntityStore first = component.entityStore();
+    GravitinoAuthorizer first = component.gravitinoAuthorizer();
 
-    EntityStore replacement = mock(EntityStore.class);
-    legacy.entityStore = replacement;
-    legacy.catalogManager = mock(CatalogManager.class);
-    legacy.secretManager = mock(SecretManager.class);
-    legacy.eventBus = mock(EventBus.class);
-    legacy.gravitinoAuthorizer = mock(GravitinoAuthorizer.class);
+    // The server installs its authorizer after the component is built.
+    GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
+    legacy.gravitinoAuthorizer = installed;
 
-    // The bridge owns these objects, so the graph must not cache what it read before.
-    assertSame(replacement, component.entityStore());
-    assertSame(legacy.catalogManager, component.catalogManager());
-    assertSame(legacy.secretManager, component.secretManager());
-    assertSame(legacy.eventBus, component.eventBus());
-    assertSame(legacy.gravitinoAuthorizer, component.gravitinoAuthorizer());
-    assertNotSame(first, component.entityStore());
+    // The bridge owns the authorizer, so the graph must not cache what it read before.
+    assertSame(installed, component.gravitinoAuthorizer());
+    assertNotSame(first, component.gravitinoAuthorizer());
   }
 
   @Test
   public void testBridgeFailurePropagates() {
-    LegacyBridge uninitialized =
-        new TestGravitinoComponent.FakeLegacyBridge() {
-          @Override
-          public EntityStore entityStore() {
-            throw new IllegalArgumentException("GravitinoEnv is not initialized.");
-          }
+    LegacyBridge failing =
+        () -> {
+          throw new IllegalStateException("no authorizer");
         };
     GravitinoComponent component =
-        DaggerGravitinoComponent.factory().create(new Config(false) {}, uninitialized);
+        DaggerGravitinoComponent.factory().create(new Config(false) {}, failing);
 
-    IllegalArgumentException exception =
-        assertThrows(IllegalArgumentException.class, component::entityStore);
-    assertEquals("GravitinoEnv is not initialized.", exception.getMessage());
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, component::gravitinoAuthorizer);
+    assertEquals("no authorizer", exception.getMessage());
   }
 
   @Test
   public void testBridgeIsNotReadUntilRequested() {
     LegacyBridge failing =
-        new TestGravitinoComponent.FakeLegacyBridge() {
-          @Override
-          public EntityStore entityStore() {
-            throw new IllegalStateException("must not be read");
-          }
+        () -> {
+          throw new IllegalStateException("must not be read");
         };
 
-    // Building the component and the objects it owns must not touch the legacy objects.
+    // Building the component and the objects it owns must not touch the bridge.
     GravitinoComponent component =
         DaggerGravitinoComponent.factory().create(new Config(false) {}, failing);
     component.lockManager();
     component.idGenerator();
     component.metricsSystem();
+    component.secretManager();
+    component.eventBus();
   }
 }

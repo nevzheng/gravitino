@@ -22,7 +22,6 @@ import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.RestrictedApi;
 import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
-import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
 import org.apache.gravitino.authorization.FutureGrantManager;
@@ -33,58 +32,26 @@ import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
-import org.apache.gravitino.catalog.FilesetOperationDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
-import org.apache.gravitino.catalog.FunctionNormalizeDispatcher;
-import org.apache.gravitino.catalog.FunctionOperationDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
-import org.apache.gravitino.catalog.ModelNormalizeDispatcher;
-import org.apache.gravitino.catalog.ModelOperationDispatcher;
 import org.apache.gravitino.catalog.PartitionDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
-import org.apache.gravitino.catalog.SemanticModelNormalizeDispatcher;
-import org.apache.gravitino.catalog.SemanticModelOperationDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.TopicDispatcher;
-import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
-import org.apache.gravitino.catalog.TopicOperationDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.di.LegacyBridge;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
-import org.apache.gravitino.hook.CatalogHookDispatcher;
-import org.apache.gravitino.hook.FilesetHookDispatcher;
-import org.apache.gravitino.hook.FunctionHookDispatcher;
-import org.apache.gravitino.hook.JobHookDispatcher;
-import org.apache.gravitino.hook.MetalakeHookDispatcher;
-import org.apache.gravitino.hook.ModelHookDispatcher;
-import org.apache.gravitino.hook.SemanticModelHookDispatcher;
-import org.apache.gravitino.hook.TopicHookDispatcher;
-import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
-import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobOperationDispatcher;
-import org.apache.gravitino.job.JobTemplateValidationDispatcher;
-import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
-import org.apache.gravitino.listener.FilesetEventDispatcher;
-import org.apache.gravitino.listener.FunctionEventDispatcher;
-import org.apache.gravitino.listener.JobEventDispatcher;
-import org.apache.gravitino.listener.MetalakeEventDispatcher;
-import org.apache.gravitino.listener.ModelEventDispatcher;
-import org.apache.gravitino.listener.SemanticModelEventDispatcher;
-import org.apache.gravitino.listener.TopicEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metalake.MetalakeManager;
-import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
@@ -103,8 +70,9 @@ import org.slf4j.LoggerFactory;
  *
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
- * initialization sequence where it used to build them, so they are still built in the same order;
- * everything else is still built here and handed to the component through LegacyBridge.
+ * initialization sequence where it used to build them, so they are still built in the same order.
+ * It still builds the auxiliary service manager itself, and it starts and stops the components.
+ * The authorizer the server installs reaches the component through LegacyBridge.
  */
 public class GravitinoEnv implements LegacyBridge {
 
@@ -283,10 +251,9 @@ public class GravitinoEnv implements LegacyBridge {
   /**
    * Get the dependency-injection component built by the last initialization.
    *
-   * <p>The component owns the configuration, the id generator, the metrics system, the lock
-   * manager, the schema, table, partition and view dispatchers, the tag, policy, owner and
-   * statistic dispatchers, and the access-control components; this environment returns the same
-   * instances from its own getters.
+   * <p>The component owns every component this environment holds except the auxiliary service
+   * manager and the installed authorizer; this environment returns the same instances from its own
+   * getters.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -309,7 +276,6 @@ public class GravitinoEnv implements LegacyBridge {
    *
    * @return The EntityStore instance.
    */
-  @Override
   public EntityStore entityStore() {
     Preconditions.checkArgument(entityStore != null, "GravitinoEnv is not initialized.");
     return entityStore;
@@ -497,7 +463,6 @@ public class GravitinoEnv implements LegacyBridge {
    *
    * @return The internal FilesetDispatcher instance.
    */
-  @Override
   public FilesetDispatcher internalFilesetDispatcher() {
     Preconditions.checkArgument(
         internalFilesetDispatcher != null, "GravitinoEnv is not initialized.");
@@ -583,7 +548,6 @@ public class GravitinoEnv implements LegacyBridge {
    * @return The SecretManager instance.
    * @throws IllegalStateException if the environment has not been initialized
    */
-  @Override
   public SecretManager secretManager() {
     Preconditions.checkState(secretManager != null, "GravitinoEnv components are not initialized.");
     return secretManager;
@@ -615,7 +579,6 @@ public class GravitinoEnv implements LegacyBridge {
    *
    * @return The CatalogManager instance.
    */
-  @Override
   public CatalogManager catalogManager() {
     Preconditions.checkArgument(catalogManager != null, "GravitinoEnv is not initialized.");
     return catalogManager;
@@ -626,7 +589,6 @@ public class GravitinoEnv implements LegacyBridge {
    *
    * @return The EventBus instance.
    */
-  @Override
   public EventBus eventBus() {
     Preconditions.checkArgument(eventBus != null, "GravitinoEnv is not initialized.");
     return eventBus;
@@ -915,13 +877,9 @@ public class GravitinoEnv implements LegacyBridge {
   private void initBaseComponents() {
     initCommonComponents();
 
-    this.eventListenerManager = new EventListenerManager();
-    eventListenerManager.init(
-        config.getConfigsWithPrefix(EventListenerManager.GRAVITINO_EVENT_LISTENER_PREFIX));
-    this.eventBus = eventListenerManager.createEventBus();
-
-    AuditLogManager auditLogManager = new AuditLogManager();
-    auditLogManager.init(config, eventListenerManager);
+    this.eventListenerManager = component.eventListenerManager();
+    // The bus depends on the audit log manager, which registers its listener when it is built.
+    this.eventBus = component.eventBus();
   }
 
   private void initializeConfig(Config config) {
@@ -933,101 +891,40 @@ public class GravitinoEnv implements LegacyBridge {
   }
 
   private void initCommonComponents() {
-    this.kmsClientRegistry = new KmsClientRegistry(config);
-    this.secretManager = new SecretManager(config);
+    this.kmsClientRegistry = component.kmsClientRegistry();
+    this.secretManager = component.secretManager();
 
     this.metricsSystem = component.metricsSystem();
   }
 
-  private MetadataOperations initMetadataComponents() {
+  private void initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager =
-        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager);
-    this.internalMetalakeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
-    this.internalCatalogDispatcher = new CatalogNormalizeDispatcher(catalogManager);
+    this.metalakeManager = component.metalakeManager();
+    this.internalMetalakeDispatcher = component.internalMetalakeDispatcher();
+    this.internalCatalogDispatcher = component.internalCatalogDispatcher();
 
-    this.credentialOperationDispatcher =
-        new CredentialOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
-    this.secretPropertyOperationDispatcher =
-        new SecretPropertyOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager);
+    this.credentialOperationDispatcher = component.credentialOperationDispatcher();
+    this.secretPropertyOperationDispatcher = component.secretPropertyOperationDispatcher();
 
-    // Fileset dispatcher is created before schema dispatcher so schema can take it directly.
-    FilesetOperationDispatcher filesetOperationDispatcher = initInternalFilesetDispatcher();
-    SchemaOperationDispatcher schemaOperationDispatcher = component.schemaOperationDispatcher();
+    // The fileset chain is built before the schema chain, which drops filesets through it.
+    this.internalFilesetDispatcher = component.internalFilesetDispatcher();
     this.internalSchemaDispatcher = component.internalSchemaDispatcher();
     this.internalTableDispatcher = component.internalTableDispatcher();
     this.internalPartitionDispatcher = component.internalPartitionDispatcher();
-    TopicOperationDispatcher topicOperationDispatcher = initInternalTopicDispatcher();
-    ModelOperationDispatcher modelOperationDispatcher = initInternalModelDispatcher();
-    FunctionOperationDispatcher functionOperationDispatcher =
-        initInternalFunctionDispatcher(schemaOperationDispatcher);
+    this.internalTopicDispatcher = component.internalTopicDispatcher();
+    this.internalModelDispatcher = component.internalModelDispatcher();
+    this.internalFunctionDispatcher = component.internalFunctionDispatcher();
     this.internalViewDispatcher = component.internalViewDispatcher();
-    initSemanticModelDispatcher(schemaOperationDispatcher);
+    this.internalSemanticModelDispatcher = component.internalSemanticModelDispatcher();
+    // The full profile replaces this with the public chain.
+    this.semanticModelDispatcher = internalSemanticModelDispatcher;
 
     this.internalStatisticDispatcher = component.internalStatisticDispatcher();
     initInternalAuthorizationComponents();
 
     this.internalTagDispatcher = component.internalTagDispatcher();
     this.internalPolicyDispatcher = component.internalPolicyDispatcher();
-
-    return new MetadataOperations(
-        filesetOperationDispatcher,
-        schemaOperationDispatcher,
-        topicOperationDispatcher,
-        modelOperationDispatcher,
-        functionOperationDispatcher);
-  }
-
-  private FilesetOperationDispatcher initInternalFilesetDispatcher() {
-    FilesetOperationDispatcher filesetOperationDispatcher =
-        new FilesetOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
-    this.internalFilesetDispatcher =
-        new FilesetNormalizeDispatcher(filesetOperationDispatcher, catalogManager);
-    return filesetOperationDispatcher;
-  }
-
-  private TopicOperationDispatcher initInternalTopicDispatcher() {
-    TopicOperationDispatcher topicOperationDispatcher =
-        new TopicOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
-    this.internalTopicDispatcher =
-        new TopicNormalizeDispatcher(topicOperationDispatcher, catalogManager);
-    return topicOperationDispatcher;
-  }
-
-  private ModelOperationDispatcher initInternalModelDispatcher() {
-    ModelOperationDispatcher modelOperationDispatcher =
-        new ModelOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
-    this.internalModelDispatcher =
-        new ModelNormalizeDispatcher(modelOperationDispatcher, catalogManager);
-    return modelOperationDispatcher;
-  }
-
-  private FunctionOperationDispatcher initInternalFunctionDispatcher(
-      SchemaOperationDispatcher schemaOperationDispatcher) {
-    FunctionOperationDispatcher functionOperationDispatcher =
-        new FunctionOperationDispatcher(
-            catalogManager,
-            schemaOperationDispatcher,
-            entityStore,
-            idGenerator,
-            secretManager,
-            lockManager);
-    this.internalFunctionDispatcher =
-        new FunctionNormalizeDispatcher(functionOperationDispatcher, catalogManager);
-    return functionOperationDispatcher;
-  }
-
-  private void initSemanticModelDispatcher(SchemaOperationDispatcher schemaOperationDispatcher) {
-    SemanticModelOperationDispatcher semanticModelOperationDispatcher =
-        new SemanticModelOperationDispatcher(
-            catalogManager, schemaOperationDispatcher, entityStore, idGenerator, secretManager);
-    this.internalSemanticModelDispatcher =
-        new SemanticModelNormalizeDispatcher(semanticModelOperationDispatcher, catalogManager);
-    this.semanticModelDispatcher = internalSemanticModelDispatcher;
   }
 
   private void initInternalAuthorizationComponents() {
@@ -1045,8 +942,9 @@ public class GravitinoEnv implements LegacyBridge {
   }
 
   private void initEntityStoreAndCatalogManager() {
-    this.entityStore = EntityStoreFactory.createEntityStore(config);
-    entityStore.initialize(config);
+    // Building the entity store connects to its backend, so it is built before anything else of
+    // the metadata profile.
+    this.entityStore = component.entityStore();
 
     this.idGenerator = component.idGenerator();
     this.lockManager = component.lockManager();
@@ -1055,98 +953,41 @@ public class GravitinoEnv implements LegacyBridge {
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
-    this.catalogManager =
-        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
+    this.catalogManager = component.catalogManager();
   }
 
   private void initGravitinoServerComponents() {
-    MetadataOperations metadataOperations = initMetadataComponents();
-    initPublicMetadataDispatchers(metadataOperations);
+    initMetadataComponents();
+    initPublicMetadataDispatchers();
 
     this.auxServiceManager = new AuxiliaryServiceManager();
     this.auxServiceManager.serviceInit(config);
 
-    JobManager jobManager = new JobManager(config, entityStore, idGenerator, lockManager);
-    JobTemplateValidationDispatcher validationDispatcher =
-        new JobTemplateValidationDispatcher(jobManager);
-    this.internalJobOperationDispatcher = validationDispatcher;
-    JobHookDispatcher jobHookDispatcher = new JobHookDispatcher(validationDispatcher);
-    this.jobOperationDispatcher = new JobEventDispatcher(eventBus, jobHookDispatcher);
+    // The job manager is built after the auxiliary services are initialized, as before.
+    this.internalJobOperationDispatcher = component.internalJobOperationDispatcher();
+    this.jobOperationDispatcher = component.jobOperationDispatcher();
 
     // Register built-in job template event listener to automatically register templates
     // when metalakes are created
-    BuiltInJobTemplateEventListener builtInJobTemplateListener =
-        new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator, lockManager);
-    eventListenerManager.addEventListener("builtin-job-template", builtInJobTemplateListener);
+    eventListenerManager.addEventListener(
+        "builtin-job-template", component.builtInJobTemplateEventListener());
   }
 
-  private void initPublicMetadataDispatchers(MetadataOperations metadataOperations) {
-    // Create and initialize metalake related modules, the operation chain is:
-    // MetalakeEventDispatcher -> MetalakeNormalizeDispatcher -> MetalakeHookDispatcher ->
-    // MetalakeManager
-    MetalakeHookDispatcher metalakeHookDispatcher = new MetalakeHookDispatcher(metalakeManager);
-    MetalakeNormalizeDispatcher metalakeNormalizeDispatcher =
-        new MetalakeNormalizeDispatcher(metalakeHookDispatcher);
-    this.metalakeDispatcher = new MetalakeEventDispatcher(eventBus, metalakeNormalizeDispatcher);
-
-    // CatalogEventDispatcher -> CatalogNormalizeDispatcher -> CatalogHookDispatcher ->
-    // CatalogManager
-    CatalogHookDispatcher catalogHookDispatcher = new CatalogHookDispatcher(catalogManager);
-    CatalogNormalizeDispatcher catalogNormalizeDispatcher =
-        new CatalogNormalizeDispatcher(catalogHookDispatcher);
-    this.catalogDispatcher = new CatalogEventDispatcher(eventBus, catalogNormalizeDispatcher);
-
-    FilesetHookDispatcher filesetHookDispatcher =
-        new FilesetHookDispatcher(metadataOperations.filesetOperationDispatcher);
-    FilesetNormalizeDispatcher filesetNormalizeDispatcher =
-        new FilesetNormalizeDispatcher(filesetHookDispatcher, catalogManager);
-    this.filesetDispatcher = new FilesetEventDispatcher(eventBus, filesetNormalizeDispatcher);
-
-    // Schema, table and partition chains: see SchemaTableModule. Partitions have no ownership, so
-    // their public chain wraps the internal one without a hook.
+  private void initPublicMetadataDispatchers() {
+    // Each public chain is event -> normalize -> hook -> operation; see the modules of
+    // GravitinoComponent. Partitions have no ownership, so their public chain wraps the internal
+    // one without a hook.
+    this.metalakeDispatcher = component.metalakeDispatcher();
+    this.catalogDispatcher = component.catalogDispatcher();
+    this.filesetDispatcher = component.filesetDispatcher();
     this.schemaDispatcher = component.schemaDispatcher();
     this.tableDispatcher = component.tableDispatcher();
     this.partitionDispatcher = component.partitionDispatcher();
-
-    TopicHookDispatcher topicHookDispatcher =
-        new TopicHookDispatcher(metadataOperations.topicOperationDispatcher);
-    TopicNormalizeDispatcher topicNormalizeDispatcher =
-        new TopicNormalizeDispatcher(topicHookDispatcher, catalogManager);
-    this.topicDispatcher = new TopicEventDispatcher(eventBus, topicNormalizeDispatcher);
-
-    ModelHookDispatcher modelHookDispatcher =
-        new ModelHookDispatcher(metadataOperations.modelOperationDispatcher);
-    ModelNormalizeDispatcher modelNormalizeDispatcher =
-        new ModelNormalizeDispatcher(modelHookDispatcher, catalogManager);
-    this.modelDispatcher = new ModelEventDispatcher(eventBus, modelNormalizeDispatcher);
-
-    // Create and initialize Function related modules, the operation chain is:
-    // FunctionEventDispatcher -> FunctionNormalizeDispatcher -> FunctionHookDispatcher ->
-    // FunctionOperationDispatcher
-    FunctionHookDispatcher functionHookDispatcher =
-        new FunctionHookDispatcher(
-            metadataOperations.functionOperationDispatcher, this::internalOwnerDispatcher);
-    FunctionNormalizeDispatcher functionNormalizeDispatcher =
-        new FunctionNormalizeDispatcher(functionHookDispatcher, catalogManager);
-    this.functionDispatcher = new FunctionEventDispatcher(eventBus, functionNormalizeDispatcher);
-
+    this.topicDispatcher = component.topicDispatcher();
+    this.modelDispatcher = component.modelDispatcher();
+    this.functionDispatcher = component.functionDispatcher();
     this.viewDispatcher = component.viewDispatcher();
-
-    // Semantic Model operation chain: Event -> Normalize -> Hook -> Operation.
-    SemanticModelOperationDispatcher semanticModelOperationDispatcher =
-        new SemanticModelOperationDispatcher(
-            catalogManager,
-            metadataOperations.schemaOperationDispatcher,
-            entityStore,
-            idGenerator,
-            secretManager);
-    SemanticModelHookDispatcher semanticModelHookDispatcher =
-        new SemanticModelHookDispatcher(
-            semanticModelOperationDispatcher, this::internalOwnerDispatcher);
-    SemanticModelNormalizeDispatcher semanticModelNormalizeDispatcher =
-        new SemanticModelNormalizeDispatcher(semanticModelHookDispatcher, catalogManager);
-    this.semanticModelDispatcher =
-        new SemanticModelEventDispatcher(eventBus, semanticModelNormalizeDispatcher);
+    this.semanticModelDispatcher = component.semanticModelDispatcher();
 
     this.statisticDispatcher = component.statisticDispatcher();
 
@@ -1161,26 +1002,5 @@ public class GravitinoEnv implements LegacyBridge {
 
     this.tagDispatcher = component.tagDispatcher();
     this.policyDispatcher = component.policyDispatcher();
-  }
-
-  private static final class MetadataOperations {
-    private final FilesetOperationDispatcher filesetOperationDispatcher;
-    private final SchemaOperationDispatcher schemaOperationDispatcher;
-    private final TopicOperationDispatcher topicOperationDispatcher;
-    private final ModelOperationDispatcher modelOperationDispatcher;
-    private final FunctionOperationDispatcher functionOperationDispatcher;
-
-    private MetadataOperations(
-        FilesetOperationDispatcher filesetOperationDispatcher,
-        SchemaOperationDispatcher schemaOperationDispatcher,
-        TopicOperationDispatcher topicOperationDispatcher,
-        ModelOperationDispatcher modelOperationDispatcher,
-        FunctionOperationDispatcher functionOperationDispatcher) {
-      this.filesetOperationDispatcher = filesetOperationDispatcher;
-      this.schemaOperationDispatcher = schemaOperationDispatcher;
-      this.topicOperationDispatcher = topicOperationDispatcher;
-      this.modelOperationDispatcher = modelOperationDispatcher;
-      this.functionOperationDispatcher = functionOperationDispatcher;
-    }
   }
 }

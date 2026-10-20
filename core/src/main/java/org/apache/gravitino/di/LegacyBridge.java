@@ -18,55 +18,21 @@
  */
 package org.apache.gravitino.di;
 
-import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.listener.EventBus;
-import org.apache.gravitino.secret.SecretManager;
 
 /**
- * The objects that {@code GravitinoEnv} still builds and the {@link GravitinoComponent} graph may
- * depend on.
+ * The objects that the {@link GravitinoComponent} graph depends on but does not build.
  *
  * <p>This interface is transitional. {@code GravitinoEnv} implements it and passes itself to the
  * component factory; {@link LegacyModule} exposes each method as a binding. When an area moves into
  * a module of the component, its method is removed from here, so this interface lists exactly the
- * legacy surface the graph still depends on. It is deleted when the migration is complete.
+ * legacy surface the graph still depends on. What is left is the authorizer, which the server
+ * builds and installs after the environment is initialized. It is deleted when the migration is
+ * complete.
  *
- * <p>Implementations must not return {@code null}: the graph has no nullable bindings. A method
- * called before the object is built throws instead.
+ * <p>Implementations must not return {@code null}: the graph has no nullable bindings.
  */
 public interface LegacyBridge {
-
-  /**
-   * Returns the entity store.
-   *
-   * @return the entity store
-   */
-  EntityStore entityStore();
-
-  /**
-   * Returns the catalog manager.
-   *
-   * @return the catalog manager
-   */
-  CatalogManager catalogManager();
-
-  /**
-   * Returns the secret manager.
-   *
-   * @return the secret manager
-   */
-  SecretManager secretManager();
-
-  /**
-   * Returns the internal fileset dispatcher, which the schema operation dispatcher uses to drop the
-   * filesets of a schema.
-   *
-   * @return the internal fileset dispatcher
-   */
-  FilesetDispatcher internalFilesetDispatcher();
 
   /**
    * Returns the authorizer the server installed. When none is installed, it returns {@code
@@ -77,11 +43,4 @@ public interface LegacyBridge {
    * @return the authorizer, never null
    */
   GravitinoAuthorizer gravitinoAuthorizer();
-
-  /**
-   * Returns the event bus.
-   *
-   * @return the event bus
-   */
-  EventBus eventBus();
 }

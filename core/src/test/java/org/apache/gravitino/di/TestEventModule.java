@@ -26,7 +26,10 @@ import dagger.BindsInstance;
 import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.audit.AuditLogManager;
+import org.apache.gravitino.audit.DummyAuditFormatter;
+import org.apache.gravitino.audit.DummyAuditWriter;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.junit.jupiter.api.Test;
@@ -53,6 +56,21 @@ public class TestEventModule {
     // The bus holds the listeners the manager loaded; with none configured it has none.
     assertNotNull(manager);
     assertEquals(0, component.eventBus().getEventListeners().size());
+  }
+
+  @Test
+  public void testTheEventBusRegistersTheAuditListenerFirst() {
+    Config config = new Config(false) {};
+    config.set(Configs.AUDIT_LOG_ENABLED_CONF, true);
+    config.set(Configs.AUDIT_LOG_WRITER_CLASS_NAME, DummyAuditWriter.class.getName());
+    config.set(Configs.AUDIT_LOG_FORMATTER_CLASS_NAME, DummyAuditFormatter.class.getName());
+    EventComponent component = DaggerTestEventModule_EventComponent.factory().create(config);
+
+    // Asking for the bus alone is enough: it depends on the audit log manager.
+    EventBus eventBus = component.eventBus();
+
+    assertEquals(1, eventBus.getEventListeners().size());
+    assertSame(eventBus, component.eventBus());
   }
 
   /** A graph of the event module alone. */
