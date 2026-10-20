@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Set;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -39,9 +41,10 @@ import org.apache.gravitino.storage.IdGenerator;
  * manager and the future grant manager.
  *
  * <p>The {@link Internal} access-control binding is the manager itself; the {@link Public} one is
- * event → hook → that manager. {@code GravitinoEnv} requests these objects only when authorization
- * is enabled and keeps {@code null} in their place otherwise, so that callers which test for a
- * disabled feature behave as before. The owner manager and its chains are in {@link
+ * event → hook → that manager. Each is wrapped in its {@link DispatcherDecorator decorators}; the
+ * public chain wraps the undecorated manager. {@code GravitinoEnv} requests these objects only when
+ * authorization is enabled and keeps {@code null} in their place otherwise, so that callers which
+ * test for a disabled feature behave as before. The owner manager and its chains are in {@link
  * GovernanceModule}.
  */
 @Module
@@ -49,20 +52,43 @@ abstract class AuthorizationModule {
 
   private AuthorizationModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<AccessControlDispatcher>> internalAccessControlDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<AccessControlDispatcher>> accessControlDecorators();
+
   @Provides
   @Singleton
-  @Internal
-  static AccessControlDispatcher internalAccessControlDispatcher(
+  @Undecorated
+  static AccessControlManager accessControlManager(
       EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
     return new AccessControlManager(entityStore, idGenerator, config, lockManager);
   }
 
   @Provides
   @Singleton
+  @Internal
+  static AccessControlDispatcher internalAccessControlDispatcher(
+      @Undecorated AccessControlManager accessControlManager,
+      @Internal Set<DispatcherDecorator<AccessControlDispatcher>> decorators) {
+    return Decorators.apply("@Internal AccessControlDispatcher", accessControlManager, decorators);
+  }
+
+  @Provides
+  @Singleton
   @Public
   static AccessControlDispatcher accessControlDispatcher(
-      EventBus eventBus, @Internal AccessControlDispatcher internal) {
-    return new AccessControlEventDispatcher(eventBus, new AccessControlHookDispatcher(internal));
+      EventBus eventBus,
+      @Undecorated AccessControlManager accessControlManager,
+      @Public Set<DispatcherDecorator<AccessControlDispatcher>> decorators) {
+    return Decorators.apply(
+        "@Public AccessControlDispatcher",
+        new AccessControlEventDispatcher(
+            eventBus, new AccessControlHookDispatcher(accessControlManager)),
+        decorators);
   }
 
   @Provides

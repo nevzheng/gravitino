@@ -18,22 +18,38 @@
  */
 package org.apache.gravitino.di;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
+import org.apache.gravitino.authorization.OwnerManager;
+import org.apache.gravitino.catalog.FilesetOperationDispatcher;
+import org.apache.gravitino.catalog.FunctionOperationDispatcher;
+import org.apache.gravitino.catalog.ModelOperationDispatcher;
+import org.apache.gravitino.catalog.PartitionNormalizeDispatcher;
+import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.catalog.TopicOperationDispatcher;
+import org.apache.gravitino.job.JobManager;
+import org.apache.gravitino.job.JobTemplateValidationDispatcher;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.policy.PolicyManager;
+import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.tag.TagManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -66,6 +82,35 @@ public class TestGravitinoComponent {
     config = testConfig();
     legacy = new FakeLegacyBridge();
     component = DaggerGravitinoComponent.factory().create(config, legacy);
+  }
+
+  @Test
+  public void testExposesNoUndecoratedImplementation() {
+    // The managers and operation dispatchers under the chains are bound @Undecorated, which only
+    // this package can name, and the component hands out only the chains around them.
+    assertFalse(Modifier.isPublic(Undecorated.class.getModifiers()));
+    List<Class<?>> undecorated =
+        List.of(
+            TagManager.class,
+            PolicyManager.class,
+            OwnerManager.class,
+            StatisticManager.class,
+            AccessControlManager.class,
+            JobManager.class,
+            JobTemplateValidationDispatcher.class,
+            SchemaOperationDispatcher.class,
+            PartitionNormalizeDispatcher.class,
+            FilesetOperationDispatcher.class,
+            TopicOperationDispatcher.class,
+            ModelOperationDispatcher.class,
+            FunctionOperationDispatcher.class);
+    for (Method method : GravitinoComponent.class.getMethods()) {
+      for (Class<?> type : undecorated) {
+        assertFalse(
+            type.isAssignableFrom(method.getReturnType()),
+            method.getName() + " exposes " + type.getSimpleName());
+      }
+    }
   }
 
   @Test
