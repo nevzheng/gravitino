@@ -63,8 +63,13 @@ abstract class AuthorizationModule {
   @Singleton
   @Undecorated
   static AccessControlManager accessControlManager(
-      EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    return new AccessControlManager(entityStore, idGenerator, config, lockManager);
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      Config config,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
+    return new AccessControlManager(
+        entityStore, idGenerator, config, lockManager, authorizationServices);
   }
 
   @Provides

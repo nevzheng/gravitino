@@ -65,11 +65,17 @@ class PermissionManager {
   private final EntityStore store;
   private final RoleManager roleManager;
   private final LockManager lockManager;
+  private final AuthorizationServices authorizationServices;
 
-  PermissionManager(EntityStore store, RoleManager roleManager, LockManager lockManager) {
+  PermissionManager(
+      EntityStore store,
+      RoleManager roleManager,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
     this.store = store;
     this.roleManager = roleManager;
     this.lockManager = lockManager;
+    this.authorizationServices = authorizationServices;
   }
 
   User grantRolesToUser(String metalake, List<String> roles, String user) {
@@ -131,6 +137,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+          authorizationServices.catalogManager(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -216,6 +223,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+          authorizationServices.catalogManager(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -301,6 +309,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+          authorizationServices.catalogManager(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -387,6 +396,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+          authorizationServices.catalogManager(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->

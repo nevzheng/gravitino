@@ -66,25 +66,51 @@ public class AccessControlManager implements AccessControlDispatcher {
    * @param idGenerator The id generator for new users, groups and roles.
    * @param config The server configuration, which lists the service admins.
    * @param lockManager The lock manager that guards access control operations with tree locks.
+   * @param authorizationServices The services whose catalog authorization plugins learn of role and
+   *     grant changes.
    */
   public AccessControlManager(
-      EntityStore store, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    this.roleManager = new RoleManager(store, idGenerator);
+      EntityStore store,
+      IdGenerator idGenerator,
+      Config config,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
+    this.roleManager = new RoleManager(store, idGenerator, authorizationServices);
     this.userGroupManager = new UserGroupManager(store, idGenerator);
-    this.permissionManager = new PermissionManager(store, roleManager, lockManager);
+    this.permissionManager =
+        new PermissionManager(store, roleManager, lockManager, authorizationServices);
     this.serviceAdmins = config.get(Configs.SERVICE_ADMINS);
     this.lockManager = lockManager;
   }
 
   /**
-   * Creates an access control manager that reads the lock manager from {@code GravitinoEnv} each
-   * time a tree lock is taken.
+   * Creates an access control manager that reads the catalog authorization plugins from {@code
+   * GravitinoEnv}.
    *
    * @param store The entity store that holds users, groups and roles.
    * @param idGenerator The id generator for new users, groups and roles.
    * @param config The server configuration, which lists the service admins.
-   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager)},
-   *     which takes the lock manager explicitly.
+   * @param lockManager The lock manager that guards access control operations with tree locks.
+   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager,
+   *     AuthorizationServices)}, which takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public AccessControlManager(
+      EntityStore store, IdGenerator idGenerator, Config config, LockManager lockManager) {
+    this(store, idGenerator, config, lockManager, EnvironmentAuthorizationServices.INSTANCE);
+  }
+
+  /**
+   * Creates an access control manager that reads the lock manager and the catalog authorization
+   * plugins from {@code GravitinoEnv}. The lock manager is read each time a tree lock is taken.
+   *
+   * @param store The entity store that holds users, groups and roles.
+   * @param idGenerator The id generator for new users, groups and roles.
+   * @param config The server configuration, which lists the service admins.
+   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager,
+   *     AuthorizationServices)}, which takes the lock manager and the authorization services
+   *     explicitly.
    */
   // Inlining would copy the GravitinoEnv lookup into every caller.
   @SuppressWarnings("InlineMeSuggester")

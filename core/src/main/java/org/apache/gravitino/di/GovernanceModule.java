@@ -169,8 +169,9 @@ abstract class GovernanceModule {
   @Provides
   @Singleton
   @Undecorated
-  static OwnerManager ownerManager(EntityStore entityStore) {
-    return new OwnerManager(entityStore);
+  static OwnerManager ownerManager(
+      EntityStore entityStore, AuthorizationServices authorizationServices) {
+    return new OwnerManager(entityStore, authorizationServices);
   }
 
   @Provides

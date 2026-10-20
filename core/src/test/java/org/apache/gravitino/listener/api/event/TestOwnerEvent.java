@@ -31,6 +31,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
@@ -59,7 +60,8 @@ public class TestOwnerEvent {
     TestEntityStore entityStore = Mockito.mock(TestEntityStore.class);
     this.dummyEventListener = new DummyEventListener();
     EventBus eventBus = new EventBus(Arrays.asList(dummyEventListener));
-    this.innerOwnerManager = new OwnerManager(entityStore);
+    this.innerOwnerManager =
+        new OwnerManager(entityStore, EnvironmentAuthorizationServices.INSTANCE);
     this.ownerManager = new OwnerEventManager(eventBus, innerOwnerManager);
   }
 
