@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -51,6 +52,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     return jobOperationDispatcher.listJobTemplates(metalake);
   }
 
+  @LegacyEnvAccess
   @Override
   public void registerJobTemplate(String metalake, JobTemplateEntity jobTemplateEntity)
       throws JobTemplateAlreadyExistsException {
@@ -115,6 +117,7 @@ public class JobHookDispatcher implements JobOperationDispatcher {
     return jobOperationDispatcher.getJob(metalake, jobId, includeOutput, maxLines, maxBytes);
   }
 
+  @LegacyEnvAccess
   @Override
   public JobEntity runJob(String metalake, String jobTemplateName, Map<String, String> jobConf)
       throws NoSuchJobTemplateException {

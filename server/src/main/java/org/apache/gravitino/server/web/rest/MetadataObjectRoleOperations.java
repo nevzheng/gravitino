@@ -32,6 +32,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.metalake.MetalakeManager;
@@ -52,6 +53,7 @@ public class MetadataObjectRoleOperations {
 
   private static final String LIST_ROLE_PRIVILEGE = "METALAKE::OWNER || ROLE::OWNER || ROLE::SELF";
 
+  @LegacyEnvAccess
   public MetadataObjectRoleOperations() {
     // Because accessControlManager may be null when Gravitino doesn't enable authorization,
     // and Jersey injection doesn't support null value. So MedataObjectRoleOperations chooses to

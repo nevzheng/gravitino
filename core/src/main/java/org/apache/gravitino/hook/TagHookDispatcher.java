@@ -23,6 +23,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -66,6 +67,7 @@ public class TagHookDispatcher implements TagDispatcher {
     return createTag(metalake, name, comment, properties, TagValueConstraint.anyValue());
   }
 
+  @LegacyEnvAccess
   @Override
   public Tag createTag(
       String metalake,

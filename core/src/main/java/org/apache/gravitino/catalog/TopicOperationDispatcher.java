@@ -31,6 +31,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
@@ -96,6 +97,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @return The topic metadata.
    * @throws NoSuchTopicException If the topic does not exist.
    */
+  @LegacyEnvAccess
   @Override
   public Topic loadTopic(NameIdentifier ident) throws NoSuchTopicException {
     EntityCombinedTopic topic =
@@ -134,6 +136,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @throws NoSuchSchemaException If the schema does not exist.
    * @throws TopicAlreadyExistsException If the topic already exists.
    */
+  @LegacyEnvAccess
   @Override
   public Topic createTopic(
       NameIdentifier ident, String comment, DataLayout dataLayout, Map<String, String> properties)

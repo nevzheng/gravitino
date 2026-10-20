@@ -26,6 +26,7 @@ import javax.ws.rs.ext.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthenticatorType;
 import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.auth.BasicAuthenticator;
@@ -57,6 +58,7 @@ public class IdpRESTFeature implements Feature {
   /** Environment variable for the initial password of configured service admins. */
   public static final String INITIAL_ADMIN_PASSWORD_ENV = "GRAVITINO_INITIAL_ADMIN_PASSWORD";
 
+  @LegacyEnvAccess
   @Override
   public boolean configure(FeatureContext context) {
     GravitinoEnv env = GravitinoEnv.getInstance();

@@ -53,6 +53,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.MaskAndOmitKeys;
 import org.apache.gravitino.connector.capability.Capability;
@@ -100,6 +101,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
    * @param idGenerator The IdGenerator instance to be used for table operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    */
+  @LegacyEnvAccess
   public TableOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,

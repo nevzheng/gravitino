@@ -38,6 +38,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
@@ -75,6 +76,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
    * @param idGenerator The IdGenerator instance to be used for view operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    */
+  @LegacyEnvAccess
   public ViewOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,

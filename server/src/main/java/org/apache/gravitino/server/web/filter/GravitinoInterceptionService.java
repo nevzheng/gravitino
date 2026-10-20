@@ -41,6 +41,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
@@ -400,6 +401,7 @@ public class GravitinoInterceptionService implements InterceptionService {
       return buildNoAuthResponse(errorMessage, accessMetadataName, currentUser, methodName);
     }
 
+    @LegacyEnvAccess
     private void dispatchAuthzDenialEvent(
         String user, NameIdentifier accessMetadataName, String methodName, String expression) {
       try {

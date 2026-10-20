@@ -28,6 +28,7 @@ import org.apache.commons.pool2.impl.BaseObjectPoolConfig;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.RelationDatasourceMetricsSource;
 import org.apache.gravitino.storage.relational.JDBCBackend.JDBCBackendType;
@@ -65,6 +66,7 @@ public class SqlSessionFactoryHelper {
    *
    * @param config Config object to get the jdbc connection details from the config.
    */
+  @LegacyEnvAccess
   @SuppressWarnings("deprecation")
   public void init(Config config) {
     // Create the SqlSessionFactory object, it is a singleton object

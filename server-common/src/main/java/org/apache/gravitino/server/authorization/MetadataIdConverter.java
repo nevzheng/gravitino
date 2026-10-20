@@ -34,6 +34,7 @@ import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.CapabilityHelpers;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.capability.Capability;
@@ -68,6 +69,7 @@ public class MetadataIdConverter {
    * @param metalake The metalake name.
    * @return The metadata id, empty if metadata does not exist.
    */
+  @LegacyEnvAccess
   public static Optional<Long> getID(MetadataObject metadataObject, String metalake) {
     Preconditions.checkArgument(metadataObject != null, "Metadata object cannot be null");
     CatalogManager catalogManager = GravitinoEnv.getInstance().catalogManager();
@@ -115,6 +117,7 @@ public class MetadataIdConverter {
    * @throws NotFoundException if the containing catalog does not exist
    * @throws RuntimeException if catalog capabilities cannot be resolved
    */
+  @LegacyEnvAccess
   public static MetadataObject normalizeMetadataObject(
       MetadataObject metadataObject, String metalake) {
     Preconditions.checkArgument(metadataObject != null, "Metadata object cannot be null");
@@ -181,6 +184,7 @@ public class MetadataIdConverter {
     return normalized;
   }
 
+  @LegacyEnvAccess
   private static Optional<Long> loadId(MetadataObject metadataObject, NameIdentifier ident) {
     EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject.type());

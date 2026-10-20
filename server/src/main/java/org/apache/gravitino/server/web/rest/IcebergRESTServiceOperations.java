@@ -31,6 +31,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.dto.responses.IcebergRESTServiceResponse;
 import org.apache.gravitino.metrics.MetricNames;
@@ -89,6 +90,7 @@ public class IcebergRESTServiceOperations {
 
   // Overridable so tests can inject a fixture without bootstrapping GravitinoEnv, matching
   // HealthOperations's testing pattern.
+  @LegacyEnvAccess
   AuxiliaryServiceManager getAuxServiceManager() {
     return GravitinoEnv.getInstance().auxServiceManager();
   }
@@ -96,6 +98,7 @@ public class IcebergRESTServiceOperations {
   // Resolved through AuxiliaryServiceManager.getAuxServiceConfig rather than reading
   // gravitino.iceberg-rest.* directly, so the deprecated gravitino.auxService.iceberg-rest.*
   // config form is honored too — the same precedence the Iceberg REST server itself sees.
+  @LegacyEnvAccess
   Map<String, String> getIcebergRestServiceConfig() {
     return AuxiliaryServiceManager.getAuxServiceConfig(
         GravitinoEnv.getInstance().config(), AUX_SERVICE_NAME);

@@ -23,6 +23,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -65,6 +66,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     this.metalake = metalake;
   }
 
+  @LegacyEnvAccess
   @Override
   public LoadViewResponse createView(
       IcebergRequestContext context, Namespace namespace, CreateViewRequest createViewRequest) {
@@ -120,6 +122,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     return dispatcher.viewExists(context, viewIdentifier);
   }
 
+  @LegacyEnvAccess
   @Override
   public void renameView(IcebergRequestContext context, RenameTableRequest renameViewRequest) {
     dispatcher.renameView(context, renameViewRequest);
@@ -187,6 +190,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
    * @param namespace The Iceberg namespace containing the view.
    * @param viewName The name of the view.
    */
+  @LegacyEnvAccess
   private void importView(String catalogName, Namespace namespace, String viewName) {
     ViewDispatcher viewDispatcher = GravitinoEnv.getInstance().internalViewDispatcher();
     if (viewDispatcher != null) {
@@ -247,6 +251,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     }
   }
 
+  @LegacyEnvAccess
   private void deleteViewEntity(String catalogName, TableIdentifier viewIdentifier) {
     EntityStore store = GravitinoEnv.getInstance().entityStore();
     try {

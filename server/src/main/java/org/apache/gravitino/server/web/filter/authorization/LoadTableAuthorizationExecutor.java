@@ -24,6 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.server.authorization.annotations.ExpressionCondition;
@@ -74,6 +75,7 @@ public class LoadTableAuthorizationExecutor extends CommonAuthorizerExecutor {
     }
   }
 
+  @LegacyEnvAccess
   @Override
   public boolean execute(AuthorizationRequestContext authorizationRequestContext) throws Exception {
     if (super.execute(authorizationRequestContext)) {

@@ -32,6 +32,7 @@ import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.NamespacedEntityId;
 import org.apache.gravitino.meta.TopicEntity;
@@ -247,12 +248,14 @@ public class TopicMetaService {
     return topicPO;
   }
 
+  @LegacyEnvAccess
   private Function<Namespace, List<TopicPO>> topicListFetcher() {
     return GravitinoEnv.getInstance().cacheEnabled()
         ? this::listTopicPOsBySchemaId
         : this::listTopicPOsByFullQualifiedName;
   }
 
+  @LegacyEnvAccess
   private Function<NameIdentifier, TopicPO> topicPOFetcher() {
     return GravitinoEnv.getInstance().cacheEnabled()
         ? this::getTopicPOBySchemaId

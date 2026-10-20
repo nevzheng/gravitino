@@ -26,6 +26,7 @@ import javax.ws.rs.container.ContainerRequestFilter;
 import javax.ws.rs.core.PathSegment;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.idp.web.IdpManagement;
 import org.apache.gravitino.idp.web.IdpRESTUtils;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -55,6 +56,7 @@ public class IdpAuthorizationFilter implements ContainerRequestFilter {
   private final Supplier<String> currentUserSupplier;
 
   /** Creates a filter backed by the running Gravitino server configuration. */
+  @LegacyEnvAccess
   public IdpAuthorizationFilter() {
     this(
         () -> GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS),

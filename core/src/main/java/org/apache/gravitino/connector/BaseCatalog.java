@@ -37,6 +37,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.Evolving;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 import org.apache.gravitino.connector.capability.Capability;
@@ -618,6 +619,7 @@ public abstract class BaseCatalog<T extends BaseCatalog>
    *
    * @return true if backfill is enabled
    */
+  @LegacyEnvAccess
   protected boolean shouldBackfillCredential() {
     Config serverConfig = GravitinoEnv.getInstance().config();
     return serverConfig != null

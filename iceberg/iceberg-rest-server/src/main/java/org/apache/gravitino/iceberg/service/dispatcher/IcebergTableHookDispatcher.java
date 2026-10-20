@@ -25,6 +25,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -126,6 +127,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
     return dispatcher.tableExists(context, tableIdentifier);
   }
 
+  @LegacyEnvAccess
   @Override
   public void renameTable(IcebergRequestContext context, RenameTableRequest renameTableRequest) {
     dispatcher.renameTable(context, renameTableRequest);
@@ -222,6 +224,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
     return dispatcher.getTableMetadataLocation(context, tableIdentifier);
   }
 
+  @LegacyEnvAccess
   private void importTableAndSetOwner(
       IcebergRequestContext context, Namespace namespace, String tableName) {
     // Import is intentionally NOT wrapped in try-catch: if it fails the table exists in Iceberg
@@ -237,6 +240,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
         GravitinoEnv.getInstance().internalOwnerDispatcher());
   }
 
+  @LegacyEnvAccess
   private void importTableEntity(String catalogName, Namespace namespace, String tableName) {
     TableDispatcher tableDispatcher = GravitinoEnv.getInstance().internalTableDispatcher();
     if (tableDispatcher != null) {
@@ -281,6 +285,7 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
     }
   }
 
+  @LegacyEnvAccess
   private void deleteTableEntity(String catalogName, TableIdentifier tableIdentifier) {
     EntityStore store = GravitinoEnv.getInstance().entityStore();
     try {

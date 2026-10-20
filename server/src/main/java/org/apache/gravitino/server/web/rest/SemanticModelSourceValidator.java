@@ -30,6 +30,7 @@ import javax.inject.Inject;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -67,6 +68,7 @@ public class SemanticModelSourceValidator {
     this(tables, views, () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
   }
 
+  @LegacyEnvAccess
   SemanticModelSourceValidator(
       TableDispatcher tables, ViewDispatcher views, Supplier<GravitinoAuthorizer> authorizer) {
     this(

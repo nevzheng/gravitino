@@ -21,6 +21,7 @@ package org.apache.gravitino.iceberg.server;
 import com.google.common.base.Preconditions;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.iceberg.RESTService;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.server.ServerConfig;
@@ -39,6 +40,7 @@ public class GravitinoIcebergRESTServer {
   private RESTService icebergRESTService;
   private GravitinoEnv gravitinoEnv;
 
+  @LegacyEnvAccess
   public GravitinoIcebergRESTServer(ServerConfig config) {
     this.serverConfig = config;
     this.gravitinoEnv = GravitinoEnv.getInstance();

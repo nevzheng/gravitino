@@ -23,6 +23,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -81,6 +82,7 @@ public class PassThroughAuthorizer implements GravitinoAuthorizer {
     return true;
   }
 
+  @LegacyEnvAccess
   @Override
   public boolean isMetalakeUser(String metalake, AuthorizationRequestContext requestContext) {
     AccessControlDispatcher dispatcher =

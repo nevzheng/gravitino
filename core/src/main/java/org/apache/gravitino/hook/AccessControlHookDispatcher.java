@@ -26,6 +26,7 @@ import java.util.Set;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -208,6 +209,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     return dispatcher.isServiceAdmin(user);
   }
 
+  @LegacyEnvAccess
   @Override
   public Role createRole(
       String metalake,
@@ -230,6 +232,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     return createdRole;
   }
 
+  @LegacyEnvAccess
   @Override
   public List<BulkItemResult<Role>> createRoles(String metalake, List<RoleAdd> roles)
       throws NoSuchMetalakeException {
@@ -340,6 +343,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
    * Invalidates both the role-side cache for each of {@code roles} and the user-side cache for
    * {@code user}. Used by grant/revoke flows that change the user→roles binding.
    */
+  @LegacyEnvAccess
   private static void notifyUserRoleBindingChange(
       String metalake, List<String> roles, String user) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
@@ -356,6 +360,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
    * Invalidates both the role-side cache for each of {@code roles} and the group-side cache for
    * {@code group}. Used by grant/revoke flows that change the group→roles binding.
    */
+  @LegacyEnvAccess
   private static void notifyGroupRoleBindingChange(
       String metalake, List<String> roles, String group) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
@@ -368,6 +373,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     gravitinoAuthorizer.handleGroupRoleRelChange(metalake, group);
   }
 
+  @LegacyEnvAccess
   private static void notifyRoleUserRelChange(String metalake, String role) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     if (gravitinoAuthorizer != null) {
@@ -375,6 +381,7 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
     }
   }
 
+  @LegacyEnvAccess
   private static void notifyRoleUserRelChange(Long role) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     if (gravitinoAuthorizer != null) {

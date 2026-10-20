@@ -22,6 +22,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -58,6 +59,7 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     return dispatcher.getPolicy(metalake, policyName);
   }
 
+  @LegacyEnvAccess
   @Override
   public PolicyEntity createPolicy(
       String metalake,

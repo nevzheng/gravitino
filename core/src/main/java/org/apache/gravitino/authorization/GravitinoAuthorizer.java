@@ -26,6 +26,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 
@@ -200,6 +201,7 @@ public interface GravitinoAuthorizer extends Closeable {
    * @param metalake The metalake name;
    * @param roleName The role name;
    */
+  @LegacyEnvAccess
   default void handleRolePrivilegeChange(String metalake, String roleName) {
     try {
       RoleEntity entity =

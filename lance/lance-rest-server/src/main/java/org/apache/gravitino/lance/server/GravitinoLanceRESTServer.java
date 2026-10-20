@@ -20,6 +20,7 @@ package org.apache.gravitino.lance.server;
 
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.lance.LanceRESTService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.server.ServerConfig;
@@ -39,6 +40,7 @@ public class GravitinoLanceRESTServer {
   private LanceRESTService lanceRESTService;
   private GravitinoEnv gravitinoEnv;
 
+  @LegacyEnvAccess
   public GravitinoLanceRESTServer(Config config) {
     this.serverConfig = config;
     this.gravitinoEnv = GravitinoEnv.getInstance();

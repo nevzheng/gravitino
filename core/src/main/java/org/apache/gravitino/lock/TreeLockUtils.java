@@ -21,6 +21,7 @@ package org.apache.gravitino.lock;
 
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.utils.Executable;
 
 /** Utility class for tree locks. */
@@ -41,6 +42,7 @@ public class TreeLockUtils {
    * @param <E> The type of the exception.
    * @throws E If the executable throws an exception.
    */
+  @LegacyEnvAccess
   public static <R, E extends Exception> R doWithTreeLock(
       NameIdentifier identifier, LockType lockType, Executable<R, E> executable) throws E {
     TreeLock lock = GravitinoEnv.getInstance().lockManager().createTreeLock(identifier);

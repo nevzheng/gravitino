@@ -47,6 +47,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.HasPropertyMetadata;
@@ -112,6 +113,7 @@ public class KafkaCatalogOperations implements CatalogOperations, SupportsSchema
     this.idGenerator = idGenerator;
   }
 
+  @LegacyEnvAccess
   public KafkaCatalogOperations() {
     this(GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().idGenerator());
   }

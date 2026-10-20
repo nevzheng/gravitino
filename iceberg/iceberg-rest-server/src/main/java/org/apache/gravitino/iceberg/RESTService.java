@@ -27,6 +27,7 @@ import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.IcebergAuthenticationFilter;
@@ -91,6 +92,7 @@ public class RESTService implements GravitinoAuxiliaryService {
   private IcebergConfigProvider configProvider;
   private boolean auxMode;
 
+  @LegacyEnvAccess
   private void initServer(IcebergConfig icebergConfig) {
     JettyServerConfig serverConfig = JettyServerConfig.fromConfig(icebergConfig);
     IcebergRESTUtils.setIncludeErrorStackTrace(serverConfig.isIncludeErrorStackTrace());
