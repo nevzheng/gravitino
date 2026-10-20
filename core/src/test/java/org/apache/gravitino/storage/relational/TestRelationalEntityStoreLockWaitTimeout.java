@@ -36,7 +36,6 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.RelationEdgeTarget;
@@ -80,8 +79,7 @@ public class TestRelationalEntityStoreLockWaitTimeout {
 
   private RelationalEntityStore store;
   private String dbPath;
-  private Object previousConfig;
-  private Object previousIdGenerator;
+  private LegacyStoreEnvironment legacyEnvironment;
 
   @AfterEach
   void tearDown() throws Exception {
@@ -90,8 +88,7 @@ public class TestRelationalEntityStoreLockWaitTimeout {
       try {
         store.close();
       } finally {
-        FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-        FieldUtils.writeField(GravitinoEnv.getInstance(), "idGenerator", previousIdGenerator, true);
+        legacyEnvironment.close();
         FileUtils.deleteDirectory(new File(dbPath));
         dbPath = null;
       }
@@ -423,7 +420,7 @@ public class TestRelationalEntityStoreLockWaitTimeout {
     FieldUtils.writeField(store, "cache", Mockito.mock(EntityCache.class), true);
   }
 
-  private String initH2Store() throws IOException, IllegalAccessException {
+  private String initH2Store() throws IOException {
     dbPath = Files.createTempDirectory("gravitino_lock_wait_timeout_").toString();
     String jdbcUrl = String.format("jdbc:h2:file:%s;MODE=MYSQL", new File(dbPath, "db").getPath());
 
@@ -456,11 +453,8 @@ public class TestRelationalEntityStoreLockWaitTimeout {
     Mockito.when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
     Mockito.when(config.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
 
-    previousConfig = FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    previousIdGenerator = FieldUtils.readField(GravitinoEnv.getInstance(), "idGenerator", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "idGenerator", RandomIdGenerator.INSTANCE, true);
+    legacyEnvironment =
+        new LegacyStoreEnvironment().withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
 
     store = new RelationalEntityStore();
     store.initialize(config);
