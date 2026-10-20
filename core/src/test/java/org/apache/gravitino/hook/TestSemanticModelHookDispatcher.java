@@ -27,12 +27,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 
 import com.google.common.collect.ImmutableMap;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.auth.AuthConstants;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -49,7 +48,6 @@ import org.apache.gravitino.semantic.SemanticModelDefinition;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestSemanticModelHookDispatcher {
@@ -59,10 +57,6 @@ public class TestSemanticModelHookDispatcher {
 
   @Test
   public void testCreateSemanticModelSetsCreatorAsOwner() throws Exception {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Object originalOwnerDispatcher = FieldUtils.readField(env, "ownerDispatcher", true);
-    Object originalCatalogManager = FieldUtils.readField(env, "catalogManager", true);
-
     SemanticModelDispatcher dispatcher = Mockito.mock(SemanticModelDispatcher.class);
     SemanticModelDefinition definition = Mockito.mock(SemanticModelDefinition.class);
     SemanticModel created = Mockito.mock(SemanticModel.class);
@@ -72,30 +66,26 @@ public class TestSemanticModelHookDispatcher {
 
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
 
-    FieldUtils.writeField(env, "ownerDispatcher", ownerDispatcher, true);
-    FieldUtils.writeField(env, "catalogManager", mockCatalogManager(Capability.DEFAULT), true);
-    try {
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
-      SemanticModel result =
-          hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(ownerDispatcher)
+                .withCatalogManager(mockCatalogManager(Capability.DEFAULT)));
+    SemanticModel result =
+        hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
 
-      assertSame(created, result);
+    assertSame(created, result);
 
-      ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
-      Mockito.verify(ownerDispatcher)
-          .setOwner(
-              eq("metalake1"),
-              captor.capture(),
-              eq(AuthConstants.ANONYMOUS_USER),
-              eq(Owner.Type.USER));
-      assertEquals(MetadataObject.Type.SEMANTIC_MODEL, captor.getValue().type());
-      assertEquals("catalog1.schema1.sales_model", captor.getValue().fullName());
-    } finally {
-      FieldUtils.writeField(env, "ownerDispatcher", originalOwnerDispatcher, true);
-      FieldUtils.writeField(env, "catalogManager", originalCatalogManager, true);
-    }
+    ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
+    Mockito.verify(ownerDispatcher)
+        .setOwner(
+            eq("metalake1"),
+            captor.capture(),
+            eq(AuthConstants.ANONYMOUS_USER),
+            eq(Owner.Type.USER));
+    assertEquals(MetadataObject.Type.SEMANTIC_MODEL, captor.getValue().type());
+    assertEquals("catalog1.schema1.sales_model", captor.getValue().fullName());
   }
 
   @Test
@@ -109,7 +99,7 @@ public class TestSemanticModelHookDispatcher {
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
     SemanticModelHookDispatcher hook =
         new SemanticModelHookDispatcher(
-            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher));
 
     assertSame(imported, hook.importSemanticModel(IDENT, "comment", definition, properties));
 
@@ -133,10 +123,6 @@ public class TestSemanticModelHookDispatcher {
     // The NormalizeDispatcher case-folds the parent schema against the catalog capability while
     // keeping the Gravitino-owned model name, so the owner must be attached to that same
     // identifier.
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Object originalOwnerDispatcher = FieldUtils.readField(env, "ownerDispatcher", true);
-    Object originalCatalogManager = FieldUtils.readField(env, "catalogManager", true);
-
     NameIdentifier ident = NameIdentifier.of("metalake1", "catalog1", "SCHEMA_NORM", "Sales_Model");
     SemanticModelDispatcher dispatcher = Mockito.mock(SemanticModelDispatcher.class);
     SemanticModelDefinition definition = Mockito.mock(SemanticModelDefinition.class);
@@ -146,65 +132,48 @@ public class TestSemanticModelHookDispatcher {
 
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
 
-    FieldUtils.writeField(env, "ownerDispatcher", ownerDispatcher, true);
-    FieldUtils.writeField(
-        env, "catalogManager", mockCatalogManager(new CaseInsensitiveCapability()), true);
-    try {
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
-      new SemanticModelNormalizeDispatcher(hook, env.catalogManager())
-          .createSemanticModel(ident, "comment", definition, ImmutableMap.of());
+    CatalogManager catalogManager = mockCatalogManager(new CaseInsensitiveCapability());
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(ownerDispatcher)
+                .withCatalogManager(catalogManager));
+    new SemanticModelNormalizeDispatcher(hook, catalogManager)
+        .createSemanticModel(ident, "comment", definition, ImmutableMap.of());
 
-      ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
-      Mockito.verify(ownerDispatcher)
-          .setOwner(eq("metalake1"), captor.capture(), any(), eq(Owner.Type.USER));
-      assertEquals(
-          "catalog1.schema_norm",
-          captor.getValue().parent(),
-          "The schema component must be lowercased by the catalog capability");
-      assertEquals(
-          "Sales_Model",
-          captor.getValue().name(),
-          "The Semantic Model name is Gravitino-owned and must not be case-folded by the catalog");
-    } finally {
-      FieldUtils.writeField(env, "ownerDispatcher", originalOwnerDispatcher, true);
-      FieldUtils.writeField(env, "catalogManager", originalCatalogManager, true);
-    }
+    ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
+    Mockito.verify(ownerDispatcher)
+        .setOwner(eq("metalake1"), captor.capture(), any(), eq(Owner.Type.USER));
+    assertEquals(
+        "catalog1.schema_norm",
+        captor.getValue().parent(),
+        "The schema component must be lowercased by the catalog capability");
+    assertEquals(
+        "Sales_Model",
+        captor.getValue().name(),
+        "The Semantic Model name is Gravitino-owned and must not be case-folded by the catalog");
   }
 
   @Test
   public void testCreateSemanticModelSucceedsWhenOwnerDispatcherIsDisabled() throws Exception {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Object originalOwnerDispatcher = FieldUtils.readField(env, "ownerDispatcher", true);
-
     SemanticModelDispatcher dispatcher = Mockito.mock(SemanticModelDispatcher.class);
     SemanticModelDefinition definition = Mockito.mock(SemanticModelDefinition.class);
     SemanticModel created = Mockito.mock(SemanticModel.class);
     Mockito.when(dispatcher.createSemanticModel(any(), any(), any(), any())).thenReturn(created);
 
-    FieldUtils.writeField(env, "ownerDispatcher", null, true);
-    try {
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
-      SemanticModel result =
-          hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
+    SemanticModel result =
+        hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
 
-      assertSame(created, result);
-      Mockito.verify(dispatcher)
-          .createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
-    } finally {
-      FieldUtils.writeField(env, "ownerDispatcher", originalOwnerDispatcher, true);
-    }
+    assertSame(created, result);
+    Mockito.verify(dispatcher).createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
   }
 
   @Test
   public void testCreateSemanticModelThrowsWhenSetOwnerFails() throws Exception {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Object originalOwnerDispatcher = FieldUtils.readField(env, "ownerDispatcher", true);
-    Object originalCatalogManager = FieldUtils.readField(env, "catalogManager", true);
-
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
     Mockito.doThrow(new RuntimeException("Set owner failed"))
         .when(ownerDispatcher)
@@ -216,28 +185,21 @@ public class TestSemanticModelHookDispatcher {
     Mockito.when(created.name()).thenReturn("sales_model");
     Mockito.when(dispatcher.createSemanticModel(any(), any(), any(), any())).thenReturn(created);
 
-    FieldUtils.writeField(env, "ownerDispatcher", ownerDispatcher, true);
-    FieldUtils.writeField(env, "catalogManager", mockCatalogManager(Capability.DEFAULT), true);
-    try {
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
-      RuntimeException thrown =
-          assertThrows(
-              RuntimeException.class,
-              () -> hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of()));
-      assertEquals("Set owner failed", thrown.getMessage());
-    } finally {
-      FieldUtils.writeField(env, "ownerDispatcher", originalOwnerDispatcher, true);
-      FieldUtils.writeField(env, "catalogManager", originalCatalogManager, true);
-    }
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(ownerDispatcher)
+                .withCatalogManager(mockCatalogManager(Capability.DEFAULT)));
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () -> hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of()));
+    assertEquals("Set owner failed", thrown.getMessage());
   }
 
   @Test
   public void testNonCreateOperationsDelegateWithoutOwnerChanges() throws Exception {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Object originalOwnerDispatcher = FieldUtils.readField(env, "ownerDispatcher", true);
-
     SemanticModelDispatcher dispatcher = Mockito.mock(SemanticModelDispatcher.class);
     SemanticModel loaded = Mockito.mock(SemanticModel.class);
     SemanticModel altered = Mockito.mock(SemanticModel.class);
@@ -253,44 +215,34 @@ public class TestSemanticModelHookDispatcher {
     Mockito.when(dispatcher.semanticModelExists(IDENT)).thenReturn(true);
 
     OwnerDispatcher ownerDispatcher = Mockito.mock(OwnerDispatcher.class);
-    FieldUtils.writeField(env, "ownerDispatcher", ownerDispatcher, true);
-    try {
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(env::ownerDispatcher));
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher));
 
-      assertSame(listed, hook.listSemanticModels(namespace));
-      assertSame(loaded, hook.loadSemanticModel(IDENT));
-      assertSame(altered, hook.alterSemanticModel(IDENT, change));
-      assertTrue(hook.dropSemanticModel(IDENT));
-      assertTrue(hook.semanticModelExists(IDENT));
+    assertSame(listed, hook.listSemanticModels(namespace));
+    assertSame(loaded, hook.loadSemanticModel(IDENT));
+    assertSame(altered, hook.alterSemanticModel(IDENT, change));
+    assertTrue(hook.dropSemanticModel(IDENT));
+    assertTrue(hook.semanticModelExists(IDENT));
 
-      Mockito.verifyNoInteractions(ownerDispatcher);
-    } finally {
-      FieldUtils.writeField(env, "ownerDispatcher", originalOwnerDispatcher, true);
-    }
+    Mockito.verifyNoInteractions(ownerDispatcher);
   }
 
   @Test
   public void testFailedMutationsAndNonRenameChangesDoNotInvalidateCache() {
     SemanticModelDispatcher dispatcher = Mockito.mock(SemanticModelDispatcher.class);
     GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
     SemanticModelChange rename = SemanticModelChange.rename("renamed");
     Mockito.when(dispatcher.alterSemanticModel(IDENT, rename))
         .thenThrow(new IllegalArgumentException("rejected"));
-    try (MockedStatic<GravitinoEnv> mocked = Mockito.mockStatic(GravitinoEnv.class)) {
-      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      SemanticModelHookDispatcher hook =
-          new SemanticModelHookDispatcher(
-              dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
-      assertThrows(IllegalArgumentException.class, () -> hook.alterSemanticModel(IDENT, rename));
-      hook.alterSemanticModel(IDENT, SemanticModelChange.setProperty("key", "value"));
-      Mockito.when(dispatcher.dropSemanticModel(IDENT)).thenReturn(false);
-      assertFalse(hook.dropSemanticModel(IDENT));
-      Mockito.verifyNoInteractions(authorizer);
-    }
+    SemanticModelHookDispatcher hook =
+        new SemanticModelHookDispatcher(
+            dispatcher, new FakeAuthorizationServices().withAuthorizer(authorizer));
+    assertThrows(IllegalArgumentException.class, () -> hook.alterSemanticModel(IDENT, rename));
+    hook.alterSemanticModel(IDENT, SemanticModelChange.setProperty("key", "value"));
+    Mockito.when(dispatcher.dropSemanticModel(IDENT)).thenReturn(false);
+    assertFalse(hook.dropSemanticModel(IDENT));
+    Mockito.verifyNoInteractions(authorizer);
   }
 
   private static CatalogManager mockCatalogManager(Capability capability) throws Exception {

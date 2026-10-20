@@ -18,32 +18,6 @@
  */
 package org.apache.gravitino.hook;
 
-import static org.apache.gravitino.Configs.CATALOG_CACHE_EVICTION_INTERVAL_MS;
-import static org.apache.gravitino.Configs.DEFAULT_ENTITY_CHANGE_LOG_POLL_BATCH_SIZE;
-import static org.apache.gravitino.Configs.DEFAULT_ENTITY_CHANGE_LOG_REPLAY_MAX_ENTRIES;
-import static org.apache.gravitino.Configs.DEFAULT_ENTITY_CHANGE_LOG_REPLAY_WINDOW_SECS;
-import static org.apache.gravitino.Configs.DEFAULT_ENTITY_RELATIONAL_STORE;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_POLL_BATCH_SIZE;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_REPLAY_MAX_ENTRIES;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_REPLAY_WINDOW_SECS;
-import static org.apache.gravitino.Configs.ENTITY_CHANGE_LOG_RETENTION_SECS;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_MAX_CONNECTIONS;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_MAX_IDLE_CONNECTIONS;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_URL;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_JDBC_BACKEND_WAIT_MILLISECONDS;
-import static org.apache.gravitino.Configs.ENTITY_RELATIONAL_STORE;
-import static org.apache.gravitino.Configs.ENTITY_STORE;
-import static org.apache.gravitino.Configs.RELATIONAL_ENTITY_STORE;
-import static org.apache.gravitino.Configs.SERVICE_ADMINS;
-import static org.apache.gravitino.Configs.STORE_DELETE_AFTER_TIME;
-import static org.apache.gravitino.Configs.STORE_TRANSACTION_MAX_SKEW_TIME;
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.VERSION_RETENTION_COUNT;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 
@@ -52,17 +26,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Map;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -77,7 +48,6 @@ import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.connector.capability.CapabilityResult;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.file.FilesetChange;
-import org.apache.gravitino.lock.LockManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -92,25 +62,22 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
   private static AccessControlManager accessControlManager =
       Mockito.mock(AccessControlManager.class);
   private static AuthorizationPlugin authorizationPlugin;
+  private static FakeAuthorizationServices services;
 
   @BeforeAll
   public static void initialize() throws Exception {
     TestFilesetOperationDispatcher.initialize();
 
+    services = new FakeAuthorizationServices().withAccessControlDispatcher(accessControlManager);
     filesetHookDispatcher =
         new FilesetHookDispatcher(
-            TestFilesetOperationDispatcher.getFilesetOperationDispatcher(),
-            EnvironmentAuthorizationServices.INSTANCE);
+            TestFilesetOperationDispatcher.getFilesetOperationDispatcher(), services);
     schemaHookDispatcher =
         new SchemaHookDispatcher(
-            TestFilesetOperationDispatcher.getSchemaOperationDispatcher(),
-            lockManager,
-            EnvironmentAuthorizationServices.INSTANCE);
+            TestFilesetOperationDispatcher.getSchemaOperationDispatcher(), lockManager, services);
 
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalAccessControlDispatcher", accessControlManager, true);
     catalogManager = Mockito.mock(CatalogManager.class);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+    services.withCatalogManager(catalogManager);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(catalog.capability()).thenReturn(Capability.DEFAULT);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
@@ -122,9 +89,6 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
   public void testCreateFilesetSetsOwnerWithNormalizedIdentifier() throws Exception {
     // Self-contained: use a fresh hook with a directly-mocked FilesetDispatcher and a case-
     // insensitive catalog so we can verify the helper passes a normalized ident to setOwner.
-    CatalogManager savedCatalogManager = GravitinoEnv.getInstance().catalogManager();
-    OwnerDispatcher savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-
     CatalogManager mockCatalogManager = Mockito.mock(CatalogManager.class);
     BaseCatalog<?> mockCatalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(mockCatalog.capability()).thenReturn(new CaseInsensitiveCapability());
@@ -137,51 +101,40 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
                 any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(Mockito.mock(Fileset.class));
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
+    FilesetDispatcher localHook =
+        new FilesetNormalizeDispatcher(
+            new FilesetHookDispatcher(
+                mockFilesetDispatcher,
+                new FakeAuthorizationServices()
+                    .withAccessControlDispatcher(accessControlManager)
+                    .withCatalogManager(mockCatalogManager)
+                    .withOwnerDispatcher(mockOwnerDispatcher)),
+            mockCatalogManager);
+    NameIdentifier ident = NameIdentifier.of(metalake, catalog, "SCHEMA_NORM", "MY_FILESET");
+    localHook.createMultipleLocationFileset(
+        ident,
+        "comment",
+        Fileset.Type.MANAGED,
+        ImmutableMap.of("default", "/tmp/loc"),
+        ImmutableMap.of());
 
-    try {
-      FilesetDispatcher localHook =
-          new FilesetNormalizeDispatcher(
-              new FilesetHookDispatcher(
-                  mockFilesetDispatcher, EnvironmentAuthorizationServices.INSTANCE),
-              mockCatalogManager);
-      NameIdentifier ident = NameIdentifier.of(metalake, catalog, "SCHEMA_NORM", "MY_FILESET");
-      localHook.createMultipleLocationFileset(
-          ident,
-          "comment",
-          Fileset.Type.MANAGED,
-          ImmutableMap.of("default", "/tmp/loc"),
-          ImmutableMap.of());
-
-      ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
-      Mockito.verify(mockOwnerDispatcher)
-          .setOwner(eq(metalake), captor.capture(), any(), eq(Owner.Type.USER));
-      Assertions.assertEquals(
-          "my_fileset",
-          captor.getValue().name(),
-          "Fileset name passed to setOwner must be lowercased by Capability.Scope.FILESET"
-              + " normalization");
-      Assertions.assertEquals(
-          catalog + ".schema_norm",
-          captor.getValue().parent(),
-          "Fileset parent (catalog.schema) must have its schema component lowercased by"
-              + " Capability.Scope.FILESET namespace normalization");
-    } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "catalogManager", savedCatalogManager, true);
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    }
+    ArgumentCaptor<MetadataObject> captor = ArgumentCaptor.forClass(MetadataObject.class);
+    Mockito.verify(mockOwnerDispatcher)
+        .setOwner(eq(metalake), captor.capture(), any(), eq(Owner.Type.USER));
+    Assertions.assertEquals(
+        "my_fileset",
+        captor.getValue().name(),
+        "Fileset name passed to setOwner must be lowercased by Capability.Scope.FILESET"
+            + " normalization");
+    Assertions.assertEquals(
+        catalog + ".schema_norm",
+        captor.getValue().parent(),
+        "Fileset parent (catalog.schema) must have its schema component lowercased by"
+            + " Capability.Scope.FILESET namespace normalization");
   }
 
   @Test
   public void testCreateFilesetThrowsWhenSetOwnerFails() throws IllegalAccessException {
-    // Save the original ownerDispatcher so we can restore it in the finally block instead of
-    // wiping it to null and leaking that into other tests in the suite.
-    OwnerDispatcher savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-
     // Create the schema first with the existing (non-throwing) ownerDispatcher, then swap to the
     // throwing mock only for the fileset create we actually want to exercise. Otherwise the
     // throwing mock would fire during schema creation and we would never reach the fileset call.
@@ -193,8 +146,7 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
     Mockito.doThrow(new RuntimeException("Set owner failed"))
         .when(mockOwnerDispatcher)
         .setOwner(any(), any(), any(), any());
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
+    services.withOwnerDispatcher(mockOwnerDispatcher);
 
     try {
       NameIdentifier filesetIdent = NameIdentifier.of(filesetNs, "fileset_owner_fail");
@@ -206,16 +158,14 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
                       filesetIdent, "comment", Fileset.Type.MANAGED, "fileset_owner", props));
       Assertions.assertEquals("Set owner failed", thrown.getMessage());
     } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
+      services.withOwnerDispatcher(null);
     }
   }
 
   @Test
   public void testDropKeepsPrivilegesWhenDropReturnsFalse() {
     FilesetDispatcher dispatcher = Mockito.mock(FilesetDispatcher.class);
-    FilesetHookDispatcher hook =
-        new FilesetHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
+    FilesetHookDispatcher hook = new FilesetHookDispatcher(dispatcher, services);
     NameIdentifier ident = NameIdentifier.of(metalake, catalog, "schema", "fileset");
     Mockito.when(dispatcher.dropFileset(ident)).thenReturn(false);
 
@@ -250,44 +200,6 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
     withMockedAuthorizationUtils(
         () -> {
           filesetHookDispatcher.dropFileset(filesetIdent);
-          Config config = Mockito.mock(Config.class);
-          Mockito.when(config.get(SERVICE_ADMINS))
-              .thenReturn(Lists.newArrayList("admin1", "admin2"));
-          Mockito.when(config.get(ENTITY_STORE)).thenReturn(RELATIONAL_ENTITY_STORE);
-          Mockito.when(config.get(ENTITY_RELATIONAL_STORE))
-              .thenReturn(DEFAULT_ENTITY_RELATIONAL_STORE);
-          Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_URL))
-              .thenReturn(
-                  String.format("jdbc:h2:file:%s;DB_CLOSE_DELAY=-1;MODE=MYSQL", "/tmp/testdb"));
-          Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_DRIVER))
-              .thenReturn("org.h2.Driver");
-          Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_MAX_CONNECTIONS)).thenReturn(100);
-          Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_MAX_IDLE_CONNECTIONS))
-              .thenReturn(10);
-          Mockito.when(config.get(ENTITY_RELATIONAL_JDBC_BACKEND_WAIT_MILLISECONDS))
-              .thenReturn(1000L);
-          Mockito.when(config.get(STORE_TRANSACTION_MAX_SKEW_TIME)).thenReturn(1000L);
-          Mockito.when(config.get(STORE_DELETE_AFTER_TIME)).thenReturn(20 * 60 * 1000L);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_POLL_INTERVAL_SECS)).thenReturn(3L);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_POLL_BATCH_SIZE))
-              .thenReturn(DEFAULT_ENTITY_CHANGE_LOG_POLL_BATCH_SIZE);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_REPLAY_WINDOW_SECS))
-              .thenReturn(DEFAULT_ENTITY_CHANGE_LOG_REPLAY_WINDOW_SECS);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_REPLAY_MAX_ENTRIES))
-              .thenReturn(DEFAULT_ENTITY_CHANGE_LOG_REPLAY_MAX_ENTRIES);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_RETENTION_SECS)).thenReturn(24 * 60 * 60L);
-          Mockito.when(config.get(ENTITY_CHANGE_LOG_CLEANUP_INTERVAL_SECS)).thenReturn(60 * 60L);
-          Mockito.when(config.get(VERSION_RETENTION_COUNT)).thenReturn(1L);
-          Mockito.when(config.get(CATALOG_CACHE_EVICTION_INTERVAL_MS)).thenReturn(1000L);
-          Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-          Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-          Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-          try {
-            FieldUtils.writeField(
-                GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-          } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-          }
           schemaHookDispatcher.dropSchema(NameIdentifier.of(filesetNs.levels()), true);
         });
   }
@@ -296,8 +208,7 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
   public void testDropFilesetShouldNotRemovePrivilegesWhenDropReturnsFalse() {
     NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "fileset");
     FilesetDispatcher delegate = Mockito.mock(FilesetDispatcher.class);
-    FilesetHookDispatcher hookDispatcher =
-        new FilesetHookDispatcher(delegate, EnvironmentAuthorizationServices.INSTANCE);
+    FilesetHookDispatcher hookDispatcher = new FilesetHookDispatcher(delegate, services);
     List<String> locations = Lists.newArrayList("/tmp/fileset");
 
     Mockito.when(delegate.dropFileset(ident)).thenReturn(false);
