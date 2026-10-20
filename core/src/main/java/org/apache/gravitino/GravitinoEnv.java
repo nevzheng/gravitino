@@ -24,9 +24,10 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
-import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -58,7 +59,6 @@ import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.di.LegacyBridge;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
-import org.apache.gravitino.hook.AccessControlHookDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.FilesetHookDispatcher;
 import org.apache.gravitino.hook.FunctionHookDispatcher;
@@ -71,7 +71,6 @@ import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
-import org.apache.gravitino.listener.AccessControlEventDispatcher;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
@@ -285,8 +284,9 @@ public class GravitinoEnv implements LegacyBridge {
    * Get the dependency-injection component built by the last initialization.
    *
    * <p>The component owns the configuration, the id generator, the metrics system, the lock
-   * manager, the schema, table, partition and view dispatchers, and the tag, policy, owner and
-   * statistic dispatchers; this environment returns the same instances from its own getters.
+   * manager, the schema, table, partition and view dispatchers, the tag, policy, owner and
+   * statistic dispatchers, and the access-control components; this environment returns the same
+   * instances from its own getters.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -762,21 +762,36 @@ public class GravitinoEnv implements LegacyBridge {
   }
 
   /**
-   * Set GravitinoAuthorizer to GravitinoEnv
+   * Installs the GravitinoAuthorizer. The server installs its authorizer after the environment is
+   * initialized.
    *
-   * @param gravitinoAuthorizer the GravitinoAuthorizer instance
+   * @param gravitinoAuthorizer the GravitinoAuthorizer instance, or null to uninstall it
    */
-  public void setGravitinoAuthorizer(GravitinoAuthorizer gravitinoAuthorizer) {
+  public void setGravitinoAuthorizer(@Nullable GravitinoAuthorizer gravitinoAuthorizer) {
     this.gravitinoAuthorizer = gravitinoAuthorizer;
   }
 
   /**
-   * Get The GravitinoAuthorizer
+   * Get the GravitinoAuthorizer.
    *
-   * @return the GravitinoAuthorizer instance
+   * <p>When none is installed, it fails closed if authorization is enabled: the server installs its
+   * authorizer after the environment is initialized and takes it back while it shuts down, and a
+   * request that runs in between must not be allowed.
+   *
+   * @return the installed GravitinoAuthorizer; when none is installed, {@link
+   *     DenyAllGravitinoAuthorizer#INSTANCE} if authorization is enabled, and {@link
+   *     NoopGravitinoAuthorizer#INSTANCE} otherwise; never null
    */
+  @Override
   public GravitinoAuthorizer gravitinoAuthorizer() {
-    return gravitinoAuthorizer;
+    GravitinoAuthorizer installed = gravitinoAuthorizer;
+    if (installed != null) {
+      return installed;
+    }
+    Config current = config;
+    return current != null && current.get(Configs.ENABLE_AUTHORIZATION)
+        ? DenyAllGravitinoAuthorizer.INSTANCE
+        : NoopGravitinoAuthorizer.INSTANCE;
   }
 
   /**
@@ -1017,11 +1032,10 @@ public class GravitinoEnv implements LegacyBridge {
 
   private void initInternalAuthorizationComponents() {
     if (config.get(Configs.ENABLE_AUTHORIZATION)) {
-      this.internalAccessControlDispatcher =
-          new AccessControlManager(entityStore, idGenerator, config, lockManager);
+      this.internalAccessControlDispatcher = component.internalAccessControlDispatcher();
       this.internalOwnerDispatcher = component.internalOwnerDispatcher();
-      this.bulkManager = new BulkManager(config);
-      this.futureGrantManager = new FutureGrantManager(entityStore, internalOwnerDispatcher);
+      this.bulkManager = component.bulkManager();
+      this.futureGrantManager = component.futureGrantManager();
     } else {
       this.internalAccessControlDispatcher = null;
       this.internalOwnerDispatcher = null;
@@ -1138,10 +1152,7 @@ public class GravitinoEnv implements LegacyBridge {
 
     // Create and initialize access control related modules
     if (internalAccessControlDispatcher != null) {
-      AccessControlHookDispatcher accessControlHookDispatcher =
-          new AccessControlHookDispatcher(internalAccessControlDispatcher);
-      this.accessControlDispatcher =
-          new AccessControlEventDispatcher(eventBus, accessControlHookDispatcher);
+      this.accessControlDispatcher = component.accessControlDispatcher();
       this.ownerDispatcher = component.ownerDispatcher();
     } else {
       this.accessControlDispatcher = null;

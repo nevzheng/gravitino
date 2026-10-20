@@ -25,6 +25,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.FutureGrantManager;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.bulk.BulkManager;
@@ -276,6 +277,16 @@ public interface GravitinoComponent {
    * @return the future grant manager
    */
   FutureGrantManager futureGrantManager();
+
+  /**
+   * Returns the authorizer the server installed; never null. When none is installed, it is {@code
+   * DenyAllGravitinoAuthorizer.INSTANCE} if authorization is enabled and {@code
+   * NoopGravitinoAuthorizer.INSTANCE} otherwise. The server still builds and installs it, so it is
+   * seeded through {@link LegacyBridge} and read again on every request.
+   *
+   * @return the authorizer
+   */
+  GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
    * Returns the entity store that {@code GravitinoEnv} still builds, seeded through {@link

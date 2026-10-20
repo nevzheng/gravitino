@@ -24,8 +24,9 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 
 /**
- * The authorizer in effect when none is installed, for example before the server installs its
- * authorizer or in a process that never does.
+ * The authorizer in effect when authorization is disabled and none is installed, for example in a
+ * process that never installs one. When authorization is enabled, {@link
+ * DenyAllGravitinoAuthorizer} stands in instead.
  *
  * <p>It stands in for the {@code null} authorizer callers used to test for: every check passes, and
  * every change notification does nothing. Unlike the server's pass-through authorizer it has no
