@@ -215,6 +215,7 @@ class TestGravitinoEnvMetadataComponents {
 
       assertNotNull(env.internalAccessControlDispatcher());
       assertNotNull(env.internalOwnerDispatcher());
+      assertSame(env.component().internalOwnerDispatcher(), env.internalOwnerDispatcher());
       assertNotNull(env.bulkManager());
       assertNotNull(env.futureGrantManager());
       assertNull(env.accessControlDispatcher());
@@ -331,6 +332,9 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
+      assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
+      assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
       assertSame(entityStore, component.entityStore());
       assertSame(singleton.catalogManager(), component.catalogManager());
       assertSame(singleton.secretManager(), component.secretManager());
@@ -360,6 +364,15 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.tagDispatcher(), singleton.tagDispatcher());
+      assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
+      assertSame(component.policyDispatcher(), singleton.policyDispatcher());
+      assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
+      assertSame(component.statisticDispatcher(), singleton.statisticDispatcher());
+      assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
+      // Authorization is disabled, so the environment never asked for the owner chains.
+      assertNull(singleton.ownerDispatcher());
+      assertNull(singleton.internalOwnerDispatcher());
 
       // Built by the environment, seeded into the component.
       assertSame(entityStore, component.entityStore());
