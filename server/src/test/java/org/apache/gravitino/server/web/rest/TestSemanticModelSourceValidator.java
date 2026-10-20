@@ -25,7 +25,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -36,7 +35,6 @@ import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Function;
 import org.apache.gravitino.Entity.EntityType;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -64,7 +62,6 @@ import org.apache.gravitino.utils.ThrowableFunction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.mockito.MockedStatic;
 
 /** Tests catalog-backed validation independently of model persistence. */
 public class TestSemanticModelSourceValidator {
@@ -229,27 +226,22 @@ public class TestSemanticModelSourceValidator {
             });
     when(tables.loadTable(FULL_SOURCE)).thenThrow(new NoSuchTableException("missing"));
     when(views.loadView(FULL_SOURCE)).thenThrow(new NoSuchViewException("missing"));
-    try (MockedStatic<GravitinoEnv> environments = mockStatic(GravitinoEnv.class)) {
-      GravitinoEnv env = mock(GravitinoEnv.class);
-      environments.when(GravitinoEnv::getInstance).thenReturn(env);
-      when(env.catalogManager()).thenReturn(catalogs);
-      SemanticModelSourceValidator checking =
-          new SemanticModelSourceValidator(tables, views, () -> authorizer);
-      assertThrows(
-          IllegalSemanticModelException.class,
-          () -> checking.validate("metalake", definition(dataset("orders", null, null))));
-      if (supportsTables) {
-        verify(tables).loadTable(FULL_SOURCE);
-      } else {
-        verifyNoInteractions(tables);
-      }
-      if (supportsViews) {
-        verify(views).loadView(FULL_SOURCE);
-      } else {
-        verifyNoInteractions(views);
-      }
-      verify(catalogs).doWithCatalog(eq(NameIdentifier.of("metalake", "other_catalog")), any());
+    SemanticModelSourceValidator checking =
+        new SemanticModelSourceValidator(tables, views, () -> authorizer, catalogs);
+    assertThrows(
+        IllegalSemanticModelException.class,
+        () -> checking.validate("metalake", definition(dataset("orders", null, null))));
+    if (supportsTables) {
+      verify(tables).loadTable(FULL_SOURCE);
+    } else {
+      verifyNoInteractions(tables);
     }
+    if (supportsViews) {
+      verify(views).loadView(FULL_SOURCE);
+    } else {
+      verifyNoInteractions(views);
+    }
+    verify(catalogs).doWithCatalog(eq(NameIdentifier.of("metalake", "other_catalog")), any());
   }
 
   @Test

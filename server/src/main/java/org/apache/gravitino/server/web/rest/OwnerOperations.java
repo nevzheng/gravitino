@@ -25,6 +25,8 @@ import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import java.util.Locale;
 import java.util.Optional;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.PUT;
@@ -34,10 +36,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.dto.requests.OwnerSetRequest;
@@ -58,16 +58,29 @@ import org.apache.gravitino.utils.MetadataObjectUtil;
 @Path("/metalakes/{metalake}/owners")
 public class OwnerOperations {
 
-  private final OwnerDispatcher ownerDispatcher;
+  @Nullable private final OwnerDispatcher ownerDispatcher;
 
   @Context private HttpServletRequest httpRequest;
 
-  @LegacyEnvAccess
+  /**
+   * Creates an owner REST resource from the process environment.
+   *
+   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher)}.
+   */
+  @Deprecated
   public OwnerOperations() {
-    // Because ownerManager may be null when Gravitino doesn't enable authorization,
-    // and Jersey injection doesn't support null value. So OwnerOperations chooses to retrieve
-    // ownerManager from GravitinoEnv instead of injection here.
-    this.ownerDispatcher = GravitinoEnv.getInstance().ownerDispatcher();
+    this(EnvironmentServices.processEnv().ownerDispatcher());
+  }
+
+  /**
+   * Creates an owner REST resource. The service is absent when authorization is disabled.
+   *
+   * @param ownerDispatcher the owner dispatcher, or null.
+   */
+  @Inject
+  public OwnerOperations(
+      @org.jvnet.hk2.annotations.Optional @Nullable OwnerDispatcher ownerDispatcher) {
+    this.ownerDispatcher = ownerDispatcher;
   }
 
   @GET

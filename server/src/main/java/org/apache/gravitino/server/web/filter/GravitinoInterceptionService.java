@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
+import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 import org.aopalliance.intercept.ConstructorInterceptor;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -45,6 +47,8 @@ import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.exceptions.BadRequestException;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
@@ -53,6 +57,7 @@ import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchTableException;
 import org.apache.gravitino.exceptions.NoSuchViewException;
 import org.apache.gravitino.lineage.source.rest.LineageOperations;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.server.AuthorizationDenialFailureEvent;
 import org.apache.gravitino.server.authorization.AuthorizationRequestScope;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
@@ -105,6 +110,37 @@ import org.slf4j.LoggerFactory;
  */
 public class GravitinoInterceptionService implements InterceptionService {
 
+  private final Supplier<EventBus> eventBus;
+  private final Supplier<TableDispatcher> internalTableDispatcher;
+
+  /**
+   * Creates the interception service from the process environment, resolved at request time.
+   *
+   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher)}.
+   */
+  @Deprecated
+  public GravitinoInterceptionService() {
+    this(() -> processEnv().eventBus(), () -> processEnv().internalTableDispatcher());
+  }
+
+  /**
+   * Creates the interception service.
+   *
+   * @param eventBus the event bus that receives authorization denial events.
+   * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   */
+  @Inject
+  public GravitinoInterceptionService(
+      EventBus eventBus, @Internal TableDispatcher internalTableDispatcher) {
+    this(() -> eventBus, () -> internalTableDispatcher);
+  }
+
+  private GravitinoInterceptionService(
+      Supplier<EventBus> eventBus, Supplier<TableDispatcher> internalTableDispatcher) {
+    this.eventBus = eventBus;
+    this.internalTableDispatcher = internalTableDispatcher;
+  }
+
   @Override
   public Filter getDescriptorFilter() {
     return new ClassListFilter(
@@ -140,7 +176,8 @@ public class GravitinoInterceptionService implements InterceptionService {
 
   @Override
   public List<MethodInterceptor> getMethodInterceptors(Method method) {
-    return ImmutableList.of(new MetadataAuthorizationMethodInterceptor());
+    return ImmutableList.of(
+        new MetadataAuthorizationMethodInterceptor(eventBus, internalTableDispatcher));
   }
 
   @Override
@@ -155,6 +192,15 @@ public class GravitinoInterceptionService implements InterceptionService {
   private static class MetadataAuthorizationMethodInterceptor implements MethodInterceptor {
     private static final Logger LOG =
         LoggerFactory.getLogger(MetadataAuthorizationMethodInterceptor.class);
+
+    private final Supplier<EventBus> eventBus;
+    private final Supplier<TableDispatcher> internalTableDispatcher;
+
+    private MetadataAuthorizationMethodInterceptor(
+        Supplier<EventBus> eventBus, Supplier<TableDispatcher> internalTableDispatcher) {
+      this.eventBus = eventBus;
+      this.internalTableDispatcher = internalTableDispatcher;
+    }
 
     /**
      * Determine whether authorization is required and the rules via the authorization annotation ,
@@ -214,7 +260,8 @@ public class GravitinoInterceptionService implements InterceptionService {
                     args,
                     secondaryExpression,
                     secondaryExpressionCondition,
-                    expressionAnnotation.allowCheckExistence());
+                    expressionAnnotation.allowCheckExistence(),
+                    internalTableDispatcher.get());
             Optional<String> dynamicMetalake;
             try {
               dynamicMetalake = executor.getAuthorizationMetalake();
@@ -401,13 +448,12 @@ public class GravitinoInterceptionService implements InterceptionService {
       return buildNoAuthResponse(errorMessage, accessMetadataName, currentUser, methodName);
     }
 
-    @LegacyEnvAccess
     private void dispatchAuthzDenialEvent(
         String user, NameIdentifier accessMetadataName, String methodName, String expression) {
       try {
         AuthorizationDenialFailureEvent event =
             new AuthorizationDenialFailureEvent(user, accessMetadataName, methodName, expression);
-        GravitinoEnv.getInstance().eventBus().dispatchEvent(event);
+        eventBus.get().dispatchEvent(event);
       } catch (Exception e) {
         LOG.error(
             "Failed to dispatch authorization denial event for user {} on operation {}",
@@ -452,5 +498,10 @@ public class GravitinoInterceptionService implements InterceptionService {
       String implementation = descriptor.getImplementation();
       return targetClasses.contains(implementation);
     }
+  }
+
+  @LegacyEnvAccess
+  private static GravitinoEnv processEnv() {
+    return GravitinoEnv.getInstance();
   }
 }

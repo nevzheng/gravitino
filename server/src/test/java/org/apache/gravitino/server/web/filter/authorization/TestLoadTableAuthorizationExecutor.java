@@ -29,7 +29,6 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,7 +42,6 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -54,7 +52,6 @@ import org.apache.gravitino.server.authorization.annotations.ExpressionCondition
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 
 public class TestLoadTableAuthorizationExecutor {
   private static final String PRIMARY_EXPRESSION =
@@ -91,6 +88,7 @@ public class TestLoadTableAuthorizationExecutor {
   public void testExistenceProbeUsesInternalTableDispatcher() throws Exception {
     Method method = TestOperations.class.getMethod("loadTable", String.class);
     NameIdentifier tableIdentifier = NameIdentifier.of("metalake", "catalog", "schema", "table");
+    TableDispatcher internalTableDispatcher = mock(TableDispatcher.class);
     LoadTableAuthorizationExecutor executor =
         new LoadTableAuthorizationExecutor(
             method.getParameters(),
@@ -101,7 +99,8 @@ public class TestLoadTableAuthorizationExecutor {
             Optional.empty(),
             SECONDARY_EXPRESSION,
             ExpressionCondition.NEVER,
-            AuthorizationExpressionConstants.PROBE_TABLE_LIKE_AUTHORIZATION_EXPRESSION);
+            AuthorizationExpressionConstants.PROBE_TABLE_LIKE_AUTHORIZATION_EXPRESSION,
+            internalTableDispatcher);
 
     AuthorizationExpressionEvaluator primaryEvaluator =
         mock(AuthorizationExpressionEvaluator.class);
@@ -116,34 +115,28 @@ public class TestLoadTableAuthorizationExecutor {
     executor.authorizationExpressionEvaluator = primaryEvaluator;
     FieldUtils.writeField(executor, "allowCheckExistenceEvaluator", existenceEvaluator, true);
 
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    TableDispatcher internalTableDispatcher = mock(TableDispatcher.class);
-    when(env.internalTableDispatcher()).thenReturn(internalTableDispatcher);
     when(internalTableDispatcher.loadTable(tableIdentifier))
         .thenThrow(new NoSuchTableException("Table is absent"));
 
-    try (MockedStatic<GravitinoEnv> mockedEnv = mockStatic(GravitinoEnv.class)) {
-      mockedEnv.when(GravitinoEnv::getInstance).thenReturn(env);
-      assertThrows(
-          NoSuchTableException.class, () -> executor.execute(new AuthorizationRequestContext()));
-      doReturn(mock(Table.class)).when(internalTableDispatcher).loadTable(tableIdentifier);
-      assertFalse(executor.execute(new AuthorizationRequestContext()));
-      IllegalStateException failure = new IllegalStateException("Table backend unavailable");
-      doThrow(failure).when(internalTableDispatcher).loadTable(tableIdentifier);
-      assertSame(
-          failure,
-          assertThrows(
-              IllegalStateException.class,
-              () -> executor.execute(new AuthorizationRequestContext())));
-      verify(internalTableDispatcher, times(3)).loadTable(tableIdentifier);
-      reset(internalTableDispatcher);
-      when(existenceEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(false);
-      assertFalse(executor.execute(new AuthorizationRequestContext()));
-      verifyNoInteractions(internalTableDispatcher);
-      when(primaryEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(true);
-      assertTrue(executor.execute(new AuthorizationRequestContext()));
-      verifyNoInteractions(internalTableDispatcher);
-    }
+    assertThrows(
+        NoSuchTableException.class, () -> executor.execute(new AuthorizationRequestContext()));
+    doReturn(mock(Table.class)).when(internalTableDispatcher).loadTable(tableIdentifier);
+    assertFalse(executor.execute(new AuthorizationRequestContext()));
+    IllegalStateException failure = new IllegalStateException("Table backend unavailable");
+    doThrow(failure).when(internalTableDispatcher).loadTable(tableIdentifier);
+    assertSame(
+        failure,
+        assertThrows(
+            IllegalStateException.class,
+            () -> executor.execute(new AuthorizationRequestContext())));
+    verify(internalTableDispatcher, times(3)).loadTable(tableIdentifier);
+    reset(internalTableDispatcher);
+    when(existenceEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(false);
+    assertFalse(executor.execute(new AuthorizationRequestContext()));
+    verifyNoInteractions(internalTableDispatcher);
+    when(primaryEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(true);
+    assertTrue(executor.execute(new AuthorizationRequestContext()));
+    verifyNoInteractions(internalTableDispatcher);
   }
 
   private static LoadTableAuthorizationExecutor createExecutor(
@@ -158,7 +151,8 @@ public class TestLoadTableAuthorizationExecutor {
         Optional.empty(),
         SECONDARY_EXPRESSION,
         condition,
-        "");
+        "",
+        mock(TableDispatcher.class));
   }
 
   private static String expression(LoadTableAuthorizationExecutor executor) throws Exception {

@@ -39,6 +39,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchViewException;
 import org.apache.gravitino.rel.View;
@@ -95,7 +96,8 @@ public class TestLoadViewAuthorizationExecutor {
             new Object[] {"m", "c", "s", "v"},
             "",
             ExpressionCondition.NEVER,
-            annotation.allowCheckExistence()));
+            annotation.allowCheckExistence(),
+            mock(TableDispatcher.class)));
   }
 
   @Test

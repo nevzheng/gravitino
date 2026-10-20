@@ -128,12 +128,8 @@ public class TestBulkOperations extends BaseOperationsTest {
     doReturn(2).when(config).get(org.apache.gravitino.Configs.BULK_MAX_ITEMS);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "accessControlDispatcher", manager, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", ownerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "bulkManager", new BulkManager(config), true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
-    bulkOperations = new BulkOperations();
+    bulkOperations = new BulkOperations(new BulkManager(config), manager, ownerDispatcher);
   }
 
   @BeforeEach

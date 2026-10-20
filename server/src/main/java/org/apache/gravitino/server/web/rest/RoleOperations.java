@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
@@ -35,10 +37,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Privilege;
@@ -63,6 +63,7 @@ import org.apache.gravitino.server.authorization.expression.AuthorizationExpress
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.jvnet.hk2.annotations.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,13 +72,28 @@ import org.slf4j.LoggerFactory;
 public class RoleOperations {
   private static final Logger LOG = LoggerFactory.getLogger(RoleOperations.class);
 
-  private final AccessControlDispatcher accessControlManager;
+  @Nullable private final AccessControlDispatcher accessControlManager;
 
   @Context private HttpServletRequest httpRequest;
 
-  @LegacyEnvAccess
+  /**
+   * Creates a role REST resource from the process environment.
+   *
+   * @deprecated Use {@link #RoleOperations(AccessControlDispatcher)}.
+   */
+  @Deprecated
   public RoleOperations() {
-    this.accessControlManager = GravitinoEnv.getInstance().accessControlDispatcher();
+    this(EnvironmentServices.processEnv().accessControlDispatcher());
+  }
+
+  /**
+   * Creates a role REST resource. The service is absent when authorization is disabled.
+   *
+   * @param accessControlManager the access-control dispatcher, or null.
+   */
+  @Inject
+  public RoleOperations(@Optional @Nullable AccessControlDispatcher accessControlManager) {
+    this.accessControlManager = accessControlManager;
   }
 
   @GET

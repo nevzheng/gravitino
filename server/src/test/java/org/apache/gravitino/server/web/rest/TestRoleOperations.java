@@ -44,6 +44,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.Privileges;
 import org.apache.gravitino.authorization.Role;
@@ -115,7 +116,6 @@ public class TestRoleOperations extends BaseOperationsTest {
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "accessControlDispatcher", manager, true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalAccessControlDispatcher", manager, true);
     FieldUtils.writeField(
@@ -149,6 +149,7 @@ public class TestRoleOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
+            bind(manager).to(AccessControlDispatcher.class);
           }
         });
 

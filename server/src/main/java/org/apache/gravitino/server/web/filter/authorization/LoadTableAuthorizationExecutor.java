@@ -20,6 +20,7 @@ import java.lang.reflect.Parameter;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
@@ -27,6 +28,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.Privilege;
+import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.server.authorization.annotations.ExpressionCondition;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 import org.apache.gravitino.server.web.filter.ParameterUtil;
@@ -46,7 +48,23 @@ import org.apache.gravitino.server.web.filter.ParameterUtil;
  */
 public class LoadTableAuthorizationExecutor extends CommonAuthorizerExecutor {
   private final AuthorizationExpressionEvaluator allowCheckExistenceEvaluator;
+  private final Supplier<TableDispatcher> internalTableDispatcher;
 
+  /**
+   * Creates the executor, probing table existence through the process environment.
+   *
+   * @param parameters the parameters of the REST method.
+   * @param args the arguments of the REST call.
+   * @param expression the authorization expression.
+   * @param metadataContext the metadata the call names.
+   * @param pathParams the path parameters of the call.
+   * @param entityType the metadata object type of the call, if any.
+   * @param secondaryExpression the stricter expression for a modify request.
+   * @param secondaryExpressionCondition when the secondary expression applies.
+   * @param allowCheckExistenceExpression the expression that allows probing table existence.
+   * @deprecated Use the constructor that also takes the internal table dispatcher.
+   */
+  @Deprecated
   public LoadTableAuthorizationExecutor(
       Parameter[] parameters,
       Object[] args,
@@ -57,7 +75,70 @@ public class LoadTableAuthorizationExecutor extends CommonAuthorizerExecutor {
       String secondaryExpression,
       ExpressionCondition secondaryExpressionCondition,
       String allowCheckExistenceExpression) {
+    this(
+        parameters,
+        args,
+        expression,
+        metadataContext,
+        pathParams,
+        entityType,
+        secondaryExpression,
+        secondaryExpressionCondition,
+        allowCheckExistenceExpression,
+        LoadTableAuthorizationExecutor::processInternalTableDispatcher);
+  }
+
+  /**
+   * Creates the executor.
+   *
+   * @param parameters the parameters of the REST method.
+   * @param args the arguments of the REST call.
+   * @param expression the authorization expression.
+   * @param metadataContext the metadata the call names.
+   * @param pathParams the path parameters of the call.
+   * @param entityType the metadata object type of the call, if any.
+   * @param secondaryExpression the stricter expression for a modify request.
+   * @param secondaryExpressionCondition when the secondary expression applies.
+   * @param allowCheckExistenceExpression the expression that allows probing table existence.
+   * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   */
+  public LoadTableAuthorizationExecutor(
+      Parameter[] parameters,
+      Object[] args,
+      String expression,
+      Map<Entity.EntityType, NameIdentifier> metadataContext,
+      Map<String, Object> pathParams,
+      Optional<String> entityType,
+      String secondaryExpression,
+      ExpressionCondition secondaryExpressionCondition,
+      String allowCheckExistenceExpression,
+      TableDispatcher internalTableDispatcher) {
+    this(
+        parameters,
+        args,
+        expression,
+        metadataContext,
+        pathParams,
+        entityType,
+        secondaryExpression,
+        secondaryExpressionCondition,
+        allowCheckExistenceExpression,
+        () -> internalTableDispatcher);
+  }
+
+  private LoadTableAuthorizationExecutor(
+      Parameter[] parameters,
+      Object[] args,
+      String expression,
+      Map<Entity.EntityType, NameIdentifier> metadataContext,
+      Map<String, Object> pathParams,
+      Optional<String> entityType,
+      String secondaryExpression,
+      ExpressionCondition secondaryExpressionCondition,
+      String allowCheckExistenceExpression,
+      Supplier<TableDispatcher> internalTableDispatcher) {
     super(expression, metadataContext, pathParams, entityType);
+    this.internalTableDispatcher = internalTableDispatcher;
     this.allowCheckExistenceEvaluator =
         StringUtils.isBlank(allowCheckExistenceExpression)
             ? null
@@ -75,7 +156,6 @@ public class LoadTableAuthorizationExecutor extends CommonAuthorizerExecutor {
     }
   }
 
-  @LegacyEnvAccess
   @Override
   public boolean execute(AuthorizationRequestContext authorizationRequestContext) throws Exception {
     if (super.execute(authorizationRequestContext)) {
@@ -90,9 +170,15 @@ public class LoadTableAuthorizationExecutor extends CommonAuthorizerExecutor {
 
     NameIdentifier tableIdentifier = metadataContext.get(Entity.EntityType.TABLE);
     if (tableIdentifier != null) {
-      GravitinoEnv.getInstance().internalTableDispatcher().loadTable(tableIdentifier);
+      internalTableDispatcher.get().loadTable(tableIdentifier);
     }
     return false;
+  }
+
+  /** Returns the internal table dispatcher of the process environment, for deprecated callers. */
+  @LegacyEnvAccess
+  static TableDispatcher processInternalTableDispatcher() {
+    return GravitinoEnv.getInstance().internalTableDispatcher();
   }
 
   private static boolean shouldCheckModifyTablePrivilege(

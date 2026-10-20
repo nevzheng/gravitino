@@ -29,6 +29,7 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.IcebergRESTServiceResponse;
@@ -64,12 +65,7 @@ public class TestIcebergRESTServiceOperations {
     HttpServletRequest request = mock(HttpServletRequest.class);
     when(request.getServerName()).thenReturn(requestServerName);
 
-    return new IcebergRESTServiceOperations() {
-      @Override
-      AuxiliaryServiceManager getAuxServiceManager() {
-        return auxServiceManager;
-      }
-
+    return new IcebergRESTServiceOperations(auxServiceManager, mock(Config.class)) {
       @Override
       Map<String, String> getIcebergRestServiceConfig() {
         return icebergConfig;

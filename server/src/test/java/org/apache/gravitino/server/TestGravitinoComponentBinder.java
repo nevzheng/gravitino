@@ -20,6 +20,7 @@ package org.apache.gravitino.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,6 +30,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Supplier;
+import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
@@ -57,6 +60,19 @@ import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
+import org.apache.gravitino.server.web.rest.AuthnOperations;
+import org.apache.gravitino.server.web.rest.BulkOperations;
+import org.apache.gravitino.server.web.rest.GroupOperations;
+import org.apache.gravitino.server.web.rest.HealthOperations;
+import org.apache.gravitino.server.web.rest.IcebergRESTServiceOperations;
+import org.apache.gravitino.server.web.rest.JobOperations;
+import org.apache.gravitino.server.web.rest.MetadataObjectRoleOperations;
+import org.apache.gravitino.server.web.rest.OwnerOperations;
+import org.apache.gravitino.server.web.rest.PermissionOperations;
+import org.apache.gravitino.server.web.rest.RoleOperations;
+import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
+import org.apache.gravitino.server.web.rest.UserOperations;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
@@ -229,6 +245,98 @@ public class TestGravitinoComponentBinder {
         locator.shutdown();
       }
     }
+  }
+
+  @Test
+  public void testBuildsTheServerResourcesFromTheHostServices() throws Exception {
+    for (boolean enableAuthorization : new boolean[] {false, true}) {
+      GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+      Config config = mock(Config.class);
+      EventBus eventBus = mock(EventBus.class);
+      IdGenerator idGenerator = mock(IdGenerator.class);
+      EntityStore entityStore = mock(EntityStore.class);
+      CatalogManager catalogManager = mock(CatalogManager.class);
+      AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
+      TableDispatcher internalTables = mock(TableDispatcher.class);
+      AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
+      OwnerDispatcher owners = mock(OwnerDispatcher.class);
+      OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
+      BulkManager bulkManager = mock(BulkManager.class);
+      when(component.config()).thenReturn(config);
+      when(component.eventBus()).thenReturn(eventBus);
+      when(component.idGenerator()).thenReturn(idGenerator);
+      when(component.entityStore()).thenReturn(entityStore);
+      when(component.catalogManager()).thenReturn(catalogManager);
+      when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
+      when(component.internalTableDispatcher()).thenReturn(internalTables);
+      when(component.accessControlDispatcher()).thenReturn(accessControl);
+      when(component.ownerDispatcher()).thenReturn(owners);
+      when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
+      when(component.bulkManager()).thenReturn(bulkManager);
+
+      ServiceLocator locator =
+          ServiceLocatorUtilities.bind(
+              new GravitinoComponentBinder(
+                  component, enableAuthorization, mock(LineageDispatcher.class)));
+      try {
+        AccessControlDispatcher expectedAccessControl = enableAuthorization ? accessControl : null;
+        OwnerDispatcher expectedOwners = enableAuthorization ? owners : null;
+        OwnerDispatcher expectedInternalOwners = enableAuthorization ? internalOwners : null;
+
+        UserOperations users = locator.createAndInitialize(UserOperations.class);
+        assertSame(expectedAccessControl, field(users, "accessControlManager"));
+        assertSame(expectedInternalOwners, field(users, "ownerManager"));
+        GroupOperations groups = locator.createAndInitialize(GroupOperations.class);
+        assertSame(expectedAccessControl, field(groups, "accessControlManager"));
+        assertSame(expectedInternalOwners, field(groups, "ownerDispatcher"));
+        assertSame(
+            expectedAccessControl,
+            field(locator.createAndInitialize(RoleOperations.class), "accessControlManager"));
+        assertSame(
+            expectedAccessControl,
+            field(locator.createAndInitialize(PermissionOperations.class), "accessControlManager"));
+        assertSame(
+            expectedAccessControl,
+            field(
+                locator.createAndInitialize(MetadataObjectRoleOperations.class),
+                "accessControlDispatcher"));
+        assertSame(
+            expectedAccessControl,
+            field(locator.createAndInitialize(AuthnOperations.class), "accessControlDispatcher"));
+        assertSame(
+            expectedOwners,
+            field(locator.createAndInitialize(OwnerOperations.class), "ownerDispatcher"));
+        BulkOperations bulk = locator.createAndInitialize(BulkOperations.class);
+        assertSame(enableAuthorization ? bulkManager : null, field(bulk, "bulkManager"));
+        assertSame(expectedAccessControl, field(bulk, "accessControlDispatcher"));
+        assertSame(expectedInternalOwners, field(bulk, "ownerDispatcher"));
+
+        assertSame(
+            idGenerator, supplied(locator.createAndInitialize(JobOperations.class), "idGenerator"));
+        HealthOperations health = locator.createAndInitialize(HealthOperations.class);
+        assertSame(entityStore, supplied(health, "entityStore"));
+        assertSame(config, supplied(health, "config"));
+        IcebergRESTServiceOperations iceberg =
+            locator.createAndInitialize(IcebergRESTServiceOperations.class);
+        assertSame(auxiliaryServiceManager, supplied(iceberg, "auxServiceManager"));
+        assertSame(config, supplied(iceberg, "config"));
+        GravitinoInterceptionService interception =
+            locator.createAndInitialize(GravitinoInterceptionService.class);
+        assertSame(eventBus, supplied(interception, "eventBus"));
+        assertSame(internalTables, supplied(interception, "internalTableDispatcher"));
+        assertNotNull(locator.getService(SemanticModelSourceValidator.class));
+      } finally {
+        locator.shutdown();
+      }
+    }
+  }
+
+  private static Object field(Object target, String name) throws IllegalAccessException {
+    return FieldUtils.readField(target, name, true);
+  }
+
+  private static Object supplied(Object target, String name) throws IllegalAccessException {
+    return ((Supplier<?>) field(target, name)).get();
   }
 
   /** Returns the contracts, rank and scope of every service a binder adds, as sortable strings. */

@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
@@ -49,8 +50,6 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
@@ -81,6 +80,7 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationMetada
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -93,12 +93,36 @@ public class JobOperations {
   private static final Logger LOG = LoggerFactory.getLogger(JobOperations.class);
 
   private final JobOperationDispatcher jobOperationDispatcher;
+  private final Supplier<IdGenerator> idGenerator;
 
   @Context HttpServletRequest httpRequest;
 
-  @Inject
+  /**
+   * Creates a job REST resource that takes template ids from the process environment.
+   *
+   * @param jobOperationDispatcher the job operation dispatcher.
+   * @deprecated Use {@link #JobOperations(JobOperationDispatcher, IdGenerator)}.
+   */
+  @Deprecated
   public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
+    this(jobOperationDispatcher, () -> EnvironmentServices.processEnv().idGenerator());
+  }
+
+  /**
+   * Creates a job REST resource.
+   *
+   * @param jobOperationDispatcher the job operation dispatcher.
+   * @param idGenerator the generator of job template ids.
+   */
+  @Inject
+  public JobOperations(JobOperationDispatcher jobOperationDispatcher, IdGenerator idGenerator) {
+    this(jobOperationDispatcher, () -> idGenerator);
+  }
+
+  private JobOperations(
+      JobOperationDispatcher jobOperationDispatcher, Supplier<IdGenerator> idGenerator) {
     this.jobOperationDispatcher = jobOperationDispatcher;
+    this.idGenerator = idGenerator;
   }
 
   @GET
@@ -181,7 +205,7 @@ public class JobOperations {
             request.validate();
 
             jobOperationDispatcher.registerJobTemplate(
-                metalake, toEntity(metalake, request.getJobTemplate()));
+                metalake, toEntity(metalake, request.getJobTemplate(), idGenerator.get()));
 
             LOG.info(
                 "Registered job template {} in metalake: {}",
@@ -524,10 +548,10 @@ public class JobOperations {
     }
   }
 
-  @LegacyEnvAccess
-  private static JobTemplateEntity toEntity(String metalake, JobTemplateDTO jobTemplateDTO) {
+  private static JobTemplateEntity toEntity(
+      String metalake, JobTemplateDTO jobTemplateDTO, IdGenerator idGenerator) {
     return JobTemplateEntity.builder()
-        .withId(GravitinoEnv.getInstance().idGenerator().nextId())
+        .withId(idGenerator.nextId())
         .withName(jobTemplateDTO.name())
         .withNamespace(NamespaceUtil.ofJobTemplate(metalake))
         .withComment(jobTemplateDTO.comment())
