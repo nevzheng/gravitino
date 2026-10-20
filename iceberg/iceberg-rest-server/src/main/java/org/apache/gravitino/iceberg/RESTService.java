@@ -60,6 +60,8 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.HealthAliasServlet;
 import org.apache.gravitino.server.web.HttpAuditFilter;
 import org.apache.gravitino.server.web.HttpServerMetricsSource;
@@ -162,6 +164,14 @@ public class RESTService implements GravitinoAuxiliaryService {
               + "purge requests with async mode will fall back to synchronous purge.");
     }
 
+    // Filters lists and decides credential privileges against the server's authorizer.
+    MetadataAccessChecker accessChecker =
+        new MetadataAccessChecker(
+            context.config(),
+            () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
+            context::entityStore,
+            context::internalSchemaDispatcher);
+
     // The raw namespace operation executor is shared with the table and view hook dispatchers so
     // their orphan-schema cleanup can probe namespace existence without firing namespace events.
     IcebergNamespaceOperationDispatcher namespaceOperationDispatcher =
@@ -169,7 +179,8 @@ public class RESTService implements GravitinoAuxiliaryService {
 
     // Table: EventDispatcher -> HookDispatcher -> OperationExecutor
     IcebergTableOperationDispatcher icebergTableOperationDispatcher =
-        new IcebergTableOperationExecutor(icebergCatalogWrapperManager, cleanupManager);
+        new IcebergTableOperationExecutor(
+            icebergCatalogWrapperManager, cleanupManager, accessChecker);
     if (authorizationContext.isAuthorizationEnabled()) {
       icebergTableOperationDispatcher =
           new IcebergTableHookDispatcher(
@@ -208,6 +219,7 @@ public class RESTService implements GravitinoAuxiliaryService {
             }
             bind(icebergCatalogWrapperManager).to(IcebergCatalogWrapperManager.class).ranked(1);
             bind(icebergMetricsManager).to(IcebergMetricsManager.class).ranked(1);
+            bind(accessChecker).to(MetadataAccessChecker.class).ranked(1);
             cleanupManager.ifPresent(
                 manager -> bind(manager).to(IcebergCleanupManager.class).ranked(1));
             bind(icebergTableDispatcher).to(IcebergTableOperationDispatcher.class).ranked(1);
