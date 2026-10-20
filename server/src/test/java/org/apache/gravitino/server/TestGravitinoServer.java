@@ -45,6 +45,7 @@ import java.util.UUID;
 import org.apache.commons.io.FileUtils;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.secret.memory.InMemorySecretsProvider;
@@ -122,7 +123,9 @@ public class TestGravitinoServer {
 
   @BeforeEach
   public void setUp() {
-    gravitinoServer = new GravitinoServer(spyServerConfig, GravitinoEnv.getInstance());
+    gravitinoServer =
+        new GravitinoServer(
+            spyServerConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
   }
 
   @AfterAll
@@ -223,7 +226,9 @@ public class TestGravitinoServer {
   @Test
   public void testSecretProvidersDiscoveryWithMemoryProvider() throws Exception {
     ServerConfig serverConfig = spyServerConfig(serverConfigWithMemoryProvider());
-    gravitinoServer = new GravitinoServer(serverConfig, GravitinoEnv.getInstance());
+    gravitinoServer =
+        new GravitinoServer(
+            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
     gravitinoServer.initialize();
     gravitinoServer.start();
 
@@ -267,7 +272,9 @@ public class TestGravitinoServer {
     ServerConfig serverConfig = new ServerConfig();
     serverConfig.loadFromMap(configs, key -> true);
     serverConfig = spyServerConfig(serverConfig);
-    gravitinoServer = new GravitinoServer(serverConfig, GravitinoEnv.getInstance());
+    gravitinoServer =
+        new GravitinoServer(
+            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
     gravitinoServer.initialize();
     gravitinoServer.start();
 

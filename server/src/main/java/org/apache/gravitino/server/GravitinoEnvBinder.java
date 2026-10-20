@@ -48,11 +48,11 @@ import org.glassfish.hk2.utilities.binding.AbstractBinder;
  * Binds the dispatchers the REST resources inject into HK2, read from the {@link GravitinoEnv}
  * getters of the environment the server was given.
  *
- * <p>The getters are virtual on purpose: a server built with a subclass of {@link GravitinoEnv}
- * binds the dispatchers that subclass returns. Binding them from the provision methods of {@code
- * GravitinoComponent} instead would bypass those overrides, so it waits until the component offers
- * decorator seams that such a subclass can use instead (see the dependency injection design doc,
- * sections 8 and 10).
+ * <p>Only a server built with the deprecated {@code GravitinoServer(ServerConfig, GravitinoEnv)}
+ * uses it: the getters are virtual, so a subclass of {@link GravitinoEnv} that overrides them gets
+ * the dispatchers it returns. Every other server binds from the component's provision methods with
+ * {@link GravitinoComponentBinder}, which binds the same contracts and ranks. This binder is
+ * deleted with the deprecated constructor.
  */
 class GravitinoEnvBinder extends AbstractBinder {
 
