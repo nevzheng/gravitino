@@ -21,6 +21,7 @@ package org.apache.gravitino.di.downstream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
@@ -92,6 +94,12 @@ public class TestDownstreamComponent {
 
   @BeforeEach
   public void setUp() {
+    component =
+        DaggerDownstreamComponent.factory()
+            .create(config(), () -> NoopGravitinoAuthorizer.INSTANCE);
+  }
+
+  private Config config() {
     Config config = new Config(false) {};
     config.set(Configs.ENTITY_STORE, RelationalInMemoryEntityStore.class.getName());
     config.set(Configs.ENABLE_AUTHORIZATION, true);
@@ -100,8 +108,7 @@ public class TestDownstreamComponent {
         Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS,
         MemoryPartitionStatsStorageFactory.class.getCanonicalName());
     config.set(Configs.JOB_STAGING_DIR, stagingDir.toString());
-    component =
-        DaggerDownstreamComponent.factory().create(config, () -> NoopGravitinoAuthorizer.INSTANCE);
+    return config;
   }
 
   @AfterEach
@@ -185,6 +192,30 @@ public class TestDownstreamComponent {
 
     // Had close() built the service, it would have stopped it; it is built only now.
     assertEquals(List.of(), component.downstreamService().calls);
+  }
+
+  @Test
+  public void testGravitinoEnvBuiltOnTheDownstreamComponentReturnsItsChains() {
+    GravitinoEnv env = new GravitinoEnv() {};
+    try {
+      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+
+      DownstreamComponent built = (DownstreamComponent) env.component();
+      assertNotSame(component, built);
+      assertSame(built.tableDispatcher(), env.tableDispatcher());
+      assertSame(built.internalTableDispatcher(), env.internalTableDispatcher());
+      assertSame(built.catalogDispatcher(), env.catalogDispatcher());
+      assertSame(built.accessControlDispatcher(), env.accessControlDispatcher());
+      assertSame(built.internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
+      assertSame(built.jobOperationDispatcher(), env.jobOperationDispatcher());
+      assertEquals("outer", Tagging.tag(env.tableDispatcher()).label);
+      assertTrue(labels(env.schemaDispatcher()).contains("@Public SchemaDispatcher"));
+
+      env.start();
+      assertEquals(List.of("start"), built.downstreamService().calls);
+    } finally {
+      env.shutdown();
+    }
   }
 
   @Test
