@@ -37,7 +37,6 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TagEntity;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -65,7 +64,7 @@ public class TestEffectiveTagResolver {
     EntityStore entityStore = mock(EntityStore.class);
     relationOperations = mock(SupportsRelationOperations.class);
     when(entityStore.relationOperations()).thenReturn(relationOperations);
-    resolver = new EffectiveTagResolver(entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
+    resolver = new EffectiveTagResolver(entityStore, mock(MetadataObjectDispatchers.class));
     metadataObjectUtil = mockStatic(MetadataObjectUtil.class, CALLS_REAL_METHODS);
     metadataObjectUtil
         .when(
