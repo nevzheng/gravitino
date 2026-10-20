@@ -39,14 +39,13 @@ import java.util.Properties;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import javax.sql.DataSource;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.jdbc.config.JdbcConfig;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcColumnDefaultValueConverter;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcExceptionConverter;
@@ -58,8 +57,10 @@ import org.apache.gravitino.catalog.jdbc.operation.RequireDatabaseOperation;
 import org.apache.gravitino.catalog.jdbc.operation.TableOperation;
 import org.apache.gravitino.catalog.jdbc.utils.DataSourceUtils;
 import org.apache.gravitino.catalog.jdbc.utils.JdbcConnectionTimeouts;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
+import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
 import org.apache.gravitino.connector.SupportsTableNameResolution;
@@ -116,6 +117,9 @@ public class JdbcCatalogOperations
 
   private JdbcCatalogMetricsSource catalogMetricsSource;
 
+  // The host services from initialize; null when the three-argument initialize was called directly.
+  @Nullable private volatile CatalogContext catalogContext;
+
   public static class JDBCDriverInfo {
     public String name;
     public String version;
@@ -154,13 +158,35 @@ public class JdbcCatalogOperations
   }
 
   /**
+   * Initializes the Jdbc catalog operations with the provided configuration and host services.
+   *
+   * <p>It keeps the context, then calls {@link #initialize(Map, CatalogInfo, HasPropertyMetadata)},
+   * so subclasses that override that method still run.
+   *
+   * @param conf The configuration map for the Jdbc catalog operations.
+   * @param info The catalog info associated with this operations instance.
+   * @param propertiesMetadata The properties metadata of this catalog.
+   * @param context The host services this catalog may use.
+   * @throws RuntimeException if initialization fails.
+   */
+  @Override
+  public void initialize(
+      Map<String, String> conf,
+      CatalogInfo info,
+      HasPropertyMetadata propertiesMetadata,
+      CatalogContext context)
+      throws RuntimeException {
+    this.catalogContext = context;
+    initialize(conf, info, propertiesMetadata);
+  }
+
+  /**
    * Initializes the Jdbc catalog operations with the provided configuration.
    *
    * @param conf The configuration map for the Jdbc catalog operations.
    * @param info The catalog info associated with this operations instance.
    * @throws RuntimeException if initialization fails.
    */
-  @LegacyEnvAccess
   @Override
   public void initialize(
       Map<String, String> conf, CatalogInfo info, HasPropertyMetadata propertiesMetadata)
@@ -191,7 +217,8 @@ public class JdbcCatalogOperations
       ((RequireDatabaseOperation) tableOperation).setDatabaseOperation(databaseOperation);
     }
 
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem =
+        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
     // Metrics System could be null in UT.
     if (metricsSystem != null) {
       this.catalogMetricsSource =
@@ -202,11 +229,11 @@ public class JdbcCatalogOperations
   }
 
   /** Closes the Jdbc catalog and releases the associated client pool. */
-  @LegacyEnvAccess
   @Override
   public void close() {
     // Metrics System could be null in UT.
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem =
+        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.unregister(catalogMetricsSource);
     }

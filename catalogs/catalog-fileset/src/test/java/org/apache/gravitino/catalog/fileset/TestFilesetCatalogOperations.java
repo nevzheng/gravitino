@@ -108,6 +108,7 @@ import org.apache.gravitino.catalog.hadoop.fs.FileSystemProvider;
 import org.apache.gravitino.catalog.hadoop.fs.FileSystemUtils;
 import org.apache.gravitino.catalog.hadoop.fs.LocalFileSystemProvider;
 import org.apache.gravitino.catalog.hadoop.fs.SupportsCredentialVending;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.PropertiesMetadata;
@@ -132,6 +133,7 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.SchemaVersion;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretConstants;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretMaterial;
@@ -447,6 +449,26 @@ public class TestFilesetCatalogOperations {
 
     File f = FileUtils.getFile(H2_file);
     f.delete();
+  }
+
+  @Test
+  public void testCatalogContextSuppliesTheHostServices() throws IOException {
+    MetricsSystem metricsSystem = Mockito.mock(MetricsSystem.class);
+    CatalogContext context = Mockito.mock(CatalogContext.class);
+    Mockito.when(context.entityStore()).thenReturn(store);
+    Mockito.when(context.secretManager()).thenReturn(secretManager);
+    Mockito.when(context.metricsSystem()).thenReturn(metricsSystem);
+
+    FilesetCatalogImpl catalog = new FilesetCatalogImpl().withCatalogContext(context);
+    try (FilesetCatalogOperations ops =
+        (FilesetCatalogOperations) catalog.newOps(Maps.newHashMap())) {
+      Assertions.assertSame(store, ops.store());
+      ops.initialize(Maps.newHashMap(), randomCatalogInfo(), FILESET_PROPERTIES_METADATA, context);
+    }
+
+    // Initialize and close read the metrics system from the context, not from GravitinoEnv.
+    Mockito.verify(context, Mockito.times(2)).metricsSystem();
+    Mockito.verify(metricsSystem).unregister(Mockito.any());
   }
 
   @Test

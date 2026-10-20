@@ -552,7 +552,8 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    * @param idGenerator The id generator to use.
    * @param secretManager The secret manager to use for create-time secret bindings/references.
    * @deprecated Use {@link #CatalogManager(Config, EntityStore, IdGenerator, SecretManager,
-   *     LockManager)}, which takes the lock manager explicitly.
+   *     LockManager, MetricsSystem)}, which takes the lock manager and the host services
+   *     explicitly.
    */
   // Inlining would copy the GravitinoEnv lookup into every caller.
   @SuppressWarnings("InlineMeSuggester")
@@ -570,7 +571,11 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    * @param idGenerator The id generator to use.
    * @param secretManager The secret manager to use for create-time secret bindings/references.
    * @param lockManager The lock manager that guards catalog operations with tree locks.
+   * @deprecated The catalogs of this manager get no {@link CatalogContext}, so they read host
+   *     services from {@code GravitinoEnv}. Use {@link #CatalogManager(Config, EntityStore,
+   *     IdGenerator, SecretManager, LockManager, MetricsSystem)}.
    */
+  @Deprecated
   public CatalogManager(
       Config config,
       EntityStore store,
@@ -589,7 +594,8 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    * @param idGenerator The id generator to use.
    * @param secretManager The secret manager to use for create-time secret bindings/references.
    * @param lockManager The lock manager that guards catalog operations with tree locks.
-   * @param metricsSystem The metrics system catalogs register their metrics with.
+   * @param metricsSystem The metrics system catalogs register their metrics with, or null when
+   *     there is none.
    */
   public CatalogManager(
       Config config,
@@ -597,7 +603,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
-      MetricsSystem metricsSystem) {
+      @Nullable MetricsSystem metricsSystem) {
     this(
         config,
         store,

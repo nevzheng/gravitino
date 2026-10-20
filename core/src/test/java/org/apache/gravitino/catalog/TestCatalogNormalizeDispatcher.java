@@ -81,7 +81,12 @@ public class TestCatalogNormalizeDispatcher {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     catalogManager =
         new CatalogManager(
-            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
+            config,
+            entityStore,
+            new RandomIdGenerator(),
+            new SecretManager(config),
+            lockManager,
+            null);
     catalogManager = Mockito.spy(catalogManager);
     catalogNormalizeDispatcher = new CatalogNormalizeDispatcher(catalogManager);
   }
