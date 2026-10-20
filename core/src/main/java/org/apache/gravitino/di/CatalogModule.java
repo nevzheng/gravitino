@@ -35,6 +35,7 @@ import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.storage.IdGenerator;
 
@@ -65,10 +66,12 @@ abstract class CatalogModule {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
+      MetricsSystem metricsSystem,
       BuiltServices built) {
     return built.add(
         BuiltServices.CATALOG_MANAGER,
-        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager));
+        new CatalogManager(
+            config, entityStore, idGenerator, secretManager, lockManager, metricsSystem));
   }
 
   /**

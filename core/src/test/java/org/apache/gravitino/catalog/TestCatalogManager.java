@@ -66,6 +66,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogDropAware;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
@@ -90,6 +91,7 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.meta.SchemaVersion;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretBinding;
 import org.apache.gravitino.secret.SecretConstants;
 import org.apache.gravitino.secret.SecretManager;
@@ -1043,6 +1045,38 @@ public class TestCatalogManager {
                 1L, "metalake", "CATALOG", "metalake.change_log_catalog", OperateType.ALTER, 0L)));
 
     Assertions.assertNull(catalogManager.getCatalogCache().getIfPresent(ident));
+  }
+
+  @Test
+  void testCatalogsReceiveTheManagersContext() throws Exception {
+    TestMemoryEntityStore.InMemoryEntityStore store =
+        new TestMemoryEntityStore.InMemoryEntityStore();
+    store.initialize(config);
+    store.put(metalakeEntity, true);
+    RandomIdGenerator idGenerator = new RandomIdGenerator();
+    SecretManager secretManager = new SecretManager(config);
+    MetricsSystem metricsSystem = new MetricsSystem();
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog_context");
+    Map<String, String> props =
+        ImmutableMap.of(
+            PROPERTY_KEY1, "value1", PROPERTY_KEY2, "value2", PROPERTY_KEY5_PREFIX + "1", "value3");
+
+    try (CatalogManager manager =
+        new CatalogManager(config, store, idGenerator, secretManager, lockManager, metricsSystem)) {
+      manager.createCatalog(ident, Catalog.Type.RELATIONAL, provider, "comment", props);
+      TestCatalogOperations ops =
+          (TestCatalogOperations) manager.loadCatalogAndWrap(ident).catalog().ops();
+
+      CatalogContext context = ops.catalogContext();
+      Assertions.assertNotNull(context);
+      Assertions.assertSame(store, context.entityStore());
+      Assertions.assertSame(secretManager, context.secretManager());
+      Assertions.assertSame(metricsSystem, context.metricsSystem());
+      Assertions.assertSame(idGenerator, context.idGenerator());
+    } finally {
+      metricsSystem.close();
+      store.close();
+    }
   }
 
   @Test

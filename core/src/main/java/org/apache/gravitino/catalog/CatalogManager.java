@@ -81,6 +81,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogDropAware;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.HasPropertyMetadata;
@@ -108,6 +109,7 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaEntity;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.model.ModelCatalog;
 import org.apache.gravitino.rel.SupportsPartitions;
 import org.apache.gravitino.rel.Table;
@@ -525,6 +527,9 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
 
   private final LockManager lockManager;
 
+  // The host services handed to every catalog; null for a manager built without them.
+  @Nullable private final CatalogContext catalogContext;
+
   // Copy-on-write: listeners may be registered while the cache's removal listener (running on a
   // cache executor thread) is iterating this list.
   private final List<Consumer<NameIdentifier>> removalListeners = new CopyOnWriteArrayList<>();
@@ -572,6 +577,44 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager) {
+    this(config, store, idGenerator, secretManager, lockManager, (CatalogContext) null);
+  }
+
+  /**
+   * Constructs a CatalogManager instance that hands every catalog it loads a {@link CatalogContext}
+   * with the given host services.
+   *
+   * @param config The configuration for the manager.
+   * @param store The entity store to use.
+   * @param idGenerator The id generator to use.
+   * @param secretManager The secret manager to use for create-time secret bindings/references.
+   * @param lockManager The lock manager that guards catalog operations with tree locks.
+   * @param metricsSystem The metrics system catalogs register their metrics with.
+   */
+  public CatalogManager(
+      Config config,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager,
+      MetricsSystem metricsSystem) {
+    this(
+        config,
+        store,
+        idGenerator,
+        secretManager,
+        lockManager,
+        CatalogContext.of(store, secretManager, metricsSystem, idGenerator));
+  }
+
+  private CatalogManager(
+      Config config,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager,
+      @Nullable CatalogContext catalogContext) {
+    this.catalogContext = catalogContext;
     this.config = config;
     this.store = store;
     this.idGenerator = idGenerator;
@@ -1950,6 +1993,9 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         .withCatalogConf(secretManager.toPlaintextProperties(entity.getProperties()))
         .withCatalogEntity(entity)
         .withSecretManager(secretManager);
+    if (catalogContext != null) {
+      catalog.withCatalogContext(catalogContext);
+    }
     catalog.initAuthorizationPluginInstance(classLoader, metalakeEntity.id());
     return catalog;
   }
