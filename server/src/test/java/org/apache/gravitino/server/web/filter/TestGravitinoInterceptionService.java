@@ -48,7 +48,6 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
@@ -204,8 +203,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtils = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> providers =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtils = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> environments = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtils = mockStatic(AuthorizationUtils.class)) {
       principalUtils
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -214,8 +212,6 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
       providers.when(GravitinoAuthorizerProvider::getInstance).thenReturn(provider);
       when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
-      GravitinoEnv env = mock(GravitinoEnv.class);
-      environments.when(GravitinoEnv::getInstance).thenReturn(env);
       Method create =
           SemanticModelOperations.class.getMethod(
               "createSemanticModel",
@@ -317,8 +313,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -337,10 +332,7 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(provider);
       when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
-
-      GravitinoEnv env = mock(GravitinoEnv.class);
       EventBus eventBus = mock(EventBus.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(env);
 
       ViewDispatcher dispatcher = mock(ViewDispatcher.class);
       ViewOperations operations = new ViewOperations(dispatcher, AccessCheckers.disabled());
@@ -413,7 +405,6 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> mockStatic =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class);
         MockedStatic<MetalakeManager> metalakeManagerMocked = mockStatic(MetalakeManager.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
@@ -423,14 +414,6 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
       mockStatic.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(new MockGravitinoAuthorizer());
-
-      // Mock GravitinoEnv and EntityStore
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
-      // No authorizer is installed on this environment.
-      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
-      EntityStore mockStore = mock(EntityStore.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.entityStore()).thenReturn(mockStore);
 
       // Mock MetalakeManager.checkMetalake to do nothing (metalake exists)
       metalakeManagerMocked
@@ -494,7 +477,6 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> mockStatic =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class);
         MockedStatic<MetalakeManager> metalakeManagerMocked = mockStatic(MetalakeManager.class)) {
       // The caller declares an active role via the header; the authorizer reports it as unheld.
       UserPrincipal principal =
@@ -514,13 +496,6 @@ public class TestGravitinoInterceptionService {
               ArgumentMatchers.any(),
               ArgumentMatchers.any()))
           .thenReturn(Collections.singleton("ghostRole"));
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
-      // No authorizer is installed on this environment.
-      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
-      EntityStore mockStore = mock(EntityStore.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.entityStore()).thenReturn(mockStore);
       metalakeManagerMocked
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
@@ -737,10 +712,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<org.apache.gravitino.GravitinoEnv> envMocked =
-            mockStatic(org.apache.gravitino.GravitinoEnv.class);
-        MockedStatic<org.apache.gravitino.metalake.MetalakeManager> metalakeManagerMocked =
-            mockStatic(org.apache.gravitino.metalake.MetalakeManager.class)) {
+        MockedStatic<MetalakeManager> metalakeManagerMocked = mockStatic(MetalakeManager.class)) {
 
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
@@ -750,13 +722,6 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(new MockGravitinoAuthorizer());
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
-      // No authorizer is installed on this environment.
-      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
-      EntityStore mockStore = mock(EntityStore.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.entityStore()).thenReturn(mockStore);
 
       // Mock MetalakeManager.checkMetalake to do nothing (metalake exists)
       metalakeManagerMocked
@@ -873,7 +838,6 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class);
         MockedStatic<MetalakeManager> metalakeManagerMocked = mockStatic(MetalakeManager.class)) {
 
       principalUtilsMocked
@@ -884,14 +848,7 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(new MockGravitinoAuthorizer());
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
-      // No authorizer is installed on this environment.
-      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
-      EntityStore mockStore = mock(EntityStore.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.entityStore()).thenReturn(mockStore);
 
       metalakeManagerMocked
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
@@ -949,8 +906,7 @@ public class TestGravitinoInterceptionService {
       try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
           MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
               mockStatic(GravitinoAuthorizerProvider.class);
-          MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-          MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+          MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
 
         principalUtilsMocked
             .when(PrincipalUtils::getCurrentPrincipal)
@@ -970,10 +926,7 @@ public class TestGravitinoInterceptionService {
                         ArgumentMatchers.any(),
                         ArgumentMatchers.any()))
             .thenThrow(forbiddenException);
-
-        GravitinoEnv mockEnv = mock(GravitinoEnv.class);
         EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-        envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
 
         GravitinoInterceptionService service = newService(mockEventBus);
         Method testMethod = TestOperations.class.getMethods()[0];
@@ -1014,8 +967,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1035,11 +987,8 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizer authorizer = tableProbeAuthorizer();
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = mock(EventBus.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(tableDispatcher.loadTable(ArgumentMatchers.any()))
           .thenThrow(new NoSuchTableException("Table is absent"));
 
@@ -1066,8 +1015,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1087,11 +1035,8 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizer authorizer = tableProbeAuthorizer();
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(tableDispatcher.loadTable(ArgumentMatchers.any())).thenReturn(mock(Table.class));
 
       MethodInterceptor interceptor = tableLoadInterceptor(mockEventBus, tableDispatcher);
@@ -1283,8 +1228,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1305,10 +1249,8 @@ public class TestGravitinoInterceptionService {
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       AtomicReference<Table> created = new AtomicReference<>();
       Table table = mock(Table.class);
       when(table.name()).thenReturn("missingTable");
@@ -1383,8 +1325,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
 
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
@@ -1404,10 +1345,7 @@ public class TestGravitinoInterceptionService {
                       ArgumentMatchers.any(),
                       ArgumentMatchers.any()))
           .thenThrow(new NoSuchMetalakeException("Metalake gone does not exist"));
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       EventBus mockEventBus = mock(EventBus.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
 
       GravitinoInterceptionService service = newService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
@@ -1593,8 +1531,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1613,9 +1550,6 @@ public class TestGravitinoInterceptionService {
       GravitinoAuthorizerProvider mockedProvider = mock(GravitinoAuthorizerProvider.class);
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
-
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
 
       // Use the real resource method so its annotations drive the authorization executor.
       MethodInterceptor interceptor =
