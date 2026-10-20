@@ -42,9 +42,7 @@ import java.util.List;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.apache.commons.dbcp2.BasicDataSource;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.json.JsonUtils;
@@ -97,7 +95,6 @@ public class TestJdbcPartitionStatisticStorage {
     TableEntity mockTableEntity = mock(TableEntity.class);
     when(mockEntityStore.get(any(), any(), any())).thenReturn(mockTableEntity);
     when(mockTableEntity.id()).thenReturn(TABLE_ID);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", mockEntityStore, true);
 
     // Create storage with mocked DataSource
     storage = new JdbcPartitionStatisticStorage(mockDataSource, mockEntityStore);
