@@ -65,6 +65,7 @@ import org.apache.gravitino.iceberg.service.dispatcher.IcebergTableOperationDisp
 import org.apache.gravitino.iceberg.service.metrics.IcebergMetricsManager;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -111,16 +112,42 @@ public class IcebergTableOperations {
 
   private ObjectMapper icebergObjectMapper;
   private IcebergTableOperationDispatcher tableOperationDispatcher;
+  private MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the table resource.
+   *
+   * @param icebergMetricsManager records the metrics that clients report
+   * @param tableOperationDispatcher serves the table requests
+   * @param accessChecker filters the tables a list returns to those the user may see
+   */
   @Inject
   public IcebergTableOperations(
       IcebergMetricsManager icebergMetricsManager,
-      IcebergTableOperationDispatcher tableOperationDispatcher) {
+      IcebergTableOperationDispatcher tableOperationDispatcher,
+      MetadataAccessChecker accessChecker) {
     this.icebergMetricsManager = icebergMetricsManager;
     this.tableOperationDispatcher = tableOperationDispatcher;
+    this.accessChecker = accessChecker;
     this.icebergObjectMapper = IcebergObjectMapper.getInstance();
+  }
+
+  /**
+   * Creates the table resource with the process-wide access checker.
+   *
+   * @param icebergMetricsManager records the metrics that clients report
+   * @param tableOperationDispatcher serves the table requests
+   * @deprecated Use {@link #IcebergTableOperations(IcebergMetricsManager,
+   *     IcebergTableOperationDispatcher, MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public IcebergTableOperations(
+      IcebergMetricsManager icebergMetricsManager,
+      IcebergTableOperationDispatcher tableOperationDispatcher) {
+    this(icebergMetricsManager, tableOperationDispatcher, MetadataAuthzHelper.processChecker());
   }
 
   @GET
@@ -777,7 +804,7 @@ public class IcebergTableOperations {
   private ListTablesResponse filterListTablesResponse(
       ListTablesResponse listTablesResponse, String metalake, String catalogName) {
     NameIdentifier[] idents =
-        MetadataAuthzHelper.filterByExpression(
+        accessChecker.filterByExpression(
             metalake,
             AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
             Entity.EntityType.TABLE,
