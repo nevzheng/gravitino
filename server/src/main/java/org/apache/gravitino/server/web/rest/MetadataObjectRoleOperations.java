@@ -39,6 +39,8 @@ import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.jvnet.hk2.annotations.Optional;
@@ -48,6 +50,7 @@ import org.jvnet.hk2.annotations.Optional;
 public class MetadataObjectRoleOperations {
 
   @Nullable private final AccessControlDispatcher accessControlDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -63,6 +66,7 @@ public class MetadataObjectRoleOperations {
   public MetadataObjectRoleOperations() {
     this(
         EnvironmentServices.processEnv().accessControlDispatcher(),
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
         EnvironmentServices.metadataAccessChecker());
   }
 
@@ -71,13 +75,16 @@ public class MetadataObjectRoleOperations {
    * disabled.
    *
    * @param accessControlDispatcher the access-control dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public MetadataObjectRoleOperations(
       @Optional @Nullable AccessControlDispatcher accessControlDispatcher,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.accessControlDispatcher = accessControlDispatcher;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -87,12 +94,15 @@ public class MetadataObjectRoleOperations {
    *
    * @param accessControlDispatcher the access-control dispatcher, or null.
    * @deprecated Use {@link #MetadataObjectRoleOperations(AccessControlDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
+   *     MetadataObjectDispatchers, MetadataAccessChecker)}; the server binds the checker.
    */
   @Deprecated
   @SuppressWarnings("InlineMeSuggester")
   public MetadataObjectRoleOperations(@Nullable AccessControlDispatcher accessControlDispatcher) {
-    this(accessControlDispatcher, EnvironmentServices.metadataAccessChecker());
+    this(
+        accessControlDispatcher,
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
+        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -112,7 +122,7 @@ public class MetadataObjectRoleOperations {
           httpRequest,
           () -> {
             accessChecker.checkMetalakeInUse(metalake);
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             String[] names = accessControlDispatcher.listRoleNamesByObject(metalake, object);
             names =
                 accessChecker.filterByExpression(

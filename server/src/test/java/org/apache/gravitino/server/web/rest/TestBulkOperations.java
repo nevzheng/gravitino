@@ -82,6 +82,7 @@ import org.apache.gravitino.meta.GroupEntity;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -134,6 +135,7 @@ public class TestBulkOperations extends BaseOperationsTest {
             new BulkManager(config),
             manager,
             ownerDispatcher,
+            EnvironmentMetadataObjectDispatchers.INSTANCE,
             AccessCheckers.disabled(entityStore));
   }
 

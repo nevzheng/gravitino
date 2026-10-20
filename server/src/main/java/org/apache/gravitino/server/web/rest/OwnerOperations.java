@@ -52,6 +52,8 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationFullNa
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationObjectType;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 
 @NameBindings.AccessControlInterfaces
@@ -59,6 +61,7 @@ import org.apache.gravitino.utils.MetadataObjectUtil;
 public class OwnerOperations {
 
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -66,12 +69,14 @@ public class OwnerOperations {
   /**
    * Creates an owner REST resource from the process environment.
    *
-   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataAccessChecker)}.
+   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataObjectDispatchers,
+   *     MetadataAccessChecker)}.
    */
   @Deprecated
   public OwnerOperations() {
     this(
         EnvironmentServices.processEnv().ownerDispatcher(),
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
         EnvironmentServices.metadataAccessChecker());
   }
 
@@ -79,13 +84,16 @@ public class OwnerOperations {
    * Creates an owner REST resource. The service is absent when authorization is disabled.
    *
    * @param ownerDispatcher the owner dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata and that a metalake is in use
    */
   @Inject
   public OwnerOperations(
       @org.jvnet.hk2.annotations.Optional @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.ownerDispatcher = ownerDispatcher;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -93,13 +101,16 @@ public class OwnerOperations {
    * Creates an owner REST resource. The service is absent when authorization is disabled.
    *
    * @param ownerDispatcher the owner dispatcher, or null.
-   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
+   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataObjectDispatchers,
+   *     MetadataAccessChecker)}; the server binds the checker.
    */
   @Deprecated
   @SuppressWarnings("InlineMeSuggester")
   public OwnerOperations(@Nullable OwnerDispatcher ownerDispatcher) {
-    this(ownerDispatcher, EnvironmentServices.metadataAccessChecker());
+    this(
+        ownerDispatcher,
+        EnvironmentMetadataObjectDispatchers.INSTANCE,
+        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -125,7 +136,7 @@ public class OwnerOperations {
             if (object.type() != MetadataObject.Type.METALAKE) {
               accessChecker.checkMetalakeInUse(metalake);
             }
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             Optional<Owner> owner = ownerDispatcher.getOwner(metalake, object);
             if (owner.isPresent()) {
               return Utils.ok(new OwnerResponse(DTOConverters.toDTO(owner.get())));
@@ -171,7 +182,7 @@ public class OwnerOperations {
           () -> {
             request.validate();
             accessChecker.checkMetalakeInUse(metalake);
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             ownerDispatcher.setOwner(metalake, object, request.getName(), request.getType());
             return Utils.ok(new SetResponse(true));
           });

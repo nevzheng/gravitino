@@ -52,6 +52,7 @@ import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 
@@ -141,6 +142,7 @@ class GravitinoComponentBinder extends AbstractBinder {
             component::internalSchemaDispatcher))
         .to(MetadataAccessChecker.class)
         .ranked(1);
+    bind(component.metadataObjectDispatchers()).to(MetadataObjectDispatchers.class).ranked(1);
     bind(new MetadataIdResolver(component::catalogManager, component::entityStore))
         .to(MetadataIdResolver.class)
         .ranked(1);
