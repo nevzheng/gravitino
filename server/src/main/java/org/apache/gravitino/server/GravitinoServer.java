@@ -35,7 +35,6 @@ import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
 import org.apache.gravitino.lineage.LineageService;
 import org.apache.gravitino.listener.api.event.EventSource;
-import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
@@ -165,7 +164,6 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
-  @LegacyEnvAccess
   private void initializeRestApi(JettyServerConfig jettyServerConfig) {
     HashSet<String> restApiPackagesSet = new HashSet<>();
     restApiPackagesSet.add("org.apache.gravitino.server.web.rest");
@@ -193,8 +191,9 @@ public class GravitinoServer extends ResourceConfig {
 
     HttpServerMetricsSource httpServerMetricsSource =
         new HttpServerMetricsSource(MetricsSource.GRAVITINO_SERVER_METRIC_NAME, this, server);
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
-    metricsSystem.register(httpServerMetricsSource);
+    // The environment the server was given, not the singleton: a GravitinoEnv subclass can
+    // override where its metrics system comes from.
+    gravitinoEnv.metricsSystem().register(httpServerMetricsSource);
 
     Servlet servlet = new ServletContainer(this);
     server.addServlet(servlet, API_ANY_PATH);
