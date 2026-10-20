@@ -22,12 +22,17 @@ import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
 import java.util.Set;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
+import org.apache.gravitino.catalog.FilesetDispatcher;
+import org.apache.gravitino.catalog.SchemaDispatcher;
+import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
@@ -76,21 +81,42 @@ abstract class CatalogModule {
   /**
    * Builds the catalog manager. It starts its catalog cache cleaner and registers a change-log
    * listener with entity stores that support one.
+   *
+   * <p>The authorization plugins of its catalogs read the internal dispatchers, which are built
+   * around this manager, so the plugin context resolves them when a plugin asks.
    */
   @Provides
   @Singleton
   static CatalogManager catalogManager(
       Config config,
+      @AuthorizationEnabled boolean authorizationEnabled,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
       MetricsSystem metricsSystem,
+      @Internal Provider<CatalogDispatcher> internalCatalogDispatcher,
+      @Internal Provider<SchemaDispatcher> internalSchemaDispatcher,
+      @Internal Provider<TableDispatcher> internalTableDispatcher,
+      @Internal Provider<FilesetDispatcher> internalFilesetDispatcher,
       BuiltServices built) {
+    AuthorizationPluginContext pluginContext =
+        AuthorizationPluginContext.of(
+            () -> authorizationEnabled,
+            internalCatalogDispatcher::get,
+            internalSchemaDispatcher::get,
+            internalTableDispatcher::get,
+            internalFilesetDispatcher::get);
     return built.add(
         BuiltServices.CATALOG_MANAGER,
         new CatalogManager(
-            config, entityStore, idGenerator, secretManager, lockManager, metricsSystem));
+            config,
+            entityStore,
+            idGenerator,
+            secretManager,
+            lockManager,
+            metricsSystem,
+            pluginContext));
   }
 
   /**

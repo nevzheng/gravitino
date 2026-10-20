@@ -20,11 +20,13 @@ package org.apache.gravitino.di;
 
 import static org.apache.gravitino.di.DispatcherChains.assertChain;
 import static org.apache.gravitino.di.DispatcherChains.field;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
@@ -117,6 +119,19 @@ public class TestCatalogModule {
     assertSame(component.catalogManager(), internal);
     assertSame(component.catalogManager(), publicManager);
     assertSame(leaves.eventBus, field(component.catalogDispatcher(), "eventBus"));
+  }
+
+  @Test
+  public void testAuthorizationPluginsGetTheInternalChains() throws Exception {
+    AuthorizationPluginContext context =
+        (AuthorizationPluginContext)
+            field(component.catalogManager(), "authorizationPluginContext");
+
+    assertFalse(context.authorizationEnabled());
+    assertSame(component.internalCatalogDispatcher(), context.internalCatalogDispatcher());
+    assertSame(component.internalSchemaDispatcher(), context.internalSchemaDispatcher());
+    assertSame(component.internalTableDispatcher(), context.internalTableDispatcher());
+    assertSame(component.internalFilesetDispatcher(), context.internalFilesetDispatcher());
   }
 
   @Test

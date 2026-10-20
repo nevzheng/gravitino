@@ -42,6 +42,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.CatalogManager.CatalogWrapper;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -120,7 +121,8 @@ public class TestCatalogWrapperLease {
             new RandomIdGenerator(),
             new SecretManager(config),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
   }
 
   @AfterEach
@@ -194,7 +196,8 @@ public class TestCatalogWrapperLease {
             new RandomIdGenerator(),
             new SecretManager(expiringConfig),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     try {
       NameIdentifier ident = NameIdentifier.of(METALAKE, "expiring_catalog");
       expiringManager.createCatalog(ident, Catalog.Type.RELATIONAL, PROVIDER, "comment", PROPS);

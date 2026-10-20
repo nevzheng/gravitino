@@ -36,6 +36,7 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -86,7 +87,8 @@ public class TestCatalogNormalizeDispatcher {
             new RandomIdGenerator(),
             new SecretManager(config),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     catalogManager = Mockito.spy(catalogManager);
     catalogNormalizeDispatcher = new CatalogNormalizeDispatcher(catalogManager);
   }

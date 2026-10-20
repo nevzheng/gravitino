@@ -31,6 +31,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -102,7 +103,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(config),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
   }
 
   @AfterEach
@@ -261,7 +263,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(noSharingConfig),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");
@@ -316,7 +319,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(noSharingConfig),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");

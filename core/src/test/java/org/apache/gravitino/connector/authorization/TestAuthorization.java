@@ -38,6 +38,8 @@ import org.mockito.Mockito;
 
 public class TestAuthorization {
   private static final long METALAKE_ID = 10L;
+  private static final AuthorizationPluginContext PLUGIN_CONTEXT =
+      Mockito.mock(AuthorizationPluginContext.class);
   private static TestCatalog hiveCatalog;
   private static TestCatalog filesetCatalog;
 
@@ -68,7 +70,7 @@ public class TestAuthorization {
     IsolatedClassLoader isolatedClassLoader =
         new IsolatedClassLoader(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-    hiveCatalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID);
+    hiveCatalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID, PLUGIN_CONTEXT);
 
     CatalogEntity filesetEntity =
         CatalogEntity.builder()
@@ -89,7 +91,8 @@ public class TestAuthorization {
                     "authorization.ranger.service.type",
                     "HDFS"))
             .withCatalogEntity(filesetEntity);
-    filesetCatalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID);
+    filesetCatalog.initAuthorizationPluginInstance(
+        isolatedClassLoader, METALAKE_ID, PLUGIN_CONTEXT);
   }
 
   @Test
@@ -131,7 +134,7 @@ public class TestAuthorization {
     try (IsolatedClassLoader isolatedClassLoader =
         new IsolatedClassLoader(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList())) {
-      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID);
+      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID, PLUGIN_CONTEXT);
       Assertions.assertNotNull(catalog.getAuthorizationPlugin());
 
       catalog.close();
@@ -163,7 +166,7 @@ public class TestAuthorization {
             new IsolatedClassLoader(
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
         catalog) {
-      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID);
+      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID, PLUGIN_CONTEXT);
 
       Assertions.assertNull(catalog.getAuthorizationPlugin());
     }
@@ -215,6 +218,40 @@ public class TestAuthorization {
       Assertions.assertSame(context, TestRangerAuthorization.lastContext);
       Assertions.assertInstanceOf(
           TestRangerAuthorizationHDFSPlugin.class, catalog.getAuthorizationPlugin());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testDeprecatedInitHandsThePluginTheEnvironment() throws Exception {
+    AuditInfo auditInfo =
+        AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
+    CatalogEntity entity =
+        CatalogEntity.builder()
+            .withId(5L)
+            .withName("catalog-test5")
+            .withNamespace(Namespace.of("default"))
+            .withType(Catalog.Type.FILESET)
+            .withProvider("test")
+            .withAuditInfo(auditInfo)
+            .build();
+    TestCatalog catalog =
+        new TestCatalog()
+            .withCatalogConf(
+                ImmutableMap.of(
+                    Catalog.AUTHORIZATION_PROVIDER,
+                    "test-ranger",
+                    "authorization.ranger.service.type",
+                    "HDFS"))
+            .withCatalogEntity(entity);
+    try (IsolatedClassLoader isolatedClassLoader =
+            new IsolatedClassLoader(
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+        catalog) {
+      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID);
+
+      Assertions.assertSame(
+          EnvironmentAuthorizationPluginContext.INSTANCE, TestRangerAuthorization.lastContext);
     }
   }
 }
