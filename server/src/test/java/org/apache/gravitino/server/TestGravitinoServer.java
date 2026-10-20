@@ -123,9 +123,7 @@ public class TestGravitinoServer {
 
   @BeforeEach
   public void setUp() {
-    gravitinoServer =
-        new GravitinoServer(
-            spyServerConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    gravitinoServer = newServer(spyServerConfig);
   }
 
   @AfterAll
@@ -226,9 +224,7 @@ public class TestGravitinoServer {
   @Test
   public void testSecretProvidersDiscoveryWithMemoryProvider() throws Exception {
     ServerConfig serverConfig = spyServerConfig(serverConfigWithMemoryProvider());
-    gravitinoServer =
-        new GravitinoServer(
-            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    gravitinoServer = newServer(serverConfig);
     gravitinoServer.initialize();
     gravitinoServer.start();
 
@@ -272,9 +268,7 @@ public class TestGravitinoServer {
     ServerConfig serverConfig = new ServerConfig();
     serverConfig.loadFromMap(configs, key -> true);
     serverConfig = spyServerConfig(serverConfig);
-    gravitinoServer =
-        new GravitinoServer(
-            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    gravitinoServer = newServer(serverConfig);
     gravitinoServer.initialize();
     gravitinoServer.start();
 
@@ -466,6 +460,16 @@ public class TestGravitinoServer {
                 HttpResponse.BodyHandlers.ofString());
     assertEquals(200, createResponse.statusCode(), createResponse.body());
     return metalake;
+  }
+
+  /**
+   * Builds a full server on the process environment, as {@code GravitinoServer.main} does. The
+   * relational entity store and the other {@code @LegacyEnvAccess} paths of a full server still
+   * read {@code GravitinoEnv.getInstance()}, so the server cannot run on another environment yet.
+   */
+  private static GravitinoServer newServer(ServerConfig config) {
+    return new GravitinoServer(
+        config, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
   }
 
   private static List<Map<String, Object>> fetchSecretProviders(
