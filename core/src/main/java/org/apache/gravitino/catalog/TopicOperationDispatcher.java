@@ -57,6 +57,7 @@ import org.slf4j.LoggerFactory;
 public class TopicOperationDispatcher extends OperationDispatcher implements TopicDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(TopicOperationDispatcher.class);
 
+  private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
   private final Supplier<LockManager> lockManagerSupplier;
 
   /**
@@ -65,6 +66,8 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @param catalogManager The CatalogManager instance to be used for catalog operations.
    * @param store The EntityStore instance to be used for catalog operations.
    * @param idGenerator The IdGenerator instance to be used for catalog operations.
+   * @param schemaDispatcherSupplier Supplies the internal schema dispatcher that checks and imports
+   *     the schema of a topic.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @param lockManager The LockManager that guards topic operations with tree locks.
    */
@@ -72,22 +75,62 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
       SecretManager secretManager,
       LockManager lockManager) {
-    this(catalogManager, store, idGenerator, secretManager, () -> lockManager);
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        schemaDispatcherSupplier,
+        secretManager,
+        () -> lockManager);
   }
 
   /**
    * Creates a new TopicOperationDispatcher instance.
    *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   * <p>Schemas are checked and imported through the internal schema dispatcher of {@code
+   * GravitinoEnv}.
+   *
+   * @param catalogManager The CatalogManager instance to be used for catalog operations.
+   * @param store The EntityStore instance to be used for catalog operations.
+   * @param idGenerator The IdGenerator instance to be used for catalog operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards topic operations with tree locks.
+   * @deprecated Use {@link #TopicOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
+   */
+  @Deprecated
+  public TopicOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager) {
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        TopicOperationDispatcher::envSchemaDispatcher,
+        secretManager,
+        () -> lockManager);
+  }
+
+  /**
+   * Creates a new TopicOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken, and
+   * schemas are checked and imported through the internal schema dispatcher of {@code
+   * GravitinoEnv}.
    *
    * @param catalogManager The CatalogManager instance to be used for catalog operations.
    * @param store The EntityStore instance to be used for catalog operations.
    * @param idGenerator The IdGenerator instance to be used for catalog operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @deprecated Use {@link #TopicOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
+   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher and the lock
+   *     manager explicitly.
    */
   @Deprecated
   public TopicOperationDispatcher(
@@ -95,16 +138,24 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
       EntityStore store,
       IdGenerator idGenerator,
       SecretManager secretManager) {
-    this(catalogManager, store, idGenerator, secretManager, TreeLockUtils.legacyLockManager());
+    this(
+        catalogManager,
+        store,
+        idGenerator,
+        TopicOperationDispatcher::envSchemaDispatcher,
+        secretManager,
+        TreeLockUtils.legacyLockManager());
   }
 
   private TopicOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
       SecretManager secretManager,
       Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
+    this.schemaDispatcherSupplier = schemaDispatcherSupplier;
     this.lockManagerSupplier = lockManagerSupplier;
   }
 
@@ -135,7 +186,6 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @return The topic metadata.
    * @throws NoSuchTopicException If the topic does not exist.
    */
-  @LegacyEnvAccess
   @Override
   public Topic loadTopic(NameIdentifier ident) throws NoSuchTopicException {
     EntityCombinedTopic topic =
@@ -145,7 +195,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
     if (!topic.imported()) {
       // Load the schema to make sure the schema is imported.
       // This is not necessary for Kafka catalogs.
-      SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
+      SchemaDispatcher schemaDispatcher = schemaDispatcherSupplier.get();
       NameIdentifier schemaIdent = NameIdentifier.of(ident.namespace().levels());
       schemaDispatcher.loadSchema(schemaIdent);
 
@@ -176,14 +226,13 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @throws NoSuchSchemaException If the schema does not exist.
    * @throws TopicAlreadyExistsException If the topic already exists.
    */
-  @LegacyEnvAccess
   @Override
   public Topic createTopic(
       NameIdentifier ident, String comment, DataLayout dataLayout, Map<String, String> properties)
       throws NoSuchSchemaException, TopicAlreadyExistsException {
 
     // Load the schema to make sure the schema exists.
-    SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
+    SchemaDispatcher schemaDispatcher = schemaDispatcherSupplier.get();
     NameIdentifier schemaIdent = NameIdentifier.of(ident.namespace().levels());
     schemaDispatcher.loadSchema(schemaIdent);
 
@@ -464,5 +513,10 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
         .withHiddenProperties(
             getMaskAndOmitKeys(
                 catalogIdent, HasPropertyMetadata::topicPropertiesMetadata, topic.properties()));
+  }
+
+  @LegacyEnvAccess
+  private static SchemaDispatcher envSchemaDispatcher() {
+    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 }

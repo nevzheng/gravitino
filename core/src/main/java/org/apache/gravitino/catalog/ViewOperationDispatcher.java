@@ -81,7 +81,10 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
    * @param idGenerator The IdGenerator instance to be used for view operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @param lockManager The LockManager that guards view operations with tree locks.
+   * @deprecated Use {@link #ViewOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
    */
+  @Deprecated
   public ViewOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
