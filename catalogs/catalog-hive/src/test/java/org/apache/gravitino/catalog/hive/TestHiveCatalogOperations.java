@@ -222,7 +222,12 @@ class TestHiveCatalogOperations {
   void testTestConnection() throws InterruptedException {
     HiveCatalogOperations op = new HiveCatalogOperations();
     op.clientPool = mock(CachedClientPool.class);
-    when(op.clientPool.run(any())).thenThrow(new TException("mock connection exception"));
+    // run() does not declare TException, so throw it from an answer instead of thenThrow.
+    when(op.clientPool.run(any()))
+        .thenAnswer(
+            invocation -> {
+              throw new TException("mock connection exception");
+            });
 
     ConnectionFailedException exception =
         Assertions.assertThrows(

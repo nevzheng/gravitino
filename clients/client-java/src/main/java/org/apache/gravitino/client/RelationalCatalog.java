@@ -554,12 +554,10 @@ class RelationalCatalog extends BaseSchemaCatalog
   static String formatTableRequestPath(Namespace ns) {
     checkFullSchemaNamespace(ns, "Table");
     Namespace schemaNs = Namespace.of(ns.level(0), ns.level(1));
-    return new StringBuilder()
-        .append(formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(ns.level(2)))
-        .append("/tables")
-        .toString();
+    return formatSchemaRequestPath(schemaNs)
+        + "/"
+        + RESTUtils.encodeString(ns.level(2))
+        + "/tables";
   }
 
   /**
@@ -596,12 +594,7 @@ class RelationalCatalog extends BaseSchemaCatalog
   static String formatViewRequestPath(Namespace ns) {
     checkFullSchemaNamespace(ns, "View");
     Namespace schemaNs = Namespace.of(ns.level(0), ns.level(1));
-    return new StringBuilder()
-        .append(formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(ns.level(2)))
-        .append("/views")
-        .toString();
+    return formatSchemaRequestPath(schemaNs) + "/" + RESTUtils.encodeString(ns.level(2)) + "/views";
   }
 
   /**

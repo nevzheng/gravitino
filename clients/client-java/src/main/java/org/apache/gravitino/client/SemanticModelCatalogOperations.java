@@ -232,12 +232,10 @@ class SemanticModelCatalogOperations implements SemanticModelCatalog {
   @VisibleForTesting
   static String formatSemanticModelRequestPath(Namespace namespace) {
     Namespace schemaNamespace = Namespace.of(namespace.level(0), namespace.level(1));
-    return new StringBuilder()
-        .append(BaseSchemaCatalog.formatSchemaRequestPath(schemaNamespace))
-        .append("/")
-        .append(RESTUtils.encodeString(namespace.level(2)))
-        .append("/semantic-models")
-        .toString();
+    return BaseSchemaCatalog.formatSchemaRequestPath(schemaNamespace)
+        + "/"
+        + RESTUtils.encodeString(namespace.level(2))
+        + "/semantic-models";
   }
 
   @VisibleForTesting

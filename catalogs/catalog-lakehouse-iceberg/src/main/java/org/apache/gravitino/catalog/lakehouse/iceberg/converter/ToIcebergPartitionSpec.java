@@ -62,7 +62,9 @@ public class ToIcebergPartitionSpec {
       } else if (transform instanceof Transforms.BucketTransform) {
         String[][] fieldNames = ((Transforms.BucketTransform) transform).fieldNames();
         Preconditions.checkArgument(
-            fieldNames.length == 1, "Iceberg partition does not support multi fields", transform);
+            fieldNames.length == 1,
+            "Iceberg partition does not support multi fields: %s",
+            transform);
         builder.bucket(
             String.join(DOT, fieldNames[0]), ((Transforms.BucketTransform) transform).numBuckets());
       } else if (transform instanceof Transforms.TruncateTransform) {

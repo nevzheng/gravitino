@@ -387,13 +387,11 @@ abstract class BaseSchemaCatalog extends CatalogDTO
   }
 
   static String formatSchemaRequestPath(Namespace ns) {
-    return new StringBuilder()
-        .append("api/metalakes/")
-        .append(RESTUtils.encodeString(ns.level(0)))
-        .append("/catalogs/")
-        .append(RESTUtils.encodeString(ns.level(1)))
-        .append("/schemas")
-        .toString();
+    return "api/metalakes/"
+        + RESTUtils.encodeString(ns.level(0))
+        + "/catalogs/"
+        + RESTUtils.encodeString(ns.level(1))
+        + "/schemas";
   }
 
   @Override

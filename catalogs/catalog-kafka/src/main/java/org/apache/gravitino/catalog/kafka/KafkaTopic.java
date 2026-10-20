@@ -26,12 +26,12 @@ public class KafkaTopic extends BaseTopic {
 
   public NewTopic toKafkaTopic(KafkaTopicPropertiesMetadata propertiesMetadata) {
     Optional<Integer> partitionCount =
-        Optional.ofNullable(
+        Optional.of(
             (int)
                 propertiesMetadata.getOrDefault(
                     properties(), KafkaTopicPropertiesMetadata.PARTITION_COUNT));
     Optional<Short> replicationFactor =
-        Optional.ofNullable(
+        Optional.of(
             (short)
                 propertiesMetadata.getOrDefault(
                     properties(), KafkaTopicPropertiesMetadata.REPLICATION_FACTOR));

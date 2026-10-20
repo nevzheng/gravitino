@@ -45,8 +45,8 @@ public class SchemaPOStorageOps extends BasePOStorageOps<SchemaPO, SchemaMetaMap
   }
 
   @Override
-  public Integer updatePO(SchemaMetaMapper mapper, SchemaPO oldPO, SchemaPO newPO) {
-    return mapper.updateSchemaMeta(oldPO, newPO);
+  public Integer updatePO(SchemaMetaMapper mapper, SchemaPO newPO, SchemaPO oldPO) {
+    return mapper.updateSchemaMeta(newPO, oldPO);
   }
 
   @Override

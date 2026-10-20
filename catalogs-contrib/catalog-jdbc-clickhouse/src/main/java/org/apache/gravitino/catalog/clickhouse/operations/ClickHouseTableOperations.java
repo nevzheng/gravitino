@@ -1206,7 +1206,6 @@ public class ClickHouseTableOperations extends JdbcTableOperations {
         // Table setting changes were fully validated before any table metadata was loaded. They are
         // rendered together after the other change branches, which are mutually exclusive with
         // settings changes.
-        continue;
 
       } else if (change instanceof TableChange.AddColumn addColumn) {
         lazyLoadTable = getOrCreateTable(databaseName, tableName, lazyLoadTable);
