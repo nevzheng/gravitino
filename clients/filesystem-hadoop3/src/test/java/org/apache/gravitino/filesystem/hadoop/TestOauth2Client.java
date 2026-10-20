@@ -53,6 +53,7 @@ import org.apache.gravitino.exceptions.RESTException;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.server.authentication.OAuthConfig;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.hadoop.conf.Configuration;
@@ -302,7 +303,12 @@ public class TestOauth2Client extends TestGvfsBase {
     config.set(OAuthConfig.DEFAULT_TOKEN_PATH, invalid_path);
     config.set(OAuthConfig.DEFAULT_SERVER_URI, Oauth2MockServerBase.serverUri());
     ServerAuthenticator authenticator = ServerAuthenticator.getInstance();
-    authenticator.initialize(config);
+    authenticator.initialize(
+        config,
+        AuthenticatorContext.of(
+            () -> {
+              throw new IllegalStateException("OAuth needs no id generator");
+            }));
 
     // set the expired time
     String dateString = "2010-01-02 12:30:45";

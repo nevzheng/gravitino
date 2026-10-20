@@ -43,6 +43,7 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.ConfigServlet;
@@ -213,7 +214,8 @@ public class GravitinoServer extends ResourceConfig {
     server.initialize(jettyServerConfig, SERVER_NAME);
     server.addMetricsServlets(metricsSystem());
 
-    ServerAuthenticator.getInstance().initialize(serverConfig);
+    ServerAuthenticator.getInstance()
+        .initialize(serverConfig, AuthenticatorContext.of(gravitinoEnv::idGenerator));
 
     // The environment's getters return what its component built, or what a GravitinoEnv subclass
     // given to the deprecated constructor overrides them with.

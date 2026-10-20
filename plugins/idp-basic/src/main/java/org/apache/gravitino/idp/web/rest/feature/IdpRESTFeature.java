@@ -37,6 +37,7 @@ import org.apache.gravitino.idp.web.rest.IdpBasicBinder;
 import org.apache.gravitino.idp.web.rest.IdpGroupOperations;
 import org.apache.gravitino.idp.web.rest.IdpUserOperations;
 import org.apache.gravitino.server.authentication.Authenticator;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.storage.IdGenerator;
 import org.slf4j.Logger;
@@ -95,7 +96,7 @@ public class IdpRESTFeature implements Feature {
     Config config = this.config.get();
     validateConfiguration(config);
     IdpUserGroupManager manager = IdpUserGroupManager.getInstance(config, idGenerator.get());
-    registerBasicAuthenticator(config, manager);
+    registerBasicAuthenticator(config, manager, AuthenticatorContext.of(idGenerator));
 
     try {
       manager.initializeConfiguredServiceAdmins(config, System.getenv(INITIAL_ADMIN_PASSWORD_ENV));
@@ -146,7 +147,8 @@ public class IdpRESTFeature implements Feature {
     }
   }
 
-  private static void registerBasicAuthenticator(Config config, IdpUserGroupManager manager) {
+  private static void registerBasicAuthenticator(
+      Config config, IdpUserGroupManager manager, AuthenticatorContext context) {
     List<Authenticator> authenticators = ServerAuthenticator.getInstance().authenticators();
     if (authenticators == null) {
       return;
@@ -157,7 +159,7 @@ public class IdpRESTFeature implements Feature {
       }
     }
     BasicAuthenticator basicAuthenticator = new BasicAuthenticator(manager);
-    basicAuthenticator.initialize(config);
+    basicAuthenticator.initialize(config, context);
     authenticators.add(0, basicAuthenticator);
   }
 
