@@ -20,6 +20,7 @@ package org.apache.gravitino;
 
 import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.RestrictedApi;
+import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
@@ -62,6 +63,9 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.catalog.ViewNormalizeDispatcher;
 import org.apache.gravitino.catalog.ViewOperationDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
+import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.LegacyBridge;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.hook.AccessControlHookDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
@@ -104,7 +108,6 @@ import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
-import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.secret.SecretManager;
@@ -114,7 +117,6 @@ import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
-import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.utils.FileFetcher;
@@ -123,12 +125,17 @@ import org.slf4j.LoggerFactory;
 
 /*
  * This class manages the Apache Gravitino environment.
+ *
+ * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
+ * every initialization and takes the objects the component owns from it; everything else is still
+ * built here and handed to the component through LegacyBridge.
  */
-public class GravitinoEnv {
+public class GravitinoEnv implements LegacyBridge {
 
   private static final Logger LOG = LoggerFactory.getLogger(GravitinoEnv.class);
 
   private Config config;
+  private GravitinoComponent component;
   // Iceberg REST server use base components while Gravitino Server use full components.
   private boolean manageFullComponents = true;
 
@@ -199,8 +206,6 @@ public class GravitinoEnv {
   private LockManager lockManager;
 
   private EventListenerManager eventListenerManager;
-
-  private AuditLogManager auditLogManager;
 
   private JobOperationDispatcher jobOperationDispatcher;
   private JobOperationDispatcher internalJobOperationDispatcher;
@@ -300,6 +305,19 @@ public class GravitinoEnv {
   }
 
   /**
+   * Get the dependency-injection component built by the last initialization.
+   *
+   * <p>The component owns the configuration, the id generator, the metrics system and the lock
+   * manager; this environment returns the same instances from its own getters.
+   *
+   * @return The component, or null if the environment is not initialized.
+   */
+  @Nullable
+  public GravitinoComponent component() {
+    return component;
+  }
+
+  /**
    * Get the auxiliary service manager associated with the Gravitino environment.
    *
    * @return The auxiliary service manager instance.
@@ -313,6 +331,7 @@ public class GravitinoEnv {
    *
    * @return The EntityStore instance.
    */
+  @Override
   public EntityStore entityStore() {
     Preconditions.checkArgument(entityStore != null, "GravitinoEnv is not initialized.");
     return entityStore;
@@ -585,6 +604,7 @@ public class GravitinoEnv {
    * @return The SecretManager instance.
    * @throws IllegalStateException if the environment has not been initialized
    */
+  @Override
   public SecretManager secretManager() {
     Preconditions.checkState(secretManager != null, "GravitinoEnv components are not initialized.");
     return secretManager;
@@ -616,6 +636,7 @@ public class GravitinoEnv {
    *
    * @return The CatalogManager instance.
    */
+  @Override
   public CatalogManager catalogManager() {
     Preconditions.checkArgument(catalogManager != null, "GravitinoEnv is not initialized.");
     return catalogManager;
@@ -626,6 +647,7 @@ public class GravitinoEnv {
    *
    * @return The EventBus instance.
    */
+  @Override
   public EventBus eventBus() {
     Preconditions.checkArgument(eventBus != null, "GravitinoEnv is not initialized.");
     return eventBus;
@@ -640,6 +662,13 @@ public class GravitinoEnv {
     return metricsSystem;
   }
 
+  /**
+   * Get the LockManager associated with the Gravitino environment.
+   *
+   * <p>The lock manager is built by {@link #component()}; this returns the same instance.
+   *
+   * @return The LockManager instance.
+   */
   public LockManager lockManager() {
     return lockManager;
   }
@@ -897,12 +926,14 @@ public class GravitinoEnv {
         config.getConfigsWithPrefix(EventListenerManager.GRAVITINO_EVENT_LISTENER_PREFIX));
     this.eventBus = eventListenerManager.createEventBus();
 
-    this.auditLogManager = new AuditLogManager();
+    AuditLogManager auditLogManager = new AuditLogManager();
     auditLogManager.init(config, eventListenerManager);
   }
 
   private void initializeConfig(Config config) {
     this.config = config;
+    // Building the component creates nothing yet: each object it owns is built on first request.
+    this.component = DaggerGravitinoComponent.factory().create(config, this);
     FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
     SecretPropertyUtils.configureSensitiveKeyKeywords(config);
   }
@@ -911,8 +942,7 @@ public class GravitinoEnv {
     this.kmsClientRegistry = new KmsClientRegistry(config);
     this.secretManager = new SecretManager(config);
 
-    this.metricsSystem = new MetricsSystem();
-    metricsSystem.register(new JVMMetricsSource());
+    this.metricsSystem = component.metricsSystem();
   }
 
   private MetadataOperations initMetadataComponents() {
@@ -1056,8 +1086,8 @@ public class GravitinoEnv {
     this.entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
 
-    this.idGenerator = new RandomIdGenerator();
-    this.lockManager = new LockManager(config);
+    this.idGenerator = component.idGenerator();
+    this.lockManager = component.lockManager();
 
     // CatalogManager must be initialized before MetalakeManager so force-drop can remove child
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
