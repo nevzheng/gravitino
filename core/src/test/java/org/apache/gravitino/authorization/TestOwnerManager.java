@@ -103,6 +103,7 @@ public class TestOwnerManager {
   private static final String GROUP = "group";
   private static final Config config = Mockito.mock(Config.class);
   private static EntityStore entityStore;
+  private static LockManager lockManager;
 
   private static IdGenerator idGenerator;
   private static OwnerManager ownerManager;
@@ -152,7 +153,7 @@ public class TestOwnerManager {
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
@@ -388,7 +389,8 @@ public class TestOwnerManager {
     // A metalake WRITE lock covers every principal and metadata object below it. Owner writes are
     // fenced by the entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock metalakeWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(METALAKE), LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(METALAKE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           metalakeWriter,
           () -> ownerManager.setOwner(METALAKE, catalogObject, USER, Owner.Type.USER));

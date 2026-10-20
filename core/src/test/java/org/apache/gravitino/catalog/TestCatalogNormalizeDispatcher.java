@@ -27,16 +27,14 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContexts;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -79,7 +77,6 @@ public class TestCatalogNormalizeDispatcher {
     entityStore.put(metalakeEntity, true);
 
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     catalogManager =
         new CatalogManager(
             config,
@@ -88,7 +85,7 @@ public class TestCatalogNormalizeDispatcher {
             new SecretManager(config),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            AuthorizationPluginContexts.disabled());
     catalogManager = Mockito.spy(catalogManager);
     catalogNormalizeDispatcher = new CatalogNormalizeDispatcher(catalogManager);
   }

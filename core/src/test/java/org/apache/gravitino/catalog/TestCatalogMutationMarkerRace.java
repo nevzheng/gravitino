@@ -22,7 +22,7 @@ import java.util.List;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.CatalogManager.CatalogWrapper;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContexts;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
 import org.junit.jupiter.api.Assertions;
@@ -35,13 +35,7 @@ public class TestCatalogMutationMarkerRace {
   void testLocalRemoteAndRepeatedEventsAlwaysInvalidateReloadedCatalog() {
     CatalogManager manager =
         new CatalogManager(
-            new Config() {},
-            null,
-            null,
-            null,
-            null,
-            null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            new Config() {}, null, null, null, null, null, AuthorizationPluginContexts.disabled());
     CatalogChangeLogListener listener = new CatalogChangeLogListener(manager);
     NameIdentifier ident = NameIdentifier.of("lake", "catalog");
     CatalogWrapper versionOne = Mockito.mock(CatalogWrapper.class);

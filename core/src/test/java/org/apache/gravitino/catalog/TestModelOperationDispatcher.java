@@ -1294,6 +1294,7 @@ public class TestModelOperationDispatcher extends TestOperationDispatcher {
     // Another in-flight create holds the WRITE lock on its own model node.
     try (TreeLockTestSupport.HeldLock inFlightCreate =
         TreeLockTestSupport.HeldLock.acquire(
+            lockManager,
             NameIdentifier.of(metalake, catalog, "schema_model_lock_1", "other_model"),
             LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
@@ -1314,7 +1315,7 @@ public class TestModelOperationDispatcher extends TestOperationDispatcher {
     // fenced by the entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock catalogWriter =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(metalake, catalog), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(metalake, catalog), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           catalogWriter, () -> registerModelForLockTest(modelIdent));
       TreeLockTestSupport.assertRunsConcurrentlyWith(

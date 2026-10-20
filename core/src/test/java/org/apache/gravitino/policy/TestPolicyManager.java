@@ -137,6 +137,7 @@ public class TestPolicyManager {
           MetadataObject.Type.CATALOG, MetadataObject.Type.SCHEMA, MetadataObject.Type.TABLE);
 
   private static EntityStore entityStore;
+  private static LockManager lockManager;
   private static PolicyManager policyManager;
   private static TagManager tagManager;
 
@@ -151,7 +152,7 @@ public class TestPolicyManager {
     tagManager =
         new TagManager(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
     FieldUtils.writeField(
@@ -762,7 +763,8 @@ public class TestPolicyManager {
     // A metalake WRITE lock covers every policy below it. Policy operations are fenced by the
     // entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock metalakeWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(METALAKE), LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(METALAKE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           metalakeWriter, () -> createCustomPolicy(METALAKE, policyName, content));
       TreeLockTestSupport.assertRunsConcurrentlyWith(
