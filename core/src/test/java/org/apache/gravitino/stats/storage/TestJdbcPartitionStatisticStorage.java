@@ -100,7 +100,7 @@ public class TestJdbcPartitionStatisticStorage {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", mockEntityStore, true);
 
     // Create storage with mocked DataSource
-    storage = new JdbcPartitionStatisticStorage(mockDataSource);
+    storage = new JdbcPartitionStatisticStorage(mockDataSource, mockEntityStore);
   }
 
   @Test
@@ -111,7 +111,8 @@ public class TestJdbcPartitionStatisticStorage {
     dataSource.setDriverClassName("org.h2.Driver");
     dataSource.setUrl("jdbc:h2:mem:stats_close_test;DB_CLOSE_DELAY=-1");
 
-    JdbcPartitionStatisticStorage owned = new JdbcPartitionStatisticStorage(dataSource);
+    JdbcPartitionStatisticStorage owned =
+        new JdbcPartitionStatisticStorage(dataSource, mock(EntityStore.class));
     owned.close();
     assertTrue(dataSource.isClosed());
 

@@ -19,11 +19,15 @@
 package org.apache.gravitino.stats.storage;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.EntityStore;
 import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link JdbcPartitionStatisticStorageFactory}. */
@@ -286,6 +290,24 @@ public class TestJdbcPartitionStatisticStorageFactory {
           throw e;
         }
       }
+    }
+  }
+
+  @Test
+  public void testCreateWithEntityStoreHandsTheStoreToTheStorage() throws Exception {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("jdbcUrl", "jdbc:h2:mem:stats_factory_store;DB_CLOSE_DELAY=-1");
+    properties.put("jdbcUser", "sa");
+    properties.put("jdbcPassword", "");
+    properties.put("jdbcDriver", "org.h2.Driver");
+    EntityStore entityStore = mock(EntityStore.class);
+
+    PartitionStatisticStorage storage =
+        new JdbcPartitionStatisticStorageFactory().create(properties, entityStore);
+    try {
+      assertSame(entityStore, FieldUtils.readField(storage, "entityStore", true));
+    } finally {
+      storage.close();
     }
   }
 }

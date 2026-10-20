@@ -107,12 +107,25 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
    * Constructs a new JdbcPartitionStatisticStorage.
    *
    * @param dataSource the JDBC DataSource for database connections
+   * @param entityStore the entity store that holds the tables whose statistics are stored
    */
-  @LegacyEnvAccess
-  public JdbcPartitionStatisticStorage(DataSource dataSource) {
+  public JdbcPartitionStatisticStorage(DataSource dataSource, EntityStore entityStore) {
     this.dataSource = dataSource;
-    this.entityStore = GravitinoEnv.getInstance().entityStore();
+    this.entityStore = entityStore;
     this.databaseType = detectDatabaseType();
+  }
+
+  /**
+   * Constructs a new JdbcPartitionStatisticStorage that reads tables from the entity store of
+   * {@code GravitinoEnv}.
+   *
+   * @param dataSource the JDBC DataSource for database connections
+   * @deprecated Use {@link #JdbcPartitionStatisticStorage(DataSource, EntityStore)}.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public JdbcPartitionStatisticStorage(DataSource dataSource) {
+    this(dataSource, envEntityStore());
   }
 
   /**
@@ -503,5 +516,10 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
     return partitionMap.entrySet().stream()
         .map(entry -> PersistedPartitionStatistics.of(entry.getKey(), entry.getValue()))
         .collect(Collectors.toList());
+  }
+
+  @LegacyEnvAccess
+  private static EntityStore envEntityStore() {
+    return GravitinoEnv.getInstance().entityStore();
   }
 }

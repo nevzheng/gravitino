@@ -22,7 +22,10 @@ import com.google.common.base.Preconditions;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
+import javax.sql.DataSource;
 import org.apache.commons.dbcp2.BasicDataSource;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
 import org.apache.gravitino.utils.jdbc.JdbcDataSourceConfig;
 import org.apache.gravitino.utils.jdbc.JdbcDataSourceFactory;
@@ -68,8 +71,28 @@ public class JdbcPartitionStatisticStorageFactory implements PartitionStatisticS
   // Default values
   private static final String DEFAULT_JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
 
+  /**
+   * Creates the storage, which reads table metadata from the entity store of {@code GravitinoEnv}.
+   * The server calls {@link #create(Map, EntityStore)} instead.
+   *
+   * @param properties the storage configuration
+   * @return the storage
+   */
   @Override
+  @SuppressWarnings("deprecation")
   public PartitionStatisticStorage create(Map<String, String> properties) {
+    return create(properties, JdbcPartitionStatisticStorage::new);
+  }
+
+  @Override
+  public PartitionStatisticStorage create(Map<String, String> properties, EntityStore entityStore) {
+    return create(
+        properties, dataSource -> new JdbcPartitionStatisticStorage(dataSource, entityStore));
+  }
+
+  private PartitionStatisticStorage create(
+      Map<String, String> properties,
+      Function<DataSource, JdbcPartitionStatisticStorage> newStorage) {
     LOG.info(
         "Creating JdbcPartitionStatisticStorage with properties: {}",
         maskSensitiveProperties(properties));
@@ -84,7 +107,7 @@ public class JdbcPartitionStatisticStorageFactory implements PartitionStatisticS
       throw new GravitinoRuntimeException(e, "Failed to create JdbcPartitionStatisticStorage");
     }
     try {
-      return new JdbcPartitionStatisticStorage(localDataSource);
+      return newStorage.apply(localDataSource);
     } catch (Exception e) {
       try {
         localDataSource.close();
