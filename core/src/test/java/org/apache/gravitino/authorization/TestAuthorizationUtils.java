@@ -41,6 +41,7 @@ import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalNameIdentifierException;
 import org.apache.gravitino.exceptions.IllegalNamespaceException;
@@ -252,6 +253,36 @@ class TestAuthorizationUtils {
     Assertions.assertTrue(filteredRole.securableObjects().contains(catalog2Object));
     Assertions.assertTrue(filteredRole.securableObjects().contains(schema2Object));
     Assertions.assertTrue(filteredRole.securableObjects().contains(table2Object));
+  }
+
+  @Test
+  void testGetMetadataObjectLocationReadsTheGivenContext() {
+    CatalogDispatcher catalogDispatcher = Mockito.mock(CatalogDispatcher.class);
+    TableDispatcher tableDispatcher = Mockito.mock(TableDispatcher.class);
+    Catalog catalog = Mockito.mock(Catalog.class);
+    Table table = Mockito.mock(Table.class);
+    Mockito.when(table.properties()).thenReturn(ImmutableMap.of("location", "gs://bucket/2"));
+    Mockito.when(catalog.provider()).thenReturn("hive");
+    Mockito.when(catalogDispatcher.loadCatalog(Mockito.any())).thenReturn(catalog);
+    Mockito.when(tableDispatcher.loadTable(Mockito.any())).thenReturn(table);
+    boolean[] enabled = {false};
+    AuthorizationPluginContext context =
+        AuthorizationPluginContext.of(
+            () -> enabled[0],
+            () -> catalogDispatcher,
+            () -> null,
+            () -> tableDispatcher,
+            () -> null);
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
+
+    Assertions.assertTrue(
+        AuthorizationUtils.getMetadataObjectLocation(context, ident, Entity.EntityType.TABLE)
+            .isEmpty());
+
+    enabled[0] = true;
+    Assertions.assertEquals(
+        Collections.singletonList("gs://bucket/2"),
+        AuthorizationUtils.getMetadataObjectLocation(context, ident, Entity.EntityType.TABLE));
   }
 
   @Test

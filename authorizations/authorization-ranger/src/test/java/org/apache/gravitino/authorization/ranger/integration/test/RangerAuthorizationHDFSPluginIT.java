@@ -31,6 +31,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.AuthorizationMetadataObject;
 import org.apache.gravitino.authorization.AuthorizationSecurableObject;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Privileges;
@@ -40,6 +41,7 @@ import org.apache.gravitino.authorization.common.PathBasedMetadataObject;
 import org.apache.gravitino.authorization.common.PathBasedSecurableObject;
 import org.apache.gravitino.authorization.ranger.RangerAuthorizationPlugin;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -90,7 +92,9 @@ public class RangerAuthorizationHDFSPluginIT {
           .when(
               () ->
                   AuthorizationUtils.getMetadataObjectLocation(
-                      Mockito.any(NameIdentifier.class), Mockito.any(Entity.EntityType.class)))
+                      Mockito.any(AuthorizationPluginContext.class),
+                      Mockito.any(NameIdentifier.class),
+                      Mockito.any(Entity.EntityType.class)))
           .thenReturn(ImmutableList.of("/test"));
       testCode.run();
     }
@@ -102,73 +106,77 @@ public class RangerAuthorizationHDFSPluginIT {
         () -> {
           MetadataObject metalake =
               MetadataObjects.parse("metalake1", MetadataObject.Type.METALAKE);
-          rangerAuthPlugin
-              .translateMetadataObject(metalake)
-              .forEach(
-                  securableObject -> {
-                    PathBasedMetadataObject pathBasedMetadataObject =
-                        (PathBasedMetadataObject) securableObject;
-                    Assertions.assertEquals(
-                        metalake.fullName(), pathBasedMetadataObject.fullName());
-                    Assertions.assertEquals(
-                        PathBasedMetadataObject.METALAKE_PATH, pathBasedMetadataObject.type());
-                    Assertions.assertEquals("/test", pathBasedMetadataObject.path());
-                  });
+          List<AuthorizationMetadataObject> metalakeObjects =
+              rangerAuthPlugin.translateMetadataObject(metalake);
+          // The setup lists no catalogs, so the metalake has no locations.
+          Assertions.assertEquals(0, metalakeObjects.size());
+          metalakeObjects.forEach(
+              securableObject -> {
+                PathBasedMetadataObject pathBasedMetadataObject =
+                    (PathBasedMetadataObject) securableObject;
+                Assertions.assertEquals(metalake.fullName(), pathBasedMetadataObject.fullName());
+                Assertions.assertEquals(
+                    PathBasedMetadataObject.METALAKE_PATH, pathBasedMetadataObject.type());
+                Assertions.assertEquals("/test", pathBasedMetadataObject.path());
+              });
 
           MetadataObject catalog = MetadataObjects.parse("catalog1", MetadataObject.Type.CATALOG);
-          rangerAuthPlugin
-              .translateMetadataObject(catalog)
-              .forEach(
-                  securableObject -> {
-                    PathBasedMetadataObject pathBasedMetadataObject =
-                        (PathBasedMetadataObject) securableObject;
-                    Assertions.assertEquals(catalog.fullName(), pathBasedMetadataObject.fullName());
-                    Assertions.assertEquals(
-                        PathBasedMetadataObject.CATALOG_PATH, pathBasedMetadataObject.type());
-                    Assertions.assertEquals("/test", pathBasedMetadataObject.path());
-                  });
+          List<AuthorizationMetadataObject> catalogObjects =
+              rangerAuthPlugin.translateMetadataObject(catalog);
+          Assertions.assertEquals(1, catalogObjects.size());
+          catalogObjects.forEach(
+              securableObject -> {
+                PathBasedMetadataObject pathBasedMetadataObject =
+                    (PathBasedMetadataObject) securableObject;
+                Assertions.assertEquals(catalog.fullName(), pathBasedMetadataObject.fullName());
+                Assertions.assertEquals(
+                    PathBasedMetadataObject.CATALOG_PATH, pathBasedMetadataObject.type());
+                Assertions.assertEquals("/test", pathBasedMetadataObject.path());
+              });
 
           MetadataObject schema =
               MetadataObjects.parse("catalog1.schema1", MetadataObject.Type.SCHEMA);
-          rangerAuthPlugin
-              .translateMetadataObject(schema)
-              .forEach(
-                  securableObject -> {
-                    PathBasedMetadataObject pathBasedMetadataObject =
-                        (PathBasedMetadataObject) securableObject;
-                    Assertions.assertEquals(schema.fullName(), pathBasedMetadataObject.fullName());
-                    Assertions.assertEquals(
-                        PathBasedMetadataObject.SCHEMA_PATH, pathBasedMetadataObject.type());
-                    Assertions.assertEquals("/test", pathBasedMetadataObject.path());
-                  });
+          List<AuthorizationMetadataObject> schemaObjects =
+              rangerAuthPlugin.translateMetadataObject(schema);
+          Assertions.assertEquals(1, schemaObjects.size());
+          schemaObjects.forEach(
+              securableObject -> {
+                PathBasedMetadataObject pathBasedMetadataObject =
+                    (PathBasedMetadataObject) securableObject;
+                Assertions.assertEquals(schema.fullName(), pathBasedMetadataObject.fullName());
+                Assertions.assertEquals(
+                    PathBasedMetadataObject.SCHEMA_PATH, pathBasedMetadataObject.type());
+                Assertions.assertEquals("/test", pathBasedMetadataObject.path());
+              });
 
           MetadataObject table =
               MetadataObjects.parse("catalog1.schema1.tab1", MetadataObject.Type.TABLE);
-          rangerAuthPlugin
-              .translateMetadataObject(table)
-              .forEach(
-                  securableObject -> {
-                    PathBasedMetadataObject pathBasedMetadataObject =
-                        (PathBasedMetadataObject) securableObject;
-                    Assertions.assertEquals(table.fullName(), pathBasedMetadataObject.fullName());
-                    Assertions.assertEquals(
-                        PathBasedMetadataObject.TABLE_PATH, securableObject.type());
-                    Assertions.assertEquals("/test", pathBasedMetadataObject.path());
-                  });
+          List<AuthorizationMetadataObject> tableObjects =
+              rangerAuthPlugin.translateMetadataObject(table);
+          Assertions.assertEquals(1, tableObjects.size());
+          tableObjects.forEach(
+              securableObject -> {
+                PathBasedMetadataObject pathBasedMetadataObject =
+                    (PathBasedMetadataObject) securableObject;
+                Assertions.assertEquals(table.fullName(), pathBasedMetadataObject.fullName());
+                Assertions.assertEquals(PathBasedMetadataObject.TABLE_PATH, securableObject.type());
+                Assertions.assertEquals("/test", pathBasedMetadataObject.path());
+              });
 
           MetadataObject fileset =
               MetadataObjects.parse("catalog1.schema1.fileset1", MetadataObject.Type.FILESET);
-          rangerAuthPlugin
-              .translateMetadataObject(fileset)
-              .forEach(
-                  securableObject -> {
-                    PathBasedMetadataObject pathBasedMetadataObject =
-                        (PathBasedMetadataObject) securableObject;
-                    Assertions.assertEquals(fileset.fullName(), pathBasedMetadataObject.fullName());
-                    Assertions.assertEquals(
-                        PathBasedMetadataObject.FILESET_PATH, securableObject.type());
-                    Assertions.assertEquals("/test", pathBasedMetadataObject.path());
-                  });
+          List<AuthorizationMetadataObject> filesetObjects =
+              rangerAuthPlugin.translateMetadataObject(fileset);
+          Assertions.assertEquals(1, filesetObjects.size());
+          filesetObjects.forEach(
+              securableObject -> {
+                PathBasedMetadataObject pathBasedMetadataObject =
+                    (PathBasedMetadataObject) securableObject;
+                Assertions.assertEquals(fileset.fullName(), pathBasedMetadataObject.fullName());
+                Assertions.assertEquals(
+                    PathBasedMetadataObject.FILESET_PATH, securableObject.type());
+                Assertions.assertEquals("/test", pathBasedMetadataObject.path());
+              });
         });
   }
 

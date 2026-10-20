@@ -39,7 +39,9 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.credential.AzureAccountKeyCredential;
 import org.apache.gravitino.credential.COSSecretKeyCredential;
@@ -316,12 +318,27 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   }
 
   /**
-   * Initializes the authorization plugin for this catalog.
+   * Initializes the authorization plugin for this catalog. The plugin reads the host services from
+   * the process environment.
    *
    * @param classLoader the catalog isolated class loader
    * @param metalakeId the stable entity ID of the metalake containing this catalog
    */
   public void initAuthorizationPluginInstance(IsolatedClassLoader classLoader, long metalakeId) {
+    initAuthorizationPluginInstance(
+        classLoader, metalakeId, EnvironmentAuthorizationPluginContext.INSTANCE);
+  }
+
+  /**
+   * Initializes the authorization plugin for this catalog.
+   *
+   * @param classLoader the catalog isolated class loader
+   * @param metalakeId the stable entity ID of the metalake containing this catalog
+   * @param pluginContext the host services handed to the plugin
+   */
+  public void initAuthorizationPluginInstance(
+      IsolatedClassLoader classLoader, long metalakeId, AuthorizationPluginContext pluginContext) {
+    Preconditions.checkNotNull(pluginContext, "pluginContext");
     if (authorizationPlugin == null) {
       synchronized (this) {
         if (authorizationPlugin == null) {
@@ -343,7 +360,10 @@ public abstract class BaseCatalog<T extends BaseCatalog>
                 classLoader.withClassLoader(
                     cl ->
                         authorization.newPlugin(
-                            entity.namespace().level(0), provider(), authorizationConfig));
+                            entity.namespace().level(0),
+                            provider(),
+                            authorizationConfig,
+                            pluginContext));
 
           } catch (Exception e) {
             LOG.error("Failed to load authorization with class loader", e);

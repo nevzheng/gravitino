@@ -64,6 +64,27 @@ public abstract class BaseAuthorization<T extends BaseAuthorization>
   public abstract AuthorizationPlugin newPlugin(
       String metalake, String catalogProvider, Map<String, String> config);
 
+  /**
+   * Creates a new instance of AuthorizationPlugin that reaches the host through the given context.
+   *
+   * <p>The catalog calls this method. The default ignores the context and calls {@link
+   * #newPlugin(String, String, Map)}, so an authorization whose plugins need no host service
+   * implements only that method.
+   *
+   * @param metalake the identifier of the metalake environment
+   * @param catalogProvider the identifier of the catalog provider within the metadata lake
+   * @param config a map of configuration properties required by the plugin
+   * @param context the host services the plugin may use
+   * @return A new instance of AuthorizationHook.
+   */
+  public AuthorizationPlugin newPlugin(
+      String metalake,
+      String catalogProvider,
+      Map<String, String> config,
+      AuthorizationPluginContext context) {
+    return newPlugin(metalake, catalogProvider, config);
+  }
+
   @Override
   public void close() throws IOException {}
 

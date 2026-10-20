@@ -86,7 +86,9 @@ import org.apache.gravitino.connector.CatalogDropAware;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.CatalogInUseException;
@@ -530,6 +532,9 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
   // The host services handed to every catalog; null for a manager built without them.
   @Nullable private final CatalogContext catalogContext;
 
+  // The host services handed to the authorization plugin of every catalog.
+  private final AuthorizationPluginContext authorizationPluginContext;
+
   // Copy-on-write: listeners may be registered while the cache's removal listener (running on a
   // cache executor thread) is iterating this list.
   private final List<Consumer<NameIdentifier>> removalListeners = new CopyOnWriteArrayList<>();
@@ -582,7 +587,14 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager) {
-    this(config, store, idGenerator, secretManager, lockManager, (CatalogContext) null);
+    this(
+        config,
+        store,
+        idGenerator,
+        secretManager,
+        lockManager,
+        (CatalogContext) null,
+        EnvironmentAuthorizationPluginContext.INSTANCE);
   }
 
   /**
@@ -610,7 +622,40 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         idGenerator,
         secretManager,
         lockManager,
-        CatalogContext.of(store, secretManager, metricsSystem, idGenerator));
+        metricsSystem,
+        EnvironmentAuthorizationPluginContext.INSTANCE);
+  }
+
+  /**
+   * Constructs a CatalogManager instance that hands every catalog it loads a {@link CatalogContext}
+   * with the given host services, and every authorization plugin of those catalogs the given {@link
+   * AuthorizationPluginContext}.
+   *
+   * @param config The configuration for the manager.
+   * @param store The entity store to use.
+   * @param idGenerator The id generator to use.
+   * @param secretManager The secret manager to use for create-time secret bindings/references.
+   * @param lockManager The lock manager that guards catalog operations with tree locks.
+   * @param metricsSystem The metrics system catalogs register their metrics with, or null when
+   *     there is none.
+   * @param authorizationPluginContext The host services handed to authorization plugins.
+   */
+  public CatalogManager(
+      Config config,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager,
+      @Nullable MetricsSystem metricsSystem,
+      AuthorizationPluginContext authorizationPluginContext) {
+    this(
+        config,
+        store,
+        idGenerator,
+        secretManager,
+        lockManager,
+        CatalogContext.of(store, secretManager, metricsSystem, idGenerator),
+        authorizationPluginContext);
   }
 
   private CatalogManager(
@@ -619,8 +664,11 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
-      @Nullable CatalogContext catalogContext) {
+      @Nullable CatalogContext catalogContext,
+      AuthorizationPluginContext authorizationPluginContext) {
     this.catalogContext = catalogContext;
+    this.authorizationPluginContext =
+        Preconditions.checkNotNull(authorizationPluginContext, "authorizationPluginContext");
     this.config = config;
     this.store = store;
     this.idGenerator = idGenerator;
@@ -2002,7 +2050,8 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
     if (catalogContext != null) {
       catalog.withCatalogContext(catalogContext);
     }
-    catalog.initAuthorizationPluginInstance(classLoader, metalakeEntity.id());
+    catalog.initAuthorizationPluginInstance(
+        classLoader, metalakeEntity.id(), authorizationPluginContext);
     return catalog;
   }
 
