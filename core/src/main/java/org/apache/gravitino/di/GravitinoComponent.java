@@ -23,8 +23,11 @@ import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.PartitionDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
@@ -46,10 +49,11 @@ import org.apache.gravitino.tag.TagDispatcher;
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
  * this component. Objects the component owns are built by its modules; {@link ConfigModule} owns
  * the id generator and the metrics system, {@link LockModule} owns the lock manager, {@link
- * SchemaTableModule} owns the schema, table, partition and view chains, and {@link
- * GovernanceModule} owns the tag, policy, owner and statistic managers and their chains. Objects
- * that {@code GravitinoEnv} still builds reach the graph through {@link LegacyBridge} and {@link
- * LegacyModule}, so every object is built by exactly one side.
+ * SchemaTableModule} owns the schema, table, partition and view chains, {@link GovernanceModule}
+ * owns the tag, policy, owner and statistic managers and their chains, and {@link
+ * AuthorizationModule} owns the access-control components. Objects that {@code GravitinoEnv} still
+ * builds reach the graph through {@link LegacyBridge} and {@link LegacyModule}, so every object is
+ * built by exactly one side.
  *
  * <p>Singletons are per component: each component instance builds its own lock manager, id
  * generator and metrics system, lazily, the first time one is requested.
@@ -61,6 +65,7 @@ import org.apache.gravitino.tag.TagDispatcher;
       LockModule.class,
       SchemaTableModule.class,
       GovernanceModule.class,
+      AuthorizationModule.class,
       LegacyModule.class
     })
 public interface GravitinoComponent {
@@ -235,6 +240,42 @@ public interface GravitinoComponent {
    */
   @Public
   StatisticDispatcher statisticDispatcher();
+
+  /**
+   * Returns the access control manager, the internal access-control chain. It can be built while
+   * authorization is disabled, but {@code GravitinoEnv} only requests it when it is enabled.
+   *
+   * @return the internal access control dispatcher
+   */
+  @Internal
+  AccessControlDispatcher internalAccessControlDispatcher();
+
+  /**
+   * Returns the public access-control chain: event, hook, then the {@link
+   * #internalAccessControlDispatcher()} manager. It can be built while authorization is disabled,
+   * but {@code GravitinoEnv} only requests it when it is enabled.
+   *
+   * @return the public access control dispatcher
+   */
+  @Public
+  AccessControlDispatcher accessControlDispatcher();
+
+  /**
+   * Returns the bulk manager. It can be built while authorization is disabled, but {@code
+   * GravitinoEnv} only requests it when it is enabled.
+   *
+   * @return the bulk manager
+   */
+  BulkManager bulkManager();
+
+  /**
+   * Returns the future grant manager, which uses the {@link #internalOwnerDispatcher()}. It can be
+   * built while authorization is disabled, but {@code GravitinoEnv} only requests it when it is
+   * enabled.
+   *
+   * @return the future grant manager
+   */
+  FutureGrantManager futureGrantManager();
 
   /**
    * Returns the entity store that {@code GravitinoEnv} still builds, seeded through {@link

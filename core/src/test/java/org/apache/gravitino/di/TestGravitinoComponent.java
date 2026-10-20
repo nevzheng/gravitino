@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.withSettings;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
@@ -58,6 +59,7 @@ public class TestGravitinoComponent {
     config.set(
         Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS,
         MemoryPartitionStatsStorageFactory.class.getCanonicalName());
+    config.set(Configs.SERVICE_ADMINS, Collections.singletonList("admin"));
     return config;
   }
 
@@ -105,6 +107,7 @@ public class TestGravitinoComponent {
             List.of(component::partitionDispatcher, component::internalPartitionDispatcher),
             List.of(component::viewDispatcher, component::internalViewDispatcher),
             List.of(component::tagDispatcher, component::internalTagDispatcher),
+            List.of(component::accessControlDispatcher, component::internalAccessControlDispatcher),
             List.of(component::policyDispatcher, component::internalPolicyDispatcher),
             List.of(component::statisticDispatcher, component::internalStatisticDispatcher));
     try {
