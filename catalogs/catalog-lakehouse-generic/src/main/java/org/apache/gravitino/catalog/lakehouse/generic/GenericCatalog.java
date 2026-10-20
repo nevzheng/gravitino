@@ -20,7 +20,9 @@ package org.apache.gravitino.catalog.lakehouse.generic;
 
 import java.util.Map;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogOperations;
+import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.PropertiesMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 
@@ -54,7 +56,8 @@ public class GenericCatalog extends BaseCatalog<GenericCatalog> {
    */
   @Override
   protected CatalogOperations newOps(Map<String, String> config) {
-    return new GenericCatalogOperations();
+    CatalogContext context = EnvironmentCatalogContext.orEnvironment(catalogContext());
+    return new GenericCatalogOperations(context.entityStore(), context.idGenerator());
   }
 
   @Override

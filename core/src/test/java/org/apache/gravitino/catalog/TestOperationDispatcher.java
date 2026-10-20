@@ -112,7 +112,7 @@ public abstract class TestOperationDispatcher {
 
     secretManager = new SecretManager(config);
     catalogManager =
-        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
+        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager, null);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     NameIdentifier ident = NameIdentifier.of(metalake, catalog);

@@ -72,13 +72,11 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityFieldLimits;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.audit.FilesetAuditConstants;
 import org.apache.gravitino.audit.FilesetDataOperation;
@@ -89,8 +87,10 @@ import org.apache.gravitino.catalog.hadoop.fs.FileSystemUtils;
 import org.apache.gravitino.catalog.hadoop.fs.GravitinoFileSystemCredentialsProvider;
 import org.apache.gravitino.catalog.hadoop.fs.InMemoryFileSystemCredentialsProvider;
 import org.apache.gravitino.catalog.hadoop.fs.SupportsCredentialVending;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
+import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.credential.PathContext;
 import org.apache.gravitino.connector.credential.SupportsPathBasedCredentials;
@@ -156,6 +156,9 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
 
   @Nullable private final Supplier<CatalogCredentialManager> credentialManagerSupplier;
 
+  // The host services from initialize; null when the three-argument initialize was called directly.
+  @Nullable private volatile CatalogContext catalogContext;
+
   private HasPropertyMetadata propertiesMetadata;
 
   @VisibleForTesting Configuration hadoopConf;
@@ -210,11 +213,10 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     this.credentialManagerSupplier = credentialManagerSupplier;
   }
 
-  @LegacyEnvAccess
   FilesetCatalogOperations(Supplier<CatalogCredentialManager> credentialManagerSupplier) {
     this(
-        GravitinoEnv.getInstance().entityStore(),
-        GravitinoEnv.getInstance().secretManager(),
+        EnvironmentCatalogContext.INSTANCE.entityStore(),
+        EnvironmentCatalogContext.INSTANCE.secretManager(),
         credentialManagerSupplier);
   }
 
@@ -260,10 +262,15 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
   }
 
-  @LegacyEnvAccess
+  /**
+   * Creates operations that read the entity store and the secret manager from {@code GravitinoEnv}.
+   * {@link FilesetCatalogImpl} passes them from its {@code CatalogContext} instead.
+   */
   public FilesetCatalogOperations() {
     this(
-        GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().secretManager(), null);
+        EnvironmentCatalogContext.INSTANCE.entityStore(),
+        EnvironmentCatalogContext.INSTANCE.secretManager(),
+        null);
   }
 
   @Override
@@ -279,7 +286,17 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     return conf;
   }
 
-  @LegacyEnvAccess
+  @Override
+  public void initialize(
+      Map<String, String> config,
+      CatalogInfo info,
+      HasPropertyMetadata propertiesMetadata,
+      CatalogContext context)
+      throws RuntimeException {
+    this.catalogContext = context;
+    initialize(config, info, propertiesMetadata);
+  }
+
   @Override
   public void initialize(
       Map<String, String> config, CatalogInfo info, HasPropertyMetadata propertiesMetadata)
@@ -294,7 +311,8 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
                 .catalogPropertiesMetadata()
                 .getOrDefault(config, FilesetCatalogPropertiesMetadata.DISABLE_FILESYSTEM_OPS);
 
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem =
+        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
     // Metrics System could be null in UT.
     if (metricsSystem != null) {
       this.catalogMetricsSource =
@@ -1093,7 +1111,6 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
   }
 
-  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     // do nothing
@@ -1120,7 +1137,8 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
 
     // Metrics System could be null in UT.
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem =
+        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.unregister(catalogMetricsSource);
     }
