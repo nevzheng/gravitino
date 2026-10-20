@@ -53,14 +53,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -104,6 +102,7 @@ public class TestOwnerManager {
   private static final Config config = Mockito.mock(Config.class);
   private static EntityStore entityStore;
   private static LockManager lockManager;
+  private static FakeAuthorizationServices services;
 
   private static IdGenerator idGenerator;
   private static OwnerManager ownerManager;
@@ -154,7 +153,7 @@ public class TestOwnerManager {
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
 
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+    services = new FakeAuthorizationServices().withCatalogManager(catalogManager);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -193,7 +192,7 @@ public class TestOwnerManager {
             .build();
     entityStore.put(groupEntity, false /* overwritten*/);
 
-    ownerManager = new OwnerManager(entityStore, EnvironmentAuthorizationServices.INSTANCE);
+    ownerManager = new OwnerManager(entityStore, services);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
     Mockito.when(catalogManager.listCatalogs(Mockito.any()))
@@ -293,8 +292,7 @@ public class TestOwnerManager {
     entityStore.put(catalog, false);
 
     GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-    GravitinoAuthorizer originalAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", authorizer, true);
+    services.withAuthorizer(authorizer);
     try {
       MetadataObject catalogObject =
           MetadataObjects.of(Lists.newArrayList(catalogName), MetadataObject.Type.CATALOG);
@@ -308,8 +306,7 @@ public class TestOwnerManager {
               Mockito.eq(NameIdentifier.of(METALAKE, catalogName)),
               Mockito.eq(Entity.EntityType.CATALOG));
     } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "gravitinoAuthorizer", originalAuthorizer, true);
+      services.withAuthorizer(NoopGravitinoAuthorizer.INSTANCE);
     }
   }
 
@@ -331,8 +328,7 @@ public class TestOwnerManager {
     entityStore.put(catalog, false);
 
     GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-    GravitinoAuthorizer originalAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "gravitinoAuthorizer", authorizer, true);
+    services.withAuthorizer(authorizer);
     try {
       MetadataObject catalogObject =
           MetadataObjects.of(Lists.newArrayList(catalogName), MetadataObject.Type.CATALOG);
@@ -347,8 +343,7 @@ public class TestOwnerManager {
               Mockito.eq(NameIdentifier.of(METALAKE, catalogName)),
               Mockito.eq(Entity.EntityType.CATALOG));
     } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "gravitinoAuthorizer", originalAuthorizer, true);
+      services.withAuthorizer(NoopGravitinoAuthorizer.INSTANCE);
     }
   }
 

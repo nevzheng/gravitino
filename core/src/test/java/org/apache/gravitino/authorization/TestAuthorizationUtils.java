@@ -25,7 +25,6 @@ import com.google.common.collect.Lists;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
@@ -61,20 +60,52 @@ class TestAuthorizationUtils {
 
   @Test
   void testCheckCurrentUserUsesNeutralMembershipMessage() {
-    try (MockedStatic<GravitinoEnv> envMock = Mockito.mockStatic(GravitinoEnv.class)) {
-      GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-      GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-      envMock.when(GravitinoEnv::getInstance).thenReturn(env);
-      Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
+    GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
+
+    ForbiddenException exception =
+        Assertions.assertThrows(
+            ForbiddenException.class,
+            () ->
+                AuthorizationUtils.checkCurrentUser(
+                    authorizer, metalake, "tester", new AuthorizationRequestContext()));
+    Assertions.assertEquals(
+        "Current user tester is not a member of metalake metalake, or the metalake does not exist",
+        exception.getMessage());
+  }
+
+  // Pins the overloads without services, which read them from GravitinoEnv for their callers
+  // outside core. Every other test passes the services.
+  @Test
+  void testOverloadsWithoutServicesReadTheEnvironment() {
+    GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
+    CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
+    CatalogTestUtils.mockDoWithCatalog(catalogManager, Mockito.mock(BaseCatalog.class));
+    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+    Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
+    Mockito.when(env.internalAccessControlDispatcher())
+        .thenReturn(Mockito.mock(AccessControlDispatcher.class));
+    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
+
+    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
+      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
 
       ForbiddenException exception =
           Assertions.assertThrows(
               ForbiddenException.class,
               () -> AuthorizationUtils.checkCurrentUser(metalake, "tester"));
       Assertions.assertEquals(
-          "Current user tester is not a member of metalake metalake, or the metalake does not exist",
+          AuthorizationUtils.metalakeMembershipFailureMessage(metalake, "tester"),
           exception.getMessage());
+      AuthorizationUtils.authorizationPluginRenamePrivileges(
+          ident, Entity.EntityType.TABLE, "new_table");
     }
+
+    Mockito.verify(authorizer).isMetalakeUser(Mockito.eq(metalake), Mockito.any());
+    Mockito.verify(authorizer)
+        .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
+    Mockito.verify(catalogManager)
+        .doWithCatalog(Mockito.eq(NameIdentifier.of("metalake", "catalog")), Mockito.any());
   }
 
   @Test
@@ -298,25 +329,21 @@ class TestAuthorizationUtils {
     Mockito.when(catalogDispatcher.loadCatalog(Mockito.any())).thenReturn(catalog);
     Mockito.when(tableDispatcher.loadTable(Mockito.any())).thenReturn(table);
 
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalCatalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalAccessControlDispatcher",
-        accessControlDispatcher,
-        true);
+    AuthorizationPluginContext context =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogDispatcher(catalogDispatcher)
+            .withTableDispatcher(tableDispatcher);
 
     List<String> locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "table"), Entity.EntityType.TABLE);
+            context, NameIdentifier.of("catalog", "schema", "table"), Entity.EntityType.TABLE);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("gs://bucket/1", locations.get(0));
 
     locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.TABLE);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.TABLE);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("gs://bucket/1", locations.get(0));
   }
@@ -335,22 +362,18 @@ class TestAuthorizationUtils {
     Mockito.when(schemaDispatcher.loadSchema(Mockito.any())).thenReturn(schema);
     Mockito.when(catalogDispatcher.loadCatalog(Mockito.any())).thenReturn(catalog);
 
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalAccessControlDispatcher",
-        accessControlDispatcher,
-        true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalCatalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaDispatcher, true);
+    AuthorizationPluginContext context =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogDispatcher(catalogDispatcher)
+            .withSchemaDispatcher(schemaDispatcher);
 
     // Case 1: Schema has no location property (inherits catalog location)
     Mockito.when(schema.properties()).thenReturn(Collections.emptyMap());
     Mockito.when(catalog.properties()).thenReturn(ImmutableMap.of("location", "catalogLocation"));
     List<String> locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("catalogLocation/testSchema", locations.get(0));
 
@@ -358,7 +381,7 @@ class TestAuthorizationUtils {
     Mockito.when(schema.properties()).thenReturn(null);
     locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("catalogLocation/testSchema", locations.get(0));
 
@@ -366,7 +389,7 @@ class TestAuthorizationUtils {
     Mockito.when(schema.properties()).thenReturn(ImmutableMap.of("location", ""));
     locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("catalogLocation/testSchema", locations.get(0));
 
@@ -374,7 +397,7 @@ class TestAuthorizationUtils {
     Mockito.when(schema.properties()).thenReturn(ImmutableMap.of("location", "schemaLocation"));
     locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
     Assertions.assertEquals(1, locations.size());
     Assertions.assertEquals("schemaLocation", locations.get(0));
 
@@ -383,7 +406,7 @@ class TestAuthorizationUtils {
     Mockito.when(catalog.properties()).thenReturn(Collections.emptyMap());
     locations =
         AuthorizationUtils.getMetadataObjectLocation(
-            NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
+            context, NameIdentifier.of("catalog", "schema", "fileset"), Entity.EntityType.SCHEMA);
     Assertions.assertEquals(0, locations.size());
   }
 
@@ -395,21 +418,17 @@ class TestAuthorizationUtils {
     BaseCatalog<?> baseCatalog = Mockito.mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, baseCatalog);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.gravitinoAuthorizer()).thenReturn(authorizer);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAuthorizer(authorizer)
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
+    AuthorizationUtils.authorizationPluginRenamePrivileges(
+        services, ident, Entity.EntityType.TABLE, "new_table");
 
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
-      AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.TABLE, "new_table");
-
-      Mockito.verify(authorizer)
-          .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
-    }
+    Mockito.verify(authorizer)
+        .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
   }
 
   @Test
@@ -420,21 +439,17 @@ class TestAuthorizationUtils {
     BaseCatalog<?> baseCatalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(catalogManager.loadCatalog(Mockito.any())).thenReturn(baseCatalog);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.gravitinoAuthorizer()).thenReturn(authorizer);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAuthorizer(authorizer)
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
+    AuthorizationUtils.authorizationPluginRemovePrivileges(
+        services, ident, Entity.EntityType.TABLE, Collections.emptyList());
 
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
-      AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.TABLE, Collections.emptyList());
-
-      Mockito.verify(authorizer)
-          .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
-    }
+    Mockito.verify(authorizer)
+        .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
   }
 
   @Test
@@ -449,16 +464,12 @@ class TestAuthorizationUtils {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, baseCatalog);
     Mockito.when(baseCatalog.getAuthorizationPlugin()).thenReturn(authorizationPlugin);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
-
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.TABLE, "renamed_table", locations);
-    }
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    AuthorizationUtils.authorizationPluginRenamePrivileges(
+        services, ident, Entity.EntityType.TABLE, "renamed_table", locations);
 
     ArgumentCaptor<MetadataObjectChange[]> changesCaptor =
         ArgumentCaptor.forClass(MetadataObjectChange[].class);
@@ -489,16 +500,12 @@ class TestAuthorizationUtils {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, baseCatalog);
     Mockito.when(baseCatalog.getAuthorizationPlugin()).thenReturn(authorizationPlugin);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
-
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.TABLE, newIdent, locations);
-    }
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    AuthorizationUtils.authorizationPluginRenamePrivileges(
+        services, ident, Entity.EntityType.TABLE, newIdent, locations);
 
     ArgumentCaptor<MetadataObjectChange[]> changesCaptor =
         ArgumentCaptor.forClass(MetadataObjectChange[].class);
@@ -524,16 +531,12 @@ class TestAuthorizationUtils {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, baseCatalog);
     Mockito.when(baseCatalog.getAuthorizationPlugin()).thenReturn(authorizationPlugin);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
-
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.TABLE, locations);
-    }
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    AuthorizationUtils.authorizationPluginRemovePrivileges(
+        services, ident, Entity.EntityType.TABLE, locations);
 
     ArgumentCaptor<MetadataObjectChange[]> changesCaptor =
         ArgumentCaptor.forClass(MetadataObjectChange[].class);
@@ -558,61 +561,55 @@ class TestAuthorizationUtils {
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
     Mockito.when(catalogs.listCatalogs(Namespace.of(metalake)))
         .thenReturn(new NameIdentifier[] {NameIdentifier.of(metalake, "catalog")});
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.catalogManager()).thenReturn(catalogs);
-    try (MockedStatic<GravitinoEnv> mocked = Mockito.mockStatic(GravitinoEnv.class)) {
-      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      for (MetadataObject.Type type :
+    for (MetadataObject.Type type :
+        List.of(
+            MetadataObject.Type.METALAKE,
+            MetadataObject.Type.CATALOG,
+            MetadataObject.Type.SCHEMA)) {
+      String name =
+          type == MetadataObject.Type.METALAKE
+              ? metalake
+              : type == MetadataObject.Type.CATALOG ? "catalog" : "catalog.schema";
+      for (Privilege semantic :
           List.of(
-              MetadataObject.Type.METALAKE,
-              MetadataObject.Type.CATALOG,
-              MetadataObject.Type.SCHEMA)) {
-        String name =
-            type == MetadataObject.Type.METALAKE
-                ? metalake
-                : type == MetadataObject.Type.CATALOG ? "catalog" : "catalog.schema";
-        for (Privilege semantic :
-            List.of(
-                Privileges.CreateSemanticModel.allow(),
-                Privileges.UseSemanticModel.deny(),
-                Privileges.ModifySemanticModel.allow())) {
-          SecurableObject semanticOnly = SecurableObjects.parse(name, type, List.of(semantic));
-          AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-              metalake,
-              List.of(semanticOnly),
-              (p, c) -> Assertions.fail("Semantic-only grant dispatched"));
-          RoleEntity role =
-              RoleEntity.builder()
-                  .withId(1L)
-                  .withName("mixed")
-                  .withNamespace(AuthorizationUtils.ofRoleNamespace(metalake))
-                  .withAuditInfo(
-                      AuditInfo.builder()
-                          .withCreator("tester")
-                          .withCreateTime(Instant.now())
-                          .build())
-                  .withSecurableObjects(
-                      List.of(
-                          SecurableObjects.parse(
-                              name, type, List.of(semantic, Privileges.SelectTable.allow())),
-                          SecurableObjects.parse(
-                              "catalog.schema.model",
-                              MetadataObject.Type.SEMANTIC_MODEL,
-                              List.of(Privileges.ManageGrants.allow()))))
-                  .build();
-          AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-              metalake,
-              role.securableObjects(),
-              (p, c) ->
-                  p.onRoleCreated(AuthorizationUtils.filterSecurableObjects(role, metalake, c)));
-          ArgumentCaptor<Role> captured = ArgumentCaptor.forClass(Role.class);
-          Mockito.verify(plugin).onRoleCreated(captured.capture());
-          Assertions.assertEquals(1, captured.getValue().securableObjects().size());
-          Assertions.assertEquals(
-              List.of(Privileges.SelectTable.allow()),
-              captured.getValue().securableObjects().get(0).privileges());
-          Mockito.clearInvocations(plugin);
-        }
+              Privileges.CreateSemanticModel.allow(),
+              Privileges.UseSemanticModel.deny(),
+              Privileges.ModifySemanticModel.allow())) {
+        SecurableObject semanticOnly = SecurableObjects.parse(name, type, List.of(semantic));
+        AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+            catalogs,
+            metalake,
+            List.of(semanticOnly),
+            (p, c) -> Assertions.fail("Semantic-only grant dispatched"));
+        RoleEntity role =
+            RoleEntity.builder()
+                .withId(1L)
+                .withName("mixed")
+                .withNamespace(AuthorizationUtils.ofRoleNamespace(metalake))
+                .withAuditInfo(
+                    AuditInfo.builder().withCreator("tester").withCreateTime(Instant.now()).build())
+                .withSecurableObjects(
+                    List.of(
+                        SecurableObjects.parse(
+                            name, type, List.of(semantic, Privileges.SelectTable.allow())),
+                        SecurableObjects.parse(
+                            "catalog.schema.model",
+                            MetadataObject.Type.SEMANTIC_MODEL,
+                            List.of(Privileges.ManageGrants.allow()))))
+                .build();
+        AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+            catalogs,
+            metalake,
+            role.securableObjects(),
+            (p, c) ->
+                p.onRoleCreated(AuthorizationUtils.filterSecurableObjects(role, metalake, c)));
+        ArgumentCaptor<Role> captured = ArgumentCaptor.forClass(Role.class);
+        Mockito.verify(plugin).onRoleCreated(captured.capture());
+        Assertions.assertEquals(1, captured.getValue().securableObjects().size());
+        Assertions.assertEquals(
+            List.of(Privileges.SelectTable.allow()),
+            captured.getValue().securableObjects().get(0).privileges());
+        Mockito.clearInvocations(plugin);
       }
     }
   }
@@ -630,18 +627,14 @@ class TestAuthorizationUtils {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, baseCatalog);
     Mockito.when(baseCatalog.getAuthorizationPlugin()).thenReturn(authorizationPlugin);
 
-    GravitinoEnv envMock = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(envMock.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    Mockito.when(envMock.catalogManager()).thenReturn(catalogManager);
-
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(envMock);
-
-      AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.SEMANTIC_MODEL, "renamed_model");
-      AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.SEMANTIC_MODEL, null);
-    }
+    AuthorizationServices services =
+        new FakeAuthorizationServices()
+            .withAccessControlDispatcher(accessControlDispatcher)
+            .withCatalogManager(catalogManager);
+    AuthorizationUtils.authorizationPluginRenamePrivileges(
+        services, ident, Entity.EntityType.SEMANTIC_MODEL, "renamed_model");
+    AuthorizationUtils.authorizationPluginRemovePrivileges(
+        services, ident, Entity.EntityType.SEMANTIC_MODEL, null);
 
     Mockito.verifyNoInteractions(authorizationPlugin);
   }
@@ -657,12 +650,9 @@ class TestAuthorizationUtils {
     Mockito.when(catalog.name()).thenReturn("canonical_catalog");
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
 
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      AuthorizationUtils.removeCatalogPrivileges(requestedIdent, locations);
-    }
+    AuthorizationServices services =
+        new FakeAuthorizationServices().withCatalogManager(catalogManager);
+    AuthorizationUtils.removeCatalogPrivileges(services, requestedIdent, locations);
 
     Mockito.verify(catalogManager).doWithCatalog(Mockito.eq(requestedIdent), Mockito.any());
     ArgumentCaptor<MetadataObjectChange[]> changes =
@@ -704,13 +694,11 @@ class TestAuthorizationUtils {
             Mockito.argThat(ident -> first.equals(ident) || second.equals(ident)), Mockito.any());
 
     List<AuthorizationPlugin> visited = Lists.newArrayList();
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      AuthorizationUtils.callAuthorizationPluginForMetadataObject(
-          metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE), visited::add);
-    }
+    AuthorizationUtils.callAuthorizationPluginForMetadataObject(
+        catalogManager,
+        metalake,
+        MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE),
+        visited::add);
 
     Assertions.assertEquals(List.of(firstPlugin, secondPlugin), visited);
     Mockito.verify(catalogManager).doWithCatalog(Mockito.eq(withoutAuthorization), Mockito.any());

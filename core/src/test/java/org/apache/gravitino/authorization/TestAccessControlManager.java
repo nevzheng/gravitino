@@ -62,13 +62,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Metalake;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
@@ -107,6 +105,8 @@ public class TestAccessControlManager {
 
   private static EntityStore entityStore;
   private static CatalogManager catalogManager = mock(CatalogManager.class);
+  private static final FakeAuthorizationServices services =
+      new FakeAuthorizationServices().withCatalogManager(catalogManager);
 
   private static final Config config = Mockito.mock(Config.class);
 
@@ -187,7 +187,6 @@ public class TestAccessControlManager {
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -222,15 +221,7 @@ public class TestAccessControlManager {
 
     accessControlManager =
         new AccessControlManager(
-            entityStore,
-            new RandomIdGenerator(),
-            config,
-            lockManager,
-            EnvironmentAuthorizationServices.INSTANCE);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "accessControlDispatcher", accessControlManager, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+            entityStore, new RandomIdGenerator(), config, lockManager, services);
     BaseCatalog catalog = mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
     authorizationPlugin = mock(AuthorizationPlugin.class);
