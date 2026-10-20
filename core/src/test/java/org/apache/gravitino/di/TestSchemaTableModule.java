@@ -39,7 +39,6 @@ import org.apache.gravitino.catalog.ViewOperationDispatcher;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.ViewHookDispatcher;
-import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.PartitionEventDispatcher;
 import org.apache.gravitino.listener.SchemaEventDispatcher;
 import org.apache.gravitino.listener.TableEventDispatcher;
@@ -50,14 +49,13 @@ import org.junit.jupiter.api.Test;
 
 public class TestSchemaTableModule {
 
-  private TestGravitinoComponent.FakeLegacyBridge legacy;
-  private GravitinoComponent component;
+  private FakeLeaves leaves;
+  private ModuleTestComponent component;
 
   @BeforeEach
   public void setUp() {
-    legacy = new TestGravitinoComponent.FakeLegacyBridge();
-    component =
-        DaggerGravitinoComponent.factory().create(TestGravitinoComponent.testConfig(), legacy);
+    leaves = new FakeLeaves();
+    component = ModuleTestComponent.create(TestGravitinoComponent.testConfig(), leaves);
   }
 
   @Test
@@ -77,7 +75,8 @@ public class TestSchemaTableModule {
 
     assertSame(component.schemaOperationDispatcher(), internalOperations);
     assertSame(component.schemaOperationDispatcher(), publicOperations);
-    assertSame(legacy.internalFilesetDispatcher, field(internalOperations, "filesetDispatcher"));
+    assertSame(
+        component.internalFilesetDispatcher(), field(internalOperations, "filesetDispatcher"));
     assertSame(component.lockManager(), lockManagerOf(internalOperations));
     Object hook = field(field(component.schemaDispatcher(), "dispatcher"), "dispatcher");
     assertSame(component.lockManager(), lockManagerOf(hook));
@@ -153,7 +152,7 @@ public class TestSchemaTableModule {
   public void testHooksUseTheOwnerManagerWhenAuthorizationIsEnabled() throws Exception {
     Config config = TestGravitinoComponent.testConfig();
     config.set(Configs.ENABLE_AUTHORIZATION, true);
-    GravitinoComponent authorized = DaggerGravitinoComponent.factory().create(config, legacy);
+    ModuleTestComponent authorized = ModuleTestComponent.create(config, leaves);
 
     assertSame(
         authorized.internalOwnerDispatcher(), ownerSupplierOf(authorized.tableDispatcher()).get());
@@ -164,21 +163,16 @@ public class TestSchemaTableModule {
   @Test
   public void testInternalChainsDoNotNeedTheEventBus() {
     // The metadata profile has no event bus; its internal chains must still build.
-    TestGravitinoComponent.FakeLegacyBridge noEventBus =
-        new TestGravitinoComponent.FakeLegacyBridge() {
-          @Override
-          public EventBus eventBus() {
-            throw new IllegalArgumentException("GravitinoEnv is not initialized.");
-          }
-        };
-    GravitinoComponent metadataOnly =
-        DaggerGravitinoComponent.factory().create(TestGravitinoComponent.testConfig(), noEventBus);
+    FakeLeaves noEventBus = new FakeLeaves();
+    noEventBus.eventBus = null;
+    ModuleTestComponent metadataOnly =
+        ModuleTestComponent.create(TestGravitinoComponent.testConfig(), noEventBus);
 
     metadataOnly.internalSchemaDispatcher();
     metadataOnly.internalTableDispatcher();
     metadataOnly.internalPartitionDispatcher();
     metadataOnly.internalViewDispatcher();
-    assertThrows(IllegalArgumentException.class, metadataOnly::schemaDispatcher);
+    assertThrows(NullPointerException.class, metadataOnly::schemaDispatcher);
   }
 
   private static LockManager lockManagerOf(Object dispatcher) throws Exception {

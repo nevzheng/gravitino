@@ -33,15 +33,15 @@ import org.junit.jupiter.api.Test;
 
 public class TestAuthorizationModule {
 
-  private TestGravitinoComponent.FakeLegacyBridge legacy;
-  private GravitinoComponent component;
+  private FakeLeaves leaves;
+  private ModuleTestComponent component;
 
   @BeforeEach
   public void setUp() {
     Config config = TestGravitinoComponent.testConfig();
     config.set(Configs.ENABLE_AUTHORIZATION, true);
-    legacy = new TestGravitinoComponent.FakeLegacyBridge();
-    component = DaggerGravitinoComponent.factory().create(config, legacy);
+    leaves = new FakeLeaves();
+    component = ModuleTestComponent.create(config, leaves);
   }
 
   @Test
@@ -55,7 +55,7 @@ public class TestAuthorizationModule {
             AccessControlManager.class);
     assertSame(component.internalAccessControlDispatcher(), manager);
     assertSame(component.lockManager(), field(manager, "lockManager"));
-    assertSame(legacy.eventBus, field(component.accessControlDispatcher(), "eventBus"));
+    assertSame(leaves.eventBus, field(component.accessControlDispatcher(), "eventBus"));
   }
 
   @Test
@@ -69,14 +69,14 @@ public class TestAuthorizationModule {
     assertSame(
         component.internalOwnerDispatcher(),
         field(component.futureGrantManager(), "ownerDispatcher"));
-    assertSame(legacy.entityStore, field(component.futureGrantManager(), "entityStore"));
+    assertSame(leaves.entityStore, field(component.futureGrantManager(), "entityStore"));
   }
 
   @Test
   public void testBulkManagerReadsTheConfiguration() throws Exception {
     Config config = TestGravitinoComponent.testConfig();
     config.set(Configs.BULK_MAX_ITEMS, 7);
-    GravitinoComponent configured = DaggerGravitinoComponent.factory().create(config, legacy);
+    ModuleTestComponent configured = ModuleTestComponent.create(config, leaves);
 
     assertEquals(7, field(configured.bulkManager(), "maxBulkItems"));
   }
