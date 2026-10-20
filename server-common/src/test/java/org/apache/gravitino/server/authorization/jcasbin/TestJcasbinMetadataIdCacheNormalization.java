@@ -69,7 +69,7 @@ import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.rel.TableChange;
-import org.apache.gravitino.server.authorization.MetadataIdConverter;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.storage.relational.EntityChangeLogNameIdentifierCodec;
 import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
@@ -103,6 +103,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
   private EntityStore store;
   private GravitinoEnv env;
   private JcasbinAuthorizationLookups lookups;
+  private MetadataIdResolver resolver;
   private GravitinoAuthorizer authorizer;
   private MockedStatic<GravitinoEnv> envMock;
 
@@ -110,8 +111,9 @@ public class TestJcasbinMetadataIdCacheNormalization {
   void setup() throws Exception {
     metadataCache = new CaffeineGravitinoCache<>(60_000L, 100L);
     ownerCache = new CaffeineGravitinoCache<>(60_000L, 100L);
-    lookups = new JcasbinAuthorizationLookups(metadataCache, ownerCache);
-    JcasbinAuthorizer localAuthorizer = new JcasbinAuthorizer();
+    resolver = new MetadataIdResolver(() -> env.catalogManager(), () -> env.entityStore());
+    lookups = new JcasbinAuthorizationLookups(metadataCache, ownerCache, resolver);
+    JcasbinAuthorizer localAuthorizer = new JcasbinAuthorizer(resolver);
     // The name-ID hook only needs the same cache owned by the initialized authorizer.
     FieldUtils.writeDeclaredField(localAuthorizer, "metadataIdCache", metadataCache, true);
     authorizer = localAuthorizer;
@@ -166,8 +168,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
   @MethodSource("catalogScopedTypes")
   void testAllMappedTypesNormalizeNamesIncludingColumnParents(MetadataObject.Type type) {
     assertEquals(
-        object(type, false),
-        MetadataIdConverter.normalizeMetadataObject(object(type, true), METALAKE));
+        object(type, false), resolver.normalizeMetadataObject(object(type, true), METALAKE));
   }
 
   @ParameterizedTest
@@ -213,7 +214,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     when(catalog.capability()).thenReturn(Capability.DEFAULT);
     MetadataObject upper = object(type, true);
     MetadataObject lower = object(type, false);
-    assertSame(upper, MetadataIdConverter.normalizeMetadataObject(upper, METALAKE));
+    assertSame(upper, resolver.normalizeMetadataObject(upper, METALAKE));
     put(upper, 100L);
     put(lower, 200L);
     assertEquals(Optional.of(100L), resolve(upper));
@@ -312,7 +313,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
         MetadataObjects.parse("CAT.SCHEMA.Table.CoL", MetadataObject.Type.COLUMN);
     assertEquals(
         MetadataObjects.parse("CAT.schema.Table.col", MetadataObject.Type.COLUMN),
-        MetadataIdConverter.normalizeMetadataObject(column, "Metalake"));
+        resolver.normalizeMetadataObject(column, "Metalake"));
   }
 
   @Test
@@ -329,7 +330,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
             });
     assertEquals(
         MetadataObjects.parse("CAT.SCHEMA.table.CoL", MetadataObject.Type.COLUMN),
-        MetadataIdConverter.normalizeMetadataObject(
+        resolver.normalizeMetadataObject(
             MetadataObjects.parse("CAT.SCHEMA.Table.CoL", MetadataObject.Type.COLUMN), "Metalake"));
   }
 
@@ -391,7 +392,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
         List.of(
             MetadataObject.Type.METALAKE, MetadataObject.Type.CATALOG, MetadataObject.Type.ROLE)) {
       MetadataObject object = MetadataObjects.of(null, "MixedName", type);
-      assertSame(object, MetadataIdConverter.normalizeMetadataObject(object, METALAKE));
+      assertSame(object, resolver.normalizeMetadataObject(object, METALAKE));
     }
     verifyNoInteractions(catalogs);
   }
@@ -502,8 +503,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
         List.of(MetadataObject.Type.VIEW, MetadataObject.Type.FUNCTION)) {
       put(object(type, false), 100L);
       assertEquals(
-          object(type, false),
-          MetadataIdConverter.normalizeMetadataObject(object(type, true), METALAKE));
+          object(type, false), resolver.normalizeMetadataObject(object(type, true), METALAKE));
       assertEquals(Optional.of(100L), resolve(object(type, true)));
     }
   }
@@ -609,6 +609,6 @@ public class TestJcasbinMetadataIdCacheNormalization {
 
   private static Stream<MetadataObject.Type> catalogScopedTypes() {
     // Derive coverage from the production registry: a newly mapped type cannot silently be missed.
-    return MetadataIdConverter.catalogScopedTypes().stream();
+    return MetadataIdResolver.catalogScopedTypes().stream();
   }
 }
