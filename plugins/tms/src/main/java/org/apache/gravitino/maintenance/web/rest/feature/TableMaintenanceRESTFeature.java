@@ -19,6 +19,8 @@
 package org.apache.gravitino.maintenance.web.rest.feature;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+import javax.inject.Inject;
 import javax.sql.DataSource;
 import javax.ws.rs.core.Feature;
 import javax.ws.rs.core.FeatureContext;
@@ -59,7 +61,29 @@ public class TableMaintenanceRESTFeature implements Feature {
   private static final AtomicReference<TableMaintenanceSchedulerPools> SCHEDULER_POOLS =
       new AtomicReference<>();
 
-  @LegacyEnvAccess
+  private final Supplier<Config> config;
+
+  /**
+   * Creates the feature from the configuration of the process environment, resolved when Jersey
+   * configures it.
+   *
+   * @deprecated Use {@link #TableMaintenanceRESTFeature(Config)}.
+   */
+  @Deprecated
+  public TableMaintenanceRESTFeature() {
+    this.config = TableMaintenanceRESTFeature::processConfig;
+  }
+
+  /**
+   * Creates the feature.
+   *
+   * @param config the server configuration.
+   */
+  @Inject
+  public TableMaintenanceRESTFeature(Config config) {
+    this.config = () -> config;
+  }
+
   @Override
   public boolean configure(FeatureContext context) {
     if (SCHEDULER_POOLS.get() != null) {
@@ -67,7 +91,7 @@ public class TableMaintenanceRESTFeature implements Feature {
       return true;
     }
 
-    Config config = GravitinoEnv.getInstance().config();
+    Config config = this.config.get();
     if (!Configs.RELATIONAL_ENTITY_STORE.equals(config.get(Configs.ENTITY_STORE))) {
       throw new IllegalStateException(
           "Table maintenance requires gravitino.entity.store = relational");
@@ -96,6 +120,11 @@ public class TableMaintenanceRESTFeature implements Feature {
       pools.stop();
       LOG.info("Table maintenance scheduler pools stopped");
     }
+  }
+
+  @LegacyEnvAccess
+  private static Config processConfig() {
+    return GravitinoEnv.getInstance().config();
   }
 
   private static DataSource resolveEntityStoreDataSource() {

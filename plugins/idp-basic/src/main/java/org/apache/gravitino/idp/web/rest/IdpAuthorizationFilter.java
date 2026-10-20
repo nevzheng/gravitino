@@ -21,12 +21,12 @@ package org.apache.gravitino.idp.web.rest;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.Supplier;
+import javax.inject.Inject;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.container.ContainerRequestFilter;
 import javax.ws.rs.core.PathSegment;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.idp.web.IdpManagement;
 import org.apache.gravitino.idp.web.IdpRESTUtils;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -55,12 +55,24 @@ public class IdpAuthorizationFilter implements ContainerRequestFilter {
   private final Supplier<List<String>> serviceAdminsSupplier;
   private final Supplier<String> currentUserSupplier;
 
-  /** Creates a filter backed by the running Gravitino server configuration. */
-  @LegacyEnvAccess
+  /**
+   * Creates a filter backed by the configuration of the process environment.
+   *
+   * @deprecated Use {@link #IdpAuthorizationFilter(Config)}.
+   */
+  @Deprecated
   public IdpAuthorizationFilter() {
-    this(
-        () -> GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS),
-        PrincipalUtils::getCurrentUserName);
+    this(() -> processConfig().get(Configs.SERVICE_ADMINS), PrincipalUtils::getCurrentUserName);
+  }
+
+  /**
+   * Creates a filter backed by the server configuration.
+   *
+   * @param config the server configuration, which lists the service admins.
+   */
+  @Inject
+  public IdpAuthorizationFilter(Config config) {
+    this(() -> config.get(Configs.SERVICE_ADMINS), PrincipalUtils::getCurrentUserName);
   }
 
   IdpAuthorizationFilter(
@@ -105,5 +117,9 @@ public class IdpAuthorizationFilter implements ContainerRequestFilter {
     return "PUT".equalsIgnoreCase(method)
         && segments.size() == 4
         && "password".equals(segments.get(3).getPath());
+  }
+
+  private static Config processConfig() {
+    return IdpProcessEnvironment.get().config();
   }
 }

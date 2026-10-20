@@ -39,6 +39,7 @@ import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.model.IdpUser;
 import org.apache.gravitino.idp.web.rest.feature.IdpRESTFeature;
 import org.apache.gravitino.server.authentication.Authenticator;
+import org.apache.gravitino.storage.IdGenerator;
 
 /** Authenticates HTTP Basic credentials against built-in IdP user metadata. */
 public class BasicAuthenticator implements Authenticator {
@@ -47,7 +48,17 @@ public class BasicAuthenticator implements Authenticator {
 
   private IdpUserGroupManager userGroupManager;
 
+  /** Creates an authenticator that builds its manager when it is initialized. */
   public BasicAuthenticator() {}
+
+  /**
+   * Creates an authenticator backed by the given manager.
+   *
+   * @param userGroupManager the built-in IdP user and group manager.
+   */
+  public BasicAuthenticator(IdpUserGroupManager userGroupManager) {
+    this.userGroupManager = userGroupManager;
+  }
 
   @Override
   public boolean isDataFromToken() {
@@ -63,12 +74,12 @@ public class BasicAuthenticator implements Authenticator {
     return authenticate(credentials, authData);
   }
 
-  @LegacyEnvAccess
   @Override
   public void initialize(Config config) {
     validateExtensionPackage(config);
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    this.userGroupManager = IdpUserGroupManager.getInstance(config, env.idGenerator());
+    if (userGroupManager == null) {
+      this.userGroupManager = IdpUserGroupManager.getInstance(config, processIdGenerator());
+    }
   }
 
   /**
@@ -172,5 +183,12 @@ public class BasicAuthenticator implements Authenticator {
     private String password() {
       return password;
     }
+  }
+
+  // AuthenticatorFactory builds authenticators reflectively and hands them only the Config, so an
+  // authenticator built that way has no other source for the id generator.
+  @LegacyEnvAccess
+  private static IdGenerator processIdGenerator() {
+    return GravitinoEnv.getInstance().idGenerator();
   }
 }

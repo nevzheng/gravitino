@@ -22,6 +22,7 @@ import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import com.google.common.base.Preconditions;
 import java.util.List;
+import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.DELETE;
@@ -34,9 +35,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
@@ -56,12 +56,35 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class IdpUserOperations {
 
   private final IdpUserGroupManager userGroupManager;
+  private final Supplier<Config> config;
 
   @Context private HttpServletRequest httpRequest;
 
-  @Inject
+  /**
+   * Creates the resource, reading the service admins from the process environment.
+   *
+   * @param userGroupManager the built-in IdP user and group manager.
+   * @deprecated Use {@link #IdpUserOperations(IdpUserGroupManager, Config)}.
+   */
+  @Deprecated
   public IdpUserOperations(IdpUserGroupManager userGroupManager) {
+    this(userGroupManager, IdpUserOperations::processConfig);
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param userGroupManager the built-in IdP user and group manager.
+   * @param config the server configuration, which lists the service admins.
+   */
+  @Inject
+  public IdpUserOperations(IdpUserGroupManager userGroupManager, Config config) {
+    this(userGroupManager, () -> config);
+  }
+
+  private IdpUserOperations(IdpUserGroupManager userGroupManager, Supplier<Config> config) {
     this.userGroupManager = userGroupManager;
+    this.config = config;
   }
 
   @GET
@@ -106,7 +129,6 @@ public class IdpUserOperations {
    * @param request the password change request
    * @return the updated user response
    */
-  @LegacyEnvAccess
   @PUT
   @Path("{user}/password")
   @Produces("application/vnd.gravitino.v1+json")
@@ -118,8 +140,7 @@ public class IdpUserOperations {
         () -> {
           request.validate();
           String currentUser = PrincipalUtils.getCurrentUserName();
-          List<String> serviceAdmins =
-              GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS);
+          List<String> serviceAdmins = config.get().get(Configs.SERVICE_ADMINS);
           boolean isServiceAdmin =
               IdpAuthorizationFilter.isServiceAdmin(serviceAdmins, currentUser);
           if (!isServiceAdmin && !user.equals(currentUser)) {
@@ -152,7 +173,6 @@ public class IdpUserOperations {
    * @param request the enabled-flag update request
    * @return the updated user response
    */
-  @LegacyEnvAccess
   @PUT
   @Path("{user}/enabled")
   @Produces("application/vnd.gravitino.v1+json")
@@ -164,8 +184,7 @@ public class IdpUserOperations {
         () -> {
           request.validate();
           String currentUser = PrincipalUtils.getCurrentUserName();
-          List<String> serviceAdmins =
-              GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS);
+          List<String> serviceAdmins = config.get().get(Configs.SERVICE_ADMINS);
           if (!IdpAuthorizationFilter.isServiceAdmin(serviceAdmins, currentUser)) {
             throw new ForbiddenException("Only service admins can update the enabled flag");
           }
@@ -193,5 +212,9 @@ public class IdpUserOperations {
         "user",
         IdpOperationType.REMOVE,
         user);
+  }
+
+  private static Config processConfig() {
+    return IdpProcessEnvironment.get().config();
   }
 }
