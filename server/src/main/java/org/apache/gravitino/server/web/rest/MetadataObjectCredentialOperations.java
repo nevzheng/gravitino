@@ -47,7 +47,7 @@ import org.apache.gravitino.dto.credential.CredentialDTO;
 import org.apache.gravitino.dto.responses.CredentialResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -73,9 +73,32 @@ public class MetadataObjectCredentialOperations {
   @Context
   private HttpServletRequest httpRequest;
 
+  private final MetadataAccessChecker accessChecker;
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link CredentialOperationDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public MetadataObjectCredentialOperations(CredentialOperationDispatcher dispatcher) {
+  public MetadataObjectCredentialOperations(
+      CredentialOperationDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.credentialOperationDispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link CredentialOperationDispatcher} to serve requests with
+   * @deprecated Use {@link #MetadataObjectCredentialOperations(CredentialOperationDispatcher,
+   *     MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public MetadataObjectCredentialOperations(CredentialOperationDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -120,7 +143,7 @@ public class MetadataObjectCredentialOperations {
             }
 
             CredentialPrivilege privilege =
-                MetadataAuthzHelper.checkAccess(
+                accessChecker.checkAccess(
                         identifier,
                         entityType,
                         AuthorizationExpressionConstants

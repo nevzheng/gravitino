@@ -50,7 +50,7 @@ import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -72,6 +72,7 @@ public class GroupOperations {
 
   @Nullable private final AccessControlDispatcher accessControlManager;
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -84,7 +85,8 @@ public class GroupOperations {
   public GroupOperations() {
     this(
         EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentServices.processEnv().internalOwnerDispatcher());
+        EnvironmentServices.processEnv().internalOwnerDispatcher(),
+        EnvironmentServices.metadataAccessChecker());
   }
 
   /**
@@ -92,13 +94,32 @@ public class GroupOperations {
    *
    * @param accessControlManager the access-control dispatcher, or null.
    * @param ownerDispatcher the internal owner dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public GroupOperations(
       @Optional @Nullable AccessControlDispatcher accessControlManager,
-      @Optional @Internal @Nullable OwnerDispatcher ownerDispatcher) {
+      @Optional @Internal @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
     this.ownerDispatcher = ownerDispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates a group REST resource. Both services are absent when authorization is disabled.
+   *
+   * @param accessControlManager the access-control dispatcher, or null.
+   * @param ownerDispatcher the internal owner dispatcher, or null.
+   * @deprecated Use {@link #GroupOperations(AccessControlDispatcher, OwnerDispatcher,
+   *     MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public GroupOperations(
+      @Nullable AccessControlDispatcher accessControlManager,
+      @Nullable OwnerDispatcher ownerDispatcher) {
+    this(accessControlManager, ownerDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -215,7 +236,7 @@ public class GroupOperations {
             if (verbose) {
               Group[] groups = accessControlManager.listGroups(metalake);
               groups =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       LOAD_GROUP_PRIVILEGE,
                       Entity.EntityType.GROUP,
@@ -226,7 +247,7 @@ public class GroupOperations {
             } else {
               String[] groups = accessControlManager.listGroupNames(metalake);
               groups =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       LOAD_GROUP_PRIVILEGE,
                       Entity.EntityType.GROUP,

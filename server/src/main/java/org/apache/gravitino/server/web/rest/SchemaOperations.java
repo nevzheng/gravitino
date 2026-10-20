@@ -53,7 +53,7 @@ import org.apache.gravitino.dto.secret.SecretBindingDTO;
 import org.apache.gravitino.dto.secret.SecretReferenceDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -73,12 +73,33 @@ public class SchemaOperations {
   private static final Logger LOG = LoggerFactory.getLogger(SchemaOperations.class);
 
   private final SchemaDispatcher dispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link SchemaDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public SchemaOperations(SchemaDispatcher dispatcher) {
+  public SchemaOperations(SchemaDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.dispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link SchemaDispatcher} to serve requests with
+   * @deprecated Use {@link #SchemaOperations(SchemaDispatcher, MetadataAccessChecker)}; the server
+   *     binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public SchemaOperations(SchemaDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -111,7 +132,7 @@ public class SchemaOperations {
             }
             NameIdentifier[] idents = dispatcher.listSchemas(schemaNS);
             idents =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_SCHEMA_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.SCHEMA,

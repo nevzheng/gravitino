@@ -21,7 +21,6 @@ package org.apache.gravitino.server.web.rest;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,7 +38,7 @@ import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.dto.responses.SecretsResponse;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -47,7 +46,7 @@ import org.glassfish.jersey.test.JerseyTest;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class TestMetadataObjectSecretOperations extends JerseyTest {
 
@@ -81,6 +80,7 @@ public class TestMetadataObjectSecretOperations extends JerseyTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(secretPropertyOperationDispatcher)
                 .to(SecretPropertyOperationDispatcher.class)
                 .ranked(2);
@@ -131,53 +131,46 @@ public class TestMetadataObjectSecretOperations extends JerseyTest {
 
   @Test
   public void testGetSecretsReturnsEmptyWithoutUseSecretss() throws Exception {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     MetadataObject metadataObject =
         MetadataObjects.parse("catalog.schema.fileset", MetadataObject.Type.FILESET);
     when(secretPropertyOperationDispatcher.getSecrets(any(), any(Entity.EntityType.class)))
         .thenReturn(Map.of("custom-secret", "plaintext"));
 
     MetadataObjectSecretOperations operations =
-        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher);
+        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher, metadataAuthzHelper);
     FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
 
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        mockStatic(MetadataAuthzHelper.class)) {
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(false);
-      // INCLUDE alone must not authorize getSecrets.
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(true);
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(AuthorizationExpressionConstants.FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(false);
+    // INCLUDE alone must not authorize getSecrets.
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(
+                    AuthorizationExpressionConstants
+                        .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(true);
 
-      Response response =
-          operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
+    Response response =
+        operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
 
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-      SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
-      Assertions.assertEquals(0, secretResponse.getCode());
-      Assertions.assertTrue(secretResponse.getSecrets().isEmpty());
-      verify(secretPropertyOperationDispatcher, never())
-          .getSecrets(any(), any(Entity.EntityType.class));
-    }
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
+    Assertions.assertEquals(0, secretResponse.getCode());
+    Assertions.assertTrue(secretResponse.getSecrets().isEmpty());
+    verify(secretPropertyOperationDispatcher, never())
+        .getSecrets(any(), any(Entity.EntityType.class));
   }
 
   @Test
   public void testGetSecretsFiltersCloudKeysWithUseSecretsOnly() throws Exception {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     MetadataObject metadataObject =
         MetadataObjects.parse("catalog.schema.fileset", MetadataObject.Type.FILESET);
     when(secretPropertyOperationDispatcher.getSecrets(any(), any(Entity.EntityType.class)))
@@ -193,48 +186,40 @@ public class TestMetadataObjectSecretOperations extends JerseyTest {
                 "plaintext"));
 
     MetadataObjectSecretOperations operations =
-        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher);
+        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher, metadataAuthzHelper);
     FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
 
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        mockStatic(MetadataAuthzHelper.class)) {
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(true);
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(false);
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(AuthorizationExpressionConstants.FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(true);
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(
+                    AuthorizationExpressionConstants
+                        .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(false);
 
-      Response response =
-          operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
+    Response response =
+        operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
 
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-      SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
-      Assertions.assertEquals(0, secretResponse.getCode());
-      Assertions.assertEquals("db-pass", secretResponse.getSecrets().get("jdbc-password"));
-      Assertions.assertEquals("plaintext", secretResponse.getSecrets().get("custom-secret"));
-      Assertions.assertFalse(secretResponse.getSecrets().containsKey("s3-access-key-id"));
-      Assertions.assertFalse(secretResponse.getSecrets().containsKey("s3-secret-access-key"));
-    }
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
+    Assertions.assertEquals(0, secretResponse.getCode());
+    Assertions.assertEquals("db-pass", secretResponse.getSecrets().get("jdbc-password"));
+    Assertions.assertEquals("plaintext", secretResponse.getSecrets().get("custom-secret"));
+    Assertions.assertFalse(secretResponse.getSecrets().containsKey("s3-access-key-id"));
+    Assertions.assertFalse(secretResponse.getSecrets().containsKey("s3-secret-access-key"));
   }
 
   @Test
   public void testGetSecretsIncludesCloudKeysWithUseSecretsAndIncludeCredentialSecretss()
       throws Exception {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     MetadataObject metadataObject =
         MetadataObjects.parse("catalog.schema.fileset", MetadataObject.Type.FILESET);
     when(secretPropertyOperationDispatcher.getSecrets(any(), any(Entity.EntityType.class)))
@@ -248,42 +233,33 @@ public class TestMetadataObjectSecretOperations extends JerseyTest {
                 "db-pass"));
 
     MetadataObjectSecretOperations operations =
-        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher);
+        new MetadataObjectSecretOperations(secretPropertyOperationDispatcher, metadataAuthzHelper);
     FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
 
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        mockStatic(MetadataAuthzHelper.class)) {
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(true);
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.checkAccess(
-                      any(),
-                      any(Entity.EntityType.class),
-                      eq(
-                          AuthorizationExpressionConstants
-                              .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
-          .thenReturn(true);
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(AuthorizationExpressionConstants.FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(true);
+    Mockito.when(
+            metadataAuthzHelper.checkAccess(
+                any(),
+                any(Entity.EntityType.class),
+                eq(
+                    AuthorizationExpressionConstants
+                        .FILTER_INCLUDE_CREDENTIAL_SECRETS_AUTHORIZATION_EXPRESSION)))
+        .thenReturn(true);
 
-      Response response =
-          operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
+    Response response =
+        operations.getSecrets(metalake, metadataObject.type().name(), metadataObject.fullName());
 
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-      SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
-      Assertions.assertEquals(0, secretResponse.getCode());
-      Assertions.assertEquals("AKIA", secretResponse.getSecrets().get("s3-access-key-id"));
-      Assertions.assertEquals("secret", secretResponse.getSecrets().get("s3-secret-access-key"));
-      Assertions.assertEquals("db-pass", secretResponse.getSecrets().get("jdbc-password"));
-    }
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    SecretsResponse secretResponse = (SecretsResponse) response.getEntity();
+    Assertions.assertEquals(0, secretResponse.getCode());
+    Assertions.assertEquals("AKIA", secretResponse.getSecrets().get("s3-access-key-id"));
+    Assertions.assertEquals("secret", secretResponse.getSecrets().get("s3-secret-access-key"));
+    Assertions.assertEquals("db-pass", secretResponse.getSecrets().get("jdbc-password"));
   }
 
   private void testGetSecretsForObject(MetadataObject metadataObject) {

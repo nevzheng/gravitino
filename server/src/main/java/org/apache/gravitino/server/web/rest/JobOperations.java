@@ -74,7 +74,7 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -94,6 +94,7 @@ public class JobOperations {
 
   private final JobOperationDispatcher jobOperationDispatcher;
   private final Supplier<IdGenerator> idGenerator;
+  private final MetadataAccessChecker accessChecker;
 
   @Context HttpServletRequest httpRequest;
 
@@ -105,7 +106,10 @@ public class JobOperations {
    */
   @Deprecated
   public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
-    this(jobOperationDispatcher, () -> EnvironmentServices.processEnv().idGenerator());
+    this(
+        jobOperationDispatcher,
+        () -> EnvironmentServices.processEnv().idGenerator(),
+        EnvironmentServices.metadataAccessChecker());
   }
 
   /**
@@ -113,16 +117,37 @@ public class JobOperations {
    *
    * @param jobOperationDispatcher the job operation dispatcher.
    * @param idGenerator the generator of job template ids.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
+  public JobOperations(
+      JobOperationDispatcher jobOperationDispatcher,
+      IdGenerator idGenerator,
+      MetadataAccessChecker accessChecker) {
+    this(jobOperationDispatcher, () -> idGenerator, accessChecker);
+  }
+
+  /**
+   * Creates a job REST resource.
+   *
+   * @param jobOperationDispatcher the job operation dispatcher.
+   * @param idGenerator the generator of job template ids.
+   * @deprecated Use {@link #JobOperations(JobOperationDispatcher, IdGenerator,
+   *     MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public JobOperations(JobOperationDispatcher jobOperationDispatcher, IdGenerator idGenerator) {
-    this(jobOperationDispatcher, () -> idGenerator);
+    this(jobOperationDispatcher, idGenerator, EnvironmentServices.metadataAccessChecker());
   }
 
   private JobOperations(
-      JobOperationDispatcher jobOperationDispatcher, Supplier<IdGenerator> idGenerator) {
+      JobOperationDispatcher jobOperationDispatcher,
+      Supplier<IdGenerator> idGenerator,
+      MetadataAccessChecker accessChecker) {
     this.jobOperationDispatcher = jobOperationDispatcher;
     this.idGenerator = idGenerator;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -144,7 +169,7 @@ public class JobOperations {
           () -> {
             List<JobTemplateEntity> jobTemplateEntities =
                 Lists.newArrayList(
-                    MetadataAuthzHelper.filterByExpression(
+                    accessChecker.filterByExpression(
                         metalake,
                         AuthorizationExpressionConstants.LOAD_JOB_TEMPLATE_AUTHORIZATION_EXPRESSION,
                         Entity.EntityType.JOB_TEMPLATE,
@@ -370,7 +395,7 @@ public class JobOperations {
           () -> {
             List<JobEntity> jobEntities =
                 Lists.newArrayList(
-                    MetadataAuthzHelper.filterByExpression(
+                    accessChecker.filterByExpression(
                         metalake,
                         AuthorizationExpressionConstants.LOAD_JOB_AUTHORIZATION_EXPRESSION,
                         Entity.EntityType.JOB,

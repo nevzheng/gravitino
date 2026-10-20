@@ -54,7 +54,7 @@ import org.apache.gravitino.dto.responses.MetalakeResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -71,12 +71,33 @@ public class MetalakeOperations {
   private static final Logger LOG = LoggerFactory.getLogger(MetalakeOperations.class);
 
   private final MetalakeDispatcher metalakeDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link MetalakeDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public MetalakeOperations(MetalakeDispatcher dispatcher) {
+  public MetalakeOperations(MetalakeDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.metalakeDispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link MetalakeDispatcher} to serve requests with
+   * @deprecated Use {@link #MetalakeOperations(MetalakeDispatcher, MetadataAccessChecker)}; the
+   *     server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public MetalakeOperations(MetalakeDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -91,7 +112,7 @@ public class MetalakeOperations {
           () -> {
             Metalake[] metalakes = metalakeDispatcher.listMetalakes();
             metalakes =
-                MetadataAuthzHelper.filterMetalakes(
+                accessChecker.filterMetalakes(
                     metalakes,
                     AuthorizationExpressionConstants.LOAD_METALAKE_AUTHORIZATION_EXPRESSION);
             MetalakeDTO[] metalakeDTOs =

@@ -46,7 +46,7 @@ import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.messaging.Topic;
 import org.apache.gravitino.messaging.TopicChange;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -61,12 +61,33 @@ public class TopicOperations {
   private static final Logger LOG = LoggerFactory.getLogger(TopicOperations.class);
 
   private final TopicDispatcher dispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link TopicDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public TopicOperations(TopicDispatcher dispatcher) {
+  public TopicOperations(TopicDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.dispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link TopicDispatcher} to serve requests with
+   * @deprecated Use {@link #TopicOperations(TopicDispatcher, MetadataAccessChecker)}; the server
+   *     binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public TopicOperations(TopicDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -91,7 +112,7 @@ public class TopicOperations {
             NameIdentifier[] topics = dispatcher.listTopics(topicNS);
             topics = topics == null ? new NameIdentifier[0] : topics;
             topics =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_TOPICS_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.TOPIC,

@@ -46,7 +46,7 @@ import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.rel.View;
 import org.apache.gravitino.rel.ViewChange;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -63,12 +63,33 @@ public class ViewOperations {
   private static final Logger LOG = LoggerFactory.getLogger(ViewOperations.class);
 
   private final ViewDispatcher dispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link ViewDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public ViewOperations(ViewDispatcher dispatcher) {
+  public ViewOperations(ViewDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.dispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link ViewDispatcher} to serve requests with
+   * @deprecated Use {@link #ViewOperations(ViewDispatcher, MetadataAccessChecker)}; the server
+   *     binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public ViewOperations(ViewDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -91,7 +112,7 @@ public class ViewOperations {
             Namespace viewNS = NamespaceUtil.ofView(metalake, catalog, schema);
             NameIdentifier[] idents = dispatcher.listViews(viewNS);
             idents =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_VIEW_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.VIEW,

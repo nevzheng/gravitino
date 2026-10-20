@@ -53,7 +53,7 @@ import org.apache.gravitino.function.Function;
 import org.apache.gravitino.function.FunctionChange;
 import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -70,12 +70,33 @@ public class FunctionOperations {
   private static final Logger LOG = LoggerFactory.getLogger(FunctionOperations.class);
 
   private final FunctionDispatcher dispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link FunctionDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public FunctionOperations(FunctionDispatcher dispatcher) {
+  public FunctionOperations(FunctionDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.dispatcher = dispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link FunctionDispatcher} to serve requests with
+   * @deprecated Use {@link #FunctionOperations(FunctionDispatcher, MetadataAccessChecker)}; the
+   *     server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public FunctionOperations(FunctionDispatcher dispatcher) {
+    this(dispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -101,7 +122,7 @@ public class FunctionOperations {
               NameIdentifier[] identifiers = dispatcher.listFunctions(namespace);
               identifiers = identifiers == null ? new NameIdentifier[0] : identifiers;
               identifiers =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.FILTER_FUNCTION_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.FUNCTION,
@@ -118,7 +139,7 @@ public class FunctionOperations {
             Function[] functions = dispatcher.listFunctionInfos(namespace);
             functions = functions == null ? new Function[0] : functions;
             functions =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_FUNCTION_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.FUNCTION,

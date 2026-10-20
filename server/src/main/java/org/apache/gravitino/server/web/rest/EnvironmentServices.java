@@ -20,6 +20,8 @@ package org.apache.gravitino.server.web.rest;
 
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 
 /**
  * The process environment, for the deprecated no-argument constructors of the REST resources.
@@ -39,5 +41,14 @@ final class EnvironmentServices {
   @LegacyEnvAccess
   static GravitinoEnv processEnv() {
     return GravitinoEnv.getInstance();
+  }
+
+  /**
+   * Returns the checker that reads the process environment on every check.
+   *
+   * @return the process-wide metadata access checker.
+   */
+  static MetadataAccessChecker metadataAccessChecker() {
+    return MetadataAuthzHelper.processChecker();
   }
 }

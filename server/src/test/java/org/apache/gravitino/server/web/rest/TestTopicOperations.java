@@ -61,6 +61,7 @@ import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.messaging.Topic;
 import org.apache.gravitino.messaging.TopicChange;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -114,6 +115,7 @@ public class TestTopicOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(dispatcher).to(TopicDispatcher.class).ranked(2);
             bindFactory(TestTopicOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);

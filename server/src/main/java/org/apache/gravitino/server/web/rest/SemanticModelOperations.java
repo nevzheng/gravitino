@@ -57,7 +57,7 @@ import org.apache.gravitino.semantic.OssieFormat;
 import org.apache.gravitino.semantic.SemanticModel;
 import org.apache.gravitino.semantic.SemanticModelChange;
 import org.apache.gravitino.semantic.SemanticModelDefinition;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -79,6 +79,7 @@ public class SemanticModelOperations {
 
   private final SemanticModelDispatcher dispatcher;
   private final SemanticModelSourceValidator sourceValidator;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -87,12 +88,31 @@ public class SemanticModelOperations {
    *
    * @param dispatcher The Semantic Model dispatcher.
    * @param sourceValidator The caller-facing source validator.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public SemanticModelOperations(
-      SemanticModelDispatcher dispatcher, SemanticModelSourceValidator sourceValidator) {
+      SemanticModelDispatcher dispatcher,
+      SemanticModelSourceValidator sourceValidator,
+      MetadataAccessChecker accessChecker) {
     this.dispatcher = dispatcher;
     this.sourceValidator = sourceValidator;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates Semantic Model REST operations.
+   *
+   * @param dispatcher The Semantic Model dispatcher.
+   * @param sourceValidator The caller-facing source validator.
+   * @deprecated Use {@link #SemanticModelOperations(SemanticModelDispatcher,
+   *     SemanticModelSourceValidator, MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public SemanticModelOperations(
+      SemanticModelDispatcher dispatcher, SemanticModelSourceValidator sourceValidator) {
+    this(dispatcher, sourceValidator, EnvironmentServices.metadataAccessChecker());
   }
 
   /**
@@ -125,7 +145,7 @@ public class SemanticModelOperations {
             NameIdentifier[] identifiers = dispatcher.listSemanticModels(namespace);
             identifiers = identifiers == null ? new NameIdentifier[0] : identifiers;
             identifiers =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_SEMANTIC_MODEL_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.SEMANTIC_MODEL,

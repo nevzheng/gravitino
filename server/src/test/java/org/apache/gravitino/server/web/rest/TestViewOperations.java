@@ -28,7 +28,6 @@ import static org.apache.gravitino.server.authorization.expression.Authorization
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,7 +68,7 @@ import org.apache.gravitino.rel.SQLRepresentation;
 import org.apache.gravitino.rel.View;
 import org.apache.gravitino.rel.ViewChange;
 import org.apache.gravitino.rest.RESTUtils;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.mapper.JsonMappingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonParseExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonProcessingExceptionMapper;
@@ -80,7 +79,6 @@ import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestViewOperations extends BaseOperationsTest {
@@ -128,6 +126,7 @@ public class TestViewOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(dispatcher).to(ViewDispatcher.class).ranked(2);
             bindFactory(TestViewOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
@@ -196,6 +195,7 @@ public class TestViewOperations extends BaseOperationsTest {
 
   @Test
   public void testListViewsFiltersUnauthorizedEntries() throws IllegalAccessException {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     NameIdentifier visibleView = NameIdentifier.of(metalake, catalog, schema, "visible");
     NameIdentifier hiddenView = NameIdentifier.of(metalake, catalog, schema, "hidden");
     NameIdentifier[] listedViews = new NameIdentifier[] {visibleView, hiddenView};
@@ -204,28 +204,21 @@ public class TestViewOperations extends BaseOperationsTest {
     when(localDispatcher.listViews(NamespaceUtil.ofView(metalake, catalog, schema)))
         .thenReturn(listedViews);
 
-    ViewOperations operations = new ViewOperations(localDispatcher);
+    ViewOperations operations = new ViewOperations(localDispatcher, metadataAuthzHelper);
     FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        mockStatic(MetadataAuthzHelper.class)) {
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.filterByExpression(
-                      metalake, FILTER_VIEW_AUTHORIZATION_EXPRESSION, VIEW, listedViews))
-          .thenReturn(filteredViews);
+    Mockito.when(
+            metadataAuthzHelper.filterByExpression(
+                metalake, FILTER_VIEW_AUTHORIZATION_EXPRESSION, VIEW, listedViews))
+        .thenReturn(filteredViews);
 
-      Response response = operations.listViews(metalake, catalog, schema);
+    Response response = operations.listViews(metalake, catalog, schema);
 
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-      EntityListResponse listResponse = (EntityListResponse) response.getEntity();
-      Assertions.assertArrayEquals(filteredViews, listResponse.identifiers());
-      verify(localDispatcher).listViews(NamespaceUtil.ofView(metalake, catalog, schema));
-      metadataAuthzHelper.verify(
-          () ->
-              MetadataAuthzHelper.filterByExpression(
-                  metalake, FILTER_VIEW_AUTHORIZATION_EXPRESSION, VIEW, listedViews));
-    }
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+    EntityListResponse listResponse = (EntityListResponse) response.getEntity();
+    Assertions.assertArrayEquals(filteredViews, listResponse.identifiers());
+    verify(localDispatcher).listViews(NamespaceUtil.ofView(metalake, catalog, schema));
+    Mockito.verify(metadataAuthzHelper)
+        .filterByExpression(metalake, FILTER_VIEW_AUTHORIZATION_EXPRESSION, VIEW, listedViews);
   }
 
   @Test

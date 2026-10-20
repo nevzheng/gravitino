@@ -85,6 +85,7 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.ObjectMapperProvider;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -132,6 +133,7 @@ public class TestJobOperations extends JerseyTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(jobOperationDispatcher).to(JobOperationDispatcher.class).ranked(2);
             bind(new RandomIdGenerator()).to(IdGenerator.class);
             bindFactory(TestJobOperations.MockServletRequestFactory.class)
