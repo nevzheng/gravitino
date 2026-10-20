@@ -45,6 +45,8 @@ import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
@@ -132,6 +134,16 @@ class GravitinoComponentBinder extends AbstractBinder {
         .to(TableDispatcher.class)
         .qualifiedBy(InternalQualifier.INSTANCE)
         .ranked(InternalQualifier.RANK);
+    bind(new MetadataAccessChecker(
+            component.config(),
+            component::gravitinoAuthorizer,
+            component::entityStore,
+            component::internalSchemaDispatcher))
+        .to(MetadataAccessChecker.class)
+        .ranked(1);
+    bind(new MetadataIdResolver(component::catalogManager, component::entityStore))
+        .to(MetadataIdResolver.class)
+        .ranked(1);
     if (enableAuthorization) {
       bind(component.accessControlDispatcher()).to(AccessControlDispatcher.class).ranked(1);
       bind(component.ownerDispatcher()).to(OwnerDispatcher.class).ranked(1);

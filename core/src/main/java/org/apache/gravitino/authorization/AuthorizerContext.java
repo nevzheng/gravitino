@@ -22,6 +22,7 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.annotation.Evolving;
+import org.apache.gravitino.catalog.CatalogManager;
 
 /**
  * The host services a {@link GravitinoAuthorizer} may use.
@@ -47,6 +48,14 @@ public interface AuthorizerContext {
    * @return the entity store
    */
   EntityStore entityStore();
+
+  /**
+   * Returns the catalog manager, which resolves the capabilities of the catalogs that hold the
+   * objects being authorized.
+   *
+   * @return the catalog manager
+   */
+  CatalogManager catalogManager();
 
   /**
    * Returns the internal access-control dispatcher: the access control manager, which runs no hooks

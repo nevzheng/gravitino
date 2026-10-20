@@ -46,6 +46,8 @@ import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
@@ -145,6 +147,19 @@ class GravitinoEnvBinder extends AbstractBinder {
           .ranked(InternalQualifier.RANK);
     }
     bindIfPresent(gravitinoEnv.bulkManager(), BulkManager.class);
+    Config config = gravitinoEnv.config();
+    if (config != null) {
+      bind(new MetadataAccessChecker(
+              config,
+              gravitinoEnv::gravitinoAuthorizer,
+              gravitinoEnv::entityStore,
+              gravitinoEnv::internalSchemaDispatcher))
+          .to(MetadataAccessChecker.class)
+          .ranked(1);
+    }
+    bind(new MetadataIdResolver(gravitinoEnv::catalogManager, gravitinoEnv::entityStore))
+        .to(MetadataIdResolver.class)
+        .ranked(1);
   }
 
   private <T> void bindIfPresent(@Nullable T service, Class<? super T> contract) {

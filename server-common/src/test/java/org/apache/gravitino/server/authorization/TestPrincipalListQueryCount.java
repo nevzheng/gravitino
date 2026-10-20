@@ -88,7 +88,7 @@ class TestPrincipalListQueryCount {
         (EntityIdResolver)
             FieldUtils.readStaticField(EntityIdService.class, "entityIdResolver", true);
     Object previousExecutor =
-        FieldUtils.readStaticField(MetadataAuthzHelper.class, "executor", true);
+        FieldUtils.readStaticField(MetadataAccessChecker.class, "executor", true);
     List<Executable> queryCountAssertions = new ArrayList<>();
     try (MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class);
         MockedStatic<GravitinoAuthorizerProvider> providerStatic =
@@ -127,7 +127,7 @@ class TestPrincipalListQueryCount {
       when(authorizer.isSelf(any(), any(), any()))
           .thenAnswer(call -> ((NameIdentifier) call.getArgument(1)).name().endsWith("0"));
       FieldUtils.writeStaticField(
-          MetadataAuthzHelper.class, "executor", (Executor) Runnable::run, true);
+          MetadataAccessChecker.class, "executor", (Executor) Runnable::run, true);
       backend.initialize(config);
       EntityIdService.initialize(new RelationalEntityStoreIdResolver());
       try (Connection connection =
@@ -203,7 +203,7 @@ class TestPrincipalListQueryCount {
       Assertions.assertAll(queryCountAssertions);
     } finally {
       EntityIdService.initialize(previousResolver);
-      FieldUtils.writeStaticField(MetadataAuthzHelper.class, "executor", previousExecutor, true);
+      FieldUtils.writeStaticField(MetadataAccessChecker.class, "executor", previousExecutor, true);
     }
   }
 

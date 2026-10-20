@@ -113,6 +113,7 @@ import org.apache.gravitino.semantic.SemanticModelChange;
 import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.AuthorizationRequestScope;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.MetadataIdConverter;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -3366,7 +3367,7 @@ public class TestJcasbinAuthorizer {
     metadataIdConverterMockedStatic
         .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
         .thenReturn(Optional.of(CATALOG_ID));
-    Field executorField = MetadataAuthzHelper.class.getDeclaredField("executor");
+    Field executorField = MetadataAccessChecker.class.getDeclaredField("executor");
     executorField.setAccessible(true);
     Object previousExecutor = executorField.get(null);
     executorField.set(null, (Executor) Runnable::run);

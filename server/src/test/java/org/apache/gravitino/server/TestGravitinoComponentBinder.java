@@ -60,6 +60,8 @@ import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.AuthnOperations;
 import org.apache.gravitino.server.web.rest.BulkOperations;
@@ -225,6 +227,8 @@ public class TestGravitinoComponentBinder {
         assertSame(entityStore, locator.getService(EntityStore.class));
         assertSame(catalogManager, locator.getService(CatalogManager.class));
         assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
+        assertNotNull(locator.getService(MetadataAccessChecker.class));
+        assertNotNull(locator.getService(MetadataIdResolver.class));
         assertSame(tables, locator.getService(TableDispatcher.class));
         assertSame(
             internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
