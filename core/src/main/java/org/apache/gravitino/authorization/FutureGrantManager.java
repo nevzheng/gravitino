@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.MetadataObject;
@@ -34,6 +36,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.meta.GroupEntity;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.UserEntity;
@@ -45,11 +48,19 @@ import org.apache.gravitino.meta.UserEntity;
  * contains the metalake securable object and filter unnecessary roles. Then, it selects the users
  * and groups by roles. Finally, it apply the information to the authorization plugins.
  */
+@Singleton
 public class FutureGrantManager {
   EntityStore entityStore;
   OwnerDispatcher ownerDispatcher;
 
-  public FutureGrantManager(EntityStore entityStore, OwnerDispatcher ownerDispatcher) {
+  /**
+   * Creates a future grant manager.
+   *
+   * @param entityStore the entity store that holds the roles, users and groups
+   * @param ownerDispatcher the internal owner chain, which finds the owner of a new catalog
+   */
+  @Inject
+  public FutureGrantManager(EntityStore entityStore, @Internal OwnerDispatcher ownerDispatcher) {
     this.entityStore = entityStore;
     this.ownerDispatcher = ownerDispatcher;
   }

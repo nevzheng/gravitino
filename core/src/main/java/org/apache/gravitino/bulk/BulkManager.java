@@ -18,6 +18,8 @@
  */
 package org.apache.gravitino.bulk;
 
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.dto.responses.BulkError;
@@ -28,6 +30,7 @@ import org.apache.gravitino.exceptions.NotFoundException;
 import org.apache.gravitino.exceptions.NotInUseException;
 
 /** Manages best-effort bulk operations. */
+@Singleton
 public class BulkManager {
 
   private final int maxBulkItems;
@@ -37,6 +40,7 @@ public class BulkManager {
    *
    * @param config The Gravitino configuration.
    */
+  @Inject
   public BulkManager(Config config) {
     this.maxBulkItems =
         config == null

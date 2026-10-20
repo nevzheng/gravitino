@@ -35,13 +35,12 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.hive.HiveConstants;
@@ -140,10 +139,29 @@ public class AuthorizationUtils {
     checkCurrentUser(metalake, user, new AuthorizationRequestContext());
   }
 
-  @LegacyEnvAccess
   public static void checkCurrentUser(
       String metalake, String user, AuthorizationRequestContext requestContext) {
-    GravitinoAuthorizer authorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+    checkCurrentUser(
+        EnvironmentAuthorizationServices.INSTANCE.gravitinoAuthorizer(),
+        metalake,
+        user,
+        requestContext);
+  }
+
+  /**
+   * Checks that the current user is a user of the metalake.
+   *
+   * @param authorizer the authorizer that knows the metalake users
+   * @param metalake the metalake name
+   * @param user the current user name, used in the error message
+   * @param requestContext the authorization context of the request
+   * @throws ForbiddenException if the user is not a user of the metalake
+   */
+  public static void checkCurrentUser(
+      GravitinoAuthorizer authorizer,
+      String metalake,
+      String user,
+      AuthorizationRequestContext requestContext) {
     if (!authorizer.isMetalakeUser(metalake, requestContext)) {
       throw new ForbiddenException("%s", metalakeMembershipFailureMessage(metalake, user));
     }
@@ -228,13 +246,31 @@ public class AuthorizationUtils {
   // Every catalog has one authorization plugin, we should avoid calling
   // underlying authorization repeatedly. So we use a set to record which
   // catalog has been called the authorization plugin.
-  @LegacyEnvAccess
   public static void callAuthorizationPluginForSecurableObjects(
       String metalake,
       List<SecurableObject> securableObjects,
       BiConsumer<AuthorizationPlugin, String> consumer) {
+    callAuthorizationPluginForSecurableObjects(
+        EnvironmentAuthorizationServices.INSTANCE.catalogManager(),
+        metalake,
+        securableObjects,
+        consumer);
+  }
+
+  /**
+   * Calls the authorization plugin of every catalog the securable objects reach, once per catalog.
+   *
+   * @param catalogManager the catalog manager whose catalogs carry the plugins
+   * @param metalake the metalake name
+   * @param securableObjects the securable objects
+   * @param consumer called with each plugin and the name of its catalog
+   */
+  public static void callAuthorizationPluginForSecurableObjects(
+      CatalogManager catalogManager,
+      String metalake,
+      List<SecurableObject> securableObjects,
+      BiConsumer<AuthorizationPlugin, String> consumer) {
     Set<String> catalogsAlreadySet = Sets.newHashSet();
-    CatalogManager catalogManager = GravitinoEnv.getInstance().catalogManager();
     for (SecurableObject securableObject : securableObjects) {
       List<Privilege> privileges = connectorPrivileges(securableObject);
       if (privileges.isEmpty()) {
@@ -259,10 +295,28 @@ public class AuthorizationUtils {
     }
   }
 
-  @LegacyEnvAccess
   public static void callAuthorizationPluginForMetadataObject(
       String metalake, MetadataObject metadataObject, Consumer<AuthorizationPlugin> consumer) {
-    CatalogManager catalogManager = GravitinoEnv.getInstance().catalogManager();
+    callAuthorizationPluginForMetadataObject(
+        EnvironmentAuthorizationServices.INSTANCE.catalogManager(),
+        metalake,
+        metadataObject,
+        consumer);
+  }
+
+  /**
+   * Calls the authorization plugin of every catalog the metadata object reaches.
+   *
+   * @param catalogManager the catalog manager whose catalogs carry the plugins
+   * @param metalake the metalake name
+   * @param metadataObject the metadata object
+   * @param consumer called with each plugin
+   */
+  public static void callAuthorizationPluginForMetadataObject(
+      CatalogManager catalogManager,
+      String metalake,
+      MetadataObject metadataObject,
+      Consumer<AuthorizationPlugin> consumer) {
     List<NameIdentifier> catalogIdents =
         getMetadataObjectCatalogs(catalogManager, metalake, metadataObject);
     for (NameIdentifier catalogIdent : catalogIdents) {
@@ -327,6 +381,29 @@ public class AuthorizationUtils {
 
   public static void checkPrivilege(
       PrivilegeDTO privilegeDTO, MetadataObject object, String metalake) {
+    checkPrivilege(
+        EnvironmentAuthorizationServices.INSTANCE.internalCatalogDispatcher(),
+        privilegeDTO,
+        object,
+        metalake);
+  }
+
+  /**
+   * Checks that a privilege can bind to a metadata object, and that a catalog or schema privilege
+   * suits the type of its catalog.
+   *
+   * @param internalCatalogDispatcher loads the catalog of a catalog or schema object
+   * @param privilegeDTO the privilege
+   * @param object the metadata object
+   * @param metalake the metalake name
+   * @throws IllegalPrivilegeException if the privilege cannot bind to the object
+   * @throws NoSuchMetadataObjectException if the catalog of the object does not exist
+   */
+  public static void checkPrivilege(
+      CatalogDispatcher internalCatalogDispatcher,
+      PrivilegeDTO privilegeDTO,
+      MetadataObject object,
+      String metalake) {
     Privilege privilege = DTOConverters.fromPrivilegeDTO(privilegeDTO);
 
     if (!privilege.canBindTo(object.type())) {
@@ -341,23 +418,27 @@ public class AuthorizationUtils {
       NameIdentifier catalogIdent = NameIdentifierUtil.getCatalogIdentifier(identifier);
       try {
         if (FILESET_PRIVILEGES.contains(privilege.name())) {
-          checkCatalogType(catalogIdent, Catalog.Type.FILESET, privilege);
+          checkCatalogType(
+              internalCatalogDispatcher, catalogIdent, Catalog.Type.FILESET, privilege);
         }
 
         if (TABLE_PRIVILEGES.contains(privilege.name())) {
-          checkCatalogType(catalogIdent, Catalog.Type.RELATIONAL, privilege);
+          checkCatalogType(
+              internalCatalogDispatcher, catalogIdent, Catalog.Type.RELATIONAL, privilege);
         }
 
         if (TOPIC_PRIVILEGES.contains(privilege.name())) {
-          checkCatalogType(catalogIdent, Catalog.Type.MESSAGING, privilege);
+          checkCatalogType(
+              internalCatalogDispatcher, catalogIdent, Catalog.Type.MESSAGING, privilege);
         }
 
         if (MODEL_PRIVILEGES.contains(privilege.name())) {
-          checkCatalogType(catalogIdent, Catalog.Type.MODEL, privilege);
+          checkCatalogType(internalCatalogDispatcher, catalogIdent, Catalog.Type.MODEL, privilege);
         }
 
         if (SEMANTIC_MODEL_PRIVILEGES.contains(privilege.name())) {
-          checkCatalogType(catalogIdent, Catalog.Type.RELATIONAL, privilege);
+          checkCatalogType(
+              internalCatalogDispatcher, catalogIdent, Catalog.Type.RELATIONAL, privilege);
         }
       } catch (NoSuchCatalogException ne) {
         throw new NoSuchMetadataObjectException(
@@ -366,19 +447,37 @@ public class AuthorizationUtils {
     }
   }
 
-  @LegacyEnvAccess
   public static void authorizationPluginRemovePrivileges(
       NameIdentifier ident, Entity.EntityType type, List<String> locations) {
+    authorizationPluginRemovePrivileges(
+        EnvironmentAuthorizationServices.INSTANCE, ident, type, locations);
+  }
+
+  /**
+   * Removes the privileges of a dropped entity from the authorization plugins, when authorization
+   * is enabled.
+   *
+   * @param services the authorization services
+   * @param ident the identifier of the dropped entity
+   * @param type the entity type
+   * @param locations the storage locations of the entity
+   */
+  public static void authorizationPluginRemovePrivileges(
+      AuthorizationServices services,
+      NameIdentifier ident,
+      Entity.EntityType type,
+      List<String> locations) {
     // If we enable authorization, we should remove the privileges about the entity in the
     // authorization plugin.
-    if (GravitinoEnv.getInstance().internalAccessControlDispatcher() != null) {
-      notifyEntityNameIdMappingChange(ident, type);
+    if (services.internalAccessControlDispatcher() != null) {
+      notifyEntityNameIdMappingChange(services.gravitinoAuthorizer(), ident, type);
       MetadataObject metadataObject = NameIdentifierUtil.toMetadataObject(ident, type);
       String metalake =
           type == Entity.EntityType.METALAKE ? ident.name() : ident.namespace().level(0);
 
       MetadataObjectChange removeObject = MetadataObjectChange.remove(metadataObject, locations);
       callAuthorizationPluginForMetadataObject(
+          services.catalogManager(),
           metalake,
           metadataObject,
           authorizationPlugin -> {
@@ -393,8 +492,19 @@ public class AuthorizationUtils {
    * @param catalogIdent the identifier used to load the catalog
    * @param locations the catalog storage locations
    */
-  @LegacyEnvAccess
   public static void removeCatalogPrivileges(NameIdentifier catalogIdent, List<String> locations) {
+    removeCatalogPrivileges(EnvironmentAuthorizationServices.INSTANCE, catalogIdent, locations);
+  }
+
+  /**
+   * Removes catalog privileges using the live catalog's name while its operation lease is held.
+   *
+   * @param services the authorization services
+   * @param catalogIdent the identifier used to load the catalog
+   * @param locations the catalog storage locations
+   */
+  public static void removeCatalogPrivileges(
+      AuthorizationServices services, NameIdentifier catalogIdent, List<String> locations) {
     callAuthorizationPluginImpl(
         (authorizationPlugin, catalogName) -> {
           MetadataObject metadataObject =
@@ -402,19 +512,55 @@ public class AuthorizationUtils {
           authorizationPlugin.onMetadataUpdated(
               MetadataObjectChange.remove(metadataObject, locations));
         },
-        GravitinoEnv.getInstance().catalogManager(),
+        services.catalogManager(),
         catalogIdent);
   }
 
   public static void authorizationPluginRenamePrivileges(
       NameIdentifier ident, Entity.EntityType type, String newName) {
-    authorizationPluginRenamePrivileges(ident, type, newName, null);
+    authorizationPluginRenamePrivileges(
+        EnvironmentAuthorizationServices.INSTANCE, ident, type, newName);
+  }
+
+  /**
+   * Renames the privileges of an entity in the authorization plugins, within its parent.
+   *
+   * @param services the authorization services
+   * @param ident the identifier of the entity before the rename
+   * @param type the entity type
+   * @param newName the name of the entity after the rename
+   */
+  public static void authorizationPluginRenamePrivileges(
+      AuthorizationServices services,
+      NameIdentifier ident,
+      Entity.EntityType type,
+      String newName) {
+    authorizationPluginRenamePrivileges(services, ident, type, newName, null);
   }
 
   public static void authorizationPluginRenamePrivileges(
       NameIdentifier ident, Entity.EntityType type, String newName, List<String> locations) {
     authorizationPluginRenamePrivileges(
-        ident, type, NameIdentifier.of(ident.namespace(), newName), locations);
+        EnvironmentAuthorizationServices.INSTANCE, ident, type, newName, locations);
+  }
+
+  /**
+   * Renames the privileges of an entity in the authorization plugins, within its parent.
+   *
+   * @param services the authorization services
+   * @param ident the identifier of the entity before the rename
+   * @param type the entity type
+   * @param newName the name of the entity after the rename
+   * @param locations the storage locations of the entity, or {@code null}
+   */
+  public static void authorizationPluginRenamePrivileges(
+      AuthorizationServices services,
+      NameIdentifier ident,
+      Entity.EntityType type,
+      String newName,
+      List<String> locations) {
+    authorizationPluginRenamePrivileges(
+        services, ident, type, NameIdentifier.of(ident.namespace(), newName), locations);
   }
 
   /**
@@ -426,16 +572,35 @@ public class AuthorizationUtils {
    * @param newIdent the identifier of the entity after the rename
    * @param locations the storage locations of the entity, or {@code null}
    */
-  @LegacyEnvAccess
   public static void authorizationPluginRenamePrivileges(
+      NameIdentifier ident,
+      Entity.EntityType type,
+      NameIdentifier newIdent,
+      List<String> locations) {
+    authorizationPluginRenamePrivileges(
+        EnvironmentAuthorizationServices.INSTANCE, ident, type, newIdent, locations);
+  }
+
+  /**
+   * Renames the privileges of an entity in the authorization plugins, when the new identifier may
+   * be under a different parent, e.g. a table moved to another schema.
+   *
+   * @param services the authorization services
+   * @param ident the identifier of the entity before the rename
+   * @param type the entity type
+   * @param newIdent the identifier of the entity after the rename
+   * @param locations the storage locations of the entity, or {@code null}
+   */
+  public static void authorizationPluginRenamePrivileges(
+      AuthorizationServices services,
       NameIdentifier ident,
       Entity.EntityType type,
       NameIdentifier newIdent,
       List<String> locations) {
     // If we enable authorization, we should rename the privileges about the entity in the
     // authorization plugin.
-    if (GravitinoEnv.getInstance().internalAccessControlDispatcher() != null) {
-      notifyEntityNameIdMappingChange(ident, type);
+    if (services.internalAccessControlDispatcher() != null) {
+      notifyEntityNameIdMappingChange(services.gravitinoAuthorizer(), ident, type);
       MetadataObject oldMetadataObject = NameIdentifierUtil.toMetadataObject(ident, type);
       MetadataObject newMetadataObject = NameIdentifierUtil.toMetadataObject(newIdent, type);
 
@@ -448,6 +613,7 @@ public class AuthorizationUtils {
       // For a renamed catalog, we should pass the new name catalog, otherwise we can't find the
       // catalog in the entity store
       callAuthorizationPluginForMetadataObject(
+          services.catalogManager(),
           metalake,
           newMetadataObject,
           authorizationPlugin -> {
@@ -465,9 +631,23 @@ public class AuthorizationUtils {
    * @param ident the entity identifier whose mapping changed
    * @param type the entity type
    */
-  @LegacyEnvAccess
   public static void notifyEntityNameIdMappingChange(NameIdentifier ident, Entity.EntityType type) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+    notifyEntityNameIdMappingChange(
+        EnvironmentAuthorizationServices.INSTANCE.gravitinoAuthorizer(), ident, type);
+  }
+
+  /**
+   * Notifies the given authorizer that an entity name may now resolve to a different ID.
+   *
+   * <p>This does not push a metadata change to the catalog authorization plugin. A failure is
+   * logged, not thrown.
+   *
+   * @param gravitinoAuthorizer the authorizer whose caches map names to IDs
+   * @param ident the entity identifier whose mapping changed
+   * @param type the entity type
+   */
+  public static void notifyEntityNameIdMappingChange(
+      GravitinoAuthorizer gravitinoAuthorizer, NameIdentifier ident, Entity.EntityType type) {
     String metalake =
         type == Entity.EntityType.METALAKE ? ident.name() : ident.namespace().level(0);
     try {
@@ -602,11 +782,12 @@ public class AuthorizationUtils {
         catalogIdent);
   }
 
-  @LegacyEnvAccess
   private static void checkCatalogType(
-      NameIdentifier catalogIdent, Catalog.Type type, Privilege privilege) {
-    Catalog catalog =
-        GravitinoEnv.getInstance().internalCatalogDispatcher().loadCatalog(catalogIdent);
+      CatalogDispatcher internalCatalogDispatcher,
+      NameIdentifier catalogIdent,
+      Catalog.Type type,
+      Privilege privilege) {
+    Catalog catalog = internalCatalogDispatcher.loadCatalog(catalogIdent);
     if (catalog.type() != type) {
       throw new IllegalPrivilegeException(
           "Catalog %s type %s doesn't support privilege %s",

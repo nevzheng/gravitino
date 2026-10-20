@@ -25,8 +25,8 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
-import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
@@ -76,7 +76,9 @@ import org.apache.gravitino.tag.TagDispatcher;
  * AuxiliaryModule} an auxiliary service manager, not used yet, and the context it hands to the
  * auxiliary services, and {@link LifecycleModule} the lifecycle that starts and stops them. The
  * authorizer, which the server installs later, reaches the graph through {@link LegacyBridge} and
- * {@link LegacyModule}, so every object is built by exactly one side.
+ * {@link LegacyModule}, so every object is built by exactly one side. It is bound only as a {@code
+ * Supplier<GravitinoAuthorizer>} read on every check, and read from outside the graph through
+ * {@link AuthorizationServices#gravitinoAuthorizer()}, because it changes after the graph is built.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
@@ -486,6 +488,15 @@ public interface GravitinoComponent {
   FutureGrantManager futureGrantManager();
 
   /**
+   * Returns the services that keep authorization in step with metadata changes. Building them
+   * builds nothing: each service is resolved when it is asked for, and the access control, owner
+   * and future grant services are null while authorization is disabled.
+   *
+   * @return the authorization services
+   */
+  AuthorizationServices authorizationServices();
+
+  /**
    * Returns the internal job chain: template validation, then the job manager.
    *
    * @return the internal job dispatcher
@@ -526,16 +537,6 @@ public interface GravitinoComponent {
    * @return the auxiliary service manager
    */
   AuxiliaryServiceManager auxiliaryServiceManager();
-
-  /**
-   * Returns the authorizer the server installed; never null. When none is installed, it is {@code
-   * DenyAllGravitinoAuthorizer.INSTANCE} if authorization is enabled and {@code
-   * NoopGravitinoAuthorizer.INSTANCE} otherwise. The server still builds and installs it, so it
-   * reaches the graph through {@link LegacyBridge} and is read again on every request.
-   *
-   * @return the authorizer
-   */
-  GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
    * Returns the lifecycle that starts and stops the services this component has built, in the order

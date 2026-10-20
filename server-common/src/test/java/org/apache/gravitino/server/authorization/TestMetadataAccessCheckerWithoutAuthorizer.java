@@ -64,7 +64,7 @@ public class TestMetadataAccessCheckerWithoutAuthorizer {
       MetadataAccessChecker checker =
           new MetadataAccessChecker(
               config,
-              component::gravitinoAuthorizer,
+              component.authorizationServices()::gravitinoAuthorizer,
               () -> mock(EntityStore.class),
               () -> mock(SchemaDispatcher.class));
       NameIdentifier[] schemas = {
@@ -107,7 +107,7 @@ public class TestMetadataAccessCheckerWithoutAuthorizer {
       MetadataAccessChecker checker =
           new MetadataAccessChecker(
               config,
-              env.component()::gravitinoAuthorizer,
+              env.component().authorizationServices()::gravitinoAuthorizer,
               () -> mock(EntityStore.class),
               () -> mock(SchemaDispatcher.class));
       NameIdentifier[] schemas = {NameIdentifierUtil.ofSchema("metalake", "catalog", "schema")};
