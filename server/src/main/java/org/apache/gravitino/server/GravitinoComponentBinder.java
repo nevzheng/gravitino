@@ -19,7 +19,14 @@
 package org.apache.gravitino.server;
 
 import javax.inject.Singleton;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
+import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -33,6 +40,7 @@ import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lineage.LineageDispatcher;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
@@ -40,6 +48,7 @@ import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
@@ -104,5 +113,33 @@ class GravitinoComponentBinder extends AbstractBinder {
     bind(lineageDispatcher).to(LineageDispatcher.class).ranked(1);
     bind(component.jobOperationDispatcher()).to(JobOperationDispatcher.class).ranked(1);
     bind(component.statisticDispatcher()).to(StatisticDispatcher.class).ranked(1);
+    bindHostServices();
+  }
+
+  /**
+   * Binds the host services the REST resources and filters inject besides the dispatchers. The
+   * access-control services exist only when authorization is enabled, so they are bound only then;
+   * a resource that runs without them injects them as {@code @Optional}.
+   */
+  private void bindHostServices() {
+    bind(component.config()).to(Config.class).ranked(1);
+    bind(component.eventBus()).to(EventBus.class).ranked(1);
+    bind(component.idGenerator()).to(IdGenerator.class).ranked(1);
+    bind(component.entityStore()).to(EntityStore.class).ranked(1);
+    bind(component.catalogManager()).to(CatalogManager.class).ranked(1);
+    bind(component.auxiliaryServiceManager()).to(AuxiliaryServiceManager.class).ranked(1);
+    bind(component.internalTableDispatcher())
+        .to(TableDispatcher.class)
+        .qualifiedBy(InternalQualifier.INSTANCE)
+        .ranked(InternalQualifier.RANK);
+    if (enableAuthorization) {
+      bind(component.accessControlDispatcher()).to(AccessControlDispatcher.class).ranked(1);
+      bind(component.ownerDispatcher()).to(OwnerDispatcher.class).ranked(1);
+      bind(component.internalOwnerDispatcher())
+          .to(OwnerDispatcher.class)
+          .qualifiedBy(InternalQualifier.INSTANCE)
+          .ranked(InternalQualifier.RANK);
+      bind(component.bulkManager()).to(BulkManager.class).ranked(1);
+    }
   }
 }

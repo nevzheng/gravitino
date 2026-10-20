@@ -40,6 +40,19 @@ public interface GravitinoAuthorizer extends Closeable {
   void initialize();
 
   /**
+   * Initializes the authorizer with the host services it may use.
+   *
+   * <p>The Gravitino server initializes its authorizer through this method. The default ignores the
+   * context and calls {@link #initialize()}, so an authorizer that does not override it behaves as
+   * before.
+   *
+   * @param context the host services
+   */
+  default void initialize(AuthorizerContext context) {
+    initialize();
+  }
+
+  /**
    * Perform authorization and return the authorization result.
    *
    * @param principal the user principal

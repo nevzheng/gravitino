@@ -20,6 +20,7 @@ package org.apache.gravitino.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.RETURNS_MOCKS;
@@ -28,8 +29,15 @@ import static org.mockito.Mockito.when;
 
 import java.util.Set;
 import java.util.TreeSet;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
+import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -43,12 +51,14 @@ import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lineage.LineageDispatcher;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.stats.StatisticDispatcher;
+import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.glassfish.hk2.api.ActiveDescriptor;
 import org.glassfish.hk2.api.InterceptionService;
@@ -62,7 +72,7 @@ public class TestGravitinoComponentBinder {
 
   @Test
   public void testBindsWhatTheProvisionMethodsReturn() {
-    GravitinoComponent component = mock(GravitinoComponent.class);
+    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
     MetalakeDispatcher metalakes = mock(MetalakeDispatcher.class);
     CatalogDispatcher catalogs = mock(CatalogDispatcher.class);
     SchemaDispatcher schemas = mock(SchemaDispatcher.class);
@@ -139,10 +149,16 @@ public class TestGravitinoComponentBinder {
           descriptors(
               new GravitinoComponentBinder(
                   mock(GravitinoComponent.class, RETURNS_MOCKS), enableAuthorization, lineage));
+      GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
+      if (!enableAuthorization) {
+        // The environment builds no access-control services when authorization is disabled.
+        when(env.accessControlDispatcher()).thenReturn(null);
+        when(env.ownerDispatcher()).thenReturn(null);
+        when(env.internalOwnerDispatcher()).thenReturn(null);
+        when(env.bulkManager()).thenReturn(null);
+      }
       Set<String> fromEnvironment =
-          descriptors(
-              new GravitinoEnvBinder(
-                  mock(GravitinoEnv.class, RETURNS_MOCKS), enableAuthorization, lineage));
+          descriptors(new GravitinoEnvBinder(env, enableAuthorization, lineage));
 
       assertEquals(fromEnvironment, fromComponent);
       assertEquals(
@@ -150,6 +166,68 @@ public class TestGravitinoComponentBinder {
           fromComponent.stream().anyMatch(d -> d.contains(InterceptionService.class.getName())));
       assertTrue(fromComponent.stream().anyMatch(d -> d.contains(TableDispatcher.class.getName())));
       assertFalse(fromComponent.isEmpty());
+    }
+  }
+
+  @Test
+  public void testBindsTheHostServicesOfTheComponent() {
+    for (boolean enableAuthorization : new boolean[] {false, true}) {
+      GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+      Config config = mock(Config.class);
+      EventBus eventBus = mock(EventBus.class);
+      IdGenerator idGenerator = mock(IdGenerator.class);
+      EntityStore entityStore = mock(EntityStore.class);
+      CatalogManager catalogManager = mock(CatalogManager.class);
+      AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
+      TableDispatcher tables = mock(TableDispatcher.class);
+      TableDispatcher internalTables = mock(TableDispatcher.class);
+      AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
+      OwnerDispatcher owners = mock(OwnerDispatcher.class);
+      OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
+      BulkManager bulkManager = mock(BulkManager.class);
+      when(component.config()).thenReturn(config);
+      when(component.eventBus()).thenReturn(eventBus);
+      when(component.idGenerator()).thenReturn(idGenerator);
+      when(component.entityStore()).thenReturn(entityStore);
+      when(component.catalogManager()).thenReturn(catalogManager);
+      when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
+      when(component.tableDispatcher()).thenReturn(tables);
+      when(component.internalTableDispatcher()).thenReturn(internalTables);
+      when(component.accessControlDispatcher()).thenReturn(accessControl);
+      when(component.ownerDispatcher()).thenReturn(owners);
+      when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
+      when(component.bulkManager()).thenReturn(bulkManager);
+
+      ServiceLocator locator =
+          ServiceLocatorUtilities.bind(
+              new GravitinoComponentBinder(
+                  component, enableAuthorization, mock(LineageDispatcher.class)));
+      try {
+        assertSame(config, locator.getService(Config.class));
+        assertSame(eventBus, locator.getService(EventBus.class));
+        assertSame(idGenerator, locator.getService(IdGenerator.class));
+        assertSame(entityStore, locator.getService(EntityStore.class));
+        assertSame(catalogManager, locator.getService(CatalogManager.class));
+        assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
+        assertSame(tables, locator.getService(TableDispatcher.class));
+        assertSame(
+            internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
+        if (enableAuthorization) {
+          assertSame(accessControl, locator.getService(AccessControlDispatcher.class));
+          assertSame(owners, locator.getService(OwnerDispatcher.class));
+          assertSame(
+              internalOwners,
+              locator.getService(OwnerDispatcher.class, InternalQualifier.INSTANCE));
+          assertSame(bulkManager, locator.getService(BulkManager.class));
+        } else {
+          assertNull(locator.getService(AccessControlDispatcher.class));
+          assertNull(locator.getService(OwnerDispatcher.class));
+          assertNull(locator.getService(OwnerDispatcher.class, InternalQualifier.INSTANCE));
+          assertNull(locator.getService(BulkManager.class));
+        }
+      } finally {
+        locator.shutdown();
+      }
     }
   }
 
