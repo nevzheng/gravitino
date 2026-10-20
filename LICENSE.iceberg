@@ -235,6 +235,7 @@
    Apache Curator Client
    Apache Curator Framework
    Apache Curator Recipes
+   Dagger
    DataNucleus
    Apache Derby
    Dropwizard Hadoop Metrics
@@ -278,6 +279,7 @@
    Jackson Parameter Names
    Jackson Xml Compatibility Extensions
    Jakarta Annotations
+   Jakarta Dependency Injection
    Apache Tomcat
    Java XMLBuilder
    Javax Inject
@@ -290,6 +292,7 @@
    JetS3t
    JJWT
    Joda Time
+   JSpecify
    Apache Kerby
    Apache Thrift
    Apache Log4j

@@ -212,6 +212,7 @@
    Apache Log4j Core
    Apache Log4j Layout Template JSON
    Apache Log4j SLF4J 2.0 Binding
+   Dagger
    Dropwizard Metrics Core
    Dropwizard Metrics Jersey2
    Dropwizard Metrics JMX
@@ -233,6 +234,9 @@
    Jackson JAXRS Base
    Jackson JAXRS JSON Provider
    Jackson Module JAXB Annotations
+   Jakarta Dependency Injection
+   Javax Inject
+   JSpecify
    LanceDB Lance Namespace Core
    LanceDB Lance Namespace Apache Client
    Apache Arrow Vector
