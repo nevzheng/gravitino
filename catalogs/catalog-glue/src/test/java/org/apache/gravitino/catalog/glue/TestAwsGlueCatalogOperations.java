@@ -101,10 +101,12 @@ class TestAwsGlueCatalogOperations {
         ops.dropTable(t);
       }
     } catch (Exception ignored) {
+      // Best-effort cleanup; ignore failures.
     }
     try {
       ops.dropSchema(NameIdentifier.of(NS, TEST_SCHEMA), true);
     } catch (Exception ignored) {
+      // Best-effort cleanup; ignore failures.
     }
     ops.glueClient.close();
   }

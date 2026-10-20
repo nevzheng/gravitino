@@ -1045,11 +1045,12 @@ public class CatalogHive2IT extends BaseIT {
 
     // test partitioned table
     Table createdTable = preparePartitionedTable();
-    String insertTemplate =
-        "INSERT INTO TABLE %s.%s "
-            + "PARTITION (hive_col_name2='2023-01-02', hive_col_name3='gravitino_it_test2') "
-            + "VALUES %s, %s";
-    sparkSession.sql(String.format(insertTemplate, schemaName, createdTable.name(), "(1)", "(2)"));
+    sparkSession.sql(
+        String.format(
+            "INSERT INTO TABLE %s.%s "
+                + "PARTITION (hive_col_name2='2023-01-02', hive_col_name3='gravitino_it_test2') "
+                + "VALUES %s, %s",
+            schemaName, createdTable.name(), "(1)", "(2)"));
 
     // update partition stats
     String partition1 = "hive_col_name2='2023-01-01', hive_col_name3='gravitino_it_test'";
@@ -1134,19 +1135,19 @@ public class CatalogHive2IT extends BaseIT {
     long count = sparkSession.sql(sql).count();
     Assertions.assertEquals(0, count);
 
-    String insertTemplate =
-        "INSERT INTO TABLE %s.%s PARTITION (hive_col_name2='2023-01-02', hive_col_name3) VALUES (%s, %s)";
     sparkSession.sql(
         String.format(
-            insertTemplate, schemaName, createdTable.name(), "1", "'gravitino_it_test2'"));
+            "INSERT INTO TABLE %s.%s PARTITION (hive_col_name2='2023-01-02', hive_col_name3) VALUES (%s, %s)",
+            schemaName, createdTable.name(), "1", "'gravitino_it_test2'"));
     count =
         sparkSession.sql(String.format(selectTemplate, schemaName, createdTable.name())).count();
     Assertions.assertEquals(1, count);
 
     // test the new partition can be read and write successfully by static partition
-    String insertTemplate2 =
-        "INSERT INTO TABLE %s.%s PARTITION (hive_col_name2='2023-01-02', hive_col_name3='gravitino_it_test2') VALUES (%s)";
-    sparkSession.sql(String.format(insertTemplate2, schemaName, createdTable.name(), "2"));
+    sparkSession.sql(
+        String.format(
+            "INSERT INTO TABLE %s.%s PARTITION (hive_col_name2='2023-01-02', hive_col_name3='gravitino_it_test2') VALUES (%s)",
+            schemaName, createdTable.name(), "2"));
     count =
         sparkSession.sql(String.format(selectTemplate, schemaName, createdTable.name())).count();
     Assertions.assertEquals(2, count);

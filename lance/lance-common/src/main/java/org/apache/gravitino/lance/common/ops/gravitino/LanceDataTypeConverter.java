@@ -127,6 +127,8 @@ public class LanceDataTypeConverter implements DataTypeConverter<ArrowType, Fiel
                             t.simpleString(), t, true /*nullable*/) // union members are nullable
                     )
                 .toList();
+        // Arrow's own union type ids are MinorType ordinals.
+        @SuppressWarnings("EnumOrdinal")
         int[] typeIds =
             types.stream()
                 .mapToInt(

@@ -166,7 +166,8 @@ node-plugin = "7.0.1"
 commons-cli = "1.2"
 commons-cli-new = "1.9.0"
 sun-activation-version = "1.2.0"
-error-prone = "3.1.0"
+error-prone = "2.42.0"
+error-prone-plugin = "5.1.1"
 woodstox-core = "6.5.1"
 mail = "1.4.1"
 rome = "1.0"
@@ -403,6 +404,7 @@ jcasbin = { group='org.casbin', name='jcasbin', version.ref="jcasbin" }
 openlineage-java= { group = "io.openlineage", name = "openlineage-java", version.ref = "openlineage" }
 ognl = { group='ognl', name='ognl', version.ref="ognl" }
 ql-expression = { group='com.alibaba', name='qlexpress4', version.ref="ql-expression" }
+errorprone-core = { group = "com.google.errorprone", name = "error_prone_core", version.ref = "error-prone" }
 
 [bundles]
 log4j = ["slf4j-api", "log4j-slf4j2-impl", "log4j-api", "log4j-core", "log4j-12-api", "log4j-layout-template-json"]
@@ -425,7 +427,7 @@ node = { id = "com.github.node-gradle.node", version.ref = "node-plugin" }
 tasktree = {id = "com.dorongold.task-tree", version = "2.1.1"}
 dependencyLicenseReport = {id = "com.github.jk1.dependency-license-report", version = "2.9"}
 bom = {id = "org.cyclonedx.bom", version = "1.5.0"}
-errorprone = {id = "net.ltgt.errorprone", version.ref = "error-prone"}
+errorprone = {id = "net.ltgt.errorprone", version.ref = "error-prone-plugin"}
 jcstress = { id = "io.github.reyerizo.gradle.jcstress", version.ref = "jcstress" }
 jmh = { id = "me.champeau.jmh", version.ref = "jmh-plugin" }
 aspectj-post-compile-weaving = { id = "io.freefair.aspectj.post-compile-weaving", version = "8.14.2" }

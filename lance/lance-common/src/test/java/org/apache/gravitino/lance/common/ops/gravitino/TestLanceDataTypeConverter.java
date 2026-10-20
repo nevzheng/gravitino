@@ -497,6 +497,8 @@ public class TestLanceDataTypeConverter {
     assertEquals(mapField, CONVERTER.toArrowField("images", type, true));
   }
 
+  // Arrow's own union type ids are MinorType ordinals.
+  @SuppressWarnings("EnumOrdinal")
   @Test
   void testUnionWithBlobChildConvertsToNativeUnion() {
     Field unionField =

@@ -55,8 +55,7 @@ class TestJdbcDatabaseDrop {
       Mockito.verify(statement, Mockito.never()).executeUpdate(Mockito.anyString());
     } else {
       Assertions.assertTrue(operations.delete("nonempty_schema", cascade));
-      Mockito.verify(statement)
-          .executeUpdate("DROP DATABASE `nonempty_schema`" + (cascade ? "" : ""));
+      Mockito.verify(statement).executeUpdate("DROP DATABASE `nonempty_schema`");
     }
     if (cascade) {
       Mockito.verify(statement, Mockito.never()).executeQuery(Mockito.anyString());

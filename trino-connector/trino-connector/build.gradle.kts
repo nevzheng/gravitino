@@ -40,7 +40,7 @@ java {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-  options.errorprone.isEnabled.set(false)
+  options.errorprone.enabled.set(false)
   options.release.set(17)
 }
 

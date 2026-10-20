@@ -326,25 +326,21 @@ class FilesetCatalog extends BaseSchemaCatalog
   @VisibleForTesting
   static String formatFilesetRequestPath(Namespace ns) {
     Namespace schemaNs = Namespace.of(ns.level(0), ns.level(1));
-    return new StringBuilder()
-        .append(formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(ns.level(2)))
-        .append("/filesets")
-        .toString();
+    return formatSchemaRequestPath(schemaNs)
+        + "/"
+        + RESTUtils.encodeString(ns.level(2))
+        + "/filesets";
   }
 
   @VisibleForTesting
   static String formatFileLocationRequestPath(Namespace ns, String name) {
     Namespace schemaNs = Namespace.of(ns.level(0), ns.level(1));
-    return new StringBuilder()
-        .append(formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(ns.level(2)))
-        .append("/filesets/")
-        .append(RESTUtils.encodeString(name))
-        .append("/location")
-        .toString();
+    return formatSchemaRequestPath(schemaNs)
+        + "/"
+        + RESTUtils.encodeString(ns.level(2))
+        + "/filesets/"
+        + RESTUtils.encodeString(name)
+        + "/location";
   }
 
   /**

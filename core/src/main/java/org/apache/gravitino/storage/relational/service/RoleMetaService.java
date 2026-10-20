@@ -659,6 +659,9 @@ public class RoleMetaService {
       return type + "(" + observed.entityId() + ")";
     }
 
+    // Only the relative order matters and it is never persisted, so the ordinal is a stable
+    // enough tie-breaker within one server process.
+    @SuppressWarnings("EnumOrdinal")
     private static int lockOrder(Entity.EntityType type) {
       // Relation writers take ordinary metadata endpoints before tags and policies, and
       // PolicyTagRelService locks tags before policies.

@@ -960,15 +960,7 @@ public class TestTableOperations extends BaseOperationsTest {
   }
 
   private static String tablePath(String metalake, String catalog, String schema) {
-    return new StringBuilder()
-        .append("/metalakes/")
-        .append(metalake)
-        .append("/catalogs/")
-        .append(catalog)
-        .append("/schemas/")
-        .append(schema)
-        .append("/tables/")
-        .toString();
+    return "/metalakes/" + metalake + "/catalogs/" + catalog + "/schemas/" + schema + "/tables/";
   }
 
   public static Column mockColumn(String name, Type type) {
