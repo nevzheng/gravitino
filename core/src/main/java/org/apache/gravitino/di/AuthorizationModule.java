@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.di;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
@@ -27,9 +28,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
-import org.apache.gravitino.authorization.FutureGrantManager;
-import org.apache.gravitino.authorization.OwnerDispatcher;
-import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.hook.AccessControlHookDispatcher;
 import org.apache.gravitino.listener.AccessControlEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
@@ -37,8 +36,8 @@ import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.storage.IdGenerator;
 
 /**
- * Binds the access-control components: the access control manager and its public chain, the bulk
- * manager and the future grant manager.
+ * Binds the access-control components: the access control manager and its chains. The bulk manager
+ * and the future grant manager have {@code @Inject} constructors, so they need no binding here.
  *
  * <p>The {@link Internal} access-control binding is the manager itself; the {@link Public} one is
  * event → hook → that manager. Each is wrapped in its {@link DispatcherDecorator decorators}; the
@@ -91,16 +90,6 @@ abstract class AuthorizationModule {
         decorators);
   }
 
-  @Provides
-  @Singleton
-  static BulkManager bulkManager(Config config) {
-    return new BulkManager(config);
-  }
-
-  @Provides
-  @Singleton
-  static FutureGrantManager futureGrantManager(
-      EntityStore entityStore, @Internal OwnerDispatcher ownerDispatcher) {
-    return new FutureGrantManager(entityStore, ownerDispatcher);
-  }
+  @Binds
+  abstract AuthorizationServices authorizationServices(ComponentAuthorizationServices services);
 }

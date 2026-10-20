@@ -124,17 +124,21 @@ public class TestGravitinoEnvComponent {
     try {
       env.initializeBaseComponents(new Config(false) {});
       assertSame(NoopGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
-      assertSame(NoopGravitinoAuthorizer.INSTANCE, env.component().gravitinoAuthorizer());
+      assertSame(
+          NoopGravitinoAuthorizer.INSTANCE,
+          env.component().authorizationServices().gravitinoAuthorizer());
 
       // The server installs its authorizer after the component is built.
       GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
       env.setGravitinoAuthorizer(installed);
       assertSame(installed, env.gravitinoAuthorizer());
-      assertSame(installed, env.component().gravitinoAuthorizer());
+      assertSame(installed, env.component().authorizationServices().gravitinoAuthorizer());
 
       env.setGravitinoAuthorizer(null);
       assertSame(NoopGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
-      assertSame(NoopGravitinoAuthorizer.INSTANCE, env.component().gravitinoAuthorizer());
+      assertSame(
+          NoopGravitinoAuthorizer.INSTANCE,
+          env.component().authorizationServices().gravitinoAuthorizer());
     } finally {
       env.shutdown();
     }
@@ -148,17 +152,21 @@ public class TestGravitinoEnvComponent {
     try {
       env.initializeBaseComponents(config);
       assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
-      assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.component().gravitinoAuthorizer());
+      assertSame(
+          DenyAllGravitinoAuthorizer.INSTANCE,
+          env.component().authorizationServices().gravitinoAuthorizer());
 
       GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
       env.setGravitinoAuthorizer(installed);
       assertSame(installed, env.gravitinoAuthorizer());
-      assertSame(installed, env.component().gravitinoAuthorizer());
+      assertSame(installed, env.component().authorizationServices().gravitinoAuthorizer());
 
       // The server takes its authorizer back while it shuts down.
       env.setGravitinoAuthorizer(null);
       assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
-      assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.component().gravitinoAuthorizer());
+      assertSame(
+          DenyAllGravitinoAuthorizer.INSTANCE,
+          env.component().authorizationServices().gravitinoAuthorizer());
     } finally {
       env.shutdown();
     }

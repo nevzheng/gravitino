@@ -192,7 +192,7 @@ public class TestGravitinoComponent {
 
   @Test
   public void testAuthorizerComesFromTheBridge() {
-    assertSame(legacy.gravitinoAuthorizer, component.gravitinoAuthorizer());
+    assertSame(legacy.gravitinoAuthorizer, component.authorizationServices().gravitinoAuthorizer());
   }
 
   static class FakeLegacyBridge implements LegacyBridge {

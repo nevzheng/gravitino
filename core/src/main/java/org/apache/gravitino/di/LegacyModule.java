@@ -20,14 +20,17 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import java.util.function.Supplier;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 
 /**
  * Binds the objects the graph does not build, read through {@link LegacyBridge}.
  *
- * <p>The bindings are unscoped on purpose: the bridge owns these objects, so every request reads
- * the bridge again instead of caching a copy in the graph. This module shrinks as areas move into
- * their own modules, and is deleted when the migration is complete.
+ * <p>The bridge owns these objects and may replace them after the graph is built, so each is bound
+ * as a {@link Supplier} that reads the bridge on every call, never as the bare type: a consumer
+ * that took the bare type would keep whatever the bridge held when the consumer was built. This
+ * module shrinks as areas move into their own modules, and is deleted when the migration is
+ * complete.
  */
 // The server closes the authorizer; the graph only hands it out.
 @SuppressWarnings("CloseableProvides")
@@ -36,8 +39,13 @@ abstract class LegacyModule {
 
   private LegacyModule() {}
 
+  /**
+   * Binds the authorizer the server installed. The server installs it after the component is built
+   * and takes it back while it shuts down, so call {@link Supplier#get()} on each check rather than
+   * keeping its result.
+   */
   @Provides
-  static GravitinoAuthorizer gravitinoAuthorizer(LegacyBridge legacy) {
-    return legacy.gravitinoAuthorizer();
+  static Supplier<GravitinoAuthorizer> gravitinoAuthorizer(LegacyBridge legacy) {
+    return legacy::gravitinoAuthorizer;
   }
 }

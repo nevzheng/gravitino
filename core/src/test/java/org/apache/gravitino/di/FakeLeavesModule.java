@@ -20,6 +20,7 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import java.util.function.Supplier;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -66,8 +67,8 @@ abstract class FakeLeavesModule {
   }
 
   @Provides
-  static GravitinoAuthorizer gravitinoAuthorizer(FakeLeaves leaves) {
-    return leaves.gravitinoAuthorizer;
+  static Supplier<GravitinoAuthorizer> gravitinoAuthorizer(FakeLeaves leaves) {
+    return () -> leaves.gravitinoAuthorizer;
   }
 
   @Provides

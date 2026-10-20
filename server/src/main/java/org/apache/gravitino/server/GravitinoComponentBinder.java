@@ -136,7 +136,7 @@ class GravitinoComponentBinder extends AbstractBinder {
         .ranked(InternalQualifier.RANK);
     bind(new MetadataAccessChecker(
             component.config(),
-            component::gravitinoAuthorizer,
+            component.authorizationServices()::gravitinoAuthorizer,
             component::entityStore,
             component::internalSchemaDispatcher))
         .to(MetadataAccessChecker.class)

@@ -19,11 +19,14 @@
 package org.apache.gravitino.di;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
+import java.lang.reflect.Method;
+import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.junit.jupiter.api.Test;
@@ -36,15 +39,15 @@ public class TestLegacyBridge {
     TestGravitinoComponent.FakeLegacyBridge legacy = new TestGravitinoComponent.FakeLegacyBridge();
     GravitinoComponent component =
         DaggerGravitinoComponent.factory().create(new Config(false) {}, legacy);
-    GravitinoAuthorizer first = component.gravitinoAuthorizer();
+    GravitinoAuthorizer first = component.authorizationServices().gravitinoAuthorizer();
 
     // The server installs its authorizer after the component is built.
     GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
     legacy.gravitinoAuthorizer = installed;
 
     // The bridge owns the authorizer, so the graph must not cache what it read before.
-    assertSame(installed, component.gravitinoAuthorizer());
-    assertNotSame(first, component.gravitinoAuthorizer());
+    assertSame(installed, component.authorizationServices().gravitinoAuthorizer());
+    assertNotSame(first, component.authorizationServices().gravitinoAuthorizer());
   }
 
   @Test
@@ -57,7 +60,9 @@ public class TestLegacyBridge {
         DaggerGravitinoComponent.factory().create(new Config(false) {}, failing);
 
     IllegalStateException exception =
-        assertThrows(IllegalStateException.class, component::gravitinoAuthorizer);
+        assertThrows(
+            IllegalStateException.class,
+            () -> component.authorizationServices().gravitinoAuthorizer());
     assertEquals("no authorizer", exception.getMessage());
   }
 
@@ -76,5 +81,30 @@ public class TestLegacyBridge {
     component.metricsSystem();
     component.secretManager();
     component.eventBus();
+    // Building the services that hand out the authorizer does not read it either.
+    component.authorizationServices();
+  }
+
+  @Test
+  public void testTheAuthorizerIsBoundOnlyBehindASupplier() {
+    // The authorizer changes after the graph is built, so a binding of the bare type would let a
+    // consumer keep the authorizer that was installed when it was built.
+    for (Method method : GravitinoComponent.class.getMethods()) {
+      assertNotEquals(GravitinoAuthorizer.class, method.getReturnType(), method.getName());
+    }
+    for (Method method : LegacyModule.class.getDeclaredMethods()) {
+      assertNotEquals(GravitinoAuthorizer.class, method.getReturnType(), method.getName());
+    }
+  }
+
+  @Test
+  public void testTheSupplierReadsTheBridgeOnEveryCall() {
+    TestGravitinoComponent.FakeLegacyBridge legacy = new TestGravitinoComponent.FakeLegacyBridge();
+    Supplier<GravitinoAuthorizer> authorizer = LegacyModule.gravitinoAuthorizer(legacy);
+    GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
+
+    legacy.gravitinoAuthorizer = installed;
+
+    assertSame(installed, authorizer.get());
   }
 }
