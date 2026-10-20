@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -110,6 +111,34 @@ public class TestAuxiliaryServiceManager {
     spyAuxManager.serviceStop();
     verify(auxService, times(1)).serviceStop();
     verify(auxService2, times(1)).serviceStop();
+  }
+
+  @Test
+  public void testServicesAreInitializedWithTheContext() throws Exception {
+    GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);
+    AuxiliaryContext context = mock(AuxiliaryContext.class);
+    IsolatedClassLoader isolatedClassLoader =
+        new IsolatedClassLoader(
+            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+    AuxiliaryServiceManager spyAuxManager = spy(new AuxiliaryServiceManager(context));
+    doReturn(isolatedClassLoader).when(spyAuxManager).getIsolatedClassLoader(anyList());
+    doReturn(auxService).when(spyAuxManager).loadAuxService("mock1", isolatedClassLoader);
+
+    spyAuxManager.serviceInit(
+        DummyConfig.of(
+            ImmutableMap.of(
+                AuxiliaryServiceManager.GRAVITINO_AUX_SERVICE_PREFIX
+                    + AuxiliaryServiceManager.AUX_SERVICE_NAMES,
+                "mock1",
+                "gravitino.mock1." + AuxiliaryServiceManager.AUX_SERVICE_CLASSPATH,
+                "/tmp",
+                "gravitino.mock1.key",
+                "value")));
+
+    verify(auxService)
+        .serviceInit(ImmutableMap.of("classpath", "/tmp", "key", "value"), true, context);
+    verify(auxService, never()).serviceInit(any(), anyBoolean());
   }
 
   @Test
