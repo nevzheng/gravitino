@@ -62,7 +62,7 @@ import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.server.authorization.AuthorizationRequestScope;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.storage.relational.po.auth.UserUpdatedAt;
@@ -352,6 +352,9 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
       when(env.config()).thenReturn(config);
       when(config.get(Configs.ENABLE_AUTHORIZATION)).thenReturn(true);
       when(config.get(Configs.GRAVITINO_AUTHORIZATION_THREAD_POOL_SIZE)).thenReturn(2);
+      when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
+      MetadataAccessChecker accessChecker =
+          new MetadataAccessChecker(config, () -> authorizer, () -> null, () -> null);
       principalUtils.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
       authorizationUtils
           .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any()))
@@ -392,7 +395,7 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
       when(invocation.proceed())
           .thenAnswer(
               unused ->
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       "metalake",
                       AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.TABLE,

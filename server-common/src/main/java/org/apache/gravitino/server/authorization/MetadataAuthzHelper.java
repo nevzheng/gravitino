@@ -37,7 +37,11 @@ import org.apache.gravitino.server.authorization.expression.AuthorizationExpress
  *
  * <p>Each method delegates to a {@link MetadataAccessChecker} that reads {@code
  * GravitinoEnv.getInstance()} and {@link GravitinoAuthorizerProvider#getInstance()} when it checks.
+ *
+ * @deprecated Take a {@link MetadataAccessChecker} through the constructor instead; the server
+ *     binds one into HK2. This class is deleted with {@code GravitinoEnv}.
  */
+@Deprecated
 public class MetadataAuthzHelper {
 
   // Reads the process environment and the authorizer provider on every check, as this class did
@@ -63,7 +67,9 @@ public class MetadataAuthzHelper {
    * @param metalakes the metalakes to filter
    * @param expression the authorization expression
    * @return the metalakes the current user has access to
+   * @deprecated Use {@link MetadataAccessChecker#filterMetalakes(Metalake[], String)}.
    */
+  @Deprecated
   public static Metalake[] filterMetalakes(Metalake[] metalakes, String expression) {
     return processChecker().filterMetalakes(metalakes, expression);
   }
@@ -74,7 +80,10 @@ public class MetadataAuthzHelper {
    * @param metalake The metalake name
    * @param metadataObjects The array of metadata object DTOs to filter
    * @return Filtered array of metadata object DTOs that the current user has access to
+   * @deprecated Use {@link MetadataAccessChecker#filterMetadataObject(String,
+   *     MetadataObjectDTO[])}.
    */
+  @Deprecated
   public static MetadataObjectDTO[] filterMetadataObject(
       String metalake, MetadataObjectDTO[] metadataObjects) {
     return processChecker().filterMetadataObject(metalake, metadataObjects);
@@ -86,7 +95,9 @@ public class MetadataAuthzHelper {
    * @param metalake The metalake name
    * @param metadataObjects The array of metadata objects to filter
    * @return Filtered array of metadata objects that the current user has access to
+   * @deprecated Use {@link MetadataAccessChecker#filterMetadataObject(String, MetadataObject[])}.
    */
+  @Deprecated
   public static MetadataObject[] filterMetadataObject(
       String metalake, MetadataObject[] metadataObjects) {
     return processChecker().filterMetadataObject(metalake, metadataObjects);
@@ -100,7 +111,10 @@ public class MetadataAuthzHelper {
    * @param entityType for example, CATALOG, SCHEMA,TABLE, etc.
    * @param nameIdentifiers metaData list.
    * @return metadata List that the user has permission to access.
+   * @deprecated Use {@link MetadataAccessChecker#filterByExpression(String, String,
+   *     Entity.EntityType, NameIdentifier[])}.
    */
+  @Deprecated
   public static NameIdentifier[] filterByExpression(
       String metalake,
       String expression,
@@ -116,7 +130,10 @@ public class MetadataAuthzHelper {
    * @param entityType for example, CATALOG, SCHEMA,TABLE, etc.
    * @param expression authorization expression
    * @return whether it has access to the metadata
+   * @deprecated Use {@link MetadataAccessChecker#checkAccess(NameIdentifier, Entity.EntityType,
+   *     String)}.
    */
+  @Deprecated
   public static boolean checkAccess(
       NameIdentifier identifier, Entity.EntityType entityType, String expression) {
     return processChecker().checkAccess(identifier, entityType, expression);
@@ -132,7 +149,10 @@ public class MetadataAuthzHelper {
    * @param toNameIdentifier convert to NameIdentifier
    * @return Filtered Metadata Entity
    * @param <E> Entity class
+   * @deprecated Use {@link MetadataAccessChecker#filterByExpression(String, String,
+   *     Entity.EntityType, Object[], Function)}.
    */
+  @Deprecated
   public static <E> E[] filterByExpression(
       String metalake,
       String expression,
@@ -156,7 +176,10 @@ public class MetadataAuthzHelper {
    * @param authorizer The authorizer to use for the authorization check.
    * @return Filtered Metadata Entity
    * @param <E> Entity class
+   * @deprecated Use {@link MetadataAccessChecker#filterByExpression(String, String,
+   *     Entity.EntityType, Object[], Function, Principal, GravitinoAuthorizer)}.
    */
+  @Deprecated
   public static <E> E[] filterByExpression(
       String metalake,
       String expression,
@@ -183,7 +206,9 @@ public class MetadataAuthzHelper {
    * deprecated constructor.
    *
    * @return the process-wide checker.
+   * @deprecated Take a {@link MetadataAccessChecker} through the constructor instead.
    */
+  @Deprecated
   public static MetadataAccessChecker processChecker() {
     return PROCESS_CHECKER;
   }

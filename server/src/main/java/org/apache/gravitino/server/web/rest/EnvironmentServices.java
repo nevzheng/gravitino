@@ -47,7 +47,9 @@ final class EnvironmentServices {
    * Returns the checker that reads the process environment on every check.
    *
    * @return the process-wide metadata access checker.
+   * @deprecated Only the deprecated resource constructors call this; it is deleted with them.
    */
+  @Deprecated
   static MetadataAccessChecker metadataAccessChecker() {
     return MetadataAuthzHelper.processChecker();
   }

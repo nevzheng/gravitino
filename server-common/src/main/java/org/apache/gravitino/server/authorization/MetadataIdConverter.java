@@ -30,7 +30,11 @@ import org.apache.gravitino.annotation.LegacyEnvAccess;
  *
  * <p>Each method builds a {@link MetadataIdResolver} over the catalog manager and entity store of
  * {@code GravitinoEnv.getInstance()} and delegates to it.
+ *
+ * @deprecated Use a {@link MetadataIdResolver} built from the host services. This class is deleted
+ *     with {@code GravitinoEnv}.
  */
+@Deprecated
 public class MetadataIdConverter {
 
   private MetadataIdConverter() {}
@@ -41,7 +45,9 @@ public class MetadataIdConverter {
    * @param metadataObject The metadata object to convert.
    * @param metalake The metalake name.
    * @return The metadata id, empty if metadata does not exist.
+   * @deprecated Use {@link MetadataIdResolver#getID(MetadataObject, String)}.
    */
+  @Deprecated
   public static Optional<Long> getID(MetadataObject metadataObject, String metalake) {
     return processResolver().getID(metadataObject, metalake);
   }
@@ -52,7 +58,9 @@ public class MetadataIdConverter {
    * @param metadataObject the previously normalized metadata object
    * @param metalake the metalake name
    * @return the metadata ID, or empty if the entity does not exist
+   * @deprecated Use {@link MetadataIdResolver#getIdForNormalizedObject(MetadataObject, String)}.
    */
+  @Deprecated
   public static Optional<Long> getIdForNormalizedObject(
       MetadataObject metadataObject, String metalake) {
     return processResolver().getIdForNormalizedObject(metadataObject, metalake);
@@ -64,7 +72,9 @@ public class MetadataIdConverter {
    * @param metadataObject the object whose name will be normalized
    * @param metalake the metalake name
    * @return the normalized object, suitable for name-to-ID cache keys
+   * @deprecated Use {@link MetadataIdResolver#normalizeMetadataObject(MetadataObject, String)}.
    */
+  @Deprecated
   public static MetadataObject normalizeMetadataObject(
       MetadataObject metadataObject, String metalake) {
     return processResolver().normalizeMetadataObject(metadataObject, metalake);
@@ -74,7 +84,10 @@ public class MetadataIdConverter {
    * Returns the immutable set of metadata types with catalog-scoped normalization rules.
    *
    * @return the types covered by the production capability mapping
+   * @deprecated Use {@link MetadataIdResolver#catalogScopedTypes()}.
    */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public static Set<MetadataObject.Type> catalogScopedTypes() {
     return MetadataIdResolver.catalogScopedTypes();
   }

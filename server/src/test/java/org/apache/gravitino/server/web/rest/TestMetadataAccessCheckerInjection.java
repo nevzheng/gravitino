@@ -72,6 +72,7 @@ public class TestMetadataAccessCheckerInjection {
   }
 
   @Test
+  @SuppressWarnings("deprecation")
   public void testDeprecatedConstructorsUseTheProcessChecker() {
     Assertions.assertSame(
         MetadataAuthzHelper.processChecker(), EnvironmentServices.metadataAccessChecker());
