@@ -57,6 +57,21 @@ public interface Authenticator {
   void initialize(Config config) throws RuntimeException;
 
   /**
+   * Initialize the authenticator with the services the server built.
+   *
+   * <p>The server calls this method in place of {@link #initialize(Config)}. The default ignores
+   * the context and calls {@link #initialize(Config)}, so an authenticator that needs no server
+   * service implements only that method.
+   *
+   * @param config The config for authenticator
+   * @param context The server services the authenticator may use
+   * @throws RuntimeException if the initialization fails
+   */
+  default void initialize(Config config, AuthenticatorContext context) throws RuntimeException {
+    initialize(config);
+  }
+
+  /**
    * Determines if the provided token data is supported by this authenticator
    *
    * <p>This method checks if the given token data can be processed by this authenticator.

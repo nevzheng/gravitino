@@ -19,6 +19,7 @@
 
 package org.apache.gravitino.server.authentication;
 
+import com.google.common.base.Preconditions;
 import java.util.List;
 import org.apache.gravitino.Config;
 
@@ -51,6 +52,20 @@ public class ServerAuthenticator {
     this.authenticators = AuthenticatorFactory.createAuthenticators(config);
     for (Authenticator authenticator : authenticators) {
       authenticator.initialize(config);
+    }
+  }
+
+  /**
+   * Initialize the server authenticator with the services the server built.
+   *
+   * @param config The configuration object to initialize the authenticator.
+   * @param context The server services handed to each authenticator.
+   */
+  public void initialize(Config config, AuthenticatorContext context) {
+    Preconditions.checkNotNull(context, "context");
+    this.authenticators = AuthenticatorFactory.createAuthenticators(config);
+    for (Authenticator authenticator : authenticators) {
+      authenticator.initialize(config, context);
     }
   }
 
