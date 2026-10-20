@@ -21,19 +21,19 @@ package org.apache.gravitino.server.web.rest;
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.dto.responses.AuthMeResponse;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.PrincipalUtils;
+import org.jvnet.hk2.annotations.Optional;
 
 /**
  * Provides the authenticated principal information. This endpoint returns the server-resolved
@@ -47,13 +47,24 @@ public class AuthnOperations {
 
   @Context private HttpServletRequest httpRequest;
 
-  /** Creates an authenticated-principal REST resource. */
-  @LegacyEnvAccess
+  /**
+   * Creates an authenticated-principal REST resource from the process environment.
+   *
+   * @deprecated Use {@link #AuthnOperations(AccessControlDispatcher)}.
+   */
+  @Deprecated
   public AuthnOperations() {
-    this(GravitinoEnv.getInstance().accessControlDispatcher());
+    this(EnvironmentServices.processEnv().accessControlDispatcher());
   }
 
-  AuthnOperations(@Nullable AccessControlDispatcher accessControlDispatcher) {
+  /**
+   * Creates an authenticated-principal REST resource.
+   *
+   * @param accessControlDispatcher the access-control dispatcher, or null when authorization is
+   *     disabled.
+   */
+  @Inject
+  public AuthnOperations(@Optional @Nullable AccessControlDispatcher accessControlDispatcher) {
     this.accessControlDispatcher = accessControlDispatcher;
   }
 

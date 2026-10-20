@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -36,10 +38,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Group;
@@ -55,6 +55,7 @@ import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.bulk.GroupAdd;
 import org.apache.gravitino.bulk.RoleAdd;
 import org.apache.gravitino.bulk.UserAdd;
+import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.dto.authorization.GroupDTO;
 import org.apache.gravitino.dto.authorization.PrivilegeDTO;
 import org.apache.gravitino.dto.authorization.RoleDTO;
@@ -98,18 +99,40 @@ public class BulkOperations {
   private static final String DELETE_ROLE_AUTHORIZATION_EXPRESSION =
       "METALAKE::OWNER || ROLE::OWNER";
 
-  private final BulkManager bulkManager;
-  private final AccessControlDispatcher accessControlDispatcher;
-  private final OwnerDispatcher ownerDispatcher;
+  @Nullable private final BulkManager bulkManager;
+  @Nullable private final AccessControlDispatcher accessControlDispatcher;
+  @Nullable private final OwnerDispatcher ownerDispatcher;
 
   @Context private HttpServletRequest httpRequest;
 
-  /** Creates a new bulk operations resource. */
-  @LegacyEnvAccess
+  /**
+   * Creates a bulk operations resource from the process environment.
+   *
+   * @deprecated Use {@link #BulkOperations(BulkManager, AccessControlDispatcher, OwnerDispatcher)}.
+   */
+  @Deprecated
   public BulkOperations() {
-    this.bulkManager = GravitinoEnv.getInstance().bulkManager();
-    this.accessControlDispatcher = GravitinoEnv.getInstance().accessControlDispatcher();
-    this.ownerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    this(
+        EnvironmentServices.processEnv().bulkManager(),
+        EnvironmentServices.processEnv().accessControlDispatcher(),
+        EnvironmentServices.processEnv().internalOwnerDispatcher());
+  }
+
+  /**
+   * Creates a bulk operations resource. The services are absent when authorization is disabled.
+   *
+   * @param bulkManager the bulk manager, or null.
+   * @param accessControlDispatcher the access-control dispatcher, or null.
+   * @param ownerDispatcher the internal owner dispatcher, or null.
+   */
+  @Inject
+  public BulkOperations(
+      @org.jvnet.hk2.annotations.Optional @Nullable BulkManager bulkManager,
+      @org.jvnet.hk2.annotations.Optional @Nullable AccessControlDispatcher accessControlDispatcher,
+      @org.jvnet.hk2.annotations.Optional @Internal @Nullable OwnerDispatcher ownerDispatcher) {
+    this.bulkManager = bulkManager;
+    this.accessControlDispatcher = accessControlDispatcher;
+    this.ownerDispatcher = ownerDispatcher;
   }
 
   /**

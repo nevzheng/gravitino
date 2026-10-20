@@ -21,6 +21,8 @@ package org.apache.gravitino.server.web.rest;
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
 import java.util.Map;
+import java.util.function.Supplier;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -30,8 +32,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.dto.responses.IcebergRESTServiceResponse;
 import org.apache.gravitino.metrics.MetricNames;
@@ -52,7 +53,39 @@ public class IcebergRESTServiceOperations {
 
   private static final String AUX_SERVICE_NAME = "iceberg-rest";
 
+  private final Supplier<AuxiliaryServiceManager> auxServiceManager;
+  private final Supplier<Config> config;
+
   @Context private HttpServletRequest httpRequest;
+
+  /**
+   * Creates the resource from the process environment, resolved at request time.
+   *
+   * @deprecated Use {@link #IcebergRESTServiceOperations(AuxiliaryServiceManager, Config)}.
+   */
+  @Deprecated
+  public IcebergRESTServiceOperations() {
+    this(
+        () -> EnvironmentServices.processEnv().auxServiceManager(),
+        () -> EnvironmentServices.processEnv().config());
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param auxServiceManager the auxiliary service manager that runs the Iceberg REST server.
+   * @param config the server configuration, which holds the Iceberg REST server's settings.
+   */
+  @Inject
+  public IcebergRESTServiceOperations(AuxiliaryServiceManager auxServiceManager, Config config) {
+    this(() -> auxServiceManager, () -> config);
+  }
+
+  private IcebergRESTServiceOperations(
+      Supplier<AuxiliaryServiceManager> auxServiceManager, Supplier<Config> config) {
+    this.auxServiceManager = auxServiceManager;
+    this.config = config;
+  }
 
   /**
    * Reports the Iceberg REST server's endpoint for the requested metalake.
@@ -88,20 +121,16 @@ public class IcebergRESTServiceOperations {
         .build();
   }
 
-  // Overridable so tests can inject a fixture without bootstrapping GravitinoEnv, matching
-  // HealthOperations's testing pattern.
-  @LegacyEnvAccess
+  // Overridable so tests can inject a fixture, matching HealthOperations's testing pattern.
   AuxiliaryServiceManager getAuxServiceManager() {
-    return GravitinoEnv.getInstance().auxServiceManager();
+    return auxServiceManager.get();
   }
 
   // Resolved through AuxiliaryServiceManager.getAuxServiceConfig rather than reading
   // gravitino.iceberg-rest.* directly, so the deprecated gravitino.auxService.iceberg-rest.*
   // config form is honored too — the same precedence the Iceberg REST server itself sees.
-  @LegacyEnvAccess
   Map<String, String> getIcebergRestServiceConfig() {
-    return AuxiliaryServiceManager.getAuxServiceConfig(
-        GravitinoEnv.getInstance().config(), AUX_SERVICE_NAME);
+    return AuxiliaryServiceManager.getAuxServiceConfig(config.get(), AUX_SERVICE_NAME);
   }
 
   HttpServletRequest getHttpRequest() {

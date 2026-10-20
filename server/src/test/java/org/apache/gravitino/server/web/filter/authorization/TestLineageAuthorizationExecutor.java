@@ -62,11 +62,13 @@ import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
+import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.exceptions.BadRequestException;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.lineage.source.rest.LineageOperations;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
 import org.apache.gravitino.server.authorization.annotations.ExpressionCondition;
@@ -90,7 +92,8 @@ class TestLineageAuthorizationExecutor {
 
   @Test
   void testRegisterWithStandardInterceptionFlow() throws Exception {
-    GravitinoInterceptionService service = new GravitinoInterceptionService();
+    GravitinoInterceptionService service =
+        new GravitinoInterceptionService(mock(EventBus.class), mock(TableDispatcher.class));
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(LineageOperations.class.getName());
     Method method = lineageMethod();
@@ -438,7 +441,8 @@ class TestLineageAuthorizationExecutor {
         new Object[] {event},
         "",
         ExpressionCondition.NEVER,
-        "");
+        "",
+        mock(TableDispatcher.class));
   }
 
   private static Method lineageMethod() throws NoSuchMethodException {
@@ -446,7 +450,9 @@ class TestLineageAuthorizationExecutor {
   }
 
   private static MethodInterceptor lineageInterceptor() throws NoSuchMethodException {
-    return new GravitinoInterceptionService().getMethodInterceptors(lineageMethod()).get(0);
+    return new GravitinoInterceptionService(mock(EventBus.class), mock(TableDispatcher.class))
+        .getMethodInterceptors(lineageMethod())
+        .get(0);
   }
 
   private static MethodInvocation invocation(RunEvent event) throws NoSuchMethodException {

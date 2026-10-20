@@ -34,16 +34,18 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+import javax.inject.Inject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.HealthCheckDTO;
 import org.apache.gravitino.dto.responses.HealthResponse;
 import org.apache.gravitino.metrics.MetricNames;
@@ -101,18 +103,44 @@ public class HealthOperations {
   private static final String CHECK_ENTITY_STORE = "entityStore";
 
   private final ServerHealth serverHealth;
+  private final Supplier<EntityStore> entityStore;
+  private final Supplier<Config> config;
 
   /**
-   * Default constructor for Jersey auto-discovery. The entity store is resolved lazily at request
-   * time via {@link #getEntityStore()} so that probes issued before {@link GravitinoEnv} has
-   * finished initializing report DOWN rather than throwing NullPointerException.
+   * Creates a health resource that resolves the entity store from the process environment at
+   * request time, so that probes issued before {@link GravitinoEnv} has finished initializing
+   * report DOWN rather than throwing NullPointerException.
+   *
+   * @deprecated Use {@link #HealthOperations(EntityStore, Config)}.
    */
+  @Deprecated
   public HealthOperations() {
     this(ServerHealth.getInstance());
   }
 
+  /**
+   * Creates a health resource that probes the given entity store.
+   *
+   * @param entityStore the entity store to probe.
+   * @param config the server configuration, which holds the probe timeout.
+   */
+  @Inject
+  public HealthOperations(EntityStore entityStore, Config config) {
+    this(ServerHealth.getInstance(), () -> entityStore, () -> config);
+  }
+
   HealthOperations(ServerHealth serverHealth) {
+    this(
+        serverHealth,
+        () -> EnvironmentServices.processEnv().entityStore(),
+        () -> EnvironmentServices.processEnv().config());
+  }
+
+  private HealthOperations(
+      ServerHealth serverHealth, Supplier<EntityStore> entityStore, Supplier<Config> config) {
     this.serverHealth = serverHealth;
+    this.entityStore = entityStore;
+    this.config = config;
   }
 
   @GET
@@ -233,23 +261,19 @@ public class HealthOperations {
   }
 
   /** Visible for testing — subclasses override to inject a mock entity store. */
-  @LegacyEnvAccess
   EntityStore getEntityStore() {
     try {
-      return GravitinoEnv.getInstance().entityStore();
+      return entityStore.get();
     } catch (Exception e) {
-      LOG.debug("Unable to resolve entity store from GravitinoEnv", e);
+      LOG.debug("Unable to resolve entity store", e);
       return null;
     }
   }
 
   /** Visible for testing — subclasses override to inject a custom timeout. */
-  @LegacyEnvAccess
   long getProbeTimeoutMs() {
     try {
-      return GravitinoEnv.getInstance()
-          .config()
-          .get(ServerConfig.HEALTH_ENTITY_STORE_PROBE_TIMEOUT_MS);
+      return config.get().get(ServerConfig.HEALTH_ENTITY_STORE_PROBE_TIMEOUT_MS);
     } catch (Exception e) {
       return ServerConfig.HEALTH_ENTITY_STORE_PROBE_TIMEOUT_MS.getDefaultValue();
     }
