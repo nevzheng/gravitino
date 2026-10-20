@@ -44,8 +44,8 @@ import org.apache.gravitino.dto.requests.OwnerSetRequest;
 import org.apache.gravitino.dto.responses.OwnerResponse;
 import org.apache.gravitino.dto.responses.SetResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
@@ -59,28 +59,47 @@ import org.apache.gravitino.utils.MetadataObjectUtil;
 public class OwnerOperations {
 
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
   /**
    * Creates an owner REST resource from the process environment.
    *
-   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher)}.
+   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataAccessChecker)}.
    */
   @Deprecated
   public OwnerOperations() {
-    this(EnvironmentServices.processEnv().ownerDispatcher());
+    this(
+        EnvironmentServices.processEnv().ownerDispatcher(),
+        EnvironmentServices.metadataAccessChecker());
   }
 
   /**
    * Creates an owner REST resource. The service is absent when authorization is disabled.
    *
    * @param ownerDispatcher the owner dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata and that a metalake is in use
    */
   @Inject
   public OwnerOperations(
-      @org.jvnet.hk2.annotations.Optional @Nullable OwnerDispatcher ownerDispatcher) {
+      @org.jvnet.hk2.annotations.Optional @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataAccessChecker accessChecker) {
     this.ownerDispatcher = ownerDispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates an owner REST resource. The service is absent when authorization is disabled.
+   *
+   * @param ownerDispatcher the owner dispatcher, or null.
+   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataAccessChecker)}; the server
+   *     binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public OwnerOperations(@Nullable OwnerDispatcher ownerDispatcher) {
+    this(ownerDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -104,7 +123,7 @@ public class OwnerOperations {
           httpRequest,
           () -> {
             if (object.type() != MetadataObject.Type.METALAKE) {
-              MetalakeManager.checkMetalakeInUse(metalake);
+              accessChecker.checkMetalakeInUse(metalake);
             }
             MetadataObjectUtil.checkMetadataObject(metalake, object);
             Optional<Owner> owner = ownerDispatcher.getOwner(metalake, object);
@@ -151,7 +170,7 @@ public class OwnerOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             MetadataObjectUtil.checkMetadataObject(metalake, object);
             ownerDispatcher.setOwner(metalake, object, request.getName(), request.getType());
             return Utils.ok(new SetResponse(true));

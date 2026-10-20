@@ -121,7 +121,7 @@ public class TestMetadataObjectRoleOperations extends JerseyTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
-            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
+            bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
             bind(manager).to(AccessControlDispatcher.class);
           }

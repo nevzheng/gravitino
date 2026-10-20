@@ -220,6 +220,16 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     }
   }
 
+  /**
+   * Checks that a metalake exists and is in use, reading it from the entity store of {@code
+   * GravitinoEnv}.
+   *
+   * @param metalake the metalake name
+   * @deprecated Use {@link #checkMetalake(NameIdentifier, EntityStore)} with the entity store of
+   *     the caller.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   @LegacyEnvAccess
   public static void checkMetalakeInUse(String metalake) {
     checkMetalake(

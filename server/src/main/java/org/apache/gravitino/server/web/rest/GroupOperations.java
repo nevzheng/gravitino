@@ -48,7 +48,6 @@ import org.apache.gravitino.dto.responses.GroupResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
@@ -136,7 +135,7 @@ public class GroupOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new GroupResponse(
                     DTOConverters.toDTO(accessControlManager.getGroup(metalake, group))));
@@ -170,7 +169,7 @@ public class GroupOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             Group addedGroup = accessControlManager.addGroup(metalake, request.getName());
             return Utils.ok(new GroupResponse(DTOConverters.toDTO(addedGroup)));
           });
@@ -193,7 +192,7 @@ public class GroupOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             ownerDispatcher
                 .getOwner(
                     metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE))
@@ -232,7 +231,7 @@ public class GroupOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             if (verbose) {
               Group[] groups = accessControlManager.listGroups(metalake);
               groups =

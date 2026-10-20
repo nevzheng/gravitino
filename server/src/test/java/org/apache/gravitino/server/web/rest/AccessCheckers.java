@@ -19,6 +19,7 @@
 package org.apache.gravitino.server.web.rest;
 
 import org.apache.gravitino.Config;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 
 /** Builds the {@link MetadataAccessChecker} the REST resource tests bind. */
@@ -38,6 +39,23 @@ public final class AccessCheckers {
         () -> {
           throw new IllegalStateException("Authorization is disabled");
         },
+        () -> {
+          throw new IllegalStateException("Authorization is disabled");
+        });
+  }
+
+  /**
+   * Returns a checker with authorization disabled that reads metalakes from the given store, so it
+   * checks that a metalake is in use.
+   *
+   * @param entityStore the store that holds the metalakes
+   * @return a checker that passes every access check.
+   */
+  public static MetadataAccessChecker disabled(EntityStore entityStore) {
+    return new MetadataAccessChecker(
+        new Config(false) {},
+        () -> null,
+        () -> entityStore,
         () -> {
           throw new IllegalStateException("Authorization is disabled");
         });

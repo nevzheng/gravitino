@@ -56,6 +56,9 @@ import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
 import org.apache.gravitino.exceptions.IllegalNameIdentifierException;
+import org.apache.gravitino.exceptions.NoSuchEntityException;
+import org.apache.gravitino.exceptions.NoSuchMetalakeException;
+import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -1274,5 +1277,20 @@ public class TestMetadataAccessChecker {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Test
+  public void testCheckMetalakeInUseReadsTheCheckerEntityStore() throws Exception {
+    EntityStore store = mock(EntityStore.class);
+    NameIdentifier ident = NameIdentifierUtil.ofMetalake("missing_metalake");
+    when(store.get(ident, Entity.EntityType.METALAKE, BaseMetalake.class))
+        .thenThrow(new NoSuchEntityException("missing"));
+    MetadataAccessChecker storeChecker =
+        new MetadataAccessChecker(
+            () -> false, () -> false, () -> 1, () -> null, () -> store, () -> null);
+
+    Assertions.assertThrows(
+        NoSuchMetalakeException.class, () -> storeChecker.checkMetalakeInUse("missing_metalake"));
+    verify(store).get(ident, Entity.EntityType.METALAKE, BaseMetalake.class);
   }
 }

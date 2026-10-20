@@ -49,6 +49,7 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.secret.SecretProviderInfo;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.mapper.WebApplicationExceptionMapper;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -100,6 +101,7 @@ public class TestSecretsProviderOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(secretProviderRegistry).to(SecretProviderRegistry.class).ranked(2);
+            bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });

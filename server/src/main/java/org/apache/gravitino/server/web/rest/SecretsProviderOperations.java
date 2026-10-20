@@ -32,10 +32,10 @@ import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.dto.responses.SecretProviderListResponse;
 import org.apache.gravitino.dto.secret.SecretProviderDTO;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.secret.SecretProviderInfo;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
@@ -57,6 +57,7 @@ public class SecretsProviderOperations {
       "METALAKE::OWNER || METALAKE::VIEW_SECRET_PROVIDERS";
 
   private final SecretProviderRegistry secretProviderRegistry;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -64,10 +65,26 @@ public class SecretsProviderOperations {
    * Creates a secrets-provider REST resource.
    *
    * @param secretProviderRegistry the process-owned provider registry
+   * @param accessChecker checks that a metalake is in use
    */
   @Inject
-  public SecretsProviderOperations(SecretProviderRegistry secretProviderRegistry) {
+  public SecretsProviderOperations(
+      SecretProviderRegistry secretProviderRegistry, MetadataAccessChecker accessChecker) {
     this.secretProviderRegistry = secretProviderRegistry;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates a secrets-provider REST resource.
+   *
+   * @param secretProviderRegistry the process-owned provider registry
+   * @deprecated Use {@link #SecretsProviderOperations(SecretProviderRegistry,
+   *     MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public SecretsProviderOperations(SecretProviderRegistry secretProviderRegistry) {
+    this(secretProviderRegistry, EnvironmentServices.metadataAccessChecker());
   }
 
   /**
@@ -92,7 +109,7 @@ public class SecretsProviderOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             List<SecretProviderInfo> infos = secretProviderRegistry.listProviders();
             SecretProviderDTO[] providers =
                 infos.stream()

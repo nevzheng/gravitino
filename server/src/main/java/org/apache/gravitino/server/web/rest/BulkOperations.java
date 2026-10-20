@@ -76,7 +76,6 @@ import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
@@ -193,7 +192,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(USERS_FIELD_NAME, request.getUsers().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             List<BulkItemResult<User>> results =
                 accessControlDispatcher.addUsers(
                     metalake,
@@ -250,7 +249,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             Optional<Owner> metalakeOwner =
                 ownerDispatcher.getOwner(
                     metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE));
@@ -307,7 +306,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(GROUPS_FIELD_NAME, request.getGroups().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             List<BulkItemResult<Group>> results =
                 accessControlDispatcher.addGroups(
                     metalake,
@@ -364,7 +363,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             Optional<Owner> metalakeOwner =
                 ownerDispatcher.getOwner(
                     metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE));
@@ -421,7 +420,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(ROLES_FIELD_NAME, request.getRoles().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             List<RoleAdd> roles = new ArrayList<>();
             List<Integer> originalIndexes = new ArrayList<>();
@@ -491,7 +490,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             List<String> roles = new ArrayList<>();
             List<Integer> originalIndexes = new ArrayList<>();
