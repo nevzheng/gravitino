@@ -95,6 +95,8 @@ public abstract class BaseCatalog<T extends BaseCatalog>
 
   private SecretManager secretManager;
 
+  @Nullable private volatile CatalogContext catalogContext;
+
   private volatile CatalogOperations ops;
 
   private volatile Capability capability;
@@ -204,7 +206,12 @@ public abstract class BaseCatalog<T extends BaseCatalog>
           CatalogOperations newOps = createOps(conf);
           // Check metalake and catalog in use
           checkMetalakeAndCatalogInUse();
-          newOps.initialize(conf, entity.toCatalogInfo(), this);
+          CatalogContext context = catalogContext;
+          if (context != null) {
+            newOps.initialize(conf, entity.toCatalogInfo(), this, context);
+          } else {
+            newOps.initialize(conf, entity.toCatalogInfo(), this);
+          }
           ops =
               newProxyPlugin(conf)
                   .map(
@@ -473,6 +480,31 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   public T withSecretManager(SecretManager secretManager) {
     this.secretManager = secretManager;
     return (T) this;
+  }
+
+  /**
+   * Sets the host services this catalog and its operations may use. {@code CatalogManager} sets it
+   * on every catalog it loads; {@link #ops()} passes it to {@link CatalogOperations#initialize(Map,
+   * CatalogInfo, HasPropertyMetadata, CatalogContext)}.
+   *
+   * @param catalogContext The host services.
+   * @return The instance of the concrete subclass of BaseCatalog.
+   */
+  public T withCatalogContext(CatalogContext catalogContext) {
+    this.catalogContext = catalogContext;
+    return (T) this;
+  }
+
+  /**
+   * Returns the host services this catalog may use, for example to build its operations in {@link
+   * #newOps(Map)}.
+   *
+   * @return The context set with {@link #withCatalogContext(CatalogContext)}, or null if the
+   *     catalog was built without one.
+   */
+  @Nullable
+  protected CatalogContext catalogContext() {
+    return catalogContext;
   }
 
   /**
