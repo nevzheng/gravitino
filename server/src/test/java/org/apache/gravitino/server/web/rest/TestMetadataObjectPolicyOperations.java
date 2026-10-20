@@ -54,7 +54,7 @@ import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.rest.RESTUtils;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -62,7 +62,6 @@ import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestMetadataObjectPolicyOperations extends BaseOperationsTest {
@@ -109,6 +108,7 @@ public class TestMetadataObjectPolicyOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(policyManager).to(PolicyDispatcher.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
@@ -365,6 +365,7 @@ public class TestMetadataObjectPolicyOperations extends BaseOperationsTest {
 
   @Test
   public void testListPoliciesFiltersResolvedResult() throws IllegalAccessException {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     MetadataObject schema = MetadataObjects.parse("catalog.schema", MetadataObject.Type.SCHEMA);
     MetadataObject table = MetadataObjects.parse("catalog.schema.table", MetadataObject.Type.TABLE);
     PolicyEntity policy = createPolicy("hiddenPolicy");
@@ -373,41 +374,37 @@ public class TestMetadataObjectPolicyOperations extends BaseOperationsTest {
     when(policyManager.listPolicyInfosForMetadataObject(metalake, schema))
         .thenReturn(new PolicyEntity[] {policy});
 
-    MetadataObjectPolicyOperations operations = new MetadataObjectPolicyOperations(policyManager);
+    MetadataObjectPolicyOperations operations =
+        new MetadataObjectPolicyOperations(policyManager, metadataAuthzHelper);
     HttpServletRequest request = mock(HttpServletRequest.class);
     FieldUtils.writeField(operations, "httpRequest", request, true);
 
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        Mockito.mockStatic(MetadataAuthzHelper.class)) {
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.filterByExpression(
-                      Mockito.eq(metalake),
-                      Mockito.eq(
-                          AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION),
-                      Mockito.eq(org.apache.gravitino.Entity.EntityType.POLICY),
-                      Mockito.any(PolicyEntity[].class),
-                      Mockito.any()))
-          .thenReturn(new PolicyEntity[0]);
+    Mockito.when(
+            metadataAuthzHelper.filterByExpression(
+                Mockito.eq(metalake),
+                Mockito.eq(AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION),
+                Mockito.eq(org.apache.gravitino.Entity.EntityType.POLICY),
+                Mockito.any(PolicyEntity[].class),
+                Mockito.any()))
+        .thenReturn(new PolicyEntity[0]);
 
-      Response detailsResponse =
-          operations.listPoliciesForMetadataObject(
-              metalake, table.type().toString(), table.fullName(), true);
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), detailsResponse.getStatus());
-      MetadataObjectPolicyListResponse details =
-          (MetadataObjectPolicyListResponse) detailsResponse.getEntity();
-      Assertions.assertEquals(0, details.getPolicies().length);
-      Assertions.assertTrue(details.hasInaccessiblePolicies());
+    Response detailsResponse =
+        operations.listPoliciesForMetadataObject(
+            metalake, table.type().toString(), table.fullName(), true);
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), detailsResponse.getStatus());
+    MetadataObjectPolicyListResponse details =
+        (MetadataObjectPolicyListResponse) detailsResponse.getEntity();
+    Assertions.assertEquals(0, details.getPolicies().length);
+    Assertions.assertTrue(details.hasInaccessiblePolicies());
 
-      Response namesResponse =
-          operations.listPoliciesForMetadataObject(
-              metalake, table.type().toString(), table.fullName(), false);
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), namesResponse.getStatus());
-      PolicyNameListResponse names = (PolicyNameListResponse) namesResponse.getEntity();
-      Assertions.assertEquals(0, names.getNames().length);
-      Assertions.assertTrue(names.hasInaccessiblePolicies());
-    }
+    Response namesResponse =
+        operations.listPoliciesForMetadataObject(
+            metalake, table.type().toString(), table.fullName(), false);
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), namesResponse.getStatus());
+    PolicyNameListResponse names = (PolicyNameListResponse) namesResponse.getEntity();
+    Assertions.assertEquals(0, names.getNames().length);
+    Assertions.assertTrue(names.hasInaccessiblePolicies());
+
     Mockito.verify(policyManager, Mockito.never())
         .listPolicyInfosForMetadataObject(metalake, schema);
   }

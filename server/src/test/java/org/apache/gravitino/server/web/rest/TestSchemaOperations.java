@@ -66,6 +66,7 @@ import org.apache.gravitino.exceptions.NonEmptySchemaException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -119,6 +120,7 @@ public class TestSchemaOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(dispatcher).to(SchemaDispatcher.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }

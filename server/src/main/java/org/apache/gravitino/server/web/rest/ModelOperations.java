@@ -63,7 +63,7 @@ import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.model.ModelVersionChange;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -79,12 +79,33 @@ public class ModelOperations {
   private static final Logger LOG = LoggerFactory.getLogger(ModelOperations.class);
 
   private final ModelDispatcher modelDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param modelDispatcher the {@link ModelDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public ModelOperations(ModelDispatcher modelDispatcher) {
+  public ModelOperations(ModelDispatcher modelDispatcher, MetadataAccessChecker accessChecker) {
     this.modelDispatcher = modelDispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param modelDispatcher the {@link ModelDispatcher} to serve requests with
+   * @deprecated Use {@link #ModelOperations(ModelDispatcher, MetadataAccessChecker)}; the server
+   *     binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public ModelOperations(ModelDispatcher modelDispatcher) {
+    this(modelDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -109,7 +130,7 @@ public class ModelOperations {
             NameIdentifier[] modelIds = modelDispatcher.listModels(modelNs);
             modelIds = modelIds == null ? new NameIdentifier[0] : modelIds;
             modelIds =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.FILTER_MODEL_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.MODEL,
@@ -272,7 +293,7 @@ public class ModelOperations {
               ModelVersion[] modelVersions = modelDispatcher.listModelVersionInfos(modelId);
               modelVersions = modelVersions == null ? new ModelVersion[0] : modelVersions;
               modelVersions =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.MODEL_VERSION,
@@ -289,7 +310,7 @@ public class ModelOperations {
               Integer[] boxedVersions = Arrays.stream(versions).boxed().toArray(Integer[]::new);
               versions =
                   Arrays.stream(
-                          MetadataAuthzHelper.filterByExpression(
+                          accessChecker.filterByExpression(
                               metalake,
                               AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION,
                               Entity.EntityType.MODEL_VERSION,

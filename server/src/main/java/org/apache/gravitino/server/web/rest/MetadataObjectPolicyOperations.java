@@ -44,7 +44,7 @@ import org.apache.gravitino.dto.responses.PolicyNameListResponse;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -60,12 +60,34 @@ public class MetadataObjectPolicyOperations {
   private static final Logger LOG = LoggerFactory.getLogger(MetadataObjectPolicyOperations.class);
 
   private final PolicyDispatcher policyDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param policyDispatcher the {@link PolicyDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public MetadataObjectPolicyOperations(PolicyDispatcher policyDispatcher) {
+  public MetadataObjectPolicyOperations(
+      PolicyDispatcher policyDispatcher, MetadataAccessChecker accessChecker) {
     this.policyDispatcher = policyDispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param policyDispatcher the {@link PolicyDispatcher} to serve requests with
+   * @deprecated Use {@link #MetadataObjectPolicyOperations(PolicyDispatcher,
+   *     MetadataAccessChecker)}; the server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public MetadataObjectPolicyOperations(PolicyDispatcher policyDispatcher) {
+    this(policyDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -98,7 +120,7 @@ public class MetadataObjectPolicyOperations {
                 policyDispatcher.listPolicyInfosForMetadataObject(metalake, object);
             int policyCount = policies.length;
             policies =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.POLICY,

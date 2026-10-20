@@ -89,6 +89,7 @@ import org.apache.gravitino.rel.indexes.Indexes;
 import org.apache.gravitino.rel.types.Type;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -145,6 +146,7 @@ public class TestTableOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(dispatcher).to(TableDispatcher.class).ranked(2);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }

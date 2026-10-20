@@ -69,7 +69,7 @@ import org.apache.gravitino.model.ModelChange;
 import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.model.ModelVersionChange;
 import org.apache.gravitino.rest.RESTUtils;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -79,7 +79,6 @@ import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestModelOperations extends BaseOperationsTest {
@@ -132,6 +131,7 @@ public class TestModelOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(modelDispatcher).to(ModelDispatcher.class).ranked(2);
             bindFactory(TestModelOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
@@ -550,6 +550,7 @@ public class TestModelOperations extends BaseOperationsTest {
    */
   @Test
   public void testListModelVersionsFiltersAllVersionsInOneCall() throws IllegalAccessException {
+    MetadataAccessChecker metadataAuthzHelper = Mockito.mock(MetadataAccessChecker.class);
     NameIdentifier modelId = NameIdentifierUtil.ofModel(metalake, catalog, schema, "model1");
     when(modelDispatcher.listModelVersions(modelId)).thenReturn(new int[] {0, 1, 2});
     ModelVersion[] versionInfos =
@@ -559,55 +560,46 @@ public class TestModelOperations extends BaseOperationsTest {
           mockModelVersion(2, ImmutableMap.of("n2", "u2"), new String[0], "c2")
         };
     when(modelDispatcher.listModelVersionInfos(modelId)).thenReturn(versionInfos);
-    ModelOperations modelOperations = new ModelOperations(modelDispatcher);
+    ModelOperations modelOperations = new ModelOperations(modelDispatcher, metadataAuthzHelper);
     FieldUtils.writeField(modelOperations, "httpRequest", mock(HttpServletRequest.class), true);
 
-    try (MockedStatic<MetadataAuthzHelper> metadataAuthzHelper =
-        Mockito.mockStatic(MetadataAuthzHelper.class)) {
-      // The authorizer keeps the first and last element of whatever list it is handed.
-      metadataAuthzHelper
-          .when(
-              () ->
-                  MetadataAuthzHelper.filterByExpression(
-                      Mockito.eq(metalake),
-                      Mockito.eq(
-                          AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION),
-                      Mockito.eq(EntityType.MODEL_VERSION),
-                      Mockito.any(Object[].class),
-                      Mockito.any()))
-          .thenAnswer(
-              invocation -> {
-                Object[] entities = invocation.getArgument(3);
-                Object[] kept = Arrays.copyOf(entities, 2);
-                kept[1] = entities[entities.length - 1];
-                return kept;
-              });
+    // The authorizer keeps the first and last element of whatever list it is handed.
+    Mockito.when(
+            metadataAuthzHelper.filterByExpression(
+                Mockito.eq(metalake),
+                Mockito.eq(AuthorizationExpressionConstants.LOAD_MODEL_AUTHORIZATION_EXPRESSION),
+                Mockito.eq(EntityType.MODEL_VERSION),
+                Mockito.any(Object[].class),
+                Mockito.any()))
+        .thenAnswer(
+            invocation -> {
+              Object[] entities = invocation.getArgument(3);
+              Object[] kept = Arrays.copyOf(entities, 2);
+              kept[1] = entities[entities.length - 1];
+              return kept;
+            });
 
-      Response resp = modelOperations.listModelVersions(metalake, catalog, schema, "model1", false);
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), resp.getStatus());
-      Assertions.assertArrayEquals(
-          new int[] {0, 2}, ((ModelVersionListResponse) resp.getEntity()).getVersions());
+    Response resp = modelOperations.listModelVersions(metalake, catalog, schema, "model1", false);
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), resp.getStatus());
+    Assertions.assertArrayEquals(
+        new int[] {0, 2}, ((ModelVersionListResponse) resp.getEntity()).getVersions());
 
-      Response verboseResp =
-          modelOperations.listModelVersions(metalake, catalog, schema, "model1", true);
-      Assertions.assertEquals(Response.Status.OK.getStatusCode(), verboseResp.getStatus());
-      ModelVersionDTO[] kept =
-          ((ModelVersionInfoListResponse) verboseResp.getEntity()).getVersions();
-      Assertions.assertEquals(2, kept.length);
-      Assertions.assertEquals(0, kept[0].version());
-      Assertions.assertEquals(2, kept[1].version());
+    Response verboseResp =
+        modelOperations.listModelVersions(metalake, catalog, schema, "model1", true);
+    Assertions.assertEquals(Response.Status.OK.getStatusCode(), verboseResp.getStatus());
+    ModelVersionDTO[] kept = ((ModelVersionInfoListResponse) verboseResp.getEntity()).getVersions();
+    Assertions.assertEquals(2, kept.length);
+    Assertions.assertEquals(0, kept[0].version());
+    Assertions.assertEquals(2, kept[1].version());
 
-      // One filter call per request, each handed the whole version list.
-      metadataAuthzHelper.verify(
-          () ->
-              MetadataAuthzHelper.filterByExpression(
-                  Mockito.eq(metalake),
-                  Mockito.anyString(),
-                  Mockito.eq(EntityType.MODEL_VERSION),
-                  Mockito.argThat((Object[] entities) -> entities.length == 3),
-                  Mockito.any()),
-          Mockito.times(2));
-    }
+    // One filter call per request, each handed the whole version list.
+    Mockito.verify(metadataAuthzHelper, Mockito.times(2))
+        .filterByExpression(
+            Mockito.eq(metalake),
+            Mockito.anyString(),
+            Mockito.eq(EntityType.MODEL_VERSION),
+            Mockito.argThat((Object[] entities) -> entities.length == 3),
+            Mockito.any());
   }
 
   @Test

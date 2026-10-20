@@ -25,7 +25,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -110,7 +109,7 @@ import org.apache.gravitino.semantic.OssieFormat;
 import org.apache.gravitino.semantic.SemanticModel;
 import org.apache.gravitino.semantic.SemanticModelChange;
 import org.apache.gravitino.semantic.SemanticModelDefinition;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.PassThroughAuthorizer;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -127,7 +126,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 /** Tests Semantic Model REST lifecycle operations and their error mappings. */
 public class TestSemanticModelOperations extends BaseOperationsTest {
@@ -181,6 +180,7 @@ public class TestSemanticModelOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(new SemanticModelEventDispatcher(eventBus, dispatcher))
                 .to(SemanticModelDispatcher.class)
                 .ranked(2);
@@ -242,6 +242,7 @@ public class TestSemanticModelOperations extends BaseOperationsTest {
 
   @Test
   void testListSemanticModelsFiltersUnauthorizedEntries() throws IllegalAccessException {
+    MetadataAccessChecker helper = Mockito.mock(MetadataAccessChecker.class);
     NameIdentifier visible = semanticModelIdentifier("visible");
     NameIdentifier hidden = semanticModelIdentifier("hidden");
     NameIdentifier[] listed = {visible, hidden};
@@ -254,31 +255,26 @@ public class TestSemanticModelOperations extends BaseOperationsTest {
                 tables,
                 views,
                 () -> sourceAuthorizer,
-                ident -> EnumSet.of(EntityType.TABLE, EntityType.VIEW)));
+                ident -> EnumSet.of(EntityType.TABLE, EntityType.VIEW)),
+            helper);
     FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
-    try (MockedStatic<MetadataAuthzHelper> helper = mockStatic(MetadataAuthzHelper.class)) {
-      helper
-          .when(
-              () ->
-                  MetadataAuthzHelper.filterByExpression(
-                      metalake,
-                      AuthorizationExpressionConstants
-                          .FILTER_SEMANTIC_MODEL_AUTHORIZATION_EXPRESSION,
-                      EntityType.SEMANTIC_MODEL,
-                      listed))
-          .thenReturn(filtered);
-      Response response = operations.listSemanticModels(metalake, catalog, schema);
-      Assertions.assertEquals(200, response.getStatus());
-      Assertions.assertArrayEquals(
-          filtered, ((EntityListResponse) response.getEntity()).identifiers());
-      helper.verify(
-          () ->
-              MetadataAuthzHelper.filterByExpression(
-                  metalake,
-                  AuthorizationExpressionConstants.FILTER_SEMANTIC_MODEL_AUTHORIZATION_EXPRESSION,
-                  EntityType.SEMANTIC_MODEL,
-                  listed));
-    }
+    Mockito.when(
+            helper.filterByExpression(
+                metalake,
+                AuthorizationExpressionConstants.FILTER_SEMANTIC_MODEL_AUTHORIZATION_EXPRESSION,
+                EntityType.SEMANTIC_MODEL,
+                listed))
+        .thenReturn(filtered);
+    Response response = operations.listSemanticModels(metalake, catalog, schema);
+    Assertions.assertEquals(200, response.getStatus());
+    Assertions.assertArrayEquals(
+        filtered, ((EntityListResponse) response.getEntity()).identifiers());
+    Mockito.verify(helper)
+        .filterByExpression(
+            metalake,
+            AuthorizationExpressionConstants.FILTER_SEMANTIC_MODEL_AUTHORIZATION_EXPRESSION,
+            EntityType.SEMANTIC_MODEL,
+            listed);
   }
 
   @ParameterizedTest

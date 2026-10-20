@@ -176,7 +176,15 @@ public class MetadataAuthzHelper {
             authorizer);
   }
 
-  private static MetadataAccessChecker processChecker() {
+  /**
+   * Returns the checker that reads the process environment on every check.
+   *
+   * <p>For a caller that cannot take a {@link MetadataAccessChecker} from its host, such as a
+   * deprecated constructor.
+   *
+   * @return the process-wide checker.
+   */
+  public static MetadataAccessChecker processChecker() {
     return PROCESS_CHECKER;
   }
 

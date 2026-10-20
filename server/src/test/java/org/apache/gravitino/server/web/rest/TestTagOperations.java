@@ -77,6 +77,7 @@ import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyContents;
 import org.apache.gravitino.policy.TagValueSelector;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.tag.Tag;
 import org.apache.gravitino.tag.TagChange;
 import org.apache.gravitino.tag.TagDispatcher;
@@ -132,6 +133,7 @@ public class TestTagOperations extends BaseOperationsTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
+            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
             bind(tagManager).to(TagDispatcher.class).ranked(2);
             bindFactory(TestTagOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);

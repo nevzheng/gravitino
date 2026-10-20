@@ -56,7 +56,7 @@ import org.apache.gravitino.dto.secret.SecretBindingDTO;
 import org.apache.gravitino.dto.secret.SecretReferenceDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -76,12 +76,34 @@ public class CatalogOperations {
   private static final Logger LOG = LoggerFactory.getLogger(CatalogOperations.class);
 
   private final CatalogDispatcher catalogDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param catalogDispatcher the {@link CatalogDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public CatalogOperations(CatalogDispatcher catalogDispatcher) {
+  public CatalogOperations(
+      CatalogDispatcher catalogDispatcher, MetadataAccessChecker accessChecker) {
     this.catalogDispatcher = catalogDispatcher;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates the resource.
+   *
+   * @param catalogDispatcher the {@link CatalogDispatcher} to serve requests with
+   * @deprecated Use {@link #CatalogOperations(CatalogDispatcher, MetadataAccessChecker)}; the
+   *     server binds the checker.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public CatalogOperations(CatalogDispatcher catalogDispatcher) {
+    this(catalogDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET
@@ -106,7 +128,7 @@ public class CatalogOperations {
             if (verbose) {
               Catalog[] catalogs = catalogDispatcher.listCatalogsInfo(catalogNS);
               catalogs =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_CATALOG_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.CATALOG,
@@ -119,7 +141,7 @@ public class CatalogOperations {
             } else {
               NameIdentifier[] idents = catalogDispatcher.listCatalogs(catalogNS);
               idents =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_CATALOG_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.CATALOG,
