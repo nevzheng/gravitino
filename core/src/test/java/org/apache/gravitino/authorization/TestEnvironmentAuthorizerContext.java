@@ -27,6 +27,7 @@ import static org.mockito.Mockito.when;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -37,15 +38,18 @@ public class TestEnvironmentAuthorizerContext {
     GravitinoEnv env = mock(GravitinoEnv.class);
     Config config = mock(Config.class);
     EntityStore entityStore = mock(EntityStore.class);
+    CatalogManager catalogManager = mock(CatalogManager.class);
     AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
     when(env.config()).thenReturn(config);
     when(env.entityStore()).thenReturn(entityStore);
+    when(env.catalogManager()).thenReturn(catalogManager);
     when(env.internalAccessControlDispatcher()).thenReturn(accessControl);
 
     AuthorizerContext context = EnvironmentAuthorizerContext.of(env);
 
     Assertions.assertSame(config, context.config());
     Assertions.assertSame(entityStore, context.entityStore());
+    Assertions.assertSame(catalogManager, context.catalogManager());
     Assertions.assertSame(accessControl, context.internalAccessControlDispatcher());
   }
 

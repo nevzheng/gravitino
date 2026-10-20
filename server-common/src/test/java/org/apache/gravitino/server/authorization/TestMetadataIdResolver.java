@@ -19,12 +19,12 @@
 
 package org.apache.gravitino.server.authorization;
 
-import static org.mockito.Answers.CALLS_REAL_METHODS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -33,11 +33,9 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Optional;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -68,11 +66,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class TestMetadataIdConverter {
+public class TestMetadataIdResolver {
   private EntityStore mockStore;
   private NameIdentifier ident1;
   private NameIdentifier ident2;
@@ -127,155 +124,86 @@ public class TestMetadataIdConverter {
     NameIdentifier normalized = NameIdentifier.of("metalake", "catalog", "schema", "SalesModel");
     when(store.get(normalized, Entity.EntityType.SEMANTIC_MODEL, SemanticModelEntity.class))
         .thenReturn(model);
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    when(env.catalogManager()).thenReturn(catalogs);
-    when(env.entityStore()).thenReturn(store);
-    try (MockedStatic<GravitinoEnv> mocked = mockStatic(GravitinoEnv.class)) {
-      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      Assertions.assertEquals(
-          Optional.of(91L),
-          MetadataIdConverter.getID(
-              MetadataObjects.parse(
-                  "catalog.SCHEMA.SalesModel", MetadataObject.Type.SEMANTIC_MODEL),
-              "metalake"));
-    }
+    MetadataIdResolver resolver = new MetadataIdResolver(() -> catalogs, () -> store);
+    Assertions.assertEquals(
+        Optional.of(91L),
+        resolver.getID(
+            MetadataObjects.parse("catalog.SCHEMA.SalesModel", MetadataObject.Type.SEMANTIC_MODEL),
+            "metalake"));
   }
 
   @Test
-  void testConvert() throws IllegalAccessException {
+  void testConvert() {
     CatalogManager mockCatalogManager = mock(CatalogManager.class);
-    Object originalCatalogManager =
-        FieldUtils.readDeclaredField(GravitinoEnv.getInstance(), "catalogManager", true);
-    Object originalEntityStore =
-        FieldUtils.readDeclaredField(GravitinoEnv.getInstance(), "entityStore", true);
+    MetadataIdResolver resolver =
+        spy(new MetadataIdResolver(() -> mockCatalogManager, () -> mockStore));
+    doReturn(ident1).when(resolver).normalizeCaseSensitive(eq(ident1), eq(null));
+    doReturn(ident2).when(resolver).normalizeCaseSensitive(eq(ident2), eq(null));
+    doReturn(ident3).when(resolver).normalizeCaseSensitive(eq(ident3), eq(Capability.Scope.SCHEMA));
+    doReturn(ident4).when(resolver).normalizeCaseSensitive(eq(ident4), eq(Capability.Scope.TABLE));
+    doReturn(ident5).when(resolver).normalizeCaseSensitive(eq(ident5), eq(Capability.Scope.MODEL));
+    doReturn(ident6)
+        .when(resolver)
+        .normalizeCaseSensitive(eq(ident6), eq(Capability.Scope.FILESET));
+    doReturn(ident7).when(resolver).normalizeCaseSensitive(eq(ident7), eq(Capability.Scope.TOPIC));
+    doReturn(ident8).when(resolver).normalizeCaseSensitive(eq(ident8), eq(null));
+    doReturn(ident9)
+        .when(resolver)
+        .normalizeCaseSensitive(eq(ident9), eq(Capability.Scope.SEMANTIC_MODEL));
 
-    FieldUtils.writeDeclaredField(
-        GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
-    FieldUtils.writeDeclaredField(GravitinoEnv.getInstance(), "entityStore", mockStore, true);
+    Optional<Long> metalakeConvertedId =
+        resolver.getID(
+            MetadataObjects.of(ImmutableList.of("metalake"), MetadataObject.Type.METALAKE),
+            "metalake");
+    Optional<Long> catalogConvertedId =
+        resolver.getID(
+            MetadataObjects.of(ImmutableList.of("catalog"), MetadataObject.Type.CATALOG),
+            "metalake");
+    Optional<Long> schemaConvertedId =
+        resolver.getID(
+            MetadataObjects.of(ImmutableList.of("catalog", "schema"), MetadataObject.Type.SCHEMA),
+            "metalake");
+    Optional<Long> tableConvertedId =
+        resolver.getID(
+            MetadataObjects.of(
+                ImmutableList.of("catalog", "schema", "table"), MetadataObject.Type.TABLE),
+            "metalake");
+    Optional<Long> modelConvertedId =
+        resolver.getID(
+            MetadataObjects.of(
+                ImmutableList.of("catalog", "schema", "model"), MetadataObject.Type.MODEL),
+            "metalake");
+    Optional<Long> filesetConvertedId =
+        resolver.getID(
+            MetadataObjects.of(
+                ImmutableList.of("catalog", "schema", "fileset"), MetadataObject.Type.FILESET),
+            "metalake");
+    Optional<Long> topicConvertedId =
+        resolver.getID(
+            MetadataObjects.of(
+                ImmutableList.of("catalog", "schema", "topic"), MetadataObject.Type.TOPIC),
+            "metalake");
+    Optional<Long> semanticModelConvertedId =
+        resolver.getID(
+            MetadataObjects.of(
+                ImmutableList.of("catalog", "schema", "sales_model"),
+                MetadataObject.Type.SEMANTIC_MODEL),
+            "metalake");
 
-    try (MockedStatic<MetadataIdConverter> mockedStatic =
-        mockStatic(MetadataIdConverter.class, CALLS_REAL_METHODS)) {
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident1), eq(null), eq(mockCatalogManager)))
-          .thenReturn(ident1);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident2), eq(null), eq(mockCatalogManager)))
-          .thenReturn(ident2);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident3), eq(Capability.Scope.SCHEMA), eq(mockCatalogManager)))
-          .thenReturn(ident3);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident4), eq(Capability.Scope.TABLE), eq(mockCatalogManager)))
-          .thenReturn(ident4);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident5), eq(Capability.Scope.MODEL), eq(mockCatalogManager)))
-          .thenReturn(ident5);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident6), eq(Capability.Scope.FILESET), eq(mockCatalogManager)))
-          .thenReturn(ident6);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident7), eq(Capability.Scope.TOPIC), eq(mockCatalogManager)))
-          .thenReturn(ident7);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident8), eq(null), eq(mockCatalogManager)))
-          .thenReturn(ident8);
-      mockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.normalizeCaseSensitive(
-                      eq(ident9), eq(Capability.Scope.SEMANTIC_MODEL), eq(mockCatalogManager)))
-          .thenReturn(ident9);
-
-      Optional<Long> metalakeConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(ImmutableList.of("metalake"), MetadataObject.Type.METALAKE),
-              "metalake");
-      Optional<Long> catalogConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(ImmutableList.of("catalog"), MetadataObject.Type.CATALOG),
-              "metalake");
-      Optional<Long> schemaConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(ImmutableList.of("catalog", "schema"), MetadataObject.Type.SCHEMA),
-              "metalake");
-      Optional<Long> tableConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(
-                  ImmutableList.of("catalog", "schema", "table"), MetadataObject.Type.TABLE),
-              "metalake");
-      Optional<Long> modelConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(
-                  ImmutableList.of("catalog", "schema", "model"), MetadataObject.Type.MODEL),
-              "metalake");
-      Optional<Long> filesetConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(
-                  ImmutableList.of("catalog", "schema", "fileset"), MetadataObject.Type.FILESET),
-              "metalake");
-      Optional<Long> topicConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(
-                  ImmutableList.of("catalog", "schema", "topic"), MetadataObject.Type.TOPIC),
-              "metalake");
-      Optional<Long> semanticModelConvertedId =
-          MetadataIdConverter.getID(
-              MetadataObjects.of(
-                  ImmutableList.of("catalog", "schema", "sales_model"),
-                  MetadataObject.Type.SEMANTIC_MODEL),
-              "metalake");
-
-      Assertions.assertEquals(Optional.of(1L), metalakeConvertedId);
-      Assertions.assertEquals(Optional.of(2L), catalogConvertedId);
-      Assertions.assertEquals(Optional.of(3L), schemaConvertedId);
-      Assertions.assertEquals(Optional.of(4L), tableConvertedId);
-      Assertions.assertEquals(Optional.of(5L), modelConvertedId);
-      Assertions.assertEquals(Optional.of(6L), filesetConvertedId);
-      Assertions.assertEquals(Optional.of(7L), topicConvertedId);
-      Assertions.assertEquals(Optional.of(9L), semanticModelConvertedId);
-    } finally {
-      FieldUtils.writeDeclaredField(
-          GravitinoEnv.getInstance(), "catalogManager", originalCatalogManager, true);
-      FieldUtils.writeDeclaredField(
-          GravitinoEnv.getInstance(), "entityStore", originalEntityStore, true);
-    }
+    Assertions.assertEquals(Optional.of(1L), metalakeConvertedId);
+    Assertions.assertEquals(Optional.of(2L), catalogConvertedId);
+    Assertions.assertEquals(Optional.of(3L), schemaConvertedId);
+    Assertions.assertEquals(Optional.of(4L), tableConvertedId);
+    Assertions.assertEquals(Optional.of(5L), modelConvertedId);
+    Assertions.assertEquals(Optional.of(6L), filesetConvertedId);
+    Assertions.assertEquals(Optional.of(7L), topicConvertedId);
+    Assertions.assertEquals(Optional.of(9L), semanticModelConvertedId);
   }
 
   @Test
-  void testConvertReturnsEmptyWhenParentCatalogDoesNotExist() throws IllegalAccessException {
+  void testConvertReturnsEmptyWhenParentCatalogDoesNotExist() {
     CatalogManager mockCatalogManager = mock(CatalogManager.class);
-    Object originalCatalogManager =
-        FieldUtils.readDeclaredField(GravitinoEnv.getInstance(), "catalogManager", true);
-    Object originalEntityStore =
-        FieldUtils.readDeclaredField(GravitinoEnv.getInstance(), "entityStore", true);
-
-    FieldUtils.writeDeclaredField(
-        GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
-    FieldUtils.writeDeclaredField(GravitinoEnv.getInstance(), "entityStore", mockStore, true);
+    MetadataIdResolver resolver = new MetadataIdResolver(() -> mockCatalogManager, () -> mockStore);
 
     MetadataObject fileset =
         MetadataObjects.of(
@@ -285,14 +213,7 @@ public class TestMetadataIdConverter {
         .thenThrow(
             new NoSuchCatalogException("Catalog %s does not exist", "metalake.missing_catalog"));
 
-    try {
-      Assertions.assertEquals(Optional.empty(), MetadataIdConverter.getID(fileset, "metalake"));
-    } finally {
-      FieldUtils.writeDeclaredField(
-          GravitinoEnv.getInstance(), "catalogManager", originalCatalogManager, true);
-      FieldUtils.writeDeclaredField(
-          GravitinoEnv.getInstance(), "entityStore", originalEntityStore, true);
-    }
+    Assertions.assertEquals(Optional.empty(), resolver.getID(fileset, "metalake"));
   }
 
   @Test
@@ -334,8 +255,8 @@ public class TestMetadataIdConverter {
         .doWithCatalog(any(), any());
 
     NameIdentifier authorized =
-        MetadataIdConverter.normalizeCaseSensitive(
-            tableIdent, Capability.Scope.TABLE, mockCatalogManager);
+        new MetadataIdResolver(() -> mockCatalogManager, () -> mock(EntityStore.class))
+            .normalizeCaseSensitive(tableIdent, Capability.Scope.TABLE);
 
     Assertions.assertEquals(
         "t_phys",
