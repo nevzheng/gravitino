@@ -93,7 +93,12 @@ public class TreeLockUtils {
    * @param <R> The type of the result.
    * @param <E> The type of the exception.
    * @throws E If the executable throws an exception.
+   * @deprecated Use {@link #doWithTreeLock(LockManager, NameIdentifier, LockType, Executable)} with
+   *     a lock manager taken as a constructor parameter.
    */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public static <R, E extends Exception> R doWithTreeLock(
       NameIdentifier identifier, LockType lockType, Executable<R, E> executable) throws E {
     return doWithTreeLock(legacyLockManager().get(), identifier, lockType, executable);
@@ -109,7 +114,12 @@ public class TreeLockUtils {
    * @param <R> The type of the result.
    * @param <E> The type of the exception.
    * @throws E If the executable throws an exception.
+   * @deprecated Use {@link #doWithRootTreeLock(LockManager, LockType, Executable)} with a lock
+   *     manager taken as a constructor parameter.
    */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public static <R, E extends Exception> R doWithRootTreeLock(
       LockType lockType, Executable<R, E> executable) throws E {
     return doWithTreeLock(LockManager.ROOT, lockType, executable);
@@ -131,5 +141,24 @@ public class TreeLockUtils {
   @Deprecated
   public static Supplier<LockManager> legacyLockManager() {
     return () -> GravitinoEnv.getInstance().lockManager();
+  }
+
+  /**
+   * Returns a lock manager that hands each tree lock request to the lock manager {@code
+   * GravitinoEnv} holds at that moment.
+   *
+   * <p>It exists for the deprecated constructors that take no {@link LockManager} and keep one as a
+   * field or pass one on. Like {@link #legacyLockManager()}, it reads the environment when a tree
+   * lock is taken, not when it is created, so such an object can be built before {@code
+   * GravitinoEnv} has a lock manager.
+   *
+   * @return A lock manager that forwards to the one held by {@code GravitinoEnv}.
+   * @deprecated Take the {@link LockManager} as a constructor parameter.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
+  public static LockManager legacyForwardingLockManager() {
+    return new ForwardingLockManager(legacyLockManager());
   }
 }

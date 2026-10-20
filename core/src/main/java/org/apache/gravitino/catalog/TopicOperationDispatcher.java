@@ -25,6 +25,7 @@ import static org.apache.gravitino.utils.NameIdentifierUtil.getCatalogIdentifier
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
@@ -38,6 +39,7 @@ import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchTopicException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.exceptions.TopicAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.messaging.DataLayout;
@@ -54,6 +56,8 @@ import org.slf4j.LoggerFactory;
 public class TopicOperationDispatcher extends OperationDispatcher implements TopicDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(TopicOperationDispatcher.class);
 
+  private final Supplier<LockManager> lockManagerSupplier;
+
   /**
    * Creates a new TopicOperationDispatcher instance.
    *
@@ -61,13 +65,46 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @param store The EntityStore instance to be used for catalog operations.
    * @param idGenerator The IdGenerator instance to be used for catalog operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards topic operations with tree locks.
    */
   public TopicOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager) {
+    this(catalogManager, store, idGenerator, secretManager, () -> lockManager);
+  }
+
+  /**
+   * Creates a new TopicOperationDispatcher instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param catalogManager The CatalogManager instance to be used for catalog operations.
+   * @param store The EntityStore instance to be used for catalog operations.
+   * @param idGenerator The IdGenerator instance to be used for catalog operations.
+   * @param secretManager The SecretManager instance to be used for secret operations.
+   * @deprecated Use {@link #TopicOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
+   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
+   */
+  @Deprecated
+  public TopicOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
       SecretManager secretManager) {
+    this(catalogManager, store, idGenerator, secretManager, TreeLockUtils.legacyLockManager());
+  }
+
+  private TopicOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   /**
@@ -80,6 +117,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   @Override
   public NameIdentifier[] listTopics(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -99,7 +137,8 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   @Override
   public Topic loadTopic(NameIdentifier ident) throws NoSuchTopicException {
     EntityCombinedTopic topic =
-        TreeLockUtils.doWithTreeLock(ident, LockType.READ, () -> internalLoadTopic(ident));
+        TreeLockUtils.doWithTreeLock(
+            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTopic(ident));
 
     if (!topic.imported()) {
       // Load the schema to make sure the schema is imported.
@@ -110,6 +149,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
 
       // Import the topic
       TreeLockUtils.doWithTreeLock(
+          lockManagerSupplier.get(),
           schemaIdent,
           LockType.WRITE,
           () -> {
@@ -147,7 +187,10 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
     // Lock the topic node, not the schema, so topics in the same schema can be created
     // concurrently. See TableOperationDispatcher#createTable for the reasoning and trade-off.
     return TreeLockUtils.doWithTreeLock(
-        ident, LockType.WRITE, () -> internalCreateTopic(ident, comment, dataLayout, properties));
+        lockManagerSupplier.get(),
+        ident,
+        LockType.WRITE,
+        () -> internalCreateTopic(ident, comment, dataLayout, properties));
   }
 
   /**
@@ -167,6 +210,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
 
     // As Gravitino does not support TopicChange.renameTopic, we can directly lock the topic.
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         ident,
         LockType.WRITE,
         () -> {
@@ -230,6 +274,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   @Override
   public boolean dropTopic(NameIdentifier ident) {
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         NameIdentifier.of(ident.namespace().levels()),
         LockType.WRITE,
         () -> {

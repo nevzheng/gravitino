@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.catalog;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.StringIdentifier.ID_KEY;
 
 import com.google.common.collect.ImmutableMap;
@@ -32,15 +29,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.exceptions.NoSuchModelException;
 import org.apache.gravitino.exceptions.NoSuchModelVersionException;
 import org.apache.gravitino.exceptions.NoSuchModelVersionURINameException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
@@ -50,7 +43,6 @@ import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class TestModelOperationDispatcher extends TestOperationDispatcher {
 
@@ -60,16 +52,12 @@ public class TestModelOperationDispatcher extends TestOperationDispatcher {
 
   @BeforeAll
   public static void initialize() throws IOException, IllegalAccessException {
-    Config config = Mockito.mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
 
     modelOperationDispatcher =
         new ModelOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
     schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new SchemaOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
   }
 
   @Test

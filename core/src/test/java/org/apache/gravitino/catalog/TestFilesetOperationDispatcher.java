@@ -58,9 +58,11 @@ public class TestFilesetOperationDispatcher extends TestOperationDispatcher {
   @BeforeAll
   public static void initialize() throws IOException {
     schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new SchemaOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     filesetOperationDispatcher =
-        new FilesetOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new FilesetOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
   }
 
   public static FilesetOperationDispatcher getFilesetOperationDispatcher() {
@@ -332,8 +334,8 @@ public class TestFilesetOperationDispatcher extends TestOperationDispatcher {
       AtomicLong nextId = new AtomicLong(9000L);
       IdGenerator ids = nextId::getAndIncrement;
       FilesetOperationDispatcher filesets =
-          new FilesetOperationDispatcher(catalogManager, entityStore, ids, secrets);
-      new SchemaOperationDispatcher(catalogManager, entityStore, ids, secrets)
+          new FilesetOperationDispatcher(catalogManager, entityStore, ids, secrets, lockManager);
+      new SchemaOperationDispatcher(catalogManager, entityStore, ids, secrets, lockManager)
           .createSchema(
               NameIdentifier.of(metalake, catalog, "schema_secret_fileset"),
               "comment",

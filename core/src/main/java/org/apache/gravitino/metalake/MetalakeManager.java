@@ -48,6 +48,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.NonEmptyMetalakeException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -74,6 +75,8 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
 
   private final CatalogManager catalogManager;
 
+  private final LockManager lockManager;
+
   @Override
   public void close() {
     // do nothing
@@ -82,11 +85,29 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   /**
    * Constructs a MetalakeManager instance.
    *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
    * @param store The EntityStore to use for managing Metalakes.
    * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
+   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, LockManager)}, which takes
+   *     the lock manager explicitly.
    */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public MetalakeManager(EntityStore store, IdGenerator idGenerator) {
-    this(store, idGenerator, null);
+    this(store, idGenerator, TreeLockUtils.legacyForwardingLockManager());
+  }
+
+  /**
+   * Constructs a MetalakeManager instance.
+   *
+   * @param store The EntityStore to use for managing Metalakes.
+   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
+   * @param lockManager The LockManager that guards metalake operations with tree locks.
+   */
+  public MetalakeManager(EntityStore store, IdGenerator idGenerator, LockManager lockManager) {
+    this(store, idGenerator, null, lockManager);
   }
 
   /**
@@ -98,12 +119,17 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
    *     CatalogManager#dropCatalog} (schema/fileset secrets cleaned on that path, including {@code
    *     FilesetCatalogOperations.dropSchema}); may be null in tests that do not exercise force-drop
    *     with catalogs.
+   * @param lockManager The LockManager that guards metalake operations with tree locks.
    */
   public MetalakeManager(
-      EntityStore store, IdGenerator idGenerator, CatalogManager catalogManager) {
+      EntityStore store,
+      IdGenerator idGenerator,
+      CatalogManager catalogManager,
+      LockManager lockManager) {
     this.store = store;
     this.idGenerator = idGenerator;
     this.catalogManager = catalogManager;
+    this.lockManager = lockManager;
 
     // preload all metalakes and put them into cache, this is useful when user load schema/table
     // directly without list/get metalake first.
@@ -111,6 +137,25 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     for (BaseMetalake baseMetalake : baseMetalakes) {
       loadMetalake(baseMetalake.nameIdentifier());
     }
+  }
+
+  /**
+   * Constructs a MetalakeManager instance.
+   *
+   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param store The EntityStore to use for managing Metalakes.
+   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
+   * @param catalogManager Used on force-drop to drop child catalogs; may be null.
+   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, CatalogManager,
+   *     LockManager)}, which takes the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
+  public MetalakeManager(
+      EntityStore store, IdGenerator idGenerator, CatalogManager catalogManager) {
+    this(store, idGenerator, catalogManager, TreeLockUtils.legacyForwardingLockManager());
   }
 
   /**
@@ -162,14 +207,34 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   /**
    * Lists all in-use Metalakes.
    *
+   * <p>The lock manager is read from {@code GravitinoEnv}.
+   *
    * @param entityStore The EntityStore to use for managing Metalakes.
    * @return A list of names of in-use Metalakes.
    * @throws RuntimeException If listing in-use Metalakes encounters storage issues.
+   * @deprecated Use {@link #listInUseMetalakes(EntityStore, LockManager)}, which takes the lock
+   *     manager explicitly.
    */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public static List<String> listInUseMetalakes(EntityStore entityStore) {
+    return listInUseMetalakes(entityStore, TreeLockUtils.legacyLockManager().get());
+  }
+
+  /**
+   * Lists all in-use Metalakes.
+   *
+   * @param entityStore The EntityStore to use for managing Metalakes.
+   * @param lockManager The LockManager that guards the listing with the root tree lock.
+   * @return A list of names of in-use Metalakes.
+   * @throws RuntimeException If listing in-use Metalakes encounters storage issues.
+   */
+  public static List<String> listInUseMetalakes(EntityStore entityStore, LockManager lockManager) {
     try {
       List<BaseMetalake> metalakes =
           TreeLockUtils.doWithRootTreeLock(
+              lockManager,
               LockType.READ,
               () -> entityStore.list(Namespace.empty(), BaseMetalake.class, EntityType.METALAKE));
       return metalakes.stream()
@@ -193,6 +258,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     try {
       List<BaseMetalake> metalakes =
           TreeLockUtils.doWithRootTreeLock(
+              lockManager,
               LockType.READ,
               () -> store.list(Namespace.empty(), BaseMetalake.class, EntityType.METALAKE));
 
@@ -216,6 +282,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   @Override
   public BaseMetalake loadMetalake(NameIdentifier ident) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.READ,
         () -> {
@@ -283,6 +350,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
             .build();
 
     return TreeLockUtils.doWithRootTreeLock(
+        lockManager,
         LockType.WRITE,
         () -> {
           try {
@@ -350,10 +418,10 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     boolean containsRenameMetalake =
         Arrays.stream(changes).anyMatch(c -> c instanceof MetalakeChange.RenameMetalake);
     if (containsRenameMetalake) {
-      return TreeLockUtils.doWithRootTreeLock(LockType.WRITE, exceptionExecutable);
+      return TreeLockUtils.doWithRootTreeLock(lockManager, LockType.WRITE, exceptionExecutable);
     }
 
-    return TreeLockUtils.doWithTreeLock(ident, LockType.WRITE, exceptionExecutable);
+    return TreeLockUtils.doWithTreeLock(lockManager, ident, LockType.WRITE, exceptionExecutable);
   }
 
   @Override
@@ -369,6 +437,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
 
     try {
       return TreeLockUtils.doWithRootTreeLock(
+          lockManager,
           LockType.WRITE,
           () -> {
             try {
@@ -499,6 +568,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   private void enableMetalakeIfDisabled(NameIdentifier ident, AtomicBoolean enabledByUs)
       throws NoSuchMetalakeException {
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.WRITE,
         () -> {
@@ -540,6 +610,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   @Override
   public void disableMetalake(NameIdentifier ident) throws NoSuchMetalakeException {
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.WRITE,
         () -> {

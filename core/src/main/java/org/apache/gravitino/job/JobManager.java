@@ -70,6 +70,7 @@ import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.json.JsonUtils;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.meta.AuditInfo;
@@ -128,16 +129,49 @@ public class JobManager implements JobOperationDispatcher {
 
   @VisibleForTesting final ScheduledExecutorService statusPullExecutor;
 
+  private final LockManager lockManager;
+
+  /**
+   * Creates a job manager with the job executor named by the configuration. The lock manager is
+   * read from {@code GravitinoEnv} each time a tree lock is taken.
+   *
+   * @param config The server configuration.
+   * @param entityStore The entity store that holds job templates and jobs.
+   * @param idGenerator The id generator for new job entities.
+   * @deprecated Use {@link #JobManager(Config, EntityStore, IdGenerator, LockManager)}, which takes
+   *     the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public JobManager(Config config, EntityStore entityStore, IdGenerator idGenerator) {
-    this(config, entityStore, idGenerator, JobExecutorFactory.create(config));
+    this(config, entityStore, idGenerator, TreeLockUtils.legacyForwardingLockManager());
+  }
+
+  /**
+   * Creates a job manager with the job executor named by the configuration.
+   *
+   * @param config The server configuration.
+   * @param entityStore The entity store that holds job templates and jobs.
+   * @param idGenerator The id generator for new job entities.
+   * @param lockManager The lock manager that guards job operations with tree locks.
+   */
+  public JobManager(
+      Config config, EntityStore entityStore, IdGenerator idGenerator, LockManager lockManager) {
+    this(config, entityStore, idGenerator, JobExecutorFactory.create(config), lockManager);
   }
 
   @VisibleForTesting
   JobManager(
-      Config config, EntityStore entityStore, IdGenerator idGenerator, JobExecutor jobExecutor) {
+      Config config,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      JobExecutor jobExecutor,
+      LockManager lockManager) {
     this.entityStore = entityStore;
     this.jobExecutor = jobExecutor;
     this.idGenerator = idGenerator;
+    this.lockManager = lockManager;
 
     String stagingDirPath = config.get(Configs.JOB_STAGING_DIR);
     this.stagingDir = new File(stagingDirPath);
@@ -220,6 +254,7 @@ public class JobManager implements JobOperationDispatcher {
 
     Namespace jobTemplateNs = NamespaceUtil.ofJobTemplate(metalake);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(jobTemplateNs.levels()),
         LockType.READ,
         () -> {
@@ -242,6 +277,7 @@ public class JobManager implements JobOperationDispatcher {
     NameIdentifier jobTemplateIdent =
         NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateEntity.name());
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         jobTemplateIdent,
         LockType.WRITE,
         () -> {
@@ -267,6 +303,7 @@ public class JobManager implements JobOperationDispatcher {
 
     NameIdentifier jobTemplateIdent = NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateName);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         jobTemplateIdent,
         LockType.READ,
         () -> {
@@ -305,6 +342,7 @@ public class JobManager implements JobOperationDispatcher {
     // Delete the job template entity as well as all the jobs associated with it.
     boolean deleted =
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             NameIdentifier.of(NamespaceUtil.ofJobTemplate(metalake).levels()),
             LockType.WRITE,
             () -> {
@@ -353,6 +391,7 @@ public class JobManager implements JobOperationDispatcher {
 
     NameIdentifier jobTemplateIdent = NameIdentifierUtil.ofJobTemplate(metalake, jobTemplateName);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         jobTemplateIdent,
         LockType.READ, // Use READ lock because the update method in JobTemplateMetaService will
         // handle the update transactionally and update with a new version number. So we don't
@@ -398,6 +437,7 @@ public class JobManager implements JobOperationDispatcher {
 
     Namespace jobNs = NamespaceUtil.ofJob(metalake);
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(jobNs.levels()),
         LockType.READ,
         () -> {
@@ -421,6 +461,7 @@ public class JobManager implements JobOperationDispatcher {
               // Lock the job template to ensure no concurrent modifications/deletions
               jobEntities =
                   TreeLockUtils.doWithTreeLock(
+                      lockManager,
                       jobTemplateIdent,
                       LockType.READ,
                       () ->
@@ -447,6 +488,7 @@ public class JobManager implements JobOperationDispatcher {
     NameIdentifier jobIdent = NameIdentifierUtil.ofJob(metalake, jobId);
     JobEntity entity =
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             jobIdent,
             LockType.READ,
             () -> {
@@ -688,6 +730,7 @@ public class JobManager implements JobOperationDispatcher {
 
     // Update the job status to CANCELING
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifierUtil.ofJob(metalake, jobId),
         LockType.WRITE,
         () -> {
@@ -1000,7 +1043,7 @@ public class JobManager implements JobOperationDispatcher {
   private void forEachInUseMetalake(String task, Consumer<String> action) {
     List<String> metalakes;
     try {
-      metalakes = MetalakeManager.listInUseMetalakes(entityStore);
+      metalakes = MetalakeManager.listInUseMetalakes(entityStore, lockManager);
     } catch (Throwable t) {
       LOG.error("Failed to list the in-use metalakes for the {}", task, t);
       return;
@@ -1321,6 +1364,7 @@ public class JobManager implements JobOperationDispatcher {
     try {
       return Optional.of(
           TreeLockUtils.doWithTreeLock(
+              lockManager,
               NameIdentifierUtil.ofJob(metalake, job.name()),
               LockType.WRITE,
               () -> {

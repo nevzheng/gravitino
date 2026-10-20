@@ -56,6 +56,7 @@ import org.apache.iceberg.rest.requests.ImmutableRegisterViewRequest;
 import org.apache.iceberg.rest.requests.RegisterTableRequest;
 import org.apache.iceberg.rest.requests.RegisterViewRequest;
 import org.apache.iceberg.rest.responses.CreateNamespaceResponse;
+import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -93,7 +94,6 @@ public class TestIcebergNamespaceHookDispatcher {
   private ViewDispatcher previousViewDispatcher;
   private ViewDispatcher previousInternalViewDispatcher;
   private EntityStore previousEntityStore;
-  private LockManager previousLockManager;
 
   @BeforeEach
   public void setUp() throws IllegalAccessException {
@@ -130,8 +130,6 @@ public class TestIcebergNamespaceHookDispatcher {
             FieldUtils.readField(GravitinoEnv.getInstance(), "internalViewDispatcher", true);
     previousEntityStore =
         (EntityStore) FieldUtils.readField(GravitinoEnv.getInstance(), "entityStore", true);
-    previousLockManager =
-        (LockManager) FieldUtils.readField(GravitinoEnv.getInstance(), "lockManager", true);
 
     FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
     FieldUtils.writeField(
@@ -153,14 +151,13 @@ public class TestIcebergNamespaceHookDispatcher {
     mockLockManager = mock(LockManager.class);
     TreeLock mockTreeLock = mock(TreeLock.class);
     when(mockLockManager.createTreeLock(any())).thenReturn(mockTreeLock);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", mockLockManager, true);
 
     IcebergConfigProvider mockConfigProvider = mock(IcebergConfigProvider.class);
     when(mockConfigProvider.getMetalakeName()).thenReturn(TEST_METALAKE);
     when(mockConfigProvider.getDefaultCatalogName()).thenReturn(TEST_CATALOG);
     IcebergRESTServerContext.create(mockConfigProvider, false, false, true, null);
 
-    hookDispatcher = new IcebergNamespaceHookDispatcher(mockDispatcher);
+    hookDispatcher = new IcebergNamespaceHookDispatcher(mockDispatcher, mockLockManager);
 
     mockContext = mock(IcebergRequestContext.class);
     when(mockContext.catalogName()).thenReturn(TEST_CATALOG);
@@ -195,7 +192,6 @@ public class TestIcebergNamespaceHookDispatcher {
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalViewDispatcher", previousInternalViewDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", previousEntityStore, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", previousLockManager, true);
 
     Class<?> holderClass =
         Arrays.stream(IcebergRESTServerContext.class.getDeclaredClasses())
@@ -203,6 +199,22 @@ public class TestIcebergNamespaceHookDispatcher {
             .findFirst()
             .orElseThrow(() -> new RuntimeException("InstanceHolder class not found"));
     FieldUtils.writeStaticField(holderClass, "INSTANCE", null, true);
+  }
+
+  // The one-argument constructor stays for callers outside this repository.
+  @SuppressWarnings("deprecation")
+  @Test
+  public void testDeprecatedConstructorDelegatesToTheDispatcher() {
+    // GravitinoEnv may have no lock manager here: the constructor must not need one.
+    IcebergNamespaceHookDispatcher legacy = new IcebergNamespaceHookDispatcher(mockDispatcher);
+
+    Namespace namespace = Namespace.of("test_schema");
+    GetNamespaceResponse response = mock(GetNamespaceResponse.class);
+    when(mockDispatcher.loadNamespace(mockContext, namespace)).thenReturn(response);
+    when(mockDispatcher.namespaceExists(mockContext, namespace)).thenReturn(true);
+
+    Assertions.assertSame(response, legacy.loadNamespace(mockContext, namespace));
+    Assertions.assertTrue(legacy.namespaceExists(mockContext, namespace));
   }
 
   @Test

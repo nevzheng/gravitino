@@ -41,6 +41,7 @@ import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.NoSuchUserException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
 import org.apache.gravitino.exceptions.UserAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.storage.IdGenerator;
@@ -56,18 +57,47 @@ public class AccessControlManager implements AccessControlDispatcher {
   private final RoleManager roleManager;
   private final PermissionManager permissionManager;
   private final List<String> serviceAdmins;
+  private final LockManager lockManager;
 
-  public AccessControlManager(EntityStore store, IdGenerator idGenerator, Config config) {
+  /**
+   * Creates an access control manager.
+   *
+   * @param store The entity store that holds users, groups and roles.
+   * @param idGenerator The id generator for new users, groups and roles.
+   * @param config The server configuration, which lists the service admins.
+   * @param lockManager The lock manager that guards access control operations with tree locks.
+   */
+  public AccessControlManager(
+      EntityStore store, IdGenerator idGenerator, Config config, LockManager lockManager) {
     this.roleManager = new RoleManager(store, idGenerator);
     this.userGroupManager = new UserGroupManager(store, idGenerator);
-    this.permissionManager = new PermissionManager(store, roleManager);
+    this.permissionManager = new PermissionManager(store, roleManager, lockManager);
     this.serviceAdmins = config.get(Configs.SERVICE_ADMINS);
+    this.lockManager = lockManager;
+  }
+
+  /**
+   * Creates an access control manager that reads the lock manager from {@code GravitinoEnv} each
+   * time a tree lock is taken.
+   *
+   * @param store The entity store that holds users, groups and roles.
+   * @param idGenerator The id generator for new users, groups and roles.
+   * @param config The server configuration, which lists the service admins.
+   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager)},
+   *     which takes the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
+  public AccessControlManager(EntityStore store, IdGenerator idGenerator, Config config) {
+    this(store, idGenerator, config, TreeLockUtils.legacyForwardingLockManager());
   }
 
   @Override
   public User addUser(String metalake, String user)
       throws UserAlreadyExistsException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.WRITE,
         () -> userGroupManager.addUser(metalake, user));
@@ -77,6 +107,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public List<BulkItemResult<User>> addUsers(String metalake, List<UserAdd> users)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -97,6 +128,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public boolean removeUser(String metalake, String user) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.WRITE,
         () -> userGroupManager.removeUser(metalake, user));
@@ -107,6 +139,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       String metalake, List<String> users, Optional<Owner> metalakeOwner)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -135,6 +168,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public User getUser(String metalake, String user)
       throws NoSuchUserException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofUser(metalake, user),
         LockType.READ,
         () -> userGroupManager.getUser(metalake, user));
@@ -143,6 +177,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public String[] listUserNames(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listUserNames(metalake));
@@ -151,6 +186,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public User[] listUsers(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listUsers(metalake));
@@ -160,6 +196,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public PagedResult<User> listUsers(String metalake, int offset, int limit)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listUsers(metalake, offset, limit));
@@ -168,6 +205,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public long countUsers(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofUserNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.countUsers(metalake));
@@ -177,6 +215,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public Group addGroup(String metalake, String group)
       throws GroupAlreadyExistsException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.WRITE,
         () -> userGroupManager.addGroup(metalake, group));
@@ -186,6 +225,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public List<BulkItemResult<Group>> addGroups(String metalake, List<GroupAdd> groups)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -206,6 +246,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public boolean removeGroup(String metalake, String group) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.WRITE,
         () -> userGroupManager.removeGroup(metalake, group));
@@ -216,6 +257,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       String metalake, List<String> groups, Optional<Owner> metalakeOwner)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -244,6 +286,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public Group getGroup(String metalake, String group)
       throws NoSuchGroupException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofGroup(metalake, group),
         LockType.READ,
         () -> userGroupManager.getGroup(metalake, group));
@@ -252,6 +295,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public Group[] listGroups(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listGroups(metalake));
@@ -260,6 +304,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public PagedResult<Group> listGroups(String metalake, int offset, int limit) {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listGroups(metalake, offset, limit));
@@ -268,6 +313,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public long countGroups(String metalake) {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.countGroups(metalake));
@@ -276,6 +322,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public String[] listGroupNames(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofGroupNamespace(metalake).levels()),
         LockType.READ,
         () -> userGroupManager.listGroupNames(metalake));
@@ -285,6 +332,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public User grantRolesToUser(String metalake, List<String> roles, String user)
       throws NoSuchUserException, IllegalRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofUser(metalake, user),
         LockType.WRITE,
         () -> permissionManager.grantRolesToUser(metalake, roles, user));
@@ -294,6 +342,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public Group grantRolesToGroup(String metalake, List<String> roles, String group)
       throws NoSuchGroupException, IllegalRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofGroup(metalake, group),
         LockType.WRITE,
         () -> permissionManager.grantRolesToGroup(metalake, roles, group));
@@ -303,6 +352,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public Group revokeRolesFromGroup(String metalake, List<String> roles, String group)
       throws NoSuchGroupException, IllegalRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofGroup(metalake, group),
         LockType.WRITE,
         () -> permissionManager.revokeRolesFromGroup(metalake, roles, group));
@@ -312,6 +362,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public User revokeRolesFromUser(String metalake, List<String> roles, String user)
       throws NoSuchUserException, IllegalRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofUser(metalake, user),
         LockType.WRITE,
         () -> permissionManager.revokeRolesFromUser(metalake, roles, user));
@@ -330,6 +381,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       List<SecurableObject> securableObjects)
       throws RoleAlreadyExistsException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofRoleNamespace(metalake).levels()),
         LockType.WRITE,
         () -> roleManager.createRole(metalake, role, properties, securableObjects));
@@ -339,6 +391,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public List<BulkItemResult<Role>> createRoles(String metalake, List<RoleAdd> roles)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofRoleNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -362,6 +415,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public Role getRole(String metalake, String role)
       throws NoSuchRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofRole(metalake, role),
         LockType.READ,
         () -> roleManager.getRole(metalake, role));
@@ -370,6 +424,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public boolean deleteRole(String metalake, String role) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofRoleNamespace(metalake).levels()),
         LockType.WRITE,
         () -> roleManager.deleteRole(metalake, role));
@@ -379,6 +434,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   public List<BulkItemResult<String>> deleteRoles(String metalake, List<String> roles)
       throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofRoleNamespace(metalake).levels()),
         LockType.WRITE,
         () -> {
@@ -405,6 +461,7 @@ public class AccessControlManager implements AccessControlDispatcher {
   @Override
   public String[] listRoleNames(String metalake) throws NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(AuthorizationUtils.ofRoleNamespace(metalake).levels()),
         LockType.READ,
         () -> roleManager.listRoleNames(metalake));
@@ -415,7 +472,10 @@ public class AccessControlManager implements AccessControlDispatcher {
       throws NoSuchMetalakeException, NoSuchMetadataObjectException {
     NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, object);
     return TreeLockUtils.doWithTreeLock(
-        identifier, LockType.READ, () -> roleManager.listRoleNamesByObject(metalake, object));
+        lockManager,
+        identifier,
+        LockType.READ,
+        () -> roleManager.listRoleNamesByObject(metalake, object));
   }
 
   @Override
@@ -423,6 +483,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       String metalake, String role, MetadataObject object, Set<Privilege> privileges)
       throws NoSuchRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofRole(metalake, role),
         LockType.WRITE,
         () -> permissionManager.grantPrivilegesToRole(metalake, role, object, privileges));
@@ -433,6 +494,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       String metalake, String role, MetadataObject object, Set<Privilege> privileges)
       throws NoSuchRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofRole(metalake, role),
         LockType.WRITE,
         () -> permissionManager.revokePrivilegesFromRole(metalake, role, object, privileges));
@@ -443,6 +505,7 @@ public class AccessControlManager implements AccessControlDispatcher {
       String metalake, String role, List<SecurableObject> securableObjectsToOverride)
       throws NoSuchRoleException, NoSuchMetalakeException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         AuthorizationUtils.ofRole(metalake, role),
         LockType.WRITE,
         () ->

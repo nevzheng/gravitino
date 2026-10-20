@@ -180,6 +180,12 @@ public class LockManager {
         TimeUnit.SECONDS);
   }
 
+  /**
+   * Creates a lock manager without a lock tree or background threads, for {@link
+   * ForwardingLockManager}, which overrides {@link #createTreeLock(NameIdentifier)}.
+   */
+  LockManager() {}
+
   public LockManager(Config config) {
     treeLockRootNode = new TreeLockNode(ROOT.name());
 

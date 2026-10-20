@@ -76,6 +76,8 @@ public class TestBuiltInJobTemplateEventListener {
   private IdGenerator idGenerator;
   private Config config;
 
+  private LockManager lockManager;
+
   @BeforeEach
   public void setUp() throws IllegalAccessException {
     config = Mockito.mock(Config.class);
@@ -87,11 +89,13 @@ public class TestBuiltInJobTemplateEventListener {
     entityStore = new TestMemoryEntityStore.InMemoryEntityStore();
     entityStore.initialize(config);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     idGenerator = new RandomIdGenerator();
 
     jobManager = mock(JobManager.class);
-    listener = new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator);
+    listener =
+        new BuiltInJobTemplateEventListener(jobManager, entityStore, idGenerator, lockManager);
   }
 
   @AfterEach

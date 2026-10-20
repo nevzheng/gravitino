@@ -93,13 +93,16 @@ public class TestJobManagerMultiNode extends TestJDBCBackend {
 
   private EntityStore entityStore;
 
+  private LockManager lockManager;
+
   @BeforeEach
   public void setUpNodes() throws Exception {
     testDir = Files.createTempDirectory("gravitino-test-job-multi-node").toFile();
 
     // Both nodes share the same staging directory, like a deployment on shared storage.
     Config config = newConfig(new File(testDir, "staging"));
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     // Both nodes share the same metadata store, backed by the relational backend under test.
     RelationalEntityStore relationalEntityStore = new RelationalEntityStore();
@@ -516,10 +519,10 @@ public class TestJobManagerMultiNode extends TestJDBCBackend {
     return executor;
   }
 
-  private static JobManager newJobManager(
+  private JobManager newJobManager(
       Config config, EntityStore entityStore, JobExecutor jobExecutor) {
     JobManager jobManager =
-        new JobManager(config, entityStore, RandomIdGenerator.INSTANCE, jobExecutor);
+        new JobManager(config, entityStore, RandomIdGenerator.INSTANCE, jobExecutor, lockManager);
     // Stop the background schedulers, the test pulls the job status manually.
     jobManager.statusPullExecutor.shutdownNow();
     jobManager.cleanUpExecutor.shutdownNow();

@@ -32,6 +32,7 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
@@ -58,10 +59,35 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
 
   private final IcebergNamespaceOperationDispatcher dispatcher;
   private final String metalake;
+  private final LockManager lockManager;
 
-  public IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher dispatcher) {
+  /**
+   * Creates a namespace hook dispatcher.
+   *
+   * @param dispatcher The namespace dispatcher to delegate to.
+   * @param lockManager The lock manager that serializes namespace creation and drop per top-level
+   *     namespace.
+   */
+  public IcebergNamespaceHookDispatcher(
+      IcebergNamespaceOperationDispatcher dispatcher, LockManager lockManager) {
     this.dispatcher = dispatcher;
     this.metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    this.lockManager = lockManager;
+  }
+
+  /**
+   * Creates a namespace hook dispatcher that reads the lock manager from {@code GravitinoEnv} each
+   * time a tree lock is taken.
+   *
+   * @param dispatcher The namespace dispatcher to delegate to.
+   * @deprecated Use {@link #IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher,
+   *     LockManager)}, which takes the lock manager explicitly.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
+  public IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher dispatcher) {
+    this(dispatcher, TreeLockUtils.legacyForwardingLockManager());
   }
 
   @Override
@@ -75,6 +101,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // and lets disjoint branches (e.g. A:... and X:...) create in parallel.
     CreateNamespaceResponse createNamespaceResponse =
         TreeLockUtils.doWithTreeLock(
+            lockManager,
             NameIdentifier.of(metalake, catalogName, leaf.level(0)),
             LockType.WRITE,
             () -> {
@@ -144,6 +171,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     // Same top-level branch lock as createNamespace, so the phantom-row cleanup stays atomic
     // against concurrent creates that could re-add children under our ancestors.
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         NameIdentifier.of(metalake, catalogName, namespace.level(0)),
         LockType.WRITE,
         () -> {
