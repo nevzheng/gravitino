@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.Map;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
@@ -111,8 +112,9 @@ public class TestIcebergConfigEndpointGating extends IcebergTestBase {
         Map<String, String> properties,
         IcebergConfigProvider configProvider,
         boolean auxMode,
-        String metalakeName) {
-      super(properties, configProvider, auxMode, metalakeName);
+        String metalakeName,
+        AuxiliaryContext auxiliaryContext) {
+      super(properties, configProvider, auxMode, metalakeName, auxiliaryContext);
     }
 
     @Override

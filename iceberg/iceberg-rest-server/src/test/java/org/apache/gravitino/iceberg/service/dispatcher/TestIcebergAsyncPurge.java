@@ -23,18 +23,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
 import java.util.Optional;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auth.AuthConstants;
-import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.CatalogTestUtils;
-import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
@@ -42,7 +37,6 @@ import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupJob;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
-import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.Namespace;
@@ -57,7 +51,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.MockedStatic;
 
 /**
  * Covers the async purge request path in the table and namespace executors: how {@code dropTable}
@@ -92,9 +85,8 @@ class TestIcebergAsyncPurge {
     when(wrapper.fileIOImpl()).thenReturn("io");
     when(wrapper.fileIOProperties()).thenReturn(Collections.emptyMap());
 
-    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
-      tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(true), TABLE, true);
-    }
+    when(cleanup.catalogId("cat")).thenReturn(CATALOG_ID);
+    tableExecutor(wrapper, Optional.of(cleanup)).dropTable(context(true), TABLE, true);
 
     InOrder ordered = inOrder(wrapper, cleanup);
     ordered.verify(wrapper).loadTableMetadata(TABLE);
@@ -150,15 +142,14 @@ class TestIcebergAsyncPurge {
     IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
     when(cleanup.isNameOccupied(CATALOG_ID, "db", "t")).thenReturn(true);
 
-    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
-      AlreadyExistsException e =
-          Assertions.assertThrows(
-              AlreadyExistsException.class,
-              () ->
-                  tableExecutor(wrapper, Optional.of(cleanup))
-                      .createTable(context(false), DB, createReq()));
-      Assertions.assertTrue(e.getMessage().contains("being purged"), e.getMessage());
-    }
+    when(cleanup.catalogId("cat")).thenReturn(CATALOG_ID);
+    AlreadyExistsException e =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () ->
+                tableExecutor(wrapper, Optional.of(cleanup))
+                    .createTable(context(false), DB, createReq()));
+    Assertions.assertTrue(e.getMessage().contains("being purged"), e.getMessage());
     verify(wrapper, never()).createTable(any(), any(), anyBoolean());
   }
 
@@ -168,9 +159,8 @@ class TestIcebergAsyncPurge {
     IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
     when(cleanup.isNameOccupied(CATALOG_ID, "db", "t")).thenReturn(false);
 
-    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
-      tableExecutor(wrapper, Optional.of(cleanup)).createTable(context(false), DB, createReq());
-    }
+    when(cleanup.catalogId("cat")).thenReturn(CATALOG_ID);
+    tableExecutor(wrapper, Optional.of(cleanup)).createTable(context(false), DB, createReq());
     verify(wrapper).createTable(any(), any(), anyBoolean());
   }
 
@@ -180,15 +170,14 @@ class TestIcebergAsyncPurge {
     IcebergCleanupManager cleanup = mock(IcebergCleanupManager.class);
     when(cleanup.isNameOccupied(CATALOG_ID, "db", "t")).thenReturn(true);
 
-    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
-      AlreadyExistsException e =
-          Assertions.assertThrows(
-              AlreadyExistsException.class,
-              () ->
-                  namespaceExecutor(wrapper, Optional.of(cleanup))
-                      .registerTable(context(false), DB, registerReq()));
-      Assertions.assertTrue(e.getMessage().contains("being purged"), e.getMessage());
-    }
+    when(cleanup.catalogId("cat")).thenReturn(CATALOG_ID);
+    AlreadyExistsException e =
+        Assertions.assertThrows(
+            AlreadyExistsException.class,
+            () ->
+                namespaceExecutor(wrapper, Optional.of(cleanup))
+                    .registerTable(context(false), DB, registerReq()));
+    Assertions.assertTrue(e.getMessage().contains("being purged"), e.getMessage());
     verify(wrapper, never()).registerTable(any(), any(), anyBoolean());
   }
 
@@ -201,10 +190,9 @@ class TestIcebergAsyncPurge {
     when(metadata.schema()).thenReturn(SCHEMA);
     when(wrapper.loadTableMetadataFromLocation("s3://b/db/t/metadata/0.json")).thenReturn(metadata);
 
-    try (MockedStatic<GravitinoEnv> ignored = mockCatalogId()) {
-      namespaceExecutor(wrapper, Optional.of(cleanup))
-          .registerTable(context(false), DB, registerReq());
-    }
+    when(cleanup.catalogId("cat")).thenReturn(CATALOG_ID);
+    namespaceExecutor(wrapper, Optional.of(cleanup))
+        .registerTable(context(false), DB, registerReq());
     verify(wrapper).loadTableMetadataFromLocation("s3://b/db/t/metadata/0.json");
     verify(wrapper).registerTable(any(), any(), anyBoolean());
   }
@@ -233,21 +221,6 @@ class TestIcebergAsyncPurge {
     when(context.userName()).thenReturn(asyncPurge ? "alice" : AuthConstants.ANONYMOUS_USER);
     when(context.asyncPurge()).thenReturn(asyncPurge);
     return context;
-  }
-
-  /** Stubs the request-thread catalog-id resolution to {@link #CATALOG_ID}. */
-  private static MockedStatic<GravitinoEnv> mockCatalogId() {
-    MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class);
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    BaseCatalog<?> catalog = mock(BaseCatalog.class);
-    CatalogEntity entity = mock(CatalogEntity.class);
-    envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-    when(env.catalogManager()).thenReturn(catalogManager);
-    CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
-    when(catalog.entity()).thenReturn(entity);
-    when(entity.id()).thenReturn(CATALOG_ID);
-    return envStatic;
   }
 
   private static CreateTableRequest createReq() {

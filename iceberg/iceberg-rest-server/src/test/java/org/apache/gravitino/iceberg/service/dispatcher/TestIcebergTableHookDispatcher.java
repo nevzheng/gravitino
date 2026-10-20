@@ -32,14 +32,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -82,49 +80,24 @@ public class TestIcebergTableHookDispatcher {
   private OwnerDispatcher mockInternalOwnerDispatcher;
   private IcebergRequestContext mockContext;
 
-  private Config previousConfig;
-  private EntityStore previousEntityStore;
-  private TableDispatcher previousTableDispatcher;
-  private TableDispatcher previousInternalTableDispatcher;
-  private OwnerDispatcher previousOwnerDispatcher;
-  private OwnerDispatcher previousInternalOwnerDispatcher;
-
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     // Mock the underlying dispatcher
     mockDispatcher = mock(IcebergTableOperationDispatcher.class);
     mockNamespaceDispatcher = mock(IcebergNamespaceOperationDispatcher.class);
 
-    // Mock GravitinoEnv components
+    // Mock the host services
     mockEntityStore = mock(EntityStore.class);
     mockTableDispatcher = mock(TableDispatcher.class);
     mockInternalTableDispatcher = mock(TableDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     mockInternalOwnerDispatcher = mock(OwnerDispatcher.class);
 
-    Config mockConfig = mock(Config.class);
-    when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
-    previousConfig = (Config) FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    previousEntityStore =
-        (EntityStore) FieldUtils.readField(GravitinoEnv.getInstance(), "entityStore", true);
-    previousTableDispatcher =
-        (TableDispatcher) FieldUtils.readField(GravitinoEnv.getInstance(), "tableDispatcher", true);
-    previousInternalTableDispatcher =
-        (TableDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalTableDispatcher", true);
-    previousOwnerDispatcher =
-        (OwnerDispatcher) FieldUtils.readField(GravitinoEnv.getInstance(), "ownerDispatcher", true);
-    previousInternalOwnerDispatcher =
-        (OwnerDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalOwnerDispatcher", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", mockEntityStore, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "tableDispatcher", mockTableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", mockInternalTableDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockInternalOwnerDispatcher, true);
+    AuxiliaryContext auxiliaryContext = mock(AuxiliaryContext.class);
+    when(auxiliaryContext.entityStore()).thenReturn(mockEntityStore);
+    when(auxiliaryContext.tableDispatcher()).thenReturn(mockTableDispatcher);
+    when(auxiliaryContext.internalTableDispatcher()).thenReturn(mockInternalTableDispatcher);
+    when(auxiliaryContext.internalOwnerDispatcher()).thenReturn(mockInternalOwnerDispatcher);
 
     // Create mock IcebergRESTServerContext
     IcebergConfigProvider mockConfigProvider = mock(IcebergConfigProvider.class);
@@ -133,7 +106,8 @@ public class TestIcebergTableHookDispatcher {
     IcebergRESTServerContext.create(mockConfigProvider, false, false, true, null);
 
     // Create hook dispatcher
-    hookDispatcher = new IcebergTableHookDispatcher(mockDispatcher, mockNamespaceDispatcher);
+    hookDispatcher =
+        new IcebergTableHookDispatcher(mockDispatcher, mockNamespaceDispatcher, auxiliaryContext);
 
     // Mock request context
     mockContext = mock(IcebergRequestContext.class);
@@ -143,25 +117,6 @@ public class TestIcebergTableHookDispatcher {
 
   @AfterEach
   public void tearDown() throws IllegalAccessException {
-    // Restore GravitinoEnv to its prior state so this test doesn't leak singleton state
-    // into other tests that share the same JVM.
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", previousEntityStore, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "tableDispatcher", previousTableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalTableDispatcher",
-        previousInternalTableDispatcher,
-        true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "ownerDispatcher", previousOwnerDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalOwnerDispatcher",
-        previousInternalOwnerDispatcher,
-        true);
-
     // Reset IcebergRESTServerContext singleton
     Class<?> holderClass =
         Arrays.stream(IcebergRESTServerContext.class.getDeclaredClasses())

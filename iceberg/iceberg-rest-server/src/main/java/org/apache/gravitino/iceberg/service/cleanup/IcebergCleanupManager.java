@@ -40,7 +40,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongPredicate;
+import java.util.function.ToLongFunction;
+import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
+import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ManifestFile;
@@ -80,17 +84,37 @@ public class IcebergCleanupManager implements AutoCloseable {
 
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final ToLongFunction<String> catalogIds;
   private ExecutorService workers;
   private ScheduledExecutorService scheduler;
+
+  /**
+   * Creates an async cleanup manager that resolves catalog ids through {@code GravitinoEnv}.
+   *
+   * @param store the cleanup job store backed by the entity store's relational backend
+   * @param config Iceberg REST server config
+   * @deprecated The manager reads the catalog manager from {@code GravitinoEnv}. Use {@link
+   *     #IcebergCleanupManager(IcebergCleanupJobStore, IcebergConfig, ToLongFunction)}.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
+  public IcebergCleanupManager(IcebergCleanupJobStore store, IcebergConfig config) {
+    this(store, config, IcebergCleanupManager::environmentCatalogId);
+  }
 
   /**
    * Creates an async cleanup manager.
    *
    * @param store the cleanup job store backed by the entity store's relational backend
    * @param config Iceberg REST server config
+   * @param catalogIds resolves the entity id of a catalog of the service's metalake from its name;
+   *     cleanup jobs are keyed by it
    */
-  public IcebergCleanupManager(IcebergCleanupJobStore store, IcebergConfig config) {
+  public IcebergCleanupManager(
+      IcebergCleanupJobStore store, IcebergConfig config, ToLongFunction<String> catalogIds) {
     this.store = store;
+    this.catalogIds = catalogIds;
     this.workerThreads = config.get(IcebergConfig.ASYNC_CLEANUP_WORKER_THREADS);
     int deleteThreads = config.get(IcebergConfig.ASYNC_CLEANUP_DELETE_THREADS);
     this.deleteBatchSize = config.get(IcebergConfig.ASYNC_CLEANUP_DELETE_BATCH_SIZE);
@@ -112,6 +136,16 @@ public class IcebergCleanupManager implements AutoCloseable {
             new ArrayBlockingQueue<>(deleteThreads * 4),
             daemon("iceberg-cleanup-delete"),
             new ThreadPoolExecutor.CallerRunsPolicy());
+  }
+
+  /**
+   * Returns the entity id of a catalog of the service's metalake, the key of its cleanup jobs.
+   *
+   * @param catalogName the catalog name
+   * @return the catalog id
+   */
+  public long catalogId(String catalogName) {
+    return catalogIds.applyAsLong(catalogName);
   }
 
   /**
@@ -385,5 +419,13 @@ public class IcebergCleanupManager implements AutoCloseable {
       thread.setDaemon(true);
       return thread;
     };
+  }
+
+  /** Resolves a catalog id as the manager did before it was given a resolver. */
+  private static long environmentCatalogId(String catalogName) {
+    String metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    return EnvironmentAuxiliaryContext.INSTANCE
+        .catalogManager()
+        .doWithCatalog(NameIdentifier.of(metalake, catalogName), catalog -> catalog.entity().id());
   }
 }
