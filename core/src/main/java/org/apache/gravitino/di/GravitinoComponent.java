@@ -89,7 +89,8 @@ import org.apache.gravitino.tag.TagDispatcher;
  * this interface and is built from {@link GravitinoModules} and its own modules. Those modules
  * change a chain by contributing a {@link DispatcherDecorator} for it, and add services to the
  * {@link #lifecycle()} by contributing a {@link ManagedService}; upstream contributes neither, so
- * this component's chains and lifecycle are exactly what its modules build.
+ * this component's chains and lifecycle are exactly what its modules build. {@code GravitinoEnv}
+ * takes its objects from the component that the factory it is initialized with creates.
  */
 @Singleton
 @Component(modules = GravitinoModules.class)

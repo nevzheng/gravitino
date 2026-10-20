@@ -27,9 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.encryption.kms.KmsReference;
@@ -68,6 +71,29 @@ public class TestGravitinoEnvComponent {
       assertSame(env.eventBus(), component.eventBus());
       // Nor an entity store.
       assertThrows(IllegalArgumentException.class, env::entityStore);
+    } finally {
+      env.shutdown();
+    }
+  }
+
+  @Test
+  public void testBaseProfileTakesItsObjectsFromTheComponentOfAFactory() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    List<GravitinoComponent> created = new ArrayList<>();
+    try {
+      env.initializeBaseComponents(
+          new Config(false) {},
+          (config, legacy) -> {
+            GravitinoComponent component =
+                DaggerGravitinoComponent.factory().create(config, legacy);
+            created.add(component);
+            return component;
+          });
+
+      assertEquals(1, created.size());
+      assertSame(created.get(0), env.component());
+      assertSame(created.get(0).metricsSystem(), env.metricsSystem());
+      assertSame(created.get(0).eventBus(), env.eventBus());
     } finally {
       env.shutdown();
     }
