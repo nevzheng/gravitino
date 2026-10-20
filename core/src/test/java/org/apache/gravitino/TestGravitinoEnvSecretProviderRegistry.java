@@ -19,7 +19,6 @@
 package org.apache.gravitino;
 
 import java.util.Properties;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.secret.memory.InMemorySecretsProvider;
@@ -29,15 +28,16 @@ import org.junit.jupiter.api.Test;
 public class TestGravitinoEnvSecretProviderRegistry {
 
   @Test
-  void testEmptyRegistryIsOptionalAndClosedWithEnvironment() throws IllegalAccessException {
+  void testEmptyRegistryIsOptionalAndClosedWithEnvironment() {
     TestGravitinoEnv env = new TestGravitinoEnv();
     Assertions.assertThrows(IllegalStateException.class, env::secretProviderRegistry);
     Assertions.assertThrows(IllegalStateException.class, env::secretManager);
 
-    SecretManager secretManager = new SecretManager(new Config(false) {});
-    FieldUtils.writeField(env, "secretManager", secretManager, true);
+    // The environment closes what its component built, so the manager comes from the component.
+    env.initializeBaseComponents(new Config(false) {});
+    SecretManager secretManager = env.secretManager();
 
-    Assertions.assertSame(secretManager, env.secretManager());
+    Assertions.assertSame(secretManager, env.component().secretManager());
     Assertions.assertSame(secretManager.getRegistry(), env.secretProviderRegistry());
     Assertions.assertTrue(secretManager.getRegistry().listProviders().isEmpty());
 

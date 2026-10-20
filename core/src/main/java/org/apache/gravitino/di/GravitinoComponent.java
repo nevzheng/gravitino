@@ -138,22 +138,22 @@ public interface GravitinoComponent {
   EntityStore entityStore();
 
   /**
-   * Returns the KMS client registry. {@code GravitinoEnv} closes it.
+   * Returns the KMS client registry. The {@link #lifecycle()} closes it.
    *
    * @return the KMS client registry
    */
   KmsClientRegistry kmsClientRegistry();
 
   /**
-   * Returns the secret manager. {@code GravitinoEnv} closes it.
+   * Returns the secret manager. The {@link #lifecycle()} closes it.
    *
    * @return the secret manager
    */
   SecretManager secretManager();
 
   /**
-   * Returns the event listener manager, with the listeners named by the configuration loaded.
-   * {@code GravitinoEnv} starts and stops it.
+   * Returns the event listener manager, with the listeners named by the configuration loaded. The
+   * {@link #lifecycle()} starts and stops it.
    *
    * @return the event listener manager
    */

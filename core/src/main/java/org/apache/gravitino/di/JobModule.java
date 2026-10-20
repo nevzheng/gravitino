@@ -38,8 +38,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * templates of new metalakes.
  *
  * <p>The {@link Internal} chain is validation → manager; the {@link Public} chain is event → hook →
- * that same validation dispatcher. Dagger does not close the manager; {@code
- * GravitinoEnv.shutdown()} closes the public chain, which closes it.
+ * that same validation dispatcher. Dagger does not close the manager; the {@link LifecycleModule
+ * lifecycle} closes the public chain, which closes it.
  */
 @SuppressWarnings("CloseableProvides")
 @Module

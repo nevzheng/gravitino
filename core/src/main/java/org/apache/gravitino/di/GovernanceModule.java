@@ -59,7 +59,7 @@ import org.apache.gravitino.tag.TagManager;
  * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, wrapped in their decorators,
  * so they never yield {@code null} and never need the relational store the owner manager requires.
  */
-// The statistic manager is closed by GravitinoEnv.shutdown(), not by the graph.
+// The statistic chains are closed by the component's lifecycle (LifecycleModule), not by Dagger.
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class GovernanceModule {
