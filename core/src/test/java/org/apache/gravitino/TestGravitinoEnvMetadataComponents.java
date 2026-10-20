@@ -56,6 +56,7 @@ import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
 import org.apache.gravitino.catalog.TopicOperationDispatcher;
 import org.apache.gravitino.catalog.ViewNormalizeDispatcher;
 import org.apache.gravitino.catalog.ViewOperationDispatcher;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.hook.FilesetHookDispatcher;
 import org.apache.gravitino.hook.FunctionHookDispatcher;
 import org.apache.gravitino.hook.ModelHookDispatcher;
@@ -85,10 +86,11 @@ import org.mockito.MockedStatic;
 class TestGravitinoEnvMetadataComponents {
 
   private Map<Field, Object> singletonState;
+  private GravitinoEnv singleton;
 
   @BeforeEach
   void isolateSingletonState() throws IllegalAccessException {
-    GravitinoEnv singleton = GravitinoEnv.getInstance();
+    singleton = GravitinoEnv.getInstance();
     singletonState = snapshotState(singleton);
     restoreState(singleton, snapshotState(new TestGravitinoEnv()));
   }
@@ -305,6 +307,68 @@ class TestGravitinoEnvMetadataComponents {
           FieldUtils.readField(env.statisticDispatcher(), "dispatcher", true));
     } finally {
       env.shutdown();
+    }
+
+    verify(entityStore).close();
+  }
+
+  @Test
+  void testMetadataProfileTakesTheLockManagerFromTheComponent() throws Exception {
+    Config config = metadataConfig(false);
+    EntityStore entityStore = relationStore();
+
+    try (MockedStatic<EntityStoreFactory> entityStoreFactory =
+        mockStatic(EntityStoreFactory.class)) {
+      entityStoreFactory
+          .when(() -> EntityStoreFactory.createEntityStore(config))
+          .thenReturn(entityStore);
+
+      singleton.initializeMetadataComponents(config);
+      GravitinoComponent component = singleton.component();
+
+      assertSame(config, component.config());
+      assertNotNull(singleton.lockManager());
+      assertSame(component.lockManager(), singleton.lockManager());
+      assertSame(component.idGenerator(), singleton.idGenerator());
+      assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(entityStore, component.entityStore());
+      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(singleton.secretManager(), component.secretManager());
+    } finally {
+      singleton.shutdown();
+    }
+  }
+
+  @Test
+  void testFullProfileSharesOneGraphWithTheEnvironment() throws Exception {
+    Config config = metadataConfig(false);
+    EntityStore entityStore = relationStore();
+
+    try (MockedStatic<EntityStoreFactory> entityStoreFactory =
+        mockStatic(EntityStoreFactory.class)) {
+      entityStoreFactory
+          .when(() -> EntityStoreFactory.createEntityStore(config))
+          .thenReturn(entityStore);
+
+      singleton.initializeFullComponents(config);
+      GravitinoComponent component = singleton.component();
+
+      // Built by the component, held by the environment.
+      assertSame(config, component.config());
+      assertSame(config, singleton.config());
+      assertNotNull(singleton.lockManager());
+      assertSame(component.lockManager(), singleton.lockManager());
+      assertSame(component.idGenerator(), singleton.idGenerator());
+      assertSame(component.metricsSystem(), singleton.metricsSystem());
+
+      // Built by the environment, seeded into the component.
+      assertSame(entityStore, component.entityStore());
+      assertSame(singleton.entityStore(), component.entityStore());
+      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(singleton.secretManager(), component.secretManager());
+      assertSame(singleton.eventBus(), component.eventBus());
+    } finally {
+      singleton.shutdown();
     }
 
     verify(entityStore).close();
