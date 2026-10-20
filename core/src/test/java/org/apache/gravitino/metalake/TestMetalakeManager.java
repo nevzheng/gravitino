@@ -47,6 +47,7 @@ import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
@@ -289,7 +290,8 @@ public class TestMetalakeManager {
             new RandomIdGenerator(),
             new SecretManager(catalogConfig),
             lockManager,
-            null);
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     MetalakeManager manager =
         new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
 

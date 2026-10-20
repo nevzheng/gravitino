@@ -323,7 +323,11 @@ public abstract class BaseCatalog<T extends BaseCatalog>
    *
    * @param classLoader the catalog isolated class loader
    * @param metalakeId the stable entity ID of the metalake containing this catalog
+   * @deprecated Use {@link #initAuthorizationPluginInstance(IsolatedClassLoader, long,
+   *     AuthorizationPluginContext)}.
    */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
   public void initAuthorizationPluginInstance(IsolatedClassLoader classLoader, long metalakeId) {
     initAuthorizationPluginInstance(
         classLoader, metalakeId, EnvironmentAuthorizationPluginContext.INSTANCE);

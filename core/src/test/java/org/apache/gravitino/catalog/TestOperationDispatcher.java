@@ -49,6 +49,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.exceptions.IllegalNamespaceException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
@@ -112,7 +113,14 @@ public abstract class TestOperationDispatcher {
 
     secretManager = new SecretManager(config);
     catalogManager =
-        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager, null);
+        new CatalogManager(
+            config,
+            entityStore,
+            idGenerator,
+            secretManager,
+            lockManager,
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     NameIdentifier ident = NameIdentifier.of(metalake, catalog);
