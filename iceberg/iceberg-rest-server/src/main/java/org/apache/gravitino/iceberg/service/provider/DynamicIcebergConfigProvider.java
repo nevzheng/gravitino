@@ -26,12 +26,13 @@ import java.io.Closeable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthProperties;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.client.DefaultOAuth2TokenProvider;
@@ -46,6 +47,7 @@ import org.apache.gravitino.exceptions.NotFoundException;
 import org.apache.gravitino.exceptions.RESTException;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
+import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SupportsSecrets;
 import org.apache.gravitino.server.web.JettyServerConfig;
 import org.apache.gravitino.utils.MapUtils;
@@ -69,9 +71,21 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
   private Map<String, String> properties;
 
   private volatile CatalogFetcher catalogFetcher;
+  private AuxiliaryContext context = EnvironmentAuxiliaryContext.INSTANCE;
 
+  /**
+   * Initializes the provider with the host services of {@code GravitinoEnv}.
+   *
+   * <p>The Iceberg REST service calls {@link #initialize(Map, AuxiliaryContext)} instead.
+   */
   @Override
   public void initialize(Map<String, String> properties) {
+    initialize(properties, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  @Override
+  public void initialize(Map<String, String> properties, AuxiliaryContext context) {
+    this.context = context;
     String metalake = properties.get(IcebergConstants.GRAVITINO_METALAKE);
 
     Preconditions.checkArgument(
@@ -103,15 +117,16 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
     }
     Map<String, String> catalogProperties;
     try {
-      catalogProperties = getCatalogFetcher().loadCatalogProperties(catalogName);
+      catalogProperties =
+          getCatalogFetcher().loadCatalogProperties(catalogName, context::secretManager);
     } catch (NoSuchCatalogException e) {
       return Optional.empty();
     }
     return Optional.of(getIcebergConfigFromCatalogProperties(catalogProperties));
   }
 
-  @LegacyEnvAccess
-  private static Map<String, String> resolveProps(Catalog catalog) {
+  private static Map<String, String> resolveProps(
+      Catalog catalog, Supplier<SecretManager> secretManager) {
     Preconditions.checkArgument(
         "lakehouse-iceberg".equals(catalog.provider()),
         String.format("Catalog %s is not an Iceberg catalog", catalog.name()));
@@ -123,8 +138,8 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
       BaseCatalog<?> baseCatalog = (BaseCatalog<?>) catalog;
       Map<String, String> props =
           new HashMap<>(
-              GravitinoEnv.getInstance()
-                  .secretManager()
+              secretManager
+                  .get()
                   .toPlaintextProperties(baseCatalog.propertiesWithCredentialProviders()));
       props.put(IcebergConstants.CATALOG_UUID, baseCatalog.entity().id().toString());
       return props;
@@ -170,7 +185,6 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
    * Lazily creates the CatalogFetcher based on whether running in auxiliary mode. Uses internal
    * interface when in auxiliary mode (embedded in Gravitino server), otherwise uses HTTP interface.
    */
-  @LegacyEnvAccess
   private CatalogFetcher getCatalogFetcher() {
     if (catalogFetcher != null) {
       return catalogFetcher;
@@ -179,14 +193,13 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
       if (catalogFetcher == null) {
         IcebergRESTServerContext serverContext = IcebergRESTServerContext.getInstance();
         if (serverContext.isAuxMode()) {
-          catalogFetcher = new InternalCatalogFetcher(gravitinoMetalake);
+          catalogFetcher = new InternalCatalogFetcher(gravitinoMetalake, context);
         } else {
           String uri = properties.get(IcebergConstants.GRAVITINO_URI);
           if (StringUtils.isBlank(uri)) {
             JettyServerConfig config =
                 JettyServerConfig.fromConfig(
-                    GravitinoEnv.getInstance().config(),
-                    JettyServerConfig.GRAVITINO_SERVER_CONFIG_PREFIX);
+                    context.config(), JettyServerConfig.GRAVITINO_SERVER_CONFIG_PREFIX);
             uri = String.format("http://%s:%d", config.getHost(), config.getHttpPort());
           }
           Preconditions.checkArgument(
@@ -297,10 +310,19 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
   interface CatalogFetcher extends Closeable {
     Catalog loadCatalog(String catalogName) throws NoSuchCatalogException;
 
-    default Map<String, String> loadCatalogProperties(String catalogName)
-        throws NoSuchCatalogException {
+    /**
+     * Loads a catalog and resolves its properties, with the plaintext of its secrets.
+     *
+     * @param catalogName the catalog name
+     * @param secretManager supplies the secret manager that resolves the secrets of a catalog the
+     *     server itself loaded
+     * @return the catalog properties
+     * @throws NoSuchCatalogException if the catalog does not exist
+     */
+    default Map<String, String> loadCatalogProperties(
+        String catalogName, Supplier<SecretManager> secretManager) throws NoSuchCatalogException {
       Catalog catalog = loadCatalog(catalogName);
-      return resolveProps(catalog);
+      return resolveProps(catalog, secretManager);
     }
 
     @Override
@@ -319,13 +341,12 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
     private final String metalake;
     private final CatalogManager catalogManager;
 
-    @LegacyEnvAccess
-    InternalCatalogFetcher(String metalake) {
+    InternalCatalogFetcher(String metalake, AuxiliaryContext context) {
       this.metalake = metalake;
       CatalogManager manager;
       try {
-        manager = GravitinoEnv.getInstance().catalogManager();
-      } catch (IllegalArgumentException e) {
+        manager = context.catalogManager();
+      } catch (IllegalArgumentException | IllegalStateException e) {
         throw new IllegalStateException(
             "Internal CatalogManager is not available. "
                 + "Internal catalog fetcher requires running within Gravitino server.",
@@ -345,15 +366,15 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
     }
 
     @Override
-    public Map<String, String> loadCatalogProperties(String catalogName)
-        throws NoSuchCatalogException {
+    public Map<String, String> loadCatalogProperties(
+        String catalogName, Supplier<SecretManager> secretManager) throws NoSuchCatalogException {
       NameIdentifier catalogIdent = NameIdentifierUtil.ofCatalog(metalake, catalogName);
       return catalogManager.doWithCatalog(
           catalogIdent,
           catalog -> {
             // Auxiliary mode needs raw properties, including hidden credentials. Copy them while
             // the lease is held so no live BaseCatalog escapes into the caller.
-            return resolveProps(catalog);
+            return resolveProps(catalog, secretManager);
           });
     }
   }

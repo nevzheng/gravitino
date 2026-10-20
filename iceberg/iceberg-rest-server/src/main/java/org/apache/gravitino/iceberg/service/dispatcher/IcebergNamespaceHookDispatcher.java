@@ -24,9 +24,9 @@ import java.util.Collections;
 import java.util.List;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -61,37 +61,49 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
   private final IcebergNamespaceOperationDispatcher dispatcher;
   private final String metalake;
   private final LockManager lockManager;
+  private final AuxiliaryContext auxiliaryContext;
 
   /**
    * Creates a namespace hook dispatcher.
    *
    * @param dispatcher The namespace dispatcher to delegate to.
-   * @param lockManager The lock manager that serializes namespace creation and drop per top-level
-   *     namespace.
+   * @param auxiliaryContext The host services: the lock manager that serializes namespace creation
+   *     and drop per top-level namespace, the entity store, and the internal schema, table, view
+   *     and owner dispatchers that import new objects and set their owners.
    */
   public IcebergNamespaceHookDispatcher(
-      IcebergNamespaceOperationDispatcher dispatcher, LockManager lockManager) {
-    this.dispatcher = dispatcher;
-    this.metalake = IcebergRESTServerContext.getInstance().metalakeName();
-    this.lockManager = lockManager;
+      IcebergNamespaceOperationDispatcher dispatcher, AuxiliaryContext auxiliaryContext) {
+    this(dispatcher, auxiliaryContext, auxiliaryContext.lockManager());
   }
 
   /**
-   * Creates a namespace hook dispatcher that reads the lock manager from {@code GravitinoEnv} each
-   * time a tree lock is taken.
+   * Creates a namespace hook dispatcher that reads its host services from {@code GravitinoEnv}. The
+   * lock manager is read each time a tree lock is taken, and the other services when they are used.
    *
    * @param dispatcher The namespace dispatcher to delegate to.
    * @deprecated Use {@link #IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher,
-   *     LockManager)}, which takes the lock manager explicitly.
+   *     AuxiliaryContext)}, which takes the host services explicitly.
    */
   // Inlining would copy the GravitinoEnv lookup into every caller.
   @SuppressWarnings("InlineMeSuggester")
   @Deprecated
   public IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher dispatcher) {
-    this(dispatcher, TreeLockUtils.legacyForwardingLockManager());
+    this(
+        dispatcher,
+        EnvironmentAuxiliaryContext.INSTANCE,
+        TreeLockUtils.legacyForwardingLockManager());
   }
 
-  @LegacyEnvAccess
+  private IcebergNamespaceHookDispatcher(
+      IcebergNamespaceOperationDispatcher dispatcher,
+      AuxiliaryContext auxiliaryContext,
+      LockManager lockManager) {
+    this.dispatcher = dispatcher;
+    this.metalake = IcebergRESTServerContext.getInstance().metalakeName();
+    this.lockManager = lockManager;
+    this.auxiliaryContext = auxiliaryContext;
+  }
+
   @Override
   public CreateNamespaceResponse createNamespace(
       IcebergRequestContext context, CreateNamespaceRequest createRequest) {
@@ -126,7 +138,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         catalogName,
         newlyOwned,
         context.userName(),
-        GravitinoEnv.getInstance().internalOwnerDispatcher());
+        auxiliaryContext.internalOwnerDispatcher());
     return createNamespaceResponse;
   }
 
@@ -191,7 +203,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
           //
           // Routed through the same guarded helper as the table and view drop paths so the cleanup
           // never surfaces an error after the namespace drop has already succeeded.
-          IcebergOrphanSchemaCleanup.bestEffortCleanUp(metalake, dispatcher, context, namespace);
+          IcebergOrphanSchemaCleanup.bestEffortCleanUp(
+              auxiliaryContext::entityStore, metalake, dispatcher, context, namespace);
           return null;
         });
   }
@@ -212,7 +225,6 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     return dispatcher.namespaceExists(context, namespace);
   }
 
-  @LegacyEnvAccess
   @Override
   public LoadTableResponse registerTable(
       IcebergRequestContext context,
@@ -237,12 +249,11 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerTableRequest.name(),
         context.userName(),
-        GravitinoEnv.getInstance().internalOwnerDispatcher());
+        auxiliaryContext.internalOwnerDispatcher());
 
     return response;
   }
 
-  @LegacyEnvAccess
   @Override
   public LoadViewResponse registerView(
       IcebergRequestContext context, Namespace namespace, RegisterViewRequest registerViewRequest) {
@@ -265,14 +276,13 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
         namespace,
         registerViewRequest.name(),
         context.userName(),
-        GravitinoEnv.getInstance().internalOwnerDispatcher());
+        auxiliaryContext.internalOwnerDispatcher());
 
     return response;
   }
 
-  @LegacyEnvAccess
   private void importView(String catalogName, Namespace namespace, String viewName) {
-    ViewDispatcher viewDispatcher = GravitinoEnv.getInstance().internalViewDispatcher();
+    ViewDispatcher viewDispatcher = auxiliaryContext.internalViewDispatcher();
     if (viewDispatcher != null) {
       viewDispatcher.loadView(
           IcebergIdentifierUtils.toGravitinoTableIdentifier(
@@ -283,10 +293,9 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
-  @LegacyEnvAccess
   private boolean hasViewEntityInStore(
       IcebergRequestContext context, Namespace namespace, String viewName) {
-    EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+    EntityStore entityStore = auxiliaryContext.entityStore();
     if (entityStore == null) {
       return false;
     }
@@ -303,10 +312,9 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
-  @LegacyEnvAccess
   private boolean hasTableEntityInStore(
       IcebergRequestContext context, Namespace namespace, String tableName) {
-    EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+    EntityStore entityStore = auxiliaryContext.entityStore();
     if (entityStore == null) {
       return false;
     }
@@ -323,9 +331,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
-  @LegacyEnvAccess
   private void importTable(String catalogName, Namespace namespace, String tableName) {
-    TableDispatcher tableDispatcher = GravitinoEnv.getInstance().internalTableDispatcher();
+    TableDispatcher tableDispatcher = auxiliaryContext.internalTableDispatcher();
     if (tableDispatcher != null) {
       tableDispatcher.loadTable(
           IcebergIdentifierUtils.toGravitinoTableIdentifier(
@@ -336,9 +343,8 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
-  @LegacyEnvAccess
   private void importSchema(String catalogName, Namespace namespace) {
-    SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
+    SchemaDispatcher schemaDispatcher = auxiliaryContext.internalSchemaDispatcher();
     if (schemaDispatcher != null) {
       schemaDispatcher.loadSchema(
           IcebergIdentifierUtils.toGravitinoSchemaIdentifier(

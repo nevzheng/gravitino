@@ -23,11 +23,13 @@ import java.security.CodeSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.ToLongFunction;
 import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.service.IcebergAuthenticationFilter;
@@ -92,8 +94,7 @@ public class RESTService implements GravitinoAuxiliaryService {
   private IcebergConfigProvider configProvider;
   private boolean auxMode;
 
-  @LegacyEnvAccess
-  private void initServer(IcebergConfig icebergConfig) {
+  private void initServer(IcebergConfig icebergConfig, AuxiliaryContext context) {
     JettyServerConfig serverConfig = JettyServerConfig.fromConfig(icebergConfig);
     IcebergRESTUtils.setIncludeErrorStackTrace(serverConfig.isIncludeErrorStackTrace());
     server =
@@ -106,8 +107,7 @@ public class RESTService implements GravitinoAuxiliaryService {
             return new IcebergAuthenticationFilter();
           }
         };
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    MetricsSystem metricsSystem = env.metricsSystem();
+    MetricsSystem metricsSystem = context.metricsSystem();
     server.initialize(serverConfig, SERVICE_NAME, false /* shouldEnableUI */);
     boolean metricsEnabled = shouldEnableMetrics(auxMode, icebergConfig);
     if (metricsEnabled) {
@@ -126,15 +126,16 @@ public class RESTService implements GravitinoAuxiliaryService {
 
     Map<String, String> configProperties = icebergConfig.getAllConfig();
     this.configProvider = IcebergConfigProviderFactory.create(configProperties);
-    configProvider.initialize(configProperties);
+    configProvider.initialize(configProperties, context);
     String metalakeName = configProvider.getMetalakeName();
     boolean skipAuthorizationForRestBackend =
         icebergConfig.get(IcebergConfig.ICEBERG_REST_DISABLE_REST_AUTHZ);
 
-    Boolean enableAuth = env.config().get(Configs.ENABLE_AUTHORIZATION);
-    EventBus eventBus = env.eventBus();
+    Boolean enableAuth = context.config().get(Configs.ENABLE_AUTHORIZATION);
+    EventBus eventBus = context.eventBus();
     this.icebergCatalogWrapperManager =
-        new IcebergCatalogWrapperManager(configProperties, configProvider, auxMode, metalakeName);
+        new IcebergCatalogWrapperManager(
+            configProperties, configProvider, auxMode, metalakeName, context);
     IcebergRESTServerContext authorizationContext =
         IcebergRESTServerContext.create(
             configProvider,
@@ -151,7 +152,9 @@ public class RESTService implements GravitinoAuxiliaryService {
       this.cleanupManager =
           Optional.of(
               new IcebergCleanupManager(
-                  new IcebergCleanupJobStore(env.idGenerator()), icebergConfig));
+                  new IcebergCleanupJobStore(context.idGenerator()),
+                  icebergConfig,
+                  catalogIds(context, metalakeName)));
     } else {
       this.cleanupManager = Optional.empty();
       LOG.info(
@@ -170,7 +173,7 @@ public class RESTService implements GravitinoAuxiliaryService {
     if (authorizationContext.isAuthorizationEnabled()) {
       icebergTableOperationDispatcher =
           new IcebergTableHookDispatcher(
-              icebergTableOperationDispatcher, namespaceOperationDispatcher);
+              icebergTableOperationDispatcher, namespaceOperationDispatcher, context);
     }
     IcebergTableOperationDispatcher icebergTableDispatcher =
         new IcebergTableEventDispatcher(icebergTableOperationDispatcher, eventBus, metalakeName);
@@ -181,7 +184,7 @@ public class RESTService implements GravitinoAuxiliaryService {
     if (authorizationContext.isAuthorizationEnabled()) {
       icebergViewOperationDispatcher =
           new IcebergViewHookDispatcher(
-              icebergViewOperationDispatcher, namespaceOperationDispatcher, metalakeName);
+              icebergViewOperationDispatcher, namespaceOperationDispatcher, metalakeName, context);
     }
     IcebergViewOperationDispatcher icebergViewDispatcher =
         new IcebergViewEventDispatcher(icebergViewOperationDispatcher, eventBus, metalakeName);
@@ -189,7 +192,7 @@ public class RESTService implements GravitinoAuxiliaryService {
     // Namespace: EventDispatcher -> HookDispatcher -> OperationExecutor
     if (authorizationContext.isAuthorizationEnabled()) {
       namespaceOperationDispatcher =
-          new IcebergNamespaceHookDispatcher(namespaceOperationDispatcher, env.lockManager());
+          new IcebergNamespaceHookDispatcher(namespaceOperationDispatcher, context);
     }
     IcebergNamespaceOperationDispatcher icebergNamespaceDispatcher =
         new IcebergNamespaceEventDispatcher(namespaceOperationDispatcher, eventBus, metalakeName);
@@ -271,8 +274,20 @@ public class RESTService implements GravitinoAuxiliaryService {
     return SERVICE_NAME;
   }
 
+  /**
+   * Initializes the service with the host services of {@code GravitinoEnv}.
+   *
+   * <p>The Gravitino server and the standalone server call {@link #serviceInit(Map, boolean,
+   * AuxiliaryContext)} instead.
+   */
   @Override
   public void serviceInit(Map<String, String> properties, boolean auxMode) {
+    serviceInit(properties, auxMode, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  @Override
+  public void serviceInit(
+      Map<String, String> properties, boolean auxMode, AuxiliaryContext context) {
     this.auxMode = auxMode;
     CodeSource icebergCodeSource = IcebergBuild.class.getProtectionDomain().getCodeSource();
     LOG.info(
@@ -280,7 +295,7 @@ public class RESTService implements GravitinoAuxiliaryService {
         IcebergBuild.fullVersion(),
         icebergCodeSource == null ? "unknown" : icebergCodeSource.getLocation());
     IcebergConfig icebergConfig = new IcebergConfig(properties);
-    initServer(icebergConfig);
+    initServer(icebergConfig, context);
     LOG.info("Iceberg REST service init. Running in {} mode", auxMode ? "auxiliary" : "standalone");
   }
 
@@ -323,6 +338,18 @@ public class RESTService implements GravitinoAuxiliaryService {
     if (server != null) {
       server.join();
     }
+  }
+
+  /**
+   * Resolves the entity id of a catalog of the metalake by name. The catalog is already loaded for
+   * the current request, so this reads its in-memory entity without an extra entity-store lookup.
+   */
+  private static ToLongFunction<String> catalogIds(AuxiliaryContext context, String metalake) {
+    return catalogName ->
+        context
+            .catalogManager()
+            .doWithCatalog(
+                NameIdentifier.of(metalake, catalogName), catalog -> catalog.entity().id());
   }
 
   private String[] getIcebergRESTPackages(IcebergConfig icebergConfig) {

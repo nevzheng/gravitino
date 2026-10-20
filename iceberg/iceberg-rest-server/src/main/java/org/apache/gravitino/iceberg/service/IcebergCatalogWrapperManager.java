@@ -30,8 +30,8 @@ import java.util.Optional;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergCatalogBackend;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
@@ -61,12 +61,43 @@ public class IcebergCatalogWrapperManager implements AutoCloseable {
 
   private final IcebergConfigProvider configProvider;
 
-  @LegacyEnvAccess
+  /**
+   * Creates a manager that, in auxiliary mode, reads the catalog manager from {@code GravitinoEnv}.
+   *
+   * @param properties the Iceberg REST service configuration
+   * @param configProvider the provider of the catalog configurations
+   * @param auxMode whether the service runs inside the Gravitino server
+   * @param metalakeName the metalake of the service
+   * @deprecated Use {@link #IcebergCatalogWrapperManager(Map, IcebergConfigProvider, boolean,
+   *     String, AuxiliaryContext)}.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public IcebergCatalogWrapperManager(
       Map<String, String> properties,
       IcebergConfigProvider configProvider,
       boolean auxMode,
       String metalakeName) {
+    this(properties, configProvider, auxMode, metalakeName, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  /**
+   * Creates a manager.
+   *
+   * @param properties the Iceberg REST service configuration
+   * @param configProvider the provider of the catalog configurations
+   * @param auxMode whether the service runs inside the Gravitino server; the manager then evicts a
+   *     cached catalog when the catalog manager of the context evicts it
+   * @param metalakeName the metalake of the service
+   * @param auxiliaryContext the host services
+   */
+  public IcebergCatalogWrapperManager(
+      Map<String, String> properties,
+      IcebergConfigProvider configProvider,
+      boolean auxMode,
+      String metalakeName,
+      AuxiliaryContext auxiliaryContext) {
     this.configProvider = configProvider;
     long accessEvictionNanos =
         TimeUnit.MILLISECONDS.toNanos(
@@ -93,7 +124,7 @@ public class IcebergCatalogWrapperManager implements AutoCloseable {
                             .build())))
             .build();
     if (auxMode) {
-      GravitinoEnv.getInstance()
+      auxiliaryContext
           .catalogManager()
           .addCatalogCacheRemoveListener(
               ident -> {

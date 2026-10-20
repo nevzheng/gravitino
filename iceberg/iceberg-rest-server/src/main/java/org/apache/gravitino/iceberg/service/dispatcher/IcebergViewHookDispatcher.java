@@ -21,9 +21,9 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 import java.io.IOException;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -56,17 +56,47 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
   private final IcebergViewOperationDispatcher dispatcher;
   private final IcebergNamespaceOperationDispatcher namespaceDispatcher;
   private final String metalake;
+  private final AuxiliaryContext auxiliaryContext;
 
+  /**
+   * Creates a view hook dispatcher that reads host services from {@code GravitinoEnv}.
+   *
+   * @param dispatcher the view dispatcher to delegate to
+   * @param namespaceDispatcher the namespace dispatcher that probes namespace existence
+   * @param metalake the metalake of the service
+   * @deprecated Use {@link #IcebergViewHookDispatcher(IcebergViewOperationDispatcher,
+   *     IcebergNamespaceOperationDispatcher, String, AuxiliaryContext)}.
+   */
+  // Inlining would copy the GravitinoEnv lookup into every caller.
+  @SuppressWarnings("InlineMeSuggester")
+  @Deprecated
   public IcebergViewHookDispatcher(
       IcebergViewOperationDispatcher dispatcher,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,
       String metalake) {
+    this(dispatcher, namespaceDispatcher, metalake, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  /**
+   * Creates a view hook dispatcher.
+   *
+   * @param dispatcher the view dispatcher to delegate to
+   * @param namespaceDispatcher the namespace dispatcher that probes namespace existence
+   * @param metalake the metalake of the service
+   * @param auxiliaryContext the host services: the entity store, and the internal view and owner
+   *     dispatchers that import new views and set their owners
+   */
+  public IcebergViewHookDispatcher(
+      IcebergViewOperationDispatcher dispatcher,
+      IcebergNamespaceOperationDispatcher namespaceDispatcher,
+      String metalake,
+      AuxiliaryContext auxiliaryContext) {
     this.dispatcher = dispatcher;
     this.namespaceDispatcher = namespaceDispatcher;
     this.metalake = metalake;
+    this.auxiliaryContext = auxiliaryContext;
   }
 
-  @LegacyEnvAccess
   @Override
   public LoadViewResponse createView(
       IcebergRequestContext context, Namespace namespace, CreateViewRequest createViewRequest) {
@@ -83,7 +113,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
         namespace,
         createViewRequest.name(),
         context.userName(),
-        GravitinoEnv.getInstance().internalOwnerDispatcher());
+        auxiliaryContext.internalOwnerDispatcher());
 
     return response;
   }
@@ -109,7 +139,11 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     // EntityStore delete, leaving a stale Gravitino entity if we blindly delete.
     bestEffortReconcileViewEntity(context, viewIdentifier);
     IcebergOrphanSchemaCleanup.bestEffortCleanUp(
-        metalake, namespaceDispatcher, context, viewIdentifier.namespace());
+        auxiliaryContext::entityStore,
+        metalake,
+        namespaceDispatcher,
+        context,
+        viewIdentifier.namespace());
   }
 
   @Override
@@ -122,7 +156,6 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     return dispatcher.viewExists(context, viewIdentifier);
   }
 
-  @LegacyEnvAccess
   @Override
   public void renameView(IcebergRequestContext context, RenameTableRequest renameViewRequest) {
     dispatcher.renameView(context, renameViewRequest);
@@ -136,7 +169,7 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
         IcebergIdentifierUtils.toGravitinoTableIdentifier(
             metalake, context.catalogName(), renameViewRequest.destination(), separator);
 
-    EntityStore store = GravitinoEnv.getInstance().entityStore();
+    EntityStore store = auxiliaryContext.entityStore();
     try {
       if (store != null) {
         store.update(
@@ -190,9 +223,8 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
    * @param namespace The Iceberg namespace containing the view.
    * @param viewName The name of the view.
    */
-  @LegacyEnvAccess
   private void importView(String catalogName, Namespace namespace, String viewName) {
-    ViewDispatcher viewDispatcher = GravitinoEnv.getInstance().internalViewDispatcher();
+    ViewDispatcher viewDispatcher = auxiliaryContext.internalViewDispatcher();
     if (viewDispatcher != null) {
       try {
         viewDispatcher.loadView(
@@ -251,9 +283,8 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
     }
   }
 
-  @LegacyEnvAccess
   private void deleteViewEntity(String catalogName, TableIdentifier viewIdentifier) {
-    EntityStore store = GravitinoEnv.getInstance().entityStore();
+    EntityStore store = auxiliaryContext.entityStore();
     try {
       if (store != null) {
         store.delete(

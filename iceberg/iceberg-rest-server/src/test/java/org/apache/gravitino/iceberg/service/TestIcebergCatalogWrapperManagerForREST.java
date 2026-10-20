@@ -26,9 +26,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
@@ -36,7 +35,6 @@ import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProviderFactory;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -48,18 +46,13 @@ public class TestIcebergCatalogWrapperManagerForREST {
 
   private static final String DEFAULT_CATALOG = "memory";
   private static CatalogManager mockCatalogManager;
+  private static AuxiliaryContext auxiliaryContext;
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    // Mock CatalogManager for GravitinoEnv to avoid initialization errors
+  public static void setup() {
     mockCatalogManager = Mockito.mock(CatalogManager.class);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
-  }
-
-  @AfterAll
-  public static void tearDown() throws IllegalAccessException {
-    // Clean up GravitinoEnv
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", null, true);
+    auxiliaryContext = Mockito.mock(AuxiliaryContext.class);
+    Mockito.when(auxiliaryContext.catalogManager()).thenReturn(mockCatalogManager);
   }
 
   @ParameterizedTest
@@ -75,7 +68,7 @@ public class TestIcebergCatalogWrapperManagerForREST {
     configProvider.initialize(config);
     IcebergCatalogWrapperManager manager =
         new IcebergCatalogWrapperManager(
-            config, configProvider, false, configProvider.getMetalakeName());
+            config, configProvider, false, configProvider.getMetalakeName(), auxiliaryContext);
     IcebergRESTServerContext.create(configProvider, false, false, true, manager);
 
     IcebergCatalogWrapper ops = manager.getOps(rawPrefix);
@@ -95,7 +88,7 @@ public class TestIcebergCatalogWrapperManagerForREST {
     configProvider.initialize(config);
     IcebergCatalogWrapperManager manager =
         new IcebergCatalogWrapperManager(
-            config, configProvider, false, configProvider.getMetalakeName());
+            config, configProvider, false, configProvider.getMetalakeName(), auxiliaryContext);
     IcebergRESTServerContext.create(configProvider, false, false, true, manager);
 
     Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> manager.getOps(rawPrefix));
@@ -108,7 +101,7 @@ public class TestIcebergCatalogWrapperManagerForREST {
     configProvider.initialize(config);
     IcebergCatalogWrapperManager manager =
         new IcebergCatalogWrapperManager(
-            config, configProvider, true, configProvider.getMetalakeName());
+            config, configProvider, true, configProvider.getMetalakeName(), auxiliaryContext);
     IcebergRESTServerContext.create(configProvider, true, true, true, manager);
 
     IllegalArgumentException exception =
@@ -177,7 +170,8 @@ public class TestIcebergCatalogWrapperManagerForREST {
         .thenReturn(Optional.of(icebergConfig));
 
     try (IcebergCatalogWrapperManager manager =
-        new IcebergCatalogWrapperManager(Maps.newHashMap(), configProvider, true, "metalake")) {
+        new IcebergCatalogWrapperManager(
+            Maps.newHashMap(), configProvider, true, "metalake", auxiliaryContext)) {
       IcebergRESTServerContext.create(configProvider, false, false, true, manager);
       CatalogWrapperForREST original =
           manager.getCatalogWrapper(IcebergConstants.ICEBERG_REST_DEFAULT_CATALOG);
@@ -254,11 +248,25 @@ public class TestIcebergCatalogWrapperManagerForREST {
             config, accessEvictionNanos, System.currentTimeMillis()));
   }
 
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testDeprecatedConstructorStillCreatesAManager() throws Exception {
+    Map<String, String> config = Maps.newHashMap();
+    IcebergConfigProvider configProvider = IcebergConfigProviderFactory.create(config);
+    configProvider.initialize(config);
+    try (IcebergCatalogWrapperManager manager =
+        new IcebergCatalogWrapperManager(
+            config, configProvider, false, configProvider.getMetalakeName())) {
+      IcebergRESTServerContext.create(configProvider, false, false, true, manager);
+      Assertions.assertEquals(DEFAULT_CATALOG, manager.getOps("").getCatalog().name());
+    }
+  }
+
   private static IcebergCatalogWrapperManager newManager() {
     Map<String, String> config = Maps.newHashMap();
     IcebergConfigProvider configProvider = IcebergConfigProviderFactory.create(config);
     configProvider.initialize(config);
     return new IcebergCatalogWrapperManager(
-        config, configProvider, false, configProvider.getMetalakeName());
+        config, configProvider, false, configProvider.getMetalakeName(), auxiliaryContext);
   }
 }

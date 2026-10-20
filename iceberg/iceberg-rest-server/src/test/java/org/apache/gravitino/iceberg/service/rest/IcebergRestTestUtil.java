@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.credential.CredentialConstants;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
@@ -94,7 +95,8 @@ public class IcebergRestTestUtil {
         Map<String, String> properties,
         IcebergConfigProvider configProvider,
         boolean auxMode,
-        String metalakeName);
+        String metalakeName,
+        AuxiliaryContext auxiliaryContext);
   }
 
   public static final boolean DEBUG_SERVER_LOG_ENABLED = true;
@@ -160,7 +162,11 @@ public class IcebergRestTestUtil {
       // used to override register table interface
       IcebergCatalogWrapperManager icebergCatalogWrapperManager =
           wrapperManagerFactory.create(
-              catalogConf, configProvider, false, configProvider.getMetalakeName());
+              catalogConf,
+              configProvider,
+              false,
+              configProvider.getMetalakeName(),
+              mock(AuxiliaryContext.class));
       IcebergRESTServerContext.create(
           configProvider, false, false, true, icebergCatalogWrapperManager);
 
