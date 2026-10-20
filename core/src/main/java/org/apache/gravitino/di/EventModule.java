@@ -40,11 +40,11 @@ abstract class EventModule {
   /** Builds the listener manager and loads the listeners named by the configuration. */
   @Provides
   @Singleton
-  static EventListenerManager eventListenerManager(Config config) {
+  static EventListenerManager eventListenerManager(Config config, BuiltServices built) {
     EventListenerManager eventListenerManager = new EventListenerManager();
     eventListenerManager.init(
         config.getConfigsWithPrefix(EventListenerManager.GRAVITINO_EVENT_LISTENER_PREFIX));
-    return eventListenerManager;
+    return built.add(BuiltServices.EVENT_LISTENER_MANAGER, eventListenerManager);
   }
 
   /**

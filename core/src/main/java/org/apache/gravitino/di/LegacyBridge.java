@@ -27,8 +27,8 @@ import org.apache.gravitino.authorization.GravitinoAuthorizer;
  * component factory; {@link LegacyModule} exposes each method as a binding. When an area moves into
  * a module of the component, its method is removed from here, so this interface lists exactly the
  * legacy surface the graph still depends on. What is left is the authorizer, which the server
- * builds and installs after the environment is initialized. It is deleted when the migration is
- * complete.
+ * builds and installs after the environment is initialized, and the auxiliary services, which the
+ * component's lifecycle starts and stops. It is deleted when the migration is complete.
  *
  * <p>Implementations must not return {@code null}: the graph has no nullable bindings.
  */
@@ -43,4 +43,21 @@ public interface LegacyBridge {
    * @return the authorizer, never null
    */
   GravitinoAuthorizer gravitinoAuthorizer();
+
+  /**
+   * Starts the auxiliary services, which {@code GravitinoEnv} still builds. Does nothing by
+   * default, for a bridge that has no auxiliary services.
+   *
+   * @throws Exception if a service fails to start
+   */
+  default void startAuxiliaryServices() throws Exception {}
+
+  /**
+   * Stops the auxiliary services, which {@code GravitinoEnv} still builds. Must be safe to call
+   * when they were never started. Does nothing by default, for a bridge that has no auxiliary
+   * services.
+   *
+   * @throws Exception if a service fails to stop
+   */
+  default void stopAuxiliaryServices() throws Exception {}
 }

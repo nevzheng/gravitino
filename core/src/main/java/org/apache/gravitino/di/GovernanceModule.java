@@ -123,15 +123,22 @@ abstract class GovernanceModule {
   @Singleton
   @Internal
   static StatisticDispatcher internalStatisticDispatcher(
-      EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    return new StatisticManager(entityStore, idGenerator, config, lockManager);
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      Config config,
+      LockManager lockManager,
+      BuiltServices built) {
+    return built.add(
+        BuiltServices.INTERNAL_STATISTIC_DISPATCHER,
+        new StatisticManager(entityStore, idGenerator, config, lockManager));
   }
 
   @Provides
   @Singleton
   @Public
   static StatisticDispatcher statisticDispatcher(
-      EventBus eventBus, @Internal StatisticDispatcher internal) {
-    return new StatisticEventDispatcher(eventBus, internal);
+      EventBus eventBus, @Internal StatisticDispatcher internal, BuiltServices built) {
+    return built.add(
+        BuiltServices.STATISTIC_DISPATCHER, new StatisticEventDispatcher(eventBus, internal));
   }
 }

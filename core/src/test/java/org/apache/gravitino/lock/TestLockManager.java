@@ -42,6 +42,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
+import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.LegacyBridge;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -668,5 +671,36 @@ public class TestLockManager {
     LockManager lockManager = new LockManager(getConfig());
     lockManager.createTreeLock(NameIdentifier.of("/"));
     Assertions.assertEquals(2L, lockManager.totalNodeCount.get(), "Should have 2 nodes");
+  }
+
+  @Test
+  public void testCloseStopsTheBackgroundThreads() throws Exception {
+    LockManager lockManager = new LockManager(getConfig());
+    Assertions.assertFalse(lockManager.isClosed());
+
+    lockManager.close();
+
+    Assertions.assertTrue(lockManager.isClosed());
+    // Tree locks still work, and closing again does nothing.
+    TreeLock lock = lockManager.createTreeLock(NameIdentifier.of("m1"));
+    lock.lock(LockType.READ);
+    lock.unlock();
+    lockManager.close();
+    Assertions.assertTrue(lockManager.isClosed());
+  }
+
+  @Test
+  public void testComponentLifecycleClosesItsLockManager() throws Exception {
+    // Each component builds its own lock manager, so its lifecycle must stop that lock manager's
+    // threads, or every component a test builds leaks them.
+    Config config = new Config(false) {};
+    GravitinoComponent component =
+        DaggerGravitinoComponent.factory().create(config, Mockito.mock(LegacyBridge.class));
+    LockManager lockManager = component.lockManager();
+    Assertions.assertFalse(lockManager.isClosed());
+
+    component.lifecycle().close();
+
+    Assertions.assertTrue(lockManager.isClosed());
   }
 }

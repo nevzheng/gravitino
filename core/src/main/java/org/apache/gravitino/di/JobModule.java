@@ -68,8 +68,10 @@ abstract class JobModule {
   @Singleton
   @Public
   static JobOperationDispatcher jobOperationDispatcher(
-      EventBus eventBus, @Internal JobOperationDispatcher validation) {
-    return new JobEventDispatcher(eventBus, new JobHookDispatcher(validation));
+      EventBus eventBus, @Internal JobOperationDispatcher validation, BuiltServices built) {
+    return built.add(
+        BuiltServices.JOB_OPERATION_DISPATCHER,
+        new JobEventDispatcher(eventBus, new JobHookDispatcher(validation)));
   }
 
   @Provides

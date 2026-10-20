@@ -69,4 +69,9 @@ abstract class FakeLeavesModule {
   static GravitinoAuthorizer gravitinoAuthorizer(FakeLeaves leaves) {
     return leaves.gravitinoAuthorizer;
   }
+
+  @Provides
+  static LegacyBridge legacyBridge(FakeLeaves leaves) {
+    return () -> leaves.gravitinoAuthorizer;
+  }
 }

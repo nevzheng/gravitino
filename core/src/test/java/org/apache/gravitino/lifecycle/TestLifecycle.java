@@ -151,6 +151,58 @@ public class TestLifecycle {
     assertEquals(List.of("stop a"), events);
   }
 
+  @Test
+  public void testAlwaysStopClosesServicesThatNeverStarted() throws Exception {
+    Lifecycle lifecycle =
+        Lifecycle.builder()
+            .alwaysStop()
+            .addStopOnly("a", stop("a"))
+            .add("b", start("b"), stop("b"))
+            .build();
+
+    lifecycle.close();
+    lifecycle.close();
+
+    assertEquals(List.of("stop b", "stop a"), events);
+    assertEquals(Lifecycle.State.CLOSED, lifecycle.state());
+  }
+
+  @Test
+  public void testAlwaysStopStopsEveryServiceOnStartFailure() {
+    IllegalStateException failure = new IllegalStateException("b failed");
+    Lifecycle lifecycle =
+        Lifecycle.builder()
+            .alwaysStop()
+            .add("a", start("a"), stop("a"))
+            .add(
+                "b",
+                () -> {
+                  throw failure;
+                },
+                stop("b"))
+            .addStopOnly("c", stop("c"))
+            .build();
+
+    assertSame(failure, assertThrows(IllegalStateException.class, lifecycle::start));
+    assertEquals(List.of("start a", "stop c", "stop b", "stop a"), events);
+    assertEquals(Lifecycle.State.CLOSED, lifecycle.state());
+  }
+
+  @Test
+  public void testAlwaysStopAfterStartStopsInReverse() throws Exception {
+    Lifecycle lifecycle =
+        Lifecycle.builder()
+            .alwaysStop()
+            .add("a", start("a"), stop("a"))
+            .addStopOnly("b", stop("b"))
+            .build();
+
+    lifecycle.start();
+    lifecycle.close();
+
+    assertEquals(List.of("start a", "stop b", "stop a"), events);
+  }
+
   private Lifecycle.Action start(String name) {
     return () -> events.add("start " + name);
   }

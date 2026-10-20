@@ -41,25 +41,35 @@ abstract class StorageModule {
 
   /**
    * Creates the entity store named by the configuration and initializes it, which connects to its
-   * backend.
+   * backend. A store whose initialization fails is closed here, because the lifecycle closes only
+   * the stores that were recorded as built.
    */
   @Provides
   @Singleton
-  static EntityStore entityStore(Config config) {
+  static EntityStore entityStore(Config config, BuiltServices built) {
     EntityStore entityStore = EntityStoreFactory.createEntityStore(config);
-    entityStore.initialize(config);
-    return entityStore;
+    try {
+      entityStore.initialize(config);
+    } catch (RuntimeException e) {
+      try {
+        entityStore.close();
+      } catch (Exception closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
+      throw e;
+    }
+    return built.add(BuiltServices.ENTITY_STORE, entityStore);
   }
 
   @Provides
   @Singleton
-  static KmsClientRegistry kmsClientRegistry(Config config) {
-    return new KmsClientRegistry(config);
+  static KmsClientRegistry kmsClientRegistry(Config config, BuiltServices built) {
+    return built.add(BuiltServices.KMS_CLIENT_REGISTRY, new KmsClientRegistry(config));
   }
 
   @Provides
   @Singleton
-  static SecretManager secretManager(Config config) {
-    return new SecretManager(config);
+  static SecretManager secretManager(Config config, BuiltServices built) {
+    return built.add(BuiltServices.SECRET_MANAGER, new SecretManager(config));
   }
 }
