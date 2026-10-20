@@ -45,7 +45,7 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
  * chains are event → normalize → hook → manager, around the same manager instance. Dagger does not
- * close the managers; {@code GravitinoEnv.shutdown()} does.
+ * close the managers; the {@link LifecycleModule lifecycle} does.
  */
 @SuppressWarnings("CloseableProvides")
 @Module

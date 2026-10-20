@@ -47,11 +47,11 @@ import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.di.LegacyBridge;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
@@ -71,10 +71,11 @@ import org.slf4j.LoggerFactory;
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
  * initialization sequence where it used to build them, so they are still built in the same order.
- * It still builds the auxiliary service manager itself, and it starts and stops the components.
- * The authorizer the server installs reaches the component through LegacyBridge.
+ * It still builds the auxiliary service manager itself. The component's Lifecycle starts and stops
+ * the components. The authorizer the server installs and the auxiliary services reach the
+ * component through LegacyBridge.
  */
-public class GravitinoEnv implements LegacyBridge {
+public class GravitinoEnv {
 
   private static final Logger LOG = LoggerFactory.getLogger(GravitinoEnv.class);
 
@@ -89,8 +90,6 @@ public class GravitinoEnv implements LegacyBridge {
   private CatalogDispatcher internalCatalogDispatcher;
 
   private CatalogManager catalogManager;
-
-  private MetalakeManager metalakeManager;
 
   private SchemaDispatcher schemaDispatcher;
   private SchemaDispatcher internalSchemaDispatcher;
@@ -744,7 +743,6 @@ public class GravitinoEnv implements LegacyBridge {
    *     DenyAllGravitinoAuthorizer#INSTANCE} if authorization is enabled, and {@link
    *     NoopGravitinoAuthorizer#INSTANCE} otherwise; never null
    */
-  @Override
   public GravitinoAuthorizer gravitinoAuthorizer() {
     GravitinoAuthorizer installed = gravitinoAuthorizer;
     if (installed != null) {
@@ -798,32 +796,96 @@ public class GravitinoEnv implements LegacyBridge {
     return config == null || config.get(Configs.CACHE_ENABLED);
   }
 
+  /**
+   * Starts the components: the metrics system, the event listeners, then the auxiliary services.
+   *
+   * <p>The order is kept by the {@link GravitinoComponent#lifecycle() lifecycle} of the component.
+   * If a component fails to start, every component is stopped and the failure is rethrown.
+   *
+   * <p>The environment starts at most once per initialization:
+   *
+   * <ul>
+   *   <li>It must be initialized first, so that the component exists. A subclass that overrides an
+   *       {@code initialize*Components} method must call the overridden method, which builds the
+   *       component.
+   *   <li>After {@link #shutdown()}, or after a failed start, the lifecycle is closed. Initialize
+   *       the environment again before starting it again; that builds a new component.
+   * </ul>
+   *
+   * @throws IllegalStateException if the environment is not initialized, or if it was shut down and
+   *     not initialized again.
+   */
   public void start() {
-    metricsSystem.start();
-    if (eventListenerManager != null) {
-      eventListenerManager.start();
+    Preconditions.checkState(
+        component != null,
+        "GravitinoEnv is not initialized: call an initialize*Components method before start(). A"
+            + " subclass that overrides one must call the overridden method, which builds the"
+            + " component.");
+    Preconditions.checkState(
+        component.lifecycle().state() != Lifecycle.State.CLOSED,
+        "GravitinoEnv was shut down or failed to start: initialize it again before calling"
+            + " start() again.");
+    try {
+      component.lifecycle().start();
+    } catch (Exception e) {
+      throw unchecked(e);
     }
+  }
+
+  /**
+   * Shutdown the Gravitino environment.
+   *
+   * <p>Stops every component the last initialization built, whether or not {@link #start()} ran, in
+   * the order kept by the {@link GravitinoComponent#lifecycle() lifecycle} of the component. A
+   * component that fails to stop does not keep the others from stopping; the first failure is
+   * rethrown when all of them are stopped. Calling it again does nothing until the environment is
+   * initialized again.
+   */
+  public void shutdown() {
+    LOG.info("Shutting down Gravitino Environment...");
+
+    if (component != null) {
+      try {
+        component.lifecycle().close();
+      } catch (Exception e) {
+        throw unchecked(e);
+      } finally {
+        // The job dispatcher is closed; its getter reports the environment as not initialized.
+        this.jobOperationDispatcher = null;
+      }
+    }
+
+    LOG.info("Gravitino Environment is shut down.");
+  }
+
+  /**
+   * Returns the original failure of a lifecycle exception, with the failures that followed it
+   * attached as suppressed, so callers see the exception the component threw.
+   */
+  private static RuntimeException unchecked(Exception e) {
+    Throwable failure = e;
+    if (e instanceof Lifecycle.LifecycleException && e.getCause() != null) {
+      failure = e.getCause();
+      for (Throwable suppressed : e.getSuppressed()) {
+        failure.addSuppressed(suppressed);
+      }
+    }
+    if (failure instanceof RuntimeException) {
+      return (RuntimeException) failure;
+    }
+    if (failure instanceof Error) {
+      throw (Error) failure;
+    }
+    return new IllegalStateException(failure.getMessage(), failure);
+  }
+
+  private void startAuxiliaryServices() {
     if (manageFullComponents) {
       auxServiceManager.serviceStart();
     }
   }
 
-  /** Shutdown the Gravitino environment. */
-  public void shutdown() {
-    LOG.info("Shutting down Gravitino Environment...");
-
-    if (entityStore != null) {
-      try {
-        entityStore.close();
-      } catch (Exception e) {
-        LOG.warn("Failed to close EntityStore.", e);
-      }
-    }
-
-    if (catalogManager != null) {
-      catalogManager.close();
-    }
-
+  private void stopAuxiliaryServices() {
     if (auxServiceManager != null) {
       try {
         auxServiceManager.serviceStop();
@@ -831,47 +893,6 @@ public class GravitinoEnv implements LegacyBridge {
         LOG.warn("Failed to stop AuxServiceManager", e);
       }
     }
-
-    if (metricsSystem != null) {
-      metricsSystem.close();
-    }
-
-    if (eventListenerManager != null) {
-      eventListenerManager.stop();
-    }
-
-    if (metalakeManager != null) {
-      metalakeManager.close();
-    }
-
-    if (jobOperationDispatcher != null) {
-      try {
-        jobOperationDispatcher.close();
-        jobOperationDispatcher = null;
-      } catch (Exception e) {
-        LOG.warn("Failed to close JobOperationDispatcher", e);
-      }
-    }
-
-    StatisticDispatcher statisticDispatcherToClose =
-        statisticDispatcher != null ? statisticDispatcher : internalStatisticDispatcher;
-    if (statisticDispatcherToClose != null) {
-      try {
-        statisticDispatcherToClose.close();
-      } catch (Exception e) {
-        LOG.warn("Failed to close StatisticDispatcher", e);
-      }
-    }
-
-    if (kmsClientRegistry != null) {
-      kmsClientRegistry.close();
-    }
-
-    if (secretManager != null) {
-      secretManager.close();
-    }
-
-    LOG.info("Gravitino Environment is shut down.");
   }
 
   private void initBaseComponents() {
@@ -885,7 +906,7 @@ public class GravitinoEnv implements LegacyBridge {
   private void initializeConfig(Config config) {
     this.config = config;
     // Building the component creates nothing yet: each object it owns is built on first request.
-    this.component = DaggerGravitinoComponent.factory().create(config, this);
+    this.component = DaggerGravitinoComponent.factory().create(config, new Bridge());
     FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
     SecretPropertyUtils.configureSensitiveKeyKeywords(config);
   }
@@ -900,7 +921,8 @@ public class GravitinoEnv implements LegacyBridge {
   private void initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager = component.metalakeManager();
+    // Built here, after the catalog manager, as before; the lifecycle closes it.
+    component.metalakeManager();
     this.internalMetalakeDispatcher = component.internalMetalakeDispatcher();
     this.internalCatalogDispatcher = component.internalCatalogDispatcher();
 
@@ -1002,5 +1024,24 @@ public class GravitinoEnv implements LegacyBridge {
 
     this.tagDispatcher = component.tagDispatcher();
     this.policyDispatcher = component.policyDispatcher();
+  }
+
+  /** The objects the component reads from this environment. */
+  private final class Bridge implements LegacyBridge {
+
+    @Override
+    public GravitinoAuthorizer gravitinoAuthorizer() {
+      return GravitinoEnv.this.gravitinoAuthorizer();
+    }
+
+    @Override
+    public void startAuxiliaryServices() {
+      GravitinoEnv.this.startAuxiliaryServices();
+    }
+
+    @Override
+    public void stopAuxiliaryServices() {
+      GravitinoEnv.this.stopAuxiliaryServices();
+    }
   }
 }

@@ -52,7 +52,7 @@ abstract class ConfigModule {
 
   /**
    * Builds the metrics system with the JVM metrics source registered. Dagger does not start or
-   * close it; {@code GravitinoEnv} does.
+   * close it; the {@link LifecycleModule lifecycle} does.
    */
   @SuppressWarnings("CloseableProvides")
   @Provides

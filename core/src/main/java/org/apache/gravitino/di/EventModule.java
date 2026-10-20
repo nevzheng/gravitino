@@ -30,7 +30,8 @@ import org.apache.gravitino.listener.EventListenerManager;
  * Binds the event listener manager, the event bus it creates, and the audit log manager that
  * listens to it.
  *
- * <p>Dagger does not start or stop the listener manager; {@code GravitinoEnv} does.
+ * <p>Dagger does not start or stop the listener manager; the {@link LifecycleModule lifecycle}
+ * does.
  */
 @Module
 abstract class EventModule {

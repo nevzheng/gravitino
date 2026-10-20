@@ -31,7 +31,7 @@ import org.apache.gravitino.secret.SecretManager;
  * Binds the stores the server keeps its state in: the entity store, the KMS client registry and the
  * secret manager.
  *
- * <p>Dagger does not close them; {@code GravitinoEnv.shutdown()} does.
+ * <p>Dagger does not close them; the {@link LifecycleModule lifecycle} does.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
