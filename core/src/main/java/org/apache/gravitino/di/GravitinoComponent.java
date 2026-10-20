@@ -26,6 +26,11 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.PartitionDispatcher;
+import org.apache.gravitino.catalog.SchemaDispatcher;
+import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metrics.MetricsSystem;
@@ -40,7 +45,8 @@ import org.apache.gravitino.tag.TagDispatcher;
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
  * this component. Objects the component owns are built by its modules; {@link ConfigModule} owns
- * the id generator and the metrics system, {@link LockModule} owns the lock manager, and {@link
+ * the id generator and the metrics system, {@link LockModule} owns the lock manager, {@link
+ * SchemaTableModule} owns the schema, table, partition and view chains, and {@link
  * GovernanceModule} owns the tag, policy, owner and statistic managers and their chains. Objects
  * that {@code GravitinoEnv} still builds reach the graph through {@link LegacyBridge} and {@link
  * LegacyModule}, so every object is built by exactly one side.
@@ -50,7 +56,13 @@ import org.apache.gravitino.tag.TagDispatcher;
  */
 @Singleton
 @Component(
-    modules = {ConfigModule.class, LockModule.class, GovernanceModule.class, LegacyModule.class})
+    modules = {
+      ConfigModule.class,
+      LockModule.class,
+      SchemaTableModule.class,
+      GovernanceModule.class,
+      LegacyModule.class
+    })
 public interface GravitinoComponent {
 
   /**
@@ -80,6 +92,81 @@ public interface GravitinoComponent {
    * @return the lock manager
    */
   LockManager lockManager();
+
+  /**
+   * Returns the schema operation dispatcher shared by the internal and public schema chains.
+   *
+   * <p>Transitional: {@code GravitinoEnv} still builds the function and semantic model operation
+   * dispatchers, which take it directly.
+   *
+   * @return the schema operation dispatcher
+   */
+  SchemaOperationDispatcher schemaOperationDispatcher();
+
+  /**
+   * Returns the internal schema chain: normalize, then {@link #schemaOperationDispatcher()}.
+   *
+   * @return the internal schema dispatcher
+   */
+  @Internal
+  SchemaDispatcher internalSchemaDispatcher();
+
+  /**
+   * Returns the public schema chain: event, normalize, hook, then {@link
+   * #schemaOperationDispatcher()}.
+   *
+   * @return the public schema dispatcher
+   */
+  @Public
+  SchemaDispatcher schemaDispatcher();
+
+  /**
+   * Returns the internal table chain: normalize, then its own operation dispatcher.
+   *
+   * @return the internal table dispatcher
+   */
+  @Internal
+  TableDispatcher internalTableDispatcher();
+
+  /**
+   * Returns the public table chain: event, normalize, hook, then its own operation dispatcher.
+   *
+   * @return the public table dispatcher
+   */
+  @Public
+  TableDispatcher tableDispatcher();
+
+  /**
+   * Returns the internal partition chain: normalize, then operation.
+   *
+   * @return the internal partition dispatcher
+   */
+  @Internal
+  PartitionDispatcher internalPartitionDispatcher();
+
+  /**
+   * Returns the public partition chain: event, then {@link #internalPartitionDispatcher()}.
+   *
+   * @return the public partition dispatcher
+   */
+  @Public
+  PartitionDispatcher partitionDispatcher();
+
+  /**
+   * Returns the internal view chain: normalize, then its own operation dispatcher.
+   *
+   * @return the internal view dispatcher
+   */
+  @Internal
+  ViewDispatcher internalViewDispatcher();
+
+  /**
+   * Returns the public view chain: event, normalize, hook, then its own operation dispatcher.
+   *
+   * @return the public view dispatcher
+   */
+  @Public
+  ViewDispatcher viewDispatcher();
 
   /**
    * Returns the tag manager, the internal tag chain.

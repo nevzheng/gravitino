@@ -60,6 +60,17 @@ final class DispatcherChains {
     return assertChain(dispatcher, "dispatcher", classes);
   }
 
+  /**
+   * Reads a field of {@code target}, declared in its class or a superclass.
+   *
+   * @param target the object to read
+   * @param fieldName the field name
+   * @return the field value
+   */
+  static Object field(Object target, String fieldName) throws ReflectiveOperationException {
+    return delegate(target, fieldName);
+  }
+
   private static Object delegate(Object decorator, String fieldName)
       throws ReflectiveOperationException {
     for (Class<?> type = decorator.getClass(); type != null; type = type.getSuperclass()) {
