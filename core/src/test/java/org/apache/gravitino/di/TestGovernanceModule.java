@@ -32,7 +32,6 @@ import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
 import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
-import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.StatisticEventDispatcher;
 import org.apache.gravitino.listener.TagEventDispatcher;
@@ -45,14 +44,13 @@ import org.junit.jupiter.api.Test;
 
 public class TestGovernanceModule {
 
-  private TestGravitinoComponent.FakeLegacyBridge legacy;
-  private GravitinoComponent component;
+  private FakeLeaves leaves;
+  private ModuleTestComponent component;
 
   @BeforeEach
   public void setUp() {
-    legacy = new TestGravitinoComponent.FakeLegacyBridge();
-    component =
-        DaggerGravitinoComponent.factory().create(TestGravitinoComponent.testConfig(), legacy);
+    leaves = new FakeLeaves();
+    component = ModuleTestComponent.create(TestGravitinoComponent.testConfig(), leaves);
   }
 
   @AfterEach
@@ -86,28 +84,31 @@ public class TestGovernanceModule {
 
   @Test
   public void testOwnerChains() throws Exception {
-    GravitinoComponent authorized = authorizedComponent(legacy);
-    try {
-      assertChain(authorized.internalOwnerDispatcher(), OwnerManager.class);
-      Object manager =
-          assertChain(
-              authorized.ownerDispatcher(),
-              "ownerDispatcher",
-              OwnerEventManager.class,
-              OwnerManager.class);
-      assertSame(authorized.internalOwnerDispatcher(), manager);
-      assertSame(authorized.ownerDispatcher(), authorized.ownerDispatcher());
-      assertNotSame(authorized.ownerDispatcher(), authorized.internalOwnerDispatcher());
-    } finally {
-      authorized.internalStatisticDispatcher().close();
-    }
+    ModuleTestComponent authorized = authorizedComponent(leaves);
+
+    assertChain(authorized.internalOwnerDispatcher(), OwnerManager.class);
+    Object manager =
+        assertChain(
+            authorized.ownerDispatcher(),
+            "ownerDispatcher",
+            OwnerEventManager.class,
+            OwnerManager.class);
+    assertSame(authorized.internalOwnerDispatcher(), manager);
+    assertSame(authorized.ownerDispatcher(), authorized.ownerDispatcher());
+    assertNotSame(authorized.ownerDispatcher(), authorized.internalOwnerDispatcher());
   }
 
   @Test
   public void testOwnerChainsAreNoopWhileAuthorizationIsDisabled() {
-    // Neither chain builds the owner manager, so neither needs a relational store.
-    assertSame(NoopOwnerDispatcher.INSTANCE, component.internalOwnerDispatcher());
-    assertSame(NoopOwnerDispatcher.INSTANCE, component.ownerDispatcher());
+    // Neither chain builds the owner manager, so neither needs a relational store or the event bus.
+    FakeLeaves plainStore = new FakeLeaves();
+    plainStore.entityStore = mock(EntityStore.class);
+    plainStore.eventBus = null;
+    ModuleTestComponent disabled =
+        ModuleTestComponent.create(TestGravitinoComponent.testConfig(), plainStore);
+
+    assertSame(NoopOwnerDispatcher.INSTANCE, disabled.internalOwnerDispatcher());
+    assertSame(NoopOwnerDispatcher.INSTANCE, disabled.ownerDispatcher());
   }
 
   @Test
@@ -135,20 +136,15 @@ public class TestGovernanceModule {
   @Test
   public void testInternalBindingsDoNotNeedTheEventBus() throws Exception {
     // The metadata profile has no event bus; its internal chains must still build.
-    TestGravitinoComponent.FakeLegacyBridge noEventBus =
-        new TestGravitinoComponent.FakeLegacyBridge() {
-          @Override
-          public EventBus eventBus() {
-            throw new IllegalArgumentException("GravitinoEnv is not initialized.");
-          }
-        };
-    GravitinoComponent metadataOnly =
-        DaggerGravitinoComponent.factory().create(TestGravitinoComponent.testConfig(), noEventBus);
+    FakeLeaves noEventBus = new FakeLeaves();
+    noEventBus.eventBus = null;
+    ModuleTestComponent metadataOnly =
+        ModuleTestComponent.create(TestGravitinoComponent.testConfig(), noEventBus);
     try {
       metadataOnly.internalTagDispatcher();
       metadataOnly.internalPolicyDispatcher();
       metadataOnly.internalOwnerDispatcher();
-      assertThrows(IllegalArgumentException.class, metadataOnly::tagDispatcher);
+      assertThrows(NullPointerException.class, metadataOnly::tagDispatcher);
     } finally {
       metadataOnly.internalStatisticDispatcher().close();
     }
@@ -156,23 +152,19 @@ public class TestGovernanceModule {
 
   @Test
   public void testRelationalStoreIsRequired() {
-    TestGravitinoComponent.FakeLegacyBridge plainStore =
-        new TestGravitinoComponent.FakeLegacyBridge();
+    FakeLeaves plainStore = new FakeLeaves();
     plainStore.entityStore = mock(EntityStore.class);
-    GravitinoComponent plain =
-        DaggerGravitinoComponent.factory().create(TestGravitinoComponent.testConfig(), plainStore);
-
+    ModuleTestComponent plain =
+        ModuleTestComponent.create(TestGravitinoComponent.testConfig(), plainStore);
     assertThrows(RuntimeException.class, plain::internalPolicyDispatcher);
-    assertSame(NoopOwnerDispatcher.INSTANCE, plain.internalOwnerDispatcher());
 
-    GravitinoComponent authorized = authorizedComponent(plainStore);
+    ModuleTestComponent authorized = authorizedComponent(plainStore);
     assertThrows(RuntimeException.class, authorized::internalOwnerDispatcher);
   }
 
-  private static GravitinoComponent authorizedComponent(
-      TestGravitinoComponent.FakeLegacyBridge legacy) {
+  private static ModuleTestComponent authorizedComponent(FakeLeaves leaves) {
     Config config = TestGravitinoComponent.testConfig();
     config.set(Configs.ENABLE_AUTHORIZATION, true);
-    return DaggerGravitinoComponent.factory().create(config, legacy);
+    return ModuleTestComponent.create(config, leaves);
   }
 }

@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.inject.Inject;
+import javax.inject.Singleton;
 import javax.ws.rs.NotSupportedException;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
@@ -43,8 +45,18 @@ import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 
 /** Get credentials with the specific catalog classloader. */
+@Singleton
 public class CredentialOperationDispatcher extends OperationDispatcher {
 
+  /**
+   * Creates a credential operation dispatcher.
+   *
+   * @param catalogManager the catalog manager that loads the catalogs
+   * @param store the entity store
+   * @param idGenerator the id generator
+   * @param secretManager the secret manager
+   */
+  @Inject
   public CredentialOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,
