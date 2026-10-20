@@ -36,6 +36,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.NamespacedEntityId;
@@ -375,12 +376,14 @@ public class FilesetMetaService {
     return filesetPO;
   }
 
+  @LegacyEnvAccess
   private Function<Namespace, List<FilesetPO>> filesetListFetcher() {
     return GravitinoEnv.getInstance().cacheEnabled()
         ? this::listFilesetPOsBySchemaId
         : this::listFilesetPOsByFullQualifiedName;
   }
 
+  @LegacyEnvAccess
   private Function<NameIdentifier, FilesetPO> filesetPOFetcher() {
     return GravitinoEnv.getInstance().cacheEnabled()
         ? this::getFilesetPOBySchemaId

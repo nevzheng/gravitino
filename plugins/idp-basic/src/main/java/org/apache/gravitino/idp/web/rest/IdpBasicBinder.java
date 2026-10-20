@@ -19,12 +19,14 @@
 package org.apache.gravitino.idp.web.rest;
 
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 
 /** Registers built-in IdP REST dependencies for Jersey/HK2 injection. */
 public class IdpBasicBinder extends AbstractBinder {
 
+  @LegacyEnvAccess
   @Override
   protected void configure() {
     GravitinoEnv gravitinoEnv = GravitinoEnv.getInstance();

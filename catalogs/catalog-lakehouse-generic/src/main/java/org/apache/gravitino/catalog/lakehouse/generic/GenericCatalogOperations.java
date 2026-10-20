@@ -42,6 +42,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.ManagedSchemaOperations;
 import org.apache.gravitino.catalog.ManagedTableOperations;
 import org.apache.gravitino.catalog.lakehouse.lance.LanceTableOperations;
@@ -88,6 +89,7 @@ public class GenericCatalogOperations implements CatalogOperations, SupportsSche
 
   private final EntityStore store;
 
+  @LegacyEnvAccess
   public GenericCatalogOperations() {
     this(GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().idGenerator());
   }

@@ -38,6 +38,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
 import org.apache.gravitino.exceptions.AlreadyExistsException;
@@ -199,6 +200,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     }
   }
 
+  @LegacyEnvAccess
   public static void checkMetalakeInUse(String metalake) {
     checkMetalake(
         NameIdentifierUtil.ofMetalake(metalake), GravitinoEnv.getInstance().entityStore());
@@ -704,6 +706,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     return builder.withProperties(newProps);
   }
 
+  @LegacyEnvAccess
   private void updateMetalakeInUseStatusInCatalog(NameIdentifier ident, boolean value)
       throws IOException {
     List<NameIdentifier> failedCatalogs = Lists.newArrayList();

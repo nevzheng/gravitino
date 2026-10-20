@@ -43,6 +43,7 @@ import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.HealthCheckDTO;
 import org.apache.gravitino.dto.responses.HealthResponse;
 import org.apache.gravitino.metrics.MetricNames;
@@ -232,6 +233,7 @@ public class HealthOperations {
   }
 
   /** Visible for testing — subclasses override to inject a mock entity store. */
+  @LegacyEnvAccess
   EntityStore getEntityStore() {
     try {
       return GravitinoEnv.getInstance().entityStore();
@@ -242,6 +244,7 @@ public class HealthOperations {
   }
 
   /** Visible for testing — subclasses override to inject a custom timeout. */
+  @LegacyEnvAccess
   long getProbeTimeoutMs() {
     try {
       return GravitinoEnv.getInstance()

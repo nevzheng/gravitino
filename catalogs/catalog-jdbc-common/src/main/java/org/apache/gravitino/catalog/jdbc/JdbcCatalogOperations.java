@@ -46,6 +46,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.jdbc.config.JdbcConfig;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcColumnDefaultValueConverter;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcExceptionConverter;
@@ -159,6 +160,7 @@ public class JdbcCatalogOperations
    * @param info The catalog info associated with this operations instance.
    * @throws RuntimeException if initialization fails.
    */
+  @LegacyEnvAccess
   @Override
   public void initialize(
       Map<String, String> conf, CatalogInfo info, HasPropertyMetadata propertiesMetadata)
@@ -200,6 +202,7 @@ public class JdbcCatalogOperations
   }
 
   /** Closes the Jdbc catalog and releases the associated client pool. */
+  @LegacyEnvAccess
   @Override
   public void close() {
     // Metrics System could be null in UT.

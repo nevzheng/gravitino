@@ -37,6 +37,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthProperties;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
@@ -161,6 +162,7 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     return loadSchema(loadCatalog(catalogName), schemaName).supportsSecrets().getSecrets();
   }
 
+  @LegacyEnvAccess
   private SecretPropertyOperationDispatcher secretDispatcher() {
     try {
       return GravitinoEnv.getInstance().secretPropertyOperationDispatcher();
@@ -294,6 +296,7 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     return Namespace.of(metalakeName, catalogName, namespace.level(0));
   }
 
+  @LegacyEnvAccess
   private SchemaDispatcher currentSchemaDispatcher() {
     if (!isAuxMode()) {
       return null;
@@ -302,6 +305,7 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     return GravitinoEnv.getInstance().schemaDispatcher();
   }
 
+  @LegacyEnvAccess
   private TableDispatcher currentTableDispatcher() {
     if (!isAuxMode()) {
       return null;
@@ -428,6 +432,7 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
     private final String metalakeName;
     private final CatalogDispatcher catalogDispatcher;
 
+    @LegacyEnvAccess
     private InternalCatalogOperator(String metalakeName) {
       this.metalakeName = metalakeName;
       CatalogDispatcher dispatcher = GravitinoEnv.getInstance().catalogDispatcher();

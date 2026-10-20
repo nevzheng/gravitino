@@ -26,6 +26,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -90,6 +91,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     this(dispatcher, TreeLockUtils.legacyForwardingLockManager());
   }
 
+  @LegacyEnvAccess
   @Override
   public CreateNamespaceResponse createNamespace(
       IcebergRequestContext context, CreateNamespaceRequest createRequest) {
@@ -210,6 +212,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     return dispatcher.namespaceExists(context, namespace);
   }
 
+  @LegacyEnvAccess
   @Override
   public LoadTableResponse registerTable(
       IcebergRequestContext context,
@@ -239,6 +242,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     return response;
   }
 
+  @LegacyEnvAccess
   @Override
   public LoadViewResponse registerView(
       IcebergRequestContext context, Namespace namespace, RegisterViewRequest registerViewRequest) {
@@ -266,6 +270,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     return response;
   }
 
+  @LegacyEnvAccess
   private void importView(String catalogName, Namespace namespace, String viewName) {
     ViewDispatcher viewDispatcher = GravitinoEnv.getInstance().internalViewDispatcher();
     if (viewDispatcher != null) {
@@ -278,6 +283,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
+  @LegacyEnvAccess
   private boolean hasViewEntityInStore(
       IcebergRequestContext context, Namespace namespace, String viewName) {
     EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
@@ -297,6 +303,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
+  @LegacyEnvAccess
   private boolean hasTableEntityInStore(
       IcebergRequestContext context, Namespace namespace, String tableName) {
     EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
@@ -316,6 +323,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
+  @LegacyEnvAccess
   private void importTable(String catalogName, Namespace namespace, String tableName) {
     TableDispatcher tableDispatcher = GravitinoEnv.getInstance().internalTableDispatcher();
     if (tableDispatcher != null) {
@@ -328,6 +336,7 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
     }
   }
 
+  @LegacyEnvAccess
   private void importSchema(String catalogName, Namespace namespace) {
     SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
     if (schemaDispatcher != null) {

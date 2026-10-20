@@ -34,6 +34,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchJobException;
@@ -218,6 +219,7 @@ public class MetadataObjectUtil {
    * @param object The metadata object
    * @throws NoSuchMetadataObjectException if the metadata object type doesn't exist.
    */
+  @LegacyEnvAccess
   public static void checkMetadataObject(String metalake, MetadataObject object) {
     GravitinoEnv env = GravitinoEnv.getInstance();
     NameIdentifier identifier = toEntityIdent(metalake, object);

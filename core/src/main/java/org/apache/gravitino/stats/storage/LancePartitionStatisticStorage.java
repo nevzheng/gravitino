@@ -47,6 +47,7 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TableEntity;
@@ -69,6 +70,7 @@ import org.lance.ipc.ScanOptions;
 import org.lance.operation.Append;
 
 /** LancePartitionStatisticStorage is based on Lance format files. */
+@LegacyEnvAccess
 public class LancePartitionStatisticStorage implements PartitionStatisticStorage {
 
   private static final String LOCATION = "location";

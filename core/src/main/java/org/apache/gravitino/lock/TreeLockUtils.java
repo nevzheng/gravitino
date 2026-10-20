@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import java.util.function.Supplier;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.utils.Executable;
 
 /**
@@ -139,6 +140,7 @@ public class TreeLockUtils {
   // Inlining would copy the GravitinoEnv lookup into every caller.
   @SuppressWarnings("InlineMeSuggester")
   @Deprecated
+  @LegacyEnvAccess
   public static Supplier<LockManager> legacyLockManager() {
     return () -> GravitinoEnv.getInstance().lockManager();
   }

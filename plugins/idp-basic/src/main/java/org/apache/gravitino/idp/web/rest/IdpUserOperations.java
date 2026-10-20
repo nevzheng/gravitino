@@ -36,6 +36,7 @@ import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
@@ -105,6 +106,7 @@ public class IdpUserOperations {
    * @param request the password change request
    * @return the updated user response
    */
+  @LegacyEnvAccess
   @PUT
   @Path("{user}/password")
   @Produces("application/vnd.gravitino.v1+json")
@@ -150,6 +152,7 @@ public class IdpUserOperations {
    * @param request the enabled-flag update request
    * @return the updated user response
    */
+  @LegacyEnvAccess
   @PUT
   @Path("{user}/enabled")
   @Produces("application/vnd.gravitino.v1+json")

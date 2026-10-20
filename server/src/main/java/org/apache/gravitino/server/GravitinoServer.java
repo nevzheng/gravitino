@@ -31,6 +31,7 @@ import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
@@ -188,6 +189,7 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
+  @LegacyEnvAccess
   private void initializeRestApi(JettyServerConfig jettyServerConfig) {
     HashSet<String> restApiPackagesSet = new HashSet<>();
     restApiPackagesSet.add("org.apache.gravitino.server.web.rest");
@@ -350,6 +352,7 @@ public class GravitinoServer extends ResourceConfig {
     stop();
   }
 
+  @LegacyEnvAccess
   public static void main(String[] args) {
     LOG.info("Starting Gravitino Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];

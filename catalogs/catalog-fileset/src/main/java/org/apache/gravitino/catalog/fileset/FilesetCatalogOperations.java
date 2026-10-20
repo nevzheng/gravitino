@@ -78,6 +78,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.audit.CallerContext;
 import org.apache.gravitino.audit.FilesetAuditConstants;
 import org.apache.gravitino.audit.FilesetDataOperation;
@@ -209,6 +210,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     this.credentialManagerSupplier = credentialManagerSupplier;
   }
 
+  @LegacyEnvAccess
   FilesetCatalogOperations(Supplier<CatalogCredentialManager> credentialManagerSupplier) {
     this(
         GravitinoEnv.getInstance().entityStore(),
@@ -258,6 +260,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
   }
 
+  @LegacyEnvAccess
   public FilesetCatalogOperations() {
     this(
         GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().secretManager(), null);
@@ -276,6 +279,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     return conf;
   }
 
+  @LegacyEnvAccess
   @Override
   public void initialize(
       Map<String, String> config, CatalogInfo info, HasPropertyMetadata propertiesMetadata)
@@ -1089,6 +1093,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
   }
 
+  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     // do nothing

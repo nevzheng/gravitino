@@ -39,6 +39,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationMetadataObject;
 import org.apache.gravitino.authorization.AuthorizationPrivilege;
 import org.apache.gravitino.authorization.AuthorizationSecurableObject;
@@ -538,6 +539,7 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
     return rangerSecurableObjects;
   }
 
+  @LegacyEnvAccess
   private void createSecurableObjects(
       SecurableObject securableObject,
       List<AuthorizationSecurableObject> rangerSecurableObjects,
@@ -584,6 +586,7 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
         });
   }
 
+  @LegacyEnvAccess
   private void extractMetalakeLocations(
       SecurableObject securableObject,
       NameIdentifier identifier,
@@ -655,6 +658,7 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
     return rangerSecurableObjects;
   }
 
+  @LegacyEnvAccess
   @Override
   public List<AuthorizationMetadataObject> translateMetadataObject(MetadataObject metadataObject) {
     List<AuthorizationMetadataObject> authzMetadataObjects = new ArrayList<>();
@@ -691,6 +695,7 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
     return authzMetadataObjects;
   }
 
+  @LegacyEnvAccess
   @Override
   public Boolean onMetadataUpdated(MetadataObjectChange... changes) throws RuntimeException {
     for (MetadataObjectChange change : changes) {

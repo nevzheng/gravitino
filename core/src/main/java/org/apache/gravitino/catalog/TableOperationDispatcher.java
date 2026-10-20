@@ -53,6 +53,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.MaskAndOmitKeys;
 import org.apache.gravitino.connector.capability.Capability;
@@ -1217,6 +1218,7 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
     }
   }
 
+  @LegacyEnvAccess
   private static SchemaDispatcher envSchemaDispatcher() {
     return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }

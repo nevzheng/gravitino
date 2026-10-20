@@ -19,6 +19,7 @@
 package org.apache.gravitino.iceberg.service.dispatcher;
 
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
@@ -50,6 +51,7 @@ final class IcebergOrphanSchemaCleanup {
    * @param context the Iceberg request context carrying the catalog name
    * @param namespace the namespace of the dropped table or view
    */
+  @LegacyEnvAccess
   static void bestEffortCleanUp(
       String metalake,
       IcebergNamespaceOperationDispatcher namespaceDispatcher,

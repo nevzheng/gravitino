@@ -35,6 +35,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -71,6 +72,7 @@ public class UserOperations {
 
   @Context private HttpServletRequest httpRequest;
 
+  @LegacyEnvAccess
   public UserOperations() {
     // Because accessManager may be null when Gravitino doesn't enable authorization,
     // and Jersey injection doesn't support null value. So UserOperations chooses to retrieve

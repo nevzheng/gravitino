@@ -38,6 +38,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Privilege;
@@ -74,6 +75,7 @@ public class RoleOperations {
 
   @Context private HttpServletRequest httpRequest;
 
+  @LegacyEnvAccess
   public RoleOperations() {
     this.accessControlManager = GravitinoEnv.getInstance().accessControlDispatcher();
   }

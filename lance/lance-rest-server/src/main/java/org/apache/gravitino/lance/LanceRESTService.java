@@ -28,6 +28,7 @@ import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.lance.common.ops.LanceNamespaceBackend;
@@ -74,6 +75,7 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
     return SERVICE_NAME;
   }
 
+  @LegacyEnvAccess
   @Override
   public void serviceInit(Map<String, String> properties, boolean auxMode) {
     LanceConfig lanceConfig = new LanceConfig(new HashMap<>(properties));

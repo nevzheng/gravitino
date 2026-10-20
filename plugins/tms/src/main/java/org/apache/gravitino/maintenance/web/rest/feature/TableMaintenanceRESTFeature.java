@@ -26,6 +26,7 @@ import javax.ws.rs.ext.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.maintenance.TableMaintenanceConfig;
 import org.apache.gravitino.maintenance.scheduler.TableMaintenanceSchedulerPools;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
@@ -58,6 +59,7 @@ public class TableMaintenanceRESTFeature implements Feature {
   private static final AtomicReference<TableMaintenanceSchedulerPools> SCHEDULER_POOLS =
       new AtomicReference<>();
 
+  @LegacyEnvAccess
   @Override
   public boolean configure(FeatureContext context) {
     if (SCHEDULER_POOLS.get() != null) {

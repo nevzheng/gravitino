@@ -40,6 +40,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.Metalake;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
@@ -575,11 +576,13 @@ public class MetadataAuthzHelper {
     return (E[]) Array.newInstance(componentType, size);
   }
 
+  @LegacyEnvAccess
   private static boolean enableAuthorization() {
     Config config = GravitinoEnv.getInstance().config();
     return config != null && config.get(Configs.ENABLE_AUTHORIZATION);
   }
 
+  @LegacyEnvAccess
   private static void checkExecutor() {
     if (executor == null) {
       synchronized (MetadataAuthzHelper.class) {
@@ -600,6 +603,7 @@ public class MetadataAuthzHelper {
     }
   }
 
+  @LegacyEnvAccess
   private static void preloadToCache(
       Entity.EntityType entityType, NameIdentifier[] nameIdentifiers) {
     // If cache is not enabled or access control dispatcher is not set, skip preloading to cache

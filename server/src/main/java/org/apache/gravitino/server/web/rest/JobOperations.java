@@ -50,6 +50,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.dto.job.JobDTO;
 import org.apache.gravitino.dto.job.JobTemplateDTO;
 import org.apache.gravitino.dto.job.ShellJobTemplateDTO;
@@ -523,6 +524,7 @@ public class JobOperations {
     }
   }
 
+  @LegacyEnvAccess
   private static JobTemplateEntity toEntity(String metalake, JobTemplateDTO jobTemplateDTO) {
     return JobTemplateEntity.builder()
         .withId(GravitinoEnv.getInstance().idGenerator().nextId())

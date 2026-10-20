@@ -30,6 +30,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -97,6 +98,7 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
     return createSchema(ident, comment, properties, Collections.emptyMap(), Collections.emptyMap());
   }
 
+  @LegacyEnvAccess
   @Override
   public Schema createSchema(
       NameIdentifier ident,

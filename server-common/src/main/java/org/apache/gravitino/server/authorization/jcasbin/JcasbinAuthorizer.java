@@ -52,6 +52,7 @@ import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserGroup;
 import org.apache.gravitino.UserPrincipal;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
@@ -257,6 +258,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   /** Background HA invalidator for {@link #metadataIdCache} and {@link #ownerRelCache}. */
   private JcasbinChangeListener changePoller;
 
+  @LegacyEnvAccess
   @Override
   public void initialize() {
     long cacheExpirationSecs =
@@ -445,6 +447,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     return ownerMatchesUserOrGroups(owner, principal, metalake, requestContext);
   }
 
+  @LegacyEnvAccess
   @Override
   public boolean isServiceAdmin() {
     return GravitinoEnv.getInstance()
@@ -802,6 +805,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     }
   }
 
+  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     if (changePoller != null) {
@@ -1381,6 +1385,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
    * @return ids of stale roles whose entity could not be read, so their policies were not reloaded.
    *     A role that no longer exists is not included: having no policies is correct for it.
    */
+  @LegacyEnvAccess
   private Set<Long> versionCheckAndLoadRoles(
       String metalake, List<Long> roleIds, AuthorizationRequestContext requestContext) {
     List<Long> uniqueRoleIds = roleIds.stream().distinct().collect(Collectors.toList());

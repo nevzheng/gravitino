@@ -21,6 +21,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.server.ServerConfig;
 
@@ -44,6 +45,7 @@ public class GravitinoAuthorizerProvider implements Closeable {
    *
    * @param serverConfig Gravitino server config
    */
+  @LegacyEnvAccess
   public void initialize(ServerConfig serverConfig) {
     if (gravitinoAuthorizer == null) {
       synchronized (this) {
@@ -81,6 +83,7 @@ public class GravitinoAuthorizerProvider implements Closeable {
     return gravitinoAuthorizer;
   }
 
+  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     GravitinoEnv.getInstance().setGravitinoAuthorizer(null);

@@ -27,6 +27,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 
 /**
  * Utility class for hierarchical schema name conversions.
@@ -52,6 +53,7 @@ public final class HierarchicalSchemaUtil {
    *
    * @return the configured separator string (default {@code ":"})
    */
+  @LegacyEnvAccess
   public static String schemaSeparator() {
     Config config = GravitinoEnv.getInstance().config();
     if (config == null) {

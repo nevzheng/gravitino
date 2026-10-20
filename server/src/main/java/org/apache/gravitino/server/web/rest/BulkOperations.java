@@ -39,6 +39,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Group;
@@ -104,6 +105,7 @@ public class BulkOperations {
   @Context private HttpServletRequest httpRequest;
 
   /** Creates a new bulk operations resource. */
+  @LegacyEnvAccess
   public BulkOperations() {
     this.bulkManager = GravitinoEnv.getInstance().bulkManager();
     this.accessControlDispatcher = GravitinoEnv.getInstance().accessControlDispatcher();

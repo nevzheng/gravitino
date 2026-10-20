@@ -25,6 +25,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -65,6 +66,7 @@ public class ModelHookDispatcher implements ModelDispatcher {
     return dispatcher.getModel(ident);
   }
 
+  @LegacyEnvAccess
   @Override
   public Model registerModel(NameIdentifier ident, String comment, Map<String, String> properties)
       throws NoSuchSchemaException, ModelAlreadyExistsException {
@@ -152,6 +154,7 @@ public class ModelHookDispatcher implements ModelDispatcher {
     return dispatcher.modelExists(ident);
   }
 
+  @LegacyEnvAccess
   @Override
   public Model registerModel(
       NameIdentifier ident,

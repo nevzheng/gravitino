@@ -28,6 +28,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.dto.responses.AuthMeResponse;
 import org.apache.gravitino.metrics.MetricNames;
@@ -47,6 +48,7 @@ public class AuthnOperations {
   @Context private HttpServletRequest httpRequest;
 
   /** Creates an authenticated-principal REST resource. */
+  @LegacyEnvAccess
   public AuthnOperations() {
     this(GravitinoEnv.getInstance().accessControlDispatcher());
   }

@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergCatalogBackend;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
@@ -60,6 +61,7 @@ public class IcebergCatalogWrapperManager implements AutoCloseable {
 
   private final IcebergConfigProvider configProvider;
 
+  @LegacyEnvAccess
   public IcebergCatalogWrapperManager(
       Map<String, String> properties,
       IcebergConfigProvider configProvider,

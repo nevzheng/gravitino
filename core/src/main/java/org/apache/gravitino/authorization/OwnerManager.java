@@ -32,6 +32,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NotFoundException;
@@ -212,6 +213,7 @@ public class OwnerManager implements OwnerDispatcher {
     }
   }
 
+  @LegacyEnvAccess
   private void notifyOwnerChange(
       @Nullable Owner oldOwner, String metalake, MetadataObject metadataObject) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
@@ -250,6 +252,7 @@ public class OwnerManager implements OwnerDispatcher {
     }
   }
 
+  @LegacyEnvAccess
   private Long getOwnerId(String metalake, Owner owner) throws IOException {
     if (owner.type() == Owner.Type.USER) {
       UserEntity userEntity =

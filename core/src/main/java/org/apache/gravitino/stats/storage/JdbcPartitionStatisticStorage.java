@@ -38,6 +38,7 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TableEntity;
@@ -107,6 +108,7 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
    *
    * @param dataSource the JDBC DataSource for database connections
    */
+  @LegacyEnvAccess
   public JdbcPartitionStatisticStorage(DataSource dataSource) {
     this.dataSource = dataSource;
     this.entityStore = GravitinoEnv.getInstance().entityStore();

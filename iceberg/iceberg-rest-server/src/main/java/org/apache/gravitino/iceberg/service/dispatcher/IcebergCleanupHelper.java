@@ -22,6 +22,7 @@ package org.apache.gravitino.iceberg.service.dispatcher;
 import java.util.Optional;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.iceberg.catalog.Namespace;
@@ -40,6 +41,7 @@ final class IcebergCleanupHelper {
    * Returns the catalog entity id for {@code catalogName}. The catalog is already loaded for the
    * current request, so this reads its in-memory entity without an extra entity-store lookup.
    */
+  @LegacyEnvAccess
   static long catalogId(String catalogName) {
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
     return GravitinoEnv.getInstance()

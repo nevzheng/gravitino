@@ -22,6 +22,7 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -36,6 +37,7 @@ public class MethodMonitorAspect {
   private static final Logger LOG = LoggerFactory.getLogger(MethodMonitorAspect.class);
   private MetricsSystem metricsSystem;
 
+  @LegacyEnvAccess
   public MethodMonitorAspect() {
     this.metricsSystem = GravitinoEnv.getInstance().metricsSystem();
     // Metrics System could be null in UT.

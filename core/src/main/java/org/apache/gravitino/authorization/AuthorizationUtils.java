@@ -41,6 +41,7 @@ import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.hive.HiveConstants;
@@ -137,6 +138,7 @@ public class AuthorizationUtils {
     checkCurrentUser(metalake, user, new AuthorizationRequestContext());
   }
 
+  @LegacyEnvAccess
   public static void checkCurrentUser(
       String metalake, String user, AuthorizationRequestContext requestContext) {
     GravitinoAuthorizer authorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
@@ -224,6 +226,7 @@ public class AuthorizationUtils {
   // Every catalog has one authorization plugin, we should avoid calling
   // underlying authorization repeatedly. So we use a set to record which
   // catalog has been called the authorization plugin.
+  @LegacyEnvAccess
   public static void callAuthorizationPluginForSecurableObjects(
       String metalake,
       List<SecurableObject> securableObjects,
@@ -254,6 +257,7 @@ public class AuthorizationUtils {
     }
   }
 
+  @LegacyEnvAccess
   public static void callAuthorizationPluginForMetadataObject(
       String metalake, MetadataObject metadataObject, Consumer<AuthorizationPlugin> consumer) {
     CatalogManager catalogManager = GravitinoEnv.getInstance().catalogManager();
@@ -360,6 +364,7 @@ public class AuthorizationUtils {
     }
   }
 
+  @LegacyEnvAccess
   public static void authorizationPluginRemovePrivileges(
       NameIdentifier ident, Entity.EntityType type, List<String> locations) {
     // If we enable authorization, we should remove the privileges about the entity in the
@@ -386,6 +391,7 @@ public class AuthorizationUtils {
    * @param catalogIdent the identifier used to load the catalog
    * @param locations the catalog storage locations
    */
+  @LegacyEnvAccess
   public static void removeCatalogPrivileges(NameIdentifier catalogIdent, List<String> locations) {
     callAuthorizationPluginImpl(
         (authorizationPlugin, catalogName) -> {
@@ -418,6 +424,7 @@ public class AuthorizationUtils {
    * @param newIdent the identifier of the entity after the rename
    * @param locations the storage locations of the entity, or {@code null}
    */
+  @LegacyEnvAccess
   public static void authorizationPluginRenamePrivileges(
       NameIdentifier ident,
       Entity.EntityType type,
@@ -456,6 +463,7 @@ public class AuthorizationUtils {
    * @param ident the entity identifier whose mapping changed
    * @param type the entity type
    */
+  @LegacyEnvAccess
   public static void notifyEntityNameIdMappingChange(NameIdentifier ident, Entity.EntityType type) {
     GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     if (gravitinoAuthorizer == null) {
@@ -595,6 +603,7 @@ public class AuthorizationUtils {
         catalogIdent);
   }
 
+  @LegacyEnvAccess
   private static void checkCatalogType(
       NameIdentifier catalogIdent, Catalog.Type type, Privilege privilege) {
     Catalog catalog =
@@ -622,6 +631,7 @@ public class AuthorizationUtils {
   }
 
   // The Hive default schema location is Hive warehouse directory
+  @LegacyEnvAccess
   private static String getHiveDefaultLocation(String metalakeName, String catalogName) {
     NameIdentifier defaultSchemaIdent =
         NameIdentifier.of(metalakeName, catalogName, "default" /*Hive default schema*/);
@@ -639,6 +649,7 @@ public class AuthorizationUtils {
     return null;
   }
 
+  @LegacyEnvAccess
   public static List<String> getMetadataObjectLocation(
       NameIdentifier ident, Entity.EntityType type) {
     List<String> locations = new ArrayList<>();

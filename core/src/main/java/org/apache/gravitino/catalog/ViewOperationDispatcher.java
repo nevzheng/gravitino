@@ -38,6 +38,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
@@ -750,6 +751,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
         .build();
   }
 
+  @LegacyEnvAccess
   private static SchemaDispatcher envSchemaDispatcher() {
     return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }

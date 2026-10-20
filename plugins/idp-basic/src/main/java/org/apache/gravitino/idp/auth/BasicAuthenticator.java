@@ -32,6 +32,7 @@ import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.UserGroup;
 import org.apache.gravitino.UserPrincipal;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
@@ -62,6 +63,7 @@ public class BasicAuthenticator implements Authenticator {
     return authenticate(credentials, authData);
   }
 
+  @LegacyEnvAccess
   @Override
   public void initialize(Config config) {
     validateExtensionPackage(config);

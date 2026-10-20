@@ -19,6 +19,8 @@
 package org.apache.gravitino;
 
 import com.google.common.base.Preconditions;
+import com.google.errorprone.annotations.RestrictedApi;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
@@ -221,8 +223,19 @@ public class GravitinoEnv {
   /**
    * Get the singleton instance of the GravitinoEnv.
    *
+   * <p>This is a legacy service locator. Error Prone rejects new production callers; take the
+   * dependency as a constructor parameter instead. Existing callers are marked with {@link
+   * LegacyEnvAccess} until they are migrated. Test sources are allowed.
+   *
    * @return The singleton instance of the GravitinoEnv.
    */
+  @RestrictedApi(
+      explanation =
+          "GravitinoEnv.getInstance() is a legacy service locator. Inject the dependency through"
+              + " the constructor instead. Only call sites marked @LegacyEnvAccess may use it.",
+      link = "https://github.com/apache/gravitino/tree/main/dev/di",
+      allowedOnPath = ".*/src/test/.*",
+      allowlistAnnotations = {LegacyEnvAccess.class})
   public static GravitinoEnv getInstance() {
     return InstanceHolder.INSTANCE;
   }
@@ -253,7 +266,7 @@ public class GravitinoEnv {
    */
   public void initializeMetadataComponents(Config config) {
     Preconditions.checkState(
-        this == getInstance(),
+        this == InstanceHolder.INSTANCE,
         "Metadata components must be initialized on GravitinoEnv.getInstance().");
     LOG.info("Initializing Gravitino metadata environment...");
     initializeConfig(config);

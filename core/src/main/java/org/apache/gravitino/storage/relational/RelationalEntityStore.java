@@ -49,6 +49,7 @@ import org.apache.gravitino.RelationQuery;
 import org.apache.gravitino.RelationUpdate;
 import org.apache.gravitino.RelationalEntity;
 import org.apache.gravitino.SupportsRelationOperations;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.cache.BaseEntityCache;
 import org.apache.gravitino.cache.CacheFactory;
 import org.apache.gravitino.cache.CachedEntityIdResolver;
@@ -108,6 +109,7 @@ public class RelationalEntityStore
     return cache;
   }
 
+  @LegacyEnvAccess
   @Override
   public void initialize(Config config) throws RuntimeException {
     if (config.get(Configs.CACHE_ENABLED)) {
@@ -349,6 +351,7 @@ public class RelationalEntityStore
     entityChangeLogPoller.unregisterListener(listener);
   }
 
+  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     // Keep shutting the remaining components down even if one of them fails, and tolerate a

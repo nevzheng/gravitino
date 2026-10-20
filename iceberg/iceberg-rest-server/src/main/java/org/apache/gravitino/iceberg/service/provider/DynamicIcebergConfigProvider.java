@@ -30,6 +30,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthProperties;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
@@ -109,6 +110,7 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
     return Optional.of(getIcebergConfigFromCatalogProperties(catalogProperties));
   }
 
+  @LegacyEnvAccess
   private static Map<String, String> resolveProps(Catalog catalog) {
     Preconditions.checkArgument(
         "lakehouse-iceberg".equals(catalog.provider()),
@@ -168,6 +170,7 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
    * Lazily creates the CatalogFetcher based on whether running in auxiliary mode. Uses internal
    * interface when in auxiliary mode (embedded in Gravitino server), otherwise uses HTTP interface.
    */
+  @LegacyEnvAccess
   private CatalogFetcher getCatalogFetcher() {
     if (catalogFetcher != null) {
       return catalogFetcher;
@@ -316,6 +319,7 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
     private final String metalake;
     private final CatalogManager catalogManager;
 
+    @LegacyEnvAccess
     InternalCatalogFetcher(String metalake) {
       this.metalake = metalake;
       CatalogManager manager;

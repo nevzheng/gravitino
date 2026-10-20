@@ -38,6 +38,7 @@ import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.meta.SchemaEntity;
@@ -683,6 +684,7 @@ public class SchemaMetaService {
     return ops;
   }
 
+  @LegacyEnvAccess
   private static long nextIdForNestedAncestor() {
     IdGenerator generator = GravitinoEnv.getInstance().idGenerator();
     if (generator == null) {
