@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.lance.common.ops.LanceMetadataFilter;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -33,14 +34,30 @@ import org.apache.gravitino.utils.NameIdentifierUtil;
 public class LanceAuthorizationMetadataFilter implements LanceMetadataFilter {
 
   private final String metalakeName;
+  private final MetadataAccessChecker accessChecker;
 
   /**
    * Creates a filter bound to a metalake.
    *
    * @param metalakeName the metalake Lance REST is bound to.
+   * @param accessChecker decides which entries the caller may see.
    */
-  public LanceAuthorizationMetadataFilter(String metalakeName) {
+  public LanceAuthorizationMetadataFilter(
+      String metalakeName, MetadataAccessChecker accessChecker) {
     this.metalakeName = metalakeName;
+    this.accessChecker = accessChecker;
+  }
+
+  /**
+   * Creates a filter bound to a metalake that checks access with the process-wide checker.
+   *
+   * @param metalakeName the metalake Lance REST is bound to.
+   * @deprecated Use {@link #LanceAuthorizationMetadataFilter(String, MetadataAccessChecker)}.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public LanceAuthorizationMetadataFilter(String metalakeName) {
+    this(metalakeName, MetadataAuthzHelper.processChecker());
   }
 
   @Override
@@ -77,7 +94,7 @@ public class LanceAuthorizationMetadataFilter implements LanceMetadataFilter {
       Function<String, NameIdentifier> toIdentifier) {
     NameIdentifier[] identifiers = names.stream().map(toIdentifier).toArray(NameIdentifier[]::new);
     NameIdentifier[] authorized =
-        MetadataAuthzHelper.filterByExpression(metalakeName, expression, entityType, identifiers);
+        accessChecker.filterByExpression(metalakeName, expression, entityType, identifiers);
     return Arrays.stream(authorized).map(NameIdentifier::name).collect(Collectors.toList());
   }
 }
