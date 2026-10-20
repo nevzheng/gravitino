@@ -89,6 +89,9 @@ dependencies {
     implementation(libs.gson)
   }
   implementation(libs.commons.lang3)
+  // ":core" comes without its dependencies; the standalone server builds the Dagger component,
+  // so it needs the Dagger runtime.
+  implementation(libs.dagger)
   implementation(libs.lance.namespace.core) {
     exclude(group = "org.lance", module = "lance-core")
     exclude(group = "com.google.guava", module = "guava") // provided by gravitino

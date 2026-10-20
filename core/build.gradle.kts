@@ -65,13 +65,17 @@ dependencies {
     exclude(group = "org.lance", module = "lance-namespace-apache-client")
   }
   implementation(libs.mybatis)
+  implementation(libs.dagger)
 
+  // Lombok must run before Dagger so Dagger sees Lombok-generated constructors.
   annotationProcessor(libs.lombok)
+  annotationProcessor(libs.dagger.compiler)
 
   compileOnly(libs.lombok)
   compileOnly(libs.servlet) // fix error-prone compile error
 
   testAnnotationProcessor(libs.lombok)
+  testAnnotationProcessor(libs.dagger.compiler)
   testCompileOnly(libs.lombok)
 
   testImplementation(project(":integration-test-common", "testArtifacts"))
