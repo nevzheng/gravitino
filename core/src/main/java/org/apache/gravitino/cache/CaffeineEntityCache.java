@@ -317,14 +317,15 @@ public class CaffeineEntityCache extends BaseEntityCache {
    * <ul>
    *   <li>{@code "."} separates {@link NameIdentifier} levels, so it matches ordinary children such
    *       as the tables of a schema.
-   *   <li>The {@link HierarchicalSchemaUtil#schemaSeparator() schema separator} joins nested {@code
-   *       HierarchicalSchema} levels <em>inside</em> a single name level, so it matches nested
-   *       schemas such as {@code raw:events:2024} under {@code raw:events}. Without this pass those
-   *       descendants would survive until their TTL expires. The cache sits above the storage
-   *       layer, where schema names are still logical, so the boundary is the configured external
-   *       separator and not the physical one the entity store writes to the backend. Only a schema
-   *       can carry nested levels, so this pass is skipped for every other entity type; a catalog
-   *       still reaches its nested schemas through the {@code "."} pass above.
+   *   <li>The {@link HierarchicalSchemaUtil#schemaSeparator(Config) schema separator} of the cache
+   *       configuration joins nested {@code HierarchicalSchema} levels <em>inside</em> a single
+   *       name level, so it matches nested schemas such as {@code raw:events:2024} under {@code
+   *       raw:events}. Without this pass those descendants would survive until their TTL expires.
+   *       The cache sits above the storage layer, where schema names are still logical, so the
+   *       boundary is the configured external separator and not the physical one the entity store
+   *       writes to the backend. Only a schema can carry nested levels, so this pass is skipped for
+   *       every other entity type; a catalog still reaches its nested schemas through the {@code
+   *       "."} pass above.
    * </ul>
    *
    * <p>Matching on a boundary rather than the bare identifier is what keeps the scan exact: it
@@ -341,7 +342,7 @@ public class CaffeineEntityCache extends BaseEntityCache {
     String identifier = key.identifier().toString();
     invalidateDescendants(identifier + NAME_LEVEL_BOUNDARY);
     if (key.entityType() == Entity.EntityType.SCHEMA) {
-      invalidateDescendants(identifier + HierarchicalSchemaUtil.schemaSeparator());
+      invalidateDescendants(identifier + HierarchicalSchemaUtil.schemaSeparator(cacheConfig));
     }
   }
 
