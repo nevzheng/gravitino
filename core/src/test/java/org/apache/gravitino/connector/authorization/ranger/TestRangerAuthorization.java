@@ -21,6 +21,7 @@ package org.apache.gravitino.connector.authorization.ranger;
 import com.google.common.base.Preconditions;
 import java.util.Map;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 
 public class TestRangerAuthorization extends BaseAuthorization<TestRangerAuthorization> {
@@ -36,11 +37,24 @@ public class TestRangerAuthorization extends BaseAuthorization<TestRangerAuthori
   /** Catalog ID received by the HDFS test plugin. */
   public static String hdfsCatalogId;
 
+  /** The context the last plugin was created with. */
+  public static AuthorizationPluginContext lastContext;
+
   public TestRangerAuthorization() {}
 
   @Override
   public String shortName() {
     return "test-ranger";
+  }
+
+  @Override
+  public AuthorizationPlugin newPlugin(
+      String metalake,
+      String catalogProvider,
+      Map<String, String> properties,
+      AuthorizationPluginContext context) {
+    lastContext = context;
+    return newPlugin(metalake, catalogProvider, properties);
   }
 
   @Override

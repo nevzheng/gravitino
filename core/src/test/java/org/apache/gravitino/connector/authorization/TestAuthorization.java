@@ -34,6 +34,7 @@ import org.apache.gravitino.utils.IsolatedClassLoader;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 public class TestAuthorization {
   private static final long METALAKE_ID = 10L;
@@ -179,5 +180,41 @@ public class TestAuthorization {
     Assertions.assertFalse(testRangerAuthHDFSPlugin.callOnCreateRole2);
     rangerHDFSAuthPlugin.onRoleCreated(null);
     Assertions.assertTrue(testRangerAuthHDFSPlugin.callOnCreateRole2);
+  }
+
+  @Test
+  public void testPluginGetsTheGivenContext() throws Exception {
+    AuditInfo auditInfo =
+        AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
+    CatalogEntity entity =
+        CatalogEntity.builder()
+            .withId(4L)
+            .withName("catalog-test4")
+            .withNamespace(Namespace.of("default"))
+            .withType(Catalog.Type.FILESET)
+            .withProvider("test")
+            .withAuditInfo(auditInfo)
+            .build();
+    AuthorizationPluginContext context = Mockito.mock(AuthorizationPluginContext.class);
+
+    TestCatalog catalog =
+        new TestCatalog()
+            .withCatalogConf(
+                ImmutableMap.of(
+                    Catalog.AUTHORIZATION_PROVIDER,
+                    "test-ranger",
+                    "authorization.ranger.service.type",
+                    "HDFS"))
+            .withCatalogEntity(entity);
+    try (IsolatedClassLoader isolatedClassLoader =
+            new IsolatedClassLoader(
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+        catalog) {
+      catalog.initAuthorizationPluginInstance(isolatedClassLoader, METALAKE_ID, context);
+
+      Assertions.assertSame(context, TestRangerAuthorization.lastContext);
+      Assertions.assertInstanceOf(
+          TestRangerAuthorizationHDFSPlugin.class, catalog.getAuthorizationPlugin());
+    }
   }
 }

@@ -23,7 +23,9 @@ import java.util.Map;
 import org.apache.gravitino.authorization.common.ErrorMessages;
 import org.apache.gravitino.authorization.common.RangerAuthorizationProperties;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 
 /** Implementation of a Ranger authorization in Gravitino. */
 public class RangerAuthorization extends BaseAuthorization<RangerAuthorization> {
@@ -35,6 +37,16 @@ public class RangerAuthorization extends BaseAuthorization<RangerAuthorization> 
   @Override
   public AuthorizationPlugin newPlugin(
       String metalake, String catalogProvider, Map<String, String> properties) {
+    return newPlugin(
+        metalake, catalogProvider, properties, EnvironmentAuthorizationPluginContext.INSTANCE);
+  }
+
+  @Override
+  public AuthorizationPlugin newPlugin(
+      String metalake,
+      String catalogProvider,
+      Map<String, String> properties,
+      AuthorizationPluginContext context) {
     Preconditions.checkArgument(
         properties.containsKey(RangerAuthorizationProperties.RANGER_SERVICE_TYPE),
         String.format(
@@ -46,7 +58,7 @@ public class RangerAuthorization extends BaseAuthorization<RangerAuthorization> 
       case "HADOOPSQL":
         return new RangerAuthorizationHadoopSQLPlugin(metalake, properties);
       case "HDFS":
-        return new RangerAuthorizationHDFSPlugin(metalake, properties);
+        return new RangerAuthorizationHDFSPlugin(metalake, properties, context);
       default:
         throw new IllegalArgumentException("Unsupported service type: " + serviceType);
     }

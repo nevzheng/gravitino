@@ -40,6 +40,7 @@ import org.apache.gravitino.authorization.ranger.RangerHelper;
 import org.apache.gravitino.authorization.ranger.RangerPrivileges;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
+import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
 import org.apache.gravitino.integration.test.container.HiveContainer;
 import org.apache.gravitino.integration.test.container.RangerContainer;
@@ -152,7 +153,8 @@ public class RangerITEnv {
                     BaseAuthorization.METALAKE_ID,
                     METALAKE_ID,
                     BaseAuthorization.CATALOG_ID,
-                    CATALOG_ID)));
+                    CATALOG_ID),
+                EnvironmentAuthorizationPluginContext.INSTANCE));
     rangerAuthHDFSPlugin = spyRangerAuthorizationHDFSPlugin;
 
     rangerHelper =
