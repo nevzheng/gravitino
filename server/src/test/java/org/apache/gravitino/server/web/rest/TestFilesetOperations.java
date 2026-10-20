@@ -18,11 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.CACHE_ENABLED;
-import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.file.Fileset.LOCATION_NAME_UNKNOWN;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -43,10 +38,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Audit;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Version;
 import org.apache.gravitino.audit.CallerContext;
@@ -71,7 +63,6 @@ import org.apache.gravitino.exceptions.NoSuchLocationNameException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.file.Fileset;
 import org.apache.gravitino.file.FilesetChange;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.mapper.ErrorExceptionMapper;
@@ -79,7 +70,6 @@ import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -108,18 +98,6 @@ public class TestFilesetOperations extends BaseOperationsTest {
   private final String catalog = "catalog1";
 
   private final String schema = "schema1";
-
-  @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
-    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-  }
 
   @Override
   protected Application configure() {

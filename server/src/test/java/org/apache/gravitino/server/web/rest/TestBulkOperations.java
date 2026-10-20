@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEFAULTS;
@@ -39,10 +36,9 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -75,14 +71,13 @@ import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.NoSuchUserException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
 import org.apache.gravitino.exceptions.UserAlreadyExistsException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.GroupEntity;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.rest.RESTUtils;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
@@ -98,6 +93,8 @@ public class TestBulkOperations extends BaseOperationsTest {
   private static final AccessControlManager manager = mock(AccessControlManager.class);
   private static final EntityStore entityStore = mock(EntityStore.class);
   private static final OwnerDispatcher ownerDispatcher = mock(OwnerDispatcher.class);
+  private static final MetadataObjectDispatchers objectDispatchers =
+      mock(MetadataObjectDispatchers.class);
   private static BulkOperations bulkOperations;
 
   private static class MockServletRequestFactory extends ServletRequestFactoryBase {
@@ -110,7 +107,7 @@ public class TestBulkOperations extends BaseOperationsTest {
   }
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
+  public static void setup() {
     Config config =
         mock(
             Config.class,
@@ -123,19 +120,13 @@ public class TestBulkOperations extends BaseOperationsTest {
               }
               return RETURNS_DEFAULTS.answer(invocation);
             });
-    doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    doReturn(2).when(config).get(org.apache.gravitino.Configs.BULK_MAX_ITEMS);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
+    doReturn(2).when(config).get(Configs.BULK_MAX_ITEMS);
     bulkOperations =
         new BulkOperations(
             new BulkManager(config),
             manager,
             ownerDispatcher,
-            EnvironmentMetadataObjectDispatchers.INSTANCE,
+            objectDispatchers,
             AccessCheckers.disabled(entityStore));
   }
 

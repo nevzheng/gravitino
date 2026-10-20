@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -39,10 +36,7 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
@@ -74,14 +68,12 @@ import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.RoleAlreadyExistsException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.RoleEntity;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
@@ -102,6 +94,8 @@ public class TestRoleOperations extends BaseOperationsTest {
   private static final TopicDispatcher topicDispatcher = mock(TopicDispatcher.class);
   private static final FilesetDispatcher filesetDispatcher = mock(FilesetDispatcher.class);
   private static final EntityStore entityStore = mock(EntityStore.class);
+  private static final MetadataObjectDispatchers objectDispatchers =
+      mock(MetadataObjectDispatchers.class);
 
   private static class MockServletRequestFactory extends ServletRequestFactoryBase {
     @Override
@@ -113,27 +107,14 @@ public class TestRoleOperations extends BaseOperationsTest {
   }
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalAccessControlDispatcher", manager, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalCatalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTopicDispatcher", topicDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalFilesetDispatcher", filesetDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
+  public static void setup() {
+    when(objectDispatchers.internalAccessControlDispatcher()).thenReturn(manager);
+    when(objectDispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(objectDispatchers.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
+    when(objectDispatchers.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
+    when(objectDispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
+    when(objectDispatchers.internalTopicDispatcher()).thenReturn(topicDispatcher);
+    when(objectDispatchers.internalFilesetDispatcher()).thenReturn(filesetDispatcher);
   }
 
   @Override
@@ -152,7 +133,7 @@ public class TestRoleOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
-            bind(EnvironmentMetadataObjectDispatchers.INSTANCE).to(MetadataObjectDispatchers.class);
+            bind(objectDispatchers).to(MetadataObjectDispatchers.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
             bind(manager).to(AccessControlDispatcher.class);
           }
@@ -556,17 +537,13 @@ public class TestRoleOperations extends BaseOperationsTest {
     Assertions.assertDoesNotThrow(
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(catalog)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(catalog)));
     when(catalogDispatcher.catalogExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(catalog)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(catalog)));
 
     // check the schema
     SecurableObject schema =
@@ -576,17 +553,13 @@ public class TestRoleOperations extends BaseOperationsTest {
     Assertions.assertDoesNotThrow(
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(schema)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(schema)));
     when(schemaDispatcher.schemaExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(schema)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(schema)));
 
     // check the table
     SecurableObject table =
@@ -596,17 +569,13 @@ public class TestRoleOperations extends BaseOperationsTest {
     Assertions.assertDoesNotThrow(
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(table)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(table)));
     when(tableDispatcher.tableExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(table)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(table)));
 
     // check the topic
     SecurableObject topic =
@@ -616,17 +585,13 @@ public class TestRoleOperations extends BaseOperationsTest {
     Assertions.assertDoesNotThrow(
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(topic)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(topic)));
     when(topicDispatcher.topicExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(topic)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(topic)));
 
     // check the fileset
     SecurableObject fileset =
@@ -636,17 +601,13 @@ public class TestRoleOperations extends BaseOperationsTest {
     Assertions.assertDoesNotThrow(
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(fileset)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(fileset)));
     when(filesetDispatcher.filesetExists(any())).thenReturn(false);
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE,
-                "metalake",
-                DTOConverters.toDTO(fileset)));
+                objectDispatchers, "metalake", DTOConverters.toDTO(fileset)));
 
     AtomicReference<String> wrongParent = new AtomicReference<>();
     AtomicReference<String> wrongName = new AtomicReference<>();
@@ -679,7 +640,7 @@ public class TestRoleOperations extends BaseOperationsTest {
         IllegalNamespaceException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
+                objectDispatchers, "metalake", wrongMetadataObject));
 
     // Test schema object
     wrongType.set(MetadataObject.Type.CATALOG);
@@ -688,7 +649,7 @@ public class TestRoleOperations extends BaseOperationsTest {
         IllegalNamespaceException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
+                objectDispatchers, "metalake", wrongMetadataObject));
 
     // Test table object
     wrongType.set(MetadataObject.Type.TABLE);
@@ -697,7 +658,7 @@ public class TestRoleOperations extends BaseOperationsTest {
         IllegalNamespaceException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
+                objectDispatchers, "metalake", wrongMetadataObject));
 
     // Test fileset object
     wrongType.set(MetadataObject.Type.FILESET);
@@ -706,7 +667,7 @@ public class TestRoleOperations extends BaseOperationsTest {
         IllegalNamespaceException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
+                objectDispatchers, "metalake", wrongMetadataObject));
 
     // Test topic object
     wrongType.set(MetadataObject.Type.TOPIC);
@@ -715,7 +676,7 @@ public class TestRoleOperations extends BaseOperationsTest {
         IllegalNamespaceException.class,
         () ->
             MetadataObjectUtil.checkMetadataObject(
-                EnvironmentMetadataObjectDispatchers.INSTANCE, "metalake", wrongMetadataObject));
+                objectDispatchers, "metalake", wrongMetadataObject));
   }
 
   @Test
