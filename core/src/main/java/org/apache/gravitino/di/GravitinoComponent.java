@@ -65,19 +65,18 @@ import org.apache.gravitino.tag.TagDispatcher;
  * The root object graph of the Gravitino server.
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
- * this component. Its modules build every component {@code GravitinoEnv} holds except the auxiliary
- * service manager: {@link ConfigModule} the id generator and the metrics system, {@link
- * StorageModule} the entity store and the secret stores, {@link LockModule} the lock manager,
- * {@link EventModule} the event listener manager, the event bus and the audit log manager, {@link
- * CatalogModule} the catalog and metalake managers and chains, {@link SchemaTableModule} the
- * schema, table, partition and view chains, {@link FilesetTopicModelModule} the fileset, topic,
- * model, function and semantic model chains, {@link GovernanceModule} the tag, policy, owner and
- * statistic chains, {@link AuthorizationModule} the access-control components, {@link JobModule}
- * the job manager and chains, {@link AuxiliaryModule} an auxiliary service manager, not used yet,
- * and the context it hands to the auxiliary services, and {@link LifecycleModule} the lifecycle
- * that starts and stops them. The authorizer, which the server installs later, reaches the graph
- * through {@link LegacyBridge} and {@link LegacyModule}, so every object is built by exactly one
- * side.
+ * this component. Its modules build every component {@code GravitinoEnv} holds: {@link
+ * ConfigModule} the id generator and the metrics system, {@link StorageModule} the entity store and
+ * the secret stores, {@link LockModule} the lock manager, {@link EventModule} the event listener
+ * manager, the event bus and the audit log manager, {@link CatalogModule} the catalog and metalake
+ * managers and chains, {@link SchemaTableModule} the schema, table, partition and view chains,
+ * {@link FilesetTopicModelModule} the fileset, topic, model, function and semantic model chains,
+ * {@link GovernanceModule} the tag, policy, owner and statistic chains, {@link AuthorizationModule}
+ * the access-control components, {@link JobModule} the job manager and chains, {@link
+ * AuxiliaryModule} an auxiliary service manager, not used yet, and the context it hands to the
+ * auxiliary services, and {@link LifecycleModule} the lifecycle that starts and stops them. The
+ * authorizer, which the server installs later, reaches the graph through {@link LegacyBridge} and
+ * {@link LegacyModule}, so every object is built by exactly one side.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
@@ -539,9 +538,8 @@ public interface GravitinoComponent {
   GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
-   * Returns the lifecycle that starts and stops the services this component has built, and the
-   * auxiliary services of the {@link LegacyBridge}, in the order {@code GravitinoEnv} has always
-   * used. See {@link LifecycleModule}.
+   * Returns the lifecycle that starts and stops the services this component has built, in the order
+   * {@code GravitinoEnv} has always used. See {@link LifecycleModule}.
    *
    * @return the lifecycle
    */

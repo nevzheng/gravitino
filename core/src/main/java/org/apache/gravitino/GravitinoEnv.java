@@ -71,9 +71,8 @@ import org.slf4j.LoggerFactory;
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
  * initialization sequence where it used to build them, so they are still built in the same order.
- * It still builds the auxiliary service manager itself. The component's Lifecycle starts and stops
- * the components. The authorizer the server installs and the auxiliary services reach the
- * component through LegacyBridge.
+ * The component's Lifecycle starts and stops the components. The authorizer the server installs
+ * reaches the component through LegacyBridge.
  */
 public class GravitinoEnv {
 
@@ -81,8 +80,6 @@ public class GravitinoEnv {
 
   private Config config;
   private GravitinoComponent component;
-  // Iceberg REST server use base components while Gravitino Server use full components.
-  private boolean manageFullComponents = true;
 
   private EntityStore entityStore;
 
@@ -210,7 +207,6 @@ public class GravitinoEnv {
   public void initializeBaseComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino base environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = false;
     initBaseComponents();
     LOG.info("Gravitino base environment is initialized.");
   }
@@ -250,7 +246,6 @@ public class GravitinoEnv {
         "Metadata components must be initialized on GravitinoEnv.getInstance().");
     LOG.info("Initializing Gravitino metadata environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = false;
     initCommonComponents();
     initMetadataComponents();
     LOG.info("Gravitino metadata environment is initialized.");
@@ -279,7 +274,6 @@ public class GravitinoEnv {
   public void initializeFullComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino full environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = true;
     initBaseComponents();
     initGravitinoServerComponents();
     LOG.info("Gravitino full environment is initialized.");
@@ -297,9 +291,8 @@ public class GravitinoEnv {
   /**
    * Get the dependency-injection component built by the last initialization.
    *
-   * <p>The component owns every component this environment holds except the auxiliary service
-   * manager and the installed authorizer; this environment returns the same instances from its own
-   * getters.
+   * <p>The component owns every component this environment holds except the installed authorizer;
+   * this environment returns the same instances from its own getters.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -926,22 +919,6 @@ public class GravitinoEnv {
     return new IllegalStateException(failure.getMessage(), failure);
   }
 
-  private void startAuxiliaryServices() {
-    if (manageFullComponents) {
-      auxServiceManager.serviceStart();
-    }
-  }
-
-  private void stopAuxiliaryServices() {
-    if (auxServiceManager != null) {
-      try {
-        auxServiceManager.serviceStop();
-      } catch (Exception e) {
-        LOG.warn("Failed to stop AuxServiceManager", e);
-      }
-    }
-  }
-
   private void initBaseComponents() {
     initCommonComponents();
 
@@ -1029,8 +1006,9 @@ public class GravitinoEnv {
     initMetadataComponents();
     initPublicMetadataDispatchers();
 
-    this.auxServiceManager = new AuxiliaryServiceManager();
-    this.auxServiceManager.serviceInit(config);
+    // Building the manager loads and initializes the auxiliary services, after every host service
+    // they may use is built.
+    this.auxServiceManager = component.auxiliaryServiceManager();
 
     // The job manager is built after the auxiliary services are initialized, as before.
     this.internalJobOperationDispatcher = component.internalJobOperationDispatcher();
@@ -1079,16 +1057,6 @@ public class GravitinoEnv {
     @Override
     public GravitinoAuthorizer gravitinoAuthorizer() {
       return GravitinoEnv.this.gravitinoAuthorizer();
-    }
-
-    @Override
-    public void startAuxiliaryServices() {
-      GravitinoEnv.this.startAuxiliaryServices();
-    }
-
-    @Override
-    public void stopAuxiliaryServices() {
-      GravitinoEnv.this.stopAuxiliaryServices();
     }
   }
 }

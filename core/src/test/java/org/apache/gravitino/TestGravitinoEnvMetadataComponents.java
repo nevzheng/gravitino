@@ -496,8 +496,7 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.jobOperationDispatcher(), singleton.jobOperationDispatcher());
       assertSame(
           component.internalJobOperationDispatcher(), singleton.internalJobOperationDispatcher());
-      // Only the auxiliary service manager is still built by the environment.
-      assertNotNull(singleton.auxServiceManager());
+      assertSame(component.auxiliaryServiceManager(), singleton.auxServiceManager());
     } finally {
       singleton.shutdown();
     }
