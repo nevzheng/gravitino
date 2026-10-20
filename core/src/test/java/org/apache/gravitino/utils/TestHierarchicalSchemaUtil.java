@@ -19,12 +19,12 @@
 package org.apache.gravitino.utils;
 
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestHierarchicalSchemaUtil {
@@ -106,39 +106,35 @@ public class TestHierarchicalSchemaUtil {
   }
 
   @Test
-  public void testSchemaSeparatorWhenConfigNull() throws IllegalAccessException {
-    Config saved = GravitinoEnv.getInstance().config();
-    try {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", null, true);
-      Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", saved, true);
-    }
+  public void testSchemaSeparatorWhenConfigNull() {
+    Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator(null));
   }
 
   @Test
-  public void testSchemaSeparatorFromConfig() throws IllegalAccessException {
-    Config saved = GravitinoEnv.getInstance().config();
+  public void testSchemaSeparatorFromConfig() {
     Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn("|");
-    try {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-      Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", saved, true);
-    }
+    Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator(mockConfig));
   }
 
   @Test
-  public void testSchemaSeparatorBlankFallsBackToDefault() throws IllegalAccessException {
-    Config saved = GravitinoEnv.getInstance().config();
+  public void testSchemaSeparatorBlankFallsBackToDefault() {
     Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn("  ");
-    try {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-      Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", saved, true);
+    Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator(mockConfig));
+  }
+
+  // Pins the overload without a configuration, which reads it from GravitinoEnv for the store
+  // layer. Every other test passes the configuration.
+  @Test
+  public void testSchemaSeparatorWithoutConfigReadsTheEnvironment() {
+    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+    Config mockConfig = Mockito.mock(Config.class);
+    Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn("|");
+    Mockito.when(env.config()).thenReturn(mockConfig);
+    try (MockedStatic<GravitinoEnv> mocked = Mockito.mockStatic(GravitinoEnv.class)) {
+      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
+      Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator());
     }
   }
 }
