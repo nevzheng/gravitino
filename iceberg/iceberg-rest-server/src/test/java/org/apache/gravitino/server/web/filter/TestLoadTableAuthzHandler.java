@@ -22,6 +22,7 @@ package org.apache.gravitino.server.web.filter;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,7 +34,7 @@ import java.util.Map;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
@@ -68,7 +69,7 @@ public class TestLoadTableAuthzHandler {
   @BeforeAll
   public static void initAuthorizer() {
     GravitinoAuthorizerProvider.getInstance()
-        .initialize(new ServerConfig(), EnvironmentAuthorizerContext.INSTANCE);
+        .initialize(new ServerConfig(), mock(AuthorizerContext.class));
   }
 
   @Test
