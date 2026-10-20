@@ -29,6 +29,7 @@ import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.lineage.LineageService;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.JettyServer;
@@ -50,7 +51,14 @@ public class TestGravitinoServerLifecycle {
     jetty = mock(JettyServer.class);
     lineage = mock(LineageService.class);
     authorizer = mock(GravitinoAuthorizerProvider.class);
-    server = new GravitinoServer(mock(ServerConfig.class), env, jetty, lineage, authorizer);
+    server =
+        new GravitinoServer(
+            mock(ServerConfig.class),
+            env,
+            DaggerGravitinoComponent.factory(),
+            jetty,
+            lineage,
+            authorizer);
   }
 
   @Test
