@@ -162,6 +162,7 @@ public class TestTagManager {
       mock(SemanticModelDispatcher.class);
 
   private static EntityStore entityStore;
+  private static LockManager lockManager;
 
   private static IdGenerator idGenerator;
 
@@ -208,7 +209,7 @@ public class TestTagManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -1302,7 +1303,8 @@ public class TestTagManager {
     // A metalake WRITE lock covers every tag, policy and metadata object below it. Tag operations
     // are fenced by the entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock metalakeWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(METALAKE), LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(METALAKE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           metalakeWriter, () -> tagManager.createTag(METALAKE, "lock_free_tag", null, null));
       TreeLockTestSupport.assertRunsConcurrentlyWith(

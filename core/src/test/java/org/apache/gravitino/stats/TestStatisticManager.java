@@ -435,7 +435,7 @@ public class TestStatisticManager {
     // lock.
     try (TreeLockTestSupport.HeldLock tableWriter =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           tableWriter, () -> statisticManager.updateStatistics(METALAKE, tableObject, stats));
       TreeLockTestSupport.assertRunsConcurrentlyWith(
@@ -463,14 +463,14 @@ public class TestStatisticManager {
     // tree lock until the storages do.
     try (TreeLockTestSupport.HeldLock tableWriter =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
       TreeLockTestSupport.assertWaitsFor(
           tableWriter,
           () -> statisticManager.updatePartitionStatistics(METALAKE, tableObject, updates));
     }
     try (TreeLockTestSupport.HeldLock tableWriter =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
       TreeLockTestSupport.assertWaitsFor(
           tableWriter,
           () ->
@@ -485,7 +485,7 @@ public class TestStatisticManager {
     }
     try (TreeLockTestSupport.HeldLock tableWriter =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(METALAKE, CATALOG, SCHEMA, TABLE), LockType.WRITE)) {
       TreeLockTestSupport.assertWaitsFor(
           tableWriter,
           () ->

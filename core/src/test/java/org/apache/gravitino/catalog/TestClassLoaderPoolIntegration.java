@@ -27,11 +27,10 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContexts;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -81,7 +80,6 @@ public class TestClassLoaderPoolIntegration {
     entityStore.put(metalakeEntity, true);
 
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
   }
 
   @AfterAll
@@ -104,7 +102,7 @@ public class TestClassLoaderPoolIntegration {
             new SecretManager(config),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            AuthorizationPluginContexts.disabled());
   }
 
   @AfterEach
@@ -264,7 +262,7 @@ public class TestClassLoaderPoolIntegration {
             new SecretManager(noSharingConfig),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            AuthorizationPluginContexts.disabled());
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");
@@ -320,7 +318,7 @@ public class TestClassLoaderPoolIntegration {
             new SecretManager(noSharingConfig),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            AuthorizationPluginContexts.disabled());
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");

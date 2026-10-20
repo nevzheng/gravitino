@@ -49,11 +49,9 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityFieldLimits;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.TestCatalog;
@@ -111,9 +109,6 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
             () -> schemaOperationDispatcher,
             secretManager,
             lockManager);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
   }
 
   @Test
@@ -2016,7 +2011,7 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
     // Another in-flight create holds the WRITE lock on its own table node.
     try (TreeLockTestSupport.HeldLock inFlightCreate =
         TreeLockTestSupport.HeldLock.acquire(
-            NameIdentifier.of(tableNs, "other_table"), LockType.WRITE)) {
+            lockManager, NameIdentifier.of(tableNs, "other_table"), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           inFlightCreate, () -> createTable(NameIdentifier.of(tableNs, "table1")));
     }
@@ -2030,7 +2025,7 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
     NameIdentifier tableIdent = NameIdentifier.of(tableNs, "table1");
 
     TreeLockTestSupport.HeldLock sameNameCreate =
-        TreeLockTestSupport.HeldLock.acquire(tableIdent, LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(lockManager, tableIdent, LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(sameNameCreate, () -> createTable(tableIdent));
   }
 
@@ -2043,7 +2038,7 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
         schemaIdent, "comment", ImmutableMap.of("k1", "v1", "k2", "v2"));
 
     TreeLockTestSupport.HeldLock schemaWriter =
-        TreeLockTestSupport.HeldLock.acquire(schemaIdent, LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(lockManager, schemaIdent, LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(
         schemaWriter, () -> createTable(NameIdentifier.of(tableNs, "table1")));
   }
@@ -2056,7 +2051,8 @@ public class TestTableOperationDispatcher extends TestOperationDispatcher {
         NameIdentifier.of(tableNs.levels()), "comment", ImmutableMap.of("k1", "v1", "k2", "v2"));
 
     TreeLockTestSupport.HeldLock catalogWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(metalake, catalog), LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(metalake, catalog), LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(
         catalogWriter, () -> createTable(NameIdentifier.of(tableNs, "table1")));
   }

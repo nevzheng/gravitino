@@ -26,8 +26,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLock;
 import org.apache.gravitino.lock.TreeLockNode;
@@ -153,6 +153,7 @@ public final class TreeLockTestSupport {
 
   /** A tree lock held by a dedicated thread until {@link #release()} or {@link #close()}. */
   public static final class HeldLock implements AutoCloseable {
+    private final LockManager lockManager;
     private final NameIdentifier identifier;
     private final LockType lockType;
     private final CountDownLatch acquired = new CountDownLatch(1);
@@ -160,15 +161,24 @@ public final class TreeLockTestSupport {
     private final Thread holder;
     private volatile Throwable failure;
 
-    private HeldLock(NameIdentifier identifier, LockType lockType) {
+    private HeldLock(LockManager lockManager, NameIdentifier identifier, LockType lockType) {
+      this.lockManager = lockManager;
       this.identifier = identifier;
       this.lockType = lockType;
       this.holder = new Thread(this::hold, "tree-lock-test-holder");
     }
 
-    /** Acquires the lock on a helper thread and returns once it is held. */
-    public static HeldLock acquire(NameIdentifier identifier, LockType lockType) throws Exception {
-      HeldLock held = new HeldLock(identifier, lockType);
+    /**
+     * Acquires the lock on a helper thread and returns once it is held.
+     *
+     * @param lockManager the lock manager the code under test locks through
+     * @param identifier the identifier to lock
+     * @param lockType the type of lock to hold
+     * @return the held lock
+     */
+    public static HeldLock acquire(
+        LockManager lockManager, NameIdentifier identifier, LockType lockType) throws Exception {
+      HeldLock held = new HeldLock(lockManager, identifier, lockType);
       held.holder.start();
       if (!held.acquired.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
         held.release();
@@ -181,7 +191,7 @@ public final class TreeLockTestSupport {
     }
 
     private void hold() {
-      TreeLock lock = GravitinoEnv.getInstance().lockManager().createTreeLock(identifier);
+      TreeLock lock = lockManager.createTreeLock(identifier);
       try {
         lock.lock(lockType);
       } catch (Throwable t) {

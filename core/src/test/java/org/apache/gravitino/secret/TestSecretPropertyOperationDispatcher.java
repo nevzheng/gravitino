@@ -26,9 +26,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import java.util.function.Supplier;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.ModelOperationDispatcher;
@@ -104,9 +102,6 @@ public class TestSecretPropertyOperationDispatcher extends TestOperationDispatch
     secretDispatcher =
         new SecretPropertyOperationDispatcher(
             catalogManager, entityStore, idGenerator, secretManager);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
 
     schemaOperationDispatcher.createSchema(
         NameIdentifier.of(metalake, catalog, SCHEMA), "comment", ImmutableMap.of("k1", "v1"));
