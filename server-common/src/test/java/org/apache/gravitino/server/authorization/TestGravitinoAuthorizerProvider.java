@@ -75,6 +75,7 @@ public class TestGravitinoAuthorizerProvider {
   }
 
   @Test
+  @SuppressWarnings("deprecation")
   public void testInitializeAllowAuthorizer() {
     ServerConfig serverConfig = new ServerConfig();
     serverConfig.set(Configs.ENABLE_AUTHORIZATION, false);
