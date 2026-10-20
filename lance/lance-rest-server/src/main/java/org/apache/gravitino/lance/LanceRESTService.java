@@ -21,14 +21,15 @@ package org.apache.gravitino.lance;
 import static org.apache.gravitino.lance.common.config.LanceConfig.NAMESPACE_BACKEND;
 import static org.apache.gravitino.lance.service.authorization.LanceRESTAuthInterceptionService.METALAKE_BINDING;
 
+import com.google.common.annotations.VisibleForTesting;
 import java.lang.reflect.Constructor;
 import java.util.HashMap;
 import java.util.Map;
 import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.lance.common.ops.LanceNamespaceBackend;
@@ -75,31 +76,41 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
     return SERVICE_NAME;
   }
 
-  @LegacyEnvAccess
+  /**
+   * Initializes the service with the host services of {@code GravitinoEnv}.
+   *
+   * <p>The Gravitino server and the standalone server call {@link #serviceInit(Map, boolean,
+   * AuxiliaryContext)} instead.
+   */
   @Override
   public void serviceInit(Map<String, String> properties, boolean auxMode) {
+    serviceInit(properties, auxMode, EnvironmentAuxiliaryContext.INSTANCE);
+  }
+
+  @Override
+  public void serviceInit(
+      Map<String, String> properties, boolean auxMode, AuxiliaryContext context) {
     LanceConfig lanceConfig = new LanceConfig(new HashMap<>(properties));
     JettyServerConfig serverConfig = JettyServerConfig.fromConfig(lanceConfig);
     LanceExceptionMapper.setIncludeErrorStackTrace(serverConfig.isIncludeErrorStackTrace());
 
     server = new LanceJettyServer();
-    // Get MetricsSystem and EventBus from GravitinoEnv once at init time.
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
-    EventBus eventBus = GravitinoEnv.getInstance().eventBus();
+    // Get MetricsSystem and EventBus from the context once at init time.
+    MetricsSystem metricsSystem = context.metricsSystem();
+    EventBus eventBus = context.eventBus();
     server.initialize(serverConfig, SERVICE_NAME, false);
     boolean metricsEnabled = shouldEnableMetrics(auxMode, lanceConfig);
     if (metricsEnabled) {
       server.addMetricsServlets(metricsSystem);
     }
 
-    this.lanceNamespace = loadNamespaceImpl(lanceConfig, auxMode);
+    this.lanceNamespace = loadNamespaceImpl(lanceConfig, auxMode, context);
 
     // Metadata authorization relies on the Gravitino authorizer running in the same process, so it
     // is only applied when Lance REST is an auxiliary service of the Gravitino server.
     // The Gravitino configuration is only available in auxiliary mode, so it is read behind the
     // mode check.
-    boolean authorizationEnabled =
-        auxMode && GravitinoEnv.getInstance().config().get(Configs.ENABLE_AUTHORIZATION);
+    boolean authorizationEnabled = auxMode && context.config().get(Configs.ENABLE_AUTHORIZATION);
     boolean enableMetadataAuthorization =
         authorizationEnabled && lanceConfig.isGravitinoMetalakeConfigured();
     String metalakeName = lanceConfig.getGravitinoMetalake();
@@ -218,15 +229,29 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
     }
   }
 
-  private NamespaceWrapper loadNamespaceImpl(LanceConfig lanceConfig, boolean auxMode) {
+  /**
+   * Creates the wrapper of the configured backend. A wrapper that has a {@code (LanceConfig,
+   * boolean, AuxiliaryContext)} constructor gets the context; otherwise its {@code (LanceConfig,
+   * boolean)} constructor is used.
+   */
+  @VisibleForTesting
+  static NamespaceWrapper loadNamespaceImpl(
+      LanceConfig lanceConfig, boolean auxMode, AuxiliaryContext context) {
     String backendType = lanceConfig.get(NAMESPACE_BACKEND);
     LanceNamespaceBackend lanceNamespaceBackend = LanceNamespaceBackend.fromType(backendType);
+    Class<? extends NamespaceWrapper> wrapperClass = lanceNamespaceBackend.getWrapperClass();
 
     try {
-      Constructor<? extends NamespaceWrapper> constructor =
-          lanceNamespaceBackend.getWrapperClass().getConstructor(LanceConfig.class, boolean.class);
-
-      return constructor.newInstance(lanceConfig, auxMode);
+      Constructor<? extends NamespaceWrapper> constructor;
+      try {
+        constructor =
+            wrapperClass.getConstructor(LanceConfig.class, boolean.class, AuxiliaryContext.class);
+      } catch (NoSuchMethodException e) {
+        return wrapperClass
+            .getConstructor(LanceConfig.class, boolean.class)
+            .newInstance(lanceConfig, auxMode);
+      }
+      return constructor.newInstance(lanceConfig, auxMode, context);
     } catch (Exception e) {
       LOG.error("Error loading namespace implementation for backend type: {}", backendType, e);
       throw new RuntimeException("Failed to load namespace implementation", e);
