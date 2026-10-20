@@ -19,6 +19,7 @@ package org.apache.gravitino.server.web.rest;
 
 import java.io.IOException;
 import javax.ws.rs.core.Response;
+import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.server.ServerConfig;
@@ -32,7 +33,8 @@ public abstract class BaseOperationsTest extends JerseyTest {
 
   @BeforeAll
   public static void start() {
-    GravitinoAuthorizerProvider.getInstance().initialize(new ServerConfig());
+    GravitinoAuthorizerProvider.getInstance()
+        .initialize(new ServerConfig(), EnvironmentAuthorizerContext.INSTANCE);
   }
 
   @AfterAll

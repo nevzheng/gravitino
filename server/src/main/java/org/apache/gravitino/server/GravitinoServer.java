@@ -33,6 +33,7 @@ import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lifecycle.Lifecycle;
@@ -183,7 +184,7 @@ public class GravitinoServer extends ResourceConfig {
     this.lineageService = lineageService;
     this.authorizerProvider = authorizerProvider;
     Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
-    Lifecycle.Action closeAuthorizer = once(authorizerProvider::close);
+    Lifecycle.Action closeAuthorizer = once(this::closeAuthorizer);
     Lifecycle.Action stopJetty = once(server::stop);
     this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
     // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
@@ -210,11 +211,14 @@ public class GravitinoServer extends ResourceConfig {
     JettyServerConfig jettyServerConfig =
         JettyServerConfig.fromConfig(serverConfig, WEBSERVER_CONF_PREFIX);
     server.initialize(jettyServerConfig, SERVER_NAME);
-    server.addMetricsServlets(gravitinoEnv.metricsSystem());
+    server.addMetricsServlets(metricsSystem());
 
     ServerAuthenticator.getInstance().initialize(serverConfig);
 
-    authorizerProvider.initialize(serverConfig);
+    // The environment's getters return what its component built, or what a GravitinoEnv subclass
+    // given to the deprecated constructor overrides them with.
+    authorizerProvider.initialize(serverConfig, EnvironmentAuthorizerContext.of(gravitinoEnv));
+    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -436,6 +440,12 @@ public class GravitinoServer extends ResourceConfig {
     return component != null
         ? new GravitinoComponentBinder(component, enableAuthorization, lineageService)
         : new GravitinoEnvBinder(gravitinoEnv, enableAuthorization, lineageService);
+  }
+
+  /** Takes the authorizer back from the environment, then closes it. */
+  private void closeAuthorizer() throws IOException {
+    gravitinoEnv.setGravitinoAuthorizer(null);
+    authorizerProvider.close();
   }
 
   private MetricsSystem metricsSystem() {

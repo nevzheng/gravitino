@@ -24,15 +24,22 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.annotation.LegacyEnvAccess;
 
 /**
  * An {@link AuthorizerContext} that reads each service from the getters of a {@link GravitinoEnv}
  * when it is asked for it.
  *
- * <p>Each method returns what the {@code GravitinoEnv} getter of the same name returns. It is
- * deleted with {@code GravitinoEnv}.
+ * <p>{@link #of(GravitinoEnv)} reads the given environment. {@link #INSTANCE} reads {@code
+ * GravitinoEnv.getInstance()} and keeps {@link GravitinoAuthorizer#initialize()} working for an
+ * authorizer that is initialized without a context. Each method returns what the {@code
+ * GravitinoEnv} getter of the same name returns. It is deleted with {@code GravitinoEnv}.
  */
 public final class EnvironmentAuthorizerContext implements AuthorizerContext {
+
+  /** The context that reads {@code GravitinoEnv.getInstance()}. */
+  public static final EnvironmentAuthorizerContext INSTANCE =
+      new EnvironmentAuthorizerContext(EnvironmentAuthorizerContext::processEnv);
 
   private final Supplier<GravitinoEnv> env;
 
@@ -65,5 +72,10 @@ public final class EnvironmentAuthorizerContext implements AuthorizerContext {
   @Nullable
   public AccessControlDispatcher internalAccessControlDispatcher() {
     return env.get().internalAccessControlDispatcher();
+  }
+
+  @LegacyEnvAccess
+  private static GravitinoEnv processEnv() {
+    return GravitinoEnv.getInstance();
   }
 }
