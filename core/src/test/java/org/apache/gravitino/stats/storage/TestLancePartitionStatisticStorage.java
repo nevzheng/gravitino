@@ -20,6 +20,7 @@ package org.apache.gravitino.stats.storage;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.Lists;
@@ -42,6 +43,7 @@ import org.apache.gravitino.stats.StatisticValue;
 import org.apache.gravitino.stats.StatisticValues;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 public class TestLancePartitionStatisticStorage {
 
@@ -63,14 +65,13 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(1L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_test").toString();
     Map<String, String> properties = Maps.newHashMap();
     properties.put("location", location);
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
 
     int count = 100;
     int partitions = 10;
@@ -225,7 +226,6 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(101L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_exceed_test").toString();
     Map<String, String> properties = Maps.newHashMap();
@@ -233,7 +233,7 @@ public class TestLancePartitionStatisticStorage {
     // Default limit is 100, generate 101 statistics to exceed the limit
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
 
     try {
       // Generate 101 statistics which exceeds the default limit of 100
@@ -338,14 +338,13 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(1L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_test_quote").toString();
     Map<String, String> properties = Maps.newHashMap();
     properties.put("location", location);
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
     try {
       String quotedPartition = "partition'01";
       String quotedStatistic = "statistic'0";
@@ -424,6 +423,30 @@ public class TestLancePartitionStatisticStorage {
     } finally {
       FileUtils.deleteDirectory(new File(location + "/" + tableEntity.id() + ".lance"));
       storage.close();
+    }
+  }
+
+  // Pins the factory method without a store, which reads the store from GravitinoEnv for callers
+  // outside the server. Every other test passes the store.
+  @Test
+  public void testCreateWithoutStoreReadsTheEnvironmentStore() throws Exception {
+    EntityStore entityStore = mock(EntityStore.class);
+    GravitinoEnv env = mock(GravitinoEnv.class);
+    when(env.entityStore()).thenReturn(entityStore);
+    String location = Files.createTempDirectory("lance_stats_env_store_test").toString();
+    Map<String, String> properties = Maps.newHashMap();
+    properties.put("location", location);
+
+    PartitionStatisticStorage storage;
+    try (MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class)) {
+      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
+      storage = new LancePartitionStatisticStorageFactory().create(properties);
+    }
+    try {
+      Assertions.assertSame(entityStore, FieldUtils.readField(storage, "entityStore", true));
+    } finally {
+      storage.close();
+      FileUtils.deleteDirectory(new File(location));
     }
   }
 }

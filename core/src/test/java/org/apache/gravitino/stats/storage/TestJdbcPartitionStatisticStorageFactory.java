@@ -266,7 +266,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcDriver", "org.h2.Driver");
 
     // Empty passwords should be allowed (e.g., for H2 in-memory databases)
-    PartitionStatisticStorage storage = factory.create(properties);
+    PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
     assertNotNull(storage);
   }
 
