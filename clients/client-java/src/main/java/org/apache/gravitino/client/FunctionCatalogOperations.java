@@ -244,12 +244,10 @@ class FunctionCatalogOperations implements FunctionCatalog {
   @VisibleForTesting
   String formatFunctionRequestPath(Namespace ns) {
     Namespace schemaNs = Namespace.of(ns.level(0), ns.level(1));
-    return new StringBuilder()
-        .append(BaseSchemaCatalog.formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(ns.level(2)))
-        .append("/functions")
-        .toString();
+    return BaseSchemaCatalog.formatSchemaRequestPath(schemaNs)
+        + "/"
+        + RESTUtils.encodeString(ns.level(2))
+        + "/functions";
   }
 
   /**

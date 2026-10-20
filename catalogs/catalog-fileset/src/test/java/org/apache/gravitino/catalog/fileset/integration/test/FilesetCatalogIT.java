@@ -127,6 +127,7 @@ public class FilesetCatalogIT extends BaseIT {
       try {
         httpClient.close();
       } catch (Exception ignored) {
+        // Best-effort cleanup; ignore failures.
       }
     }
 

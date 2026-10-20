@@ -306,6 +306,7 @@ class LegalFilesTransformer(
 }
 
 val snappyJavaVersion: String = libs.versions.snappy.java.get()
+val errorProneCore = libs.errorprone.core
 
 val scalaVersion: String = project.properties["scalaVersion"] as? String ?: extra["defaultScalaVersion"].toString()
 if (scalaVersion !in listOf("2.12", "2.13")) {
@@ -731,13 +732,13 @@ subprojects {
 
   apply(plugin = "net.ltgt.errorprone")
   dependencies {
-    errorprone("com.google.errorprone:error_prone_core:2.10.0")
+    errorprone(errorProneCore)
   }
 
   tasks.withType<JavaCompile>().configureEach {
     // Keep Java compilation independent of the host's default charset.
     options.encoding = "UTF-8"
-    options.errorprone.isEnabled.set(true)
+    options.errorprone.enabled.set(true)
     options.errorprone.disableWarningsInGeneratedCode.set(true)
     options.errorprone.disable(
       "AlmostJavadoc",
@@ -773,6 +774,40 @@ subprojects {
       "UnusedMethod",
       "VariableNameSameAsType",
       "WaitNotInLoop"
+    )
+    // Checks that started firing with the Error Prone 2.42.0 upgrade and have too many hits to
+    // fix in the same change. Clean them up and re-enable them one at a time.
+    options.errorprone.disable(
+      // InetAddress.getByName/new InetSocketAddress(host, port), mostly loopback in tests.
+      "AddressSelection",
+      // Boolean.TRUE/Boolean.FALSE where a boolean literal would do.
+      "BooleanLiteral",
+      // Interface constants holding subclass instances (e.g. Capability.DEFAULT); fixing them
+      // changes public API.
+      "ClassInitializationDeadlock",
+      // Stubbing helpers in tests that call methods on mocks directly.
+      "DirectInvocationOnMock",
+      // public/protected members of private nested classes; common style in the codebase.
+      "EffectivelyPrivate",
+      // String.format passed to Preconditions; unwrapping can change messages that use
+      // specifiers other than %s.
+      "ExpensiveLenientFormatString",
+      // synchronized (OtherClass.class); changing the lock object changes behavior.
+      "LockOnNonEnclosingClassLiteral",
+      // Test mocks that are configured but never used; clean up per test.
+      "MockNotUsedInProduction",
+      // Concrete collection types (ArrayList, HashMap, ...) in method signatures.
+      "NonApiType",
+      // /** comments that are not attached to a declaration, e.g. inside method bodies.
+      "NotJavadoc",
+      // instanceof followed by a cast; pattern matching is not available to the Java 8 modules.
+      "PatternMatchingInstanceof",
+      // Old-style switch statements; also not applicable to the Java 8 modules.
+      "StatementSwitchToExpressionSwitch",
+      // Unlocalized String#toLowerCase/toUpperCase calls.
+      "StringCaseLocaleUsage",
+      // Multi-line string concatenation (mostly JSON in tests); text blocks need Java 15+.
+      "StringConcatToTextBlock"
     )
   }
 

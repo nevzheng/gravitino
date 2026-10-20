@@ -105,7 +105,10 @@ public class AuthorizationRequestContext {
   private volatile Map<Long, RoleUpdatedAt> prefetchedRoleVersions;
 
   /** Completed auth-subject prefetch result, including a missing user, for this request only. */
-  @Nullable private volatile Optional<UserUpdatedAt> authSubjectPrefetchResult;
+  // null means "not prefetched yet", while Optional.empty() records a prefetched missing user.
+  @SuppressWarnings("NullableOptional")
+  @Nullable
+  private volatile Optional<UserUpdatedAt> authSubjectPrefetchResult;
 
   /** Failed prefetch attempts are shared by all workers of this request. */
   @Nullable private volatile RuntimeException authSubjectPrefetchFailure;

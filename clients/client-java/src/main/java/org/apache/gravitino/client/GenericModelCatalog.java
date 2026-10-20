@@ -440,12 +440,10 @@ class GenericModelCatalog extends BaseSchemaCatalog implements ModelCatalog {
   @VisibleForTesting
   static String formatModelRequestPath(Namespace modelNs) {
     Namespace schemaNs = Namespace.of(modelNs.level(0), modelNs.level(1));
-    return new StringBuilder()
-        .append(formatSchemaRequestPath(schemaNs))
-        .append("/")
-        .append(RESTUtils.encodeString(modelNs.level(2)))
-        .append("/models")
-        .toString();
+    return formatSchemaRequestPath(schemaNs)
+        + "/"
+        + RESTUtils.encodeString(modelNs.level(2))
+        + "/models";
   }
 
   @VisibleForTesting

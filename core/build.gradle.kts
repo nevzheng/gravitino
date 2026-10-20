@@ -233,7 +233,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.named<JavaCompile>("jmhCompileGeneratedClasses").configure {
-  options.errorprone.isEnabled = false
+  options.errorprone.enabled = false
   options.compilerArgs.removeAll { it.contains("Xplugin:ErrorProne") }
 }
 

@@ -108,6 +108,7 @@ abstract class AbstractGlueCatalogIT {
       try {
         ops.dropSchema(schemaIdent(currentSchema), true);
       } catch (Exception ignored) {
+        // Best-effort cleanup; ignore failures.
       }
       currentSchema = null;
     }
@@ -262,6 +263,7 @@ abstract class AbstractGlueCatalogIT {
       try {
         ops.dropSchema(schemaIdent(schema2), false);
       } catch (Exception ignored) {
+        // Best-effort cleanup; ignore failures.
       }
     }
   }
@@ -306,10 +308,12 @@ abstract class AbstractGlueCatalogIT {
         try {
           ops.dropTable(tableIdent(schema, "tbl"));
         } catch (Exception ignored) {
+          // Best-effort cleanup; ignore failures.
         }
         try {
           ops.dropSchema(schemaIdent(schema), false);
         } catch (Exception ignored) {
+          // Best-effort cleanup; ignore failures.
         }
         currentSchema = null;
       }

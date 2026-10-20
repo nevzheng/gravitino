@@ -795,15 +795,7 @@ public class TestFilesetOperations extends BaseOperationsTest {
   }
 
   private static String filesetPath(String metalake, String catalog, String schema) {
-    return new StringBuilder()
-        .append("/metalakes/")
-        .append(metalake)
-        .append("/catalogs/")
-        .append(catalog)
-        .append("/schemas/")
-        .append(schema)
-        .append("/filesets/")
-        .toString();
+    return "/metalakes/" + metalake + "/catalogs/" + catalog + "/schemas/" + schema + "/filesets/";
   }
 
   private static Fileset mockFileset(

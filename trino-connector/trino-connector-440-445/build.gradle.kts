@@ -96,7 +96,7 @@ plugins.withId("com.diffplug.spotless") {
 
 tasks.withType<JavaCompile>().configureEach {
   // Error Prone is incompatible with the JDK 24 toolchain required by this Trino range.
-  options.errorprone.isEnabled.set(false)
+  options.errorprone.enabled.set(false)
   options.release.set(17)
 }
 
