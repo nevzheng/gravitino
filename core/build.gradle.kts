@@ -120,6 +120,8 @@ val coreBackendTestTags =
     "postgresql" to "gravitino-core-postgresql-test"
   )
 val coreTestBackendProperty = "gravitino.core.test.backend"
+// Forks for the unit suite and the deprecated :core:test. Database lanes stay at one fork.
+val coreTestForks = (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
 
 fun registerCoreTestTask(
   taskName: String,
@@ -153,6 +155,12 @@ fun registerCoreTestTask(
       // runs under each of them.
       includeTags(ownBackendTag)
     }
+  }
+
+  if (backend == null) {
+    // The unit suite shares nothing across JVMs: store tests use their own temporary H2 files, and
+    // the process-wide state they touch (GravitinoEnv, SqlSessionFactoryHelper) is per fork.
+    maxParallelForks = coreTestForks
   }
 
   if (backend != null) {
@@ -217,6 +225,11 @@ listOf("coreUnitTest", "test").forEach {
 
 tasks.test {
   doFirst {
+    // With Docker, :core:test also runs the MySQL and PostgreSQL backends, whose shared containers
+    // must not be used by two forks at once; only the H2 and unit tests run in parallel.
+    if (rootProject.extra["dockerTest"] != true) {
+      maxParallelForks = coreTestForks
+    }
     logger.warn(
       "WARNING: :core:test is deprecated and does not correspond to any CI lane. Use " +
         "coreUnitTest, coreH2Test, coreMySQLTest, or corePostgreSQLTest instead."
