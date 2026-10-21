@@ -24,8 +24,8 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -57,7 +57,7 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
   private final Provider<IdGenerator> idGenerator;
   private final Provider<LockManager> lockManager;
   private final Provider<EntityStore> entityStore;
-  private final Provider<CatalogManager> catalogManager;
+  private final Provider<CatalogAccess> catalogAccess;
   private final Provider<CatalogDispatcher> catalogDispatcher;
   private final Provider<SchemaDispatcher> schemaDispatcher;
   private final Provider<TableDispatcher> tableDispatcher;
@@ -79,7 +79,7 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
       Provider<IdGenerator> idGenerator,
       Provider<LockManager> lockManager,
       Provider<EntityStore> entityStore,
-      Provider<CatalogManager> catalogManager,
+      Provider<CatalogAccess> catalogAccess,
       @Public Provider<CatalogDispatcher> catalogDispatcher,
       @Public Provider<SchemaDispatcher> schemaDispatcher,
       @Public Provider<TableDispatcher> tableDispatcher,
@@ -98,7 +98,7 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
     this.idGenerator = idGenerator;
     this.lockManager = lockManager;
     this.entityStore = entityStore;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
     this.catalogDispatcher = catalogDispatcher;
     this.schemaDispatcher = schemaDispatcher;
     this.tableDispatcher = tableDispatcher;
@@ -152,8 +152,8 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
   }
 
   @Override
-  public CatalogManager catalogManager() {
-    return catalogManager.get();
+  public CatalogAccess catalogAccess() {
+    return catalogAccess.get();
   }
 
   @Override

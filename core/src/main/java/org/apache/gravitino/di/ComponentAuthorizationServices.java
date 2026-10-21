@@ -28,8 +28,8 @@ import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -56,7 +56,7 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
   private final Provider<OwnerDispatcher> internalOwnerDispatcher;
   private final Provider<FutureGrantManager> futureGrantManager;
   private final Supplier<GravitinoAuthorizer> gravitinoAuthorizer;
-  private final Provider<CatalogManager> catalogManager;
+  private final Provider<CatalogAccess> catalogAccess;
   private final Provider<CatalogDispatcher> internalCatalogDispatcher;
   private final Provider<SchemaDispatcher> internalSchemaDispatcher;
   private final Provider<TableDispatcher> internalTableDispatcher;
@@ -69,7 +69,7 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
       @Internal Provider<OwnerDispatcher> internalOwnerDispatcher,
       Provider<FutureGrantManager> futureGrantManager,
       Supplier<GravitinoAuthorizer> gravitinoAuthorizer,
-      Provider<CatalogManager> catalogManager,
+      Provider<CatalogAccess> catalogAccess,
       @Internal Provider<CatalogDispatcher> internalCatalogDispatcher,
       @Internal Provider<SchemaDispatcher> internalSchemaDispatcher,
       @Internal Provider<TableDispatcher> internalTableDispatcher,
@@ -79,7 +79,7 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
     this.internalOwnerDispatcher = internalOwnerDispatcher;
     this.futureGrantManager = futureGrantManager;
     this.gravitinoAuthorizer = gravitinoAuthorizer;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
     this.internalCatalogDispatcher = internalCatalogDispatcher;
     this.internalSchemaDispatcher = internalSchemaDispatcher;
     this.internalTableDispatcher = internalTableDispatcher;
@@ -110,8 +110,8 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
   }
 
   @Override
-  public CatalogManager catalogManager() {
-    return catalogManager.get();
+  public CatalogAccess catalogAccess() {
+    return catalogAccess.get();
   }
 
   @Override

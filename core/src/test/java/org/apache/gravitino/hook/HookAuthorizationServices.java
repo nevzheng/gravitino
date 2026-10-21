@@ -25,8 +25,8 @@ import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -75,8 +75,8 @@ public final class HookAuthorizationServices implements AuthorizationServices {
   }
 
   @Override
-  public CatalogManager catalogManager() {
-    return env().catalogManager();
+  public CatalogAccess catalogAccess() {
+    return env().catalogAccess();
   }
 
   @Override

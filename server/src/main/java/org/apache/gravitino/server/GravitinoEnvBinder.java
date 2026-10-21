@@ -27,6 +27,7 @@ import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -131,6 +132,7 @@ class GravitinoEnvBinder extends AbstractBinder {
     bindIfPresent(gravitinoEnv.idGenerator(), IdGenerator.class);
     bindIfPresent(gravitinoEnv.entityStore(), EntityStore.class);
     bindIfPresent(gravitinoEnv.catalogManager(), CatalogManager.class);
+    bindIfPresent(gravitinoEnv.catalogManager(), CatalogAccess.class);
     bindIfPresent(gravitinoEnv.auxServiceManager(), AuxiliaryServiceManager.class);
     TableDispatcher internalTableDispatcher = gravitinoEnv.internalTableDispatcher();
     if (internalTableDispatcher != null) {

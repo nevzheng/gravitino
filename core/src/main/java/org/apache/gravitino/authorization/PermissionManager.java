@@ -137,7 +137,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -223,7 +223,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -309,7 +309,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -396,7 +396,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->

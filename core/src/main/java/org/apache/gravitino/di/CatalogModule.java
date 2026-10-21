@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.di;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
@@ -27,6 +28,7 @@ import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AuthorizationServices;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
@@ -119,6 +121,16 @@ abstract class CatalogModule {
             metricsSystem,
             pluginContext));
   }
+
+  /**
+   * Binds the lookups and leased access of the catalog manager. This is the face of the manager
+   * that code outside this package may inject: it has no method that changes a catalog.
+   *
+   * @param catalogManager the catalog manager
+   * @return the catalog access
+   */
+  @Binds
+  abstract CatalogAccess catalogAccess(CatalogManager catalogManager);
 
   /**
    * Builds the metalake manager. It takes the catalog manager so that a force drop removes the

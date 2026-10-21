@@ -42,12 +42,12 @@ import org.apache.gravitino.model.ModelVersionChange;
  * assumed to already be in their canonical, legal form and are not re-normalized here.
  */
 public class ModelNormalizeDispatcher implements ModelDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final ModelDispatcher dispatcher;
 
-  public ModelNormalizeDispatcher(ModelDispatcher dispatcher, CatalogManager catalogManager) {
+  public ModelNormalizeDispatcher(ModelDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -154,7 +154,7 @@ public class ModelNormalizeDispatcher implements ModelDispatcher {
   @Override
   public Model alterModel(NameIdentifier ident, ModelChange... changes)
       throws NoSuchModelException, IllegalArgumentException {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     return dispatcher.alterModel(
         // The constraints of the name spec may be more strict than underlying catalog,
         // and for compatibility reasons, we only apply case-sensitive capabilities here.
@@ -178,17 +178,17 @@ public class ModelNormalizeDispatcher implements ModelDispatcher {
   }
 
   private Namespace normalizeCaseSensitive(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.MODEL, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier ident) {
-    Capability capabilities = getCapability(ident, catalogManager);
+    Capability capabilities = getCapability(ident, catalogAccess);
     return applyCaseSensitive(ident, Capability.Scope.MODEL, capabilities);
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier ident) {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     return applyCapabilities(ident, Capability.Scope.MODEL, capability);
   }
 }

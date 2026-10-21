@@ -32,6 +32,7 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -182,6 +183,15 @@ public interface GravitinoComponent {
    * @return the catalog manager
    */
   CatalogManager catalogManager();
+
+  /**
+   * Returns the lookups of the server's catalogs and leased access to them. It has no mutation:
+   * catalogs are created, altered and dropped through the {@link #catalogDispatcher()} or the
+   * {@link #internalCatalogDispatcher()}.
+   *
+   * @return the catalog access
+   */
+  CatalogAccess catalogAccess();
 
   /**
    * Returns the metalake manager.

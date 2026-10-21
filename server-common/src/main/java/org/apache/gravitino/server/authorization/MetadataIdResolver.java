@@ -36,7 +36,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.catalog.CapabilityHelpers;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NotFoundException;
@@ -66,18 +66,18 @@ public class MetadataIdResolver {
           MetadataObject.Type.SEMANTIC_MODEL, Capability.Scope.SEMANTIC_MODEL,
           MetadataObject.Type.FUNCTION, Capability.Scope.FUNCTION);
 
-  private final Supplier<CatalogManager> catalogManager;
+  private final Supplier<? extends CatalogAccess> catalogAccess;
   private final Supplier<EntityStore> entityStore;
 
   /**
    * Creates a resolver. The suppliers are read on every lookup.
    *
-   * @param catalogManager supplies the catalog manager that resolves catalog capabilities
+   * @param catalogAccess supplies the catalog access that resolves catalog capabilities
    * @param entityStore supplies the entity store that holds the entities
    */
   public MetadataIdResolver(
-      Supplier<CatalogManager> catalogManager, Supplier<EntityStore> entityStore) {
-    this.catalogManager = Preconditions.checkNotNull(catalogManager, "catalogManager");
+      Supplier<? extends CatalogAccess> catalogAccess, Supplier<EntityStore> entityStore) {
+    this.catalogAccess = Preconditions.checkNotNull(catalogAccess, "catalogAccess");
     this.entityStore = Preconditions.checkNotNull(entityStore, "entityStore");
   }
 
@@ -139,7 +139,7 @@ public class MetadataIdResolver {
       return metadataObject;
     }
     NameIdentifier ident = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
-    NameIdentifier normalized = normalizeIdentifier(ident, scope, catalogManager.get());
+    NameIdentifier normalized = normalizeIdentifier(ident, scope, catalogAccess.get());
     if (normalized.equals(ident)) {
       return metadataObject;
     }
@@ -158,16 +158,16 @@ public class MetadataIdResolver {
 
   @VisibleForTesting
   NameIdentifier normalizeCaseSensitive(NameIdentifier ident, Capability.Scope scope) {
-    return normalizeIdentifier(ident, scope, catalogManager.get());
+    return normalizeIdentifier(ident, scope, catalogAccess.get());
   }
 
   private static NameIdentifier normalizeIdentifier(
-      NameIdentifier ident, Capability.Scope scope, CatalogManager catalogManager) {
+      NameIdentifier ident, Capability.Scope scope, CatalogAccess catalogAccess) {
     if (scope == null) {
       return ident;
     }
 
-    Capability capability = CapabilityHelpers.getCapability(ident, catalogManager);
+    Capability capability = CapabilityHelpers.getCapability(ident, catalogAccess);
     if (scope == Capability.Scope.COLUMN) {
       // The NameIdentifier overload applies SCHEMA to the namespace and TABLE to the leaf.
       NameIdentifier table =
@@ -190,7 +190,7 @@ public class MetadataIdResolver {
     // identifier the operation later runs on. For catalogs that do not implement the resolution
     // capability (the vast majority) this is a pure identity call with no extra source access.
     if (scope == Capability.Scope.TABLE) {
-      return CapabilityHelpers.resolvePhysicalTableName(normalized, catalogManager);
+      return CapabilityHelpers.resolvePhysicalTableName(normalized, catalogAccess);
     }
     return normalized;
   }

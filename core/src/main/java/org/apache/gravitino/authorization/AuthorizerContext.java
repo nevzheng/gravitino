@@ -22,6 +22,7 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.annotation.Evolving;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 
 /**
@@ -50,12 +51,25 @@ public interface AuthorizerContext {
   EntityStore entityStore();
 
   /**
-   * Returns the catalog manager, which resolves the capabilities of the catalogs that hold the
-   * objects being authorized.
+   * Returns the lookups of the server's catalogs and leased access to them, which resolve the
+   * capabilities of the catalogs that hold the objects being authorized.
    *
-   * @return the catalog manager
+   * @return the catalog access
    */
-  CatalogManager catalogManager();
+  CatalogAccess catalogAccess();
+
+  /**
+   * Returns the catalog manager.
+   *
+   * @return the catalog manager behind {@link #catalogAccess()}
+   * @throws ClassCastException if the catalog access is not a {@link CatalogManager}
+   * @deprecated Use {@link #catalogAccess()}. The manager can create, alter and drop catalogs
+   *     without the hooks and events of the catalog dispatcher chain.
+   */
+  @Deprecated
+  default CatalogManager catalogManager() {
+    return (CatalogManager) catalogAccess();
+  }
 
   /**
    * Returns the internal access-control dispatcher: the access control manager, which runs no hooks

@@ -138,7 +138,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Manages the catalog instances and operations. */
-public class CatalogManager implements CatalogDispatcher, Closeable {
+public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeable {
 
   private static final String CATALOG_DOES_NOT_EXIST_MSG = "Catalog %s does not exist";
 
@@ -798,6 +798,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    *
    * @param listener The consumer to be called with the NameIdentifier of the removed catalog.
    */
+  @Override
   public void addCatalogCacheRemoveListener(Consumer<NameIdentifier> listener) {
     removalListeners.add(listener);
   }
@@ -879,6 +880,16 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         });
   }
 
+  @Override
+  public boolean catalogExists(NameIdentifier ident) {
+    try {
+      loadCatalog(ident);
+      return true;
+    } catch (NoSuchCatalogException e) {
+      return false;
+    }
+  }
+
   /**
    * Runs an operation against a catalog while keeping its catalog instance and ClassLoader alive.
    *
@@ -895,6 +906,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    * @param <R> The result type of the operation.
    * @throws NoSuchCatalogException If the specified catalog does not exist.
    */
+  @Override
   public <R> R doWithCatalog(NameIdentifier ident, ThrowableFunction<BaseCatalog, R> operation)
       throws NoSuchCatalogException {
     try {

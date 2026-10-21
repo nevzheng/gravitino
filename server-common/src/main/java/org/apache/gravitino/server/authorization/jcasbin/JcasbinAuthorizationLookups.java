@@ -91,7 +91,7 @@ public class JcasbinAuthorizationLookups {
         metadataIdCache,
         ownerRelCache,
         new MetadataIdResolver(
-            EnvironmentAuthorizerContext.INSTANCE::catalogManager,
+            EnvironmentAuthorizerContext.INSTANCE::catalogAccess,
             EnvironmentAuthorizerContext.INSTANCE::entityStore));
   }
 

@@ -62,6 +62,7 @@ public class TestCatalogModule {
     assertSame(catalogManager, component.catalogManager());
     assertSame(leaves.entityStore, field(catalogManager, "store"));
     assertSame(component.lockManager(), field(catalogManager, "lockManager"));
+    assertSame(catalogManager, component.catalogAccess());
 
     MetalakeManager metalakeManager = component.metalakeManager();
     assertSame(metalakeManager, component.metalakeManager());

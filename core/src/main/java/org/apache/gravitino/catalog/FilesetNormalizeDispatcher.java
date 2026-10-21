@@ -42,12 +42,12 @@ import org.apache.gravitino.secret.SecretReference;
  * are assumed to already be in their canonical, legal form and are not re-normalized here.
  */
 public class FilesetNormalizeDispatcher implements FilesetDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final FilesetDispatcher dispatcher;
 
-  public FilesetNormalizeDispatcher(FilesetDispatcher dispatcher, CatalogManager catalogManager) {
+  public FilesetNormalizeDispatcher(FilesetDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -101,7 +101,7 @@ public class FilesetNormalizeDispatcher implements FilesetDispatcher {
   @Override
   public Fileset alterFileset(NameIdentifier ident, FilesetChange... changes)
       throws NoSuchFilesetException, IllegalArgumentException {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     return dispatcher.alterFileset(
         // The constraints of the name spec may be more strict than underlying catalog,
         // and for compatibility reasons, we only apply case-sensitive capabilities here.
@@ -124,17 +124,17 @@ public class FilesetNormalizeDispatcher implements FilesetDispatcher {
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier ident) {
-    Capability capabilities = getCapability(ident, catalogManager);
+    Capability capabilities = getCapability(ident, catalogAccess);
     return applyCapabilities(ident, Capability.Scope.FILESET, capabilities);
   }
 
   private Namespace normalizeCaseSensitive(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.FILESET, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier filesetIdent) {
-    Capability capabilities = getCapability(filesetIdent, catalogManager);
+    Capability capabilities = getCapability(filesetIdent, catalogAccess);
     return applyCaseSensitive(filesetIdent, Capability.Scope.FILESET, capabilities);
   }
 }

@@ -20,6 +20,7 @@ package org.apache.gravitino.authorization;
 
 import javax.annotation.Nullable;
 import org.apache.gravitino.annotation.Evolving;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 
@@ -67,11 +68,25 @@ public interface AuthorizationServices extends AuthorizationPluginContext {
   GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
-   * Returns the catalog manager, whose catalogs carry the authorization plugins.
+   * Returns the lookups of the server's catalogs and leased access to them; the live catalogs carry
+   * the authorization plugins.
    *
-   * @return the catalog manager
+   * @return the catalog access
    */
-  CatalogManager catalogManager();
+  CatalogAccess catalogAccess();
+
+  /**
+   * Returns the catalog manager.
+   *
+   * @return the catalog manager behind {@link #catalogAccess()}
+   * @throws ClassCastException if the catalog access is not a {@link CatalogManager}
+   * @deprecated Use {@link #catalogAccess()}. The manager can create, alter and drop catalogs
+   *     without the hooks and events of the catalog dispatcher chain.
+   */
+  @Deprecated
+  default CatalogManager catalogManager() {
+    return (CatalogManager) catalogAccess();
+  }
 
   /**
    * Returns whether the server enforces authorization: exactly when it holds an internal access
