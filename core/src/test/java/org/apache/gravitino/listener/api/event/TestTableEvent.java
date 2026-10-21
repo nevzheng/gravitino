@@ -32,6 +32,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
+import org.apache.gravitino.hook.HookAuthorizationServices;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.listener.DummyEventListener;
 import org.apache.gravitino.listener.EventBus;
@@ -123,7 +124,10 @@ public class TestTableEvent {
         .setOwner(any(), any(), any(), any());
     TableEventDispatcher dispatcherWithHook =
         new TableEventDispatcher(
-            eventBus, new TableHookDispatcher(mockTableDispatcher(), () -> ownerDispatcher));
+            eventBus,
+            new TableHookDispatcher(
+                mockTableDispatcher(),
+                HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher)));
     NameIdentifier identifier = NameIdentifier.of("metalake", "catalog", "schema", table.name());
 
     RuntimeException thrown =

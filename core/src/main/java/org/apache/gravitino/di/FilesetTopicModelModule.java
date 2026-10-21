@@ -22,10 +22,9 @@ import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
 import java.util.Set;
-import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
@@ -146,8 +145,9 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated FilesetOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<FilesetDispatcher>> decorators) {
-    FilesetHookDispatcher hook = new FilesetHookDispatcher(operations);
+    FilesetHookDispatcher hook = new FilesetHookDispatcher(operations, authorizationServices);
     return Decorators.apply(
         "@Public FilesetDispatcher",
         new FilesetEventDispatcher(eventBus, new FilesetNormalizeDispatcher(hook, catalogManager)),
@@ -187,8 +187,9 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated TopicOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<TopicDispatcher>> decorators) {
-    TopicHookDispatcher hook = new TopicHookDispatcher(operations);
+    TopicHookDispatcher hook = new TopicHookDispatcher(operations, authorizationServices);
     return Decorators.apply(
         "@Public TopicDispatcher",
         new TopicEventDispatcher(eventBus, new TopicNormalizeDispatcher(hook, catalogManager)),
@@ -226,8 +227,9 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated ModelOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<ModelDispatcher>> decorators) {
-    ModelHookDispatcher hook = new ModelHookDispatcher(operations);
+    ModelHookDispatcher hook = new ModelHookDispatcher(operations, authorizationServices);
     return Decorators.apply(
         "@Public ModelDispatcher",
         new ModelEventDispatcher(eventBus, new ModelNormalizeDispatcher(hook, catalogManager)),
@@ -268,12 +270,9 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated FunctionOperationDispatcher operations,
       CatalogManager catalogManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<FunctionDispatcher>> decorators) {
-    FunctionHookDispatcher hook =
-        new FunctionHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
+    FunctionHookDispatcher hook = new FunctionHookDispatcher(operations, authorizationServices);
     return Decorators.apply(
         "@Public FunctionDispatcher",
         new FunctionEventDispatcher(
@@ -310,15 +309,13 @@ abstract class FilesetTopicModelModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<SemanticModelDispatcher>> decorators) {
     SemanticModelOperationDispatcher operations =
         new SemanticModelOperationDispatcher(
             catalogManager, schemaOperations, entityStore, idGenerator, secretManager);
     SemanticModelHookDispatcher hook =
-        new SemanticModelHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
+        new SemanticModelHookDispatcher(operations, authorizationServices);
     return Decorators.apply(
         "@Public SemanticModelDispatcher",
         new SemanticModelEventDispatcher(

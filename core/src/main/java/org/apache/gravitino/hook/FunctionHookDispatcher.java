@@ -23,7 +23,9 @@ import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
@@ -45,18 +47,42 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class FunctionHookDispatcher implements FunctionDispatcher {
   private final FunctionDispatcher dispatcher;
   private final Supplier<OwnerDispatcher> ownerDispatcher;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates a function hook dispatcher.
    *
    * @param dispatcher the underlying function dispatcher
-   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
-   *     disabled
+   * @param authorizationServices the services that keep authorization in step with function changes
    */
   public FunctionHookDispatcher(
+      FunctionDispatcher dispatcher, AuthorizationServices authorizationServices) {
+    this(dispatcher, authorizationServices::internalOwnerDispatcher, authorizationServices);
+  }
+
+  /**
+   * Creates a function hook dispatcher that reads the other authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher the underlying function dispatcher
+   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
+   *     disabled
+   * @deprecated Use {@link #FunctionHookDispatcher(FunctionDispatcher, AuthorizationServices)},
+   *     which takes the authorization services explicitly.
+   */
+  @Deprecated
+  public FunctionHookDispatcher(
       FunctionDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
+    this(dispatcher, ownerDispatcher, EnvironmentAuthorizationServices.INSTANCE);
+  }
+
+  private FunctionHookDispatcher(
+      FunctionDispatcher dispatcher,
+      Supplier<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.ownerDispatcher = ownerDispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -115,7 +141,8 @@ public class FunctionHookDispatcher implements FunctionDispatcher {
       // Function privileges are managed by Gravitino. Catalog authorization plugins such as
       // Ranger HadoopSQL do not support FUNCTION metadata objects, so only invalidate the built-in
       // authorizer's name-to-ID mapping here.
-      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.FUNCTION);
+      AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.FUNCTION);
     }
     return dropped;
   }

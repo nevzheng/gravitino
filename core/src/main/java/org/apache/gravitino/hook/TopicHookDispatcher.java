@@ -21,11 +21,11 @@ package org.apache.gravitino.hook;
 import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.TopicDispatcher;
@@ -45,9 +45,32 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class TopicHookDispatcher implements TopicDispatcher {
   private final TopicDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public TopicHookDispatcher(TopicDispatcher dispatcher) {
+  /**
+   * Creates a topic hook dispatcher.
+   *
+   * @param dispatcher the underlying topic dispatcher
+   * @param authorizationServices the services that keep authorization in step with topic changes
+   */
+  public TopicHookDispatcher(
+      TopicDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a topic hook dispatcher that reads the authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher the underlying topic dispatcher
+   * @deprecated Use {@link #TopicHookDispatcher(TopicDispatcher, AuthorizationServices)}, which
+   *     takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public TopicHookDispatcher(TopicDispatcher dispatcher) {
+    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -60,7 +83,6 @@ public class TopicHookDispatcher implements TopicDispatcher {
     return dispatcher.loadTopic(ident);
   }
 
-  @LegacyEnvAccess
   @Override
   public Topic createTopic(
       NameIdentifier ident, String comment, DataLayout dataLayout, Map<String, String> properties)
@@ -68,7 +90,7 @@ public class TopicHookDispatcher implements TopicDispatcher {
     Topic topic = dispatcher.createTopic(ident, comment, dataLayout, properties);
 
     // Set the creator as the owner of the topic.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -88,12 +110,13 @@ public class TopicHookDispatcher implements TopicDispatcher {
   @Override
   public boolean dropTopic(NameIdentifier ident) {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.TOPIC);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.TOPIC);
     boolean dropped = dispatcher.dropTopic(ident);
     // A false result means the topic was dropped out of band and the registration was kept.
     if (dropped) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.TOPIC, locations);
+          authorizationServices, ident, Entity.EntityType.TOPIC, locations);
     }
     return dropped;
   }

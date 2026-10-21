@@ -20,13 +20,13 @@ package org.apache.gravitino.hook;
 
 import java.util.Map;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Metalake;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
@@ -44,9 +44,32 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class MetalakeHookDispatcher implements MetalakeDispatcher {
   private final MetalakeDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public MetalakeHookDispatcher(MetalakeDispatcher dispatcher) {
+  /**
+   * Creates a metalake hook dispatcher.
+   *
+   * @param dispatcher the underlying metalake dispatcher
+   * @param authorizationServices the services that keep authorization in step with metalake changes
+   */
+  public MetalakeHookDispatcher(
+      MetalakeDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a metalake hook dispatcher that reads the authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher the underlying metalake dispatcher
+   * @deprecated Use {@link #MetalakeHookDispatcher(MetalakeDispatcher, AuthorizationServices)},
+   *     which takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public MetalakeHookDispatcher(MetalakeDispatcher dispatcher) {
+    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -59,7 +82,6 @@ public class MetalakeHookDispatcher implements MetalakeDispatcher {
     return dispatcher.loadMetalake(ident);
   }
 
-  @LegacyEnvAccess
   @Override
   public Metalake createMetalake(
       NameIdentifier ident, String comment, Map<String, String> properties)
@@ -68,13 +90,13 @@ public class MetalakeHookDispatcher implements MetalakeDispatcher {
 
     // Add the creator to the metalake.
     AccessControlDispatcher accessControlDispatcher =
-        GravitinoEnv.getInstance().internalAccessControlDispatcher();
+        authorizationServices.internalAccessControlDispatcher();
     if (accessControlDispatcher != null) {
       accessControlDispatcher.addUser(ident.name(), PrincipalUtils.getCurrentUserName());
     }
 
     // Set the creator as owner of the metalake.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerDispatcher = authorizationServices.internalOwnerDispatcher();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           ident.name(),
@@ -97,7 +119,7 @@ public class MetalakeHookDispatcher implements MetalakeDispatcher {
     }
     if (lastRenameChange != null) {
       AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.METALAKE, lastRenameChange.getNewName());
+          authorizationServices, ident, Entity.EntityType.METALAKE, lastRenameChange.getNewName());
     }
     return alterMetalake;
   }

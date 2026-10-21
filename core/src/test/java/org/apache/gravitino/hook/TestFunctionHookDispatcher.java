@@ -72,7 +72,8 @@ public class TestFunctionHookDispatcher {
         .thenReturn(registeredFunction);
 
     FunctionHookDispatcher hookDispatcher =
-        new FunctionHookDispatcher(dispatcher, () -> ownerDispatcher);
+        new FunctionHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> ownerDispatcher));
     Function result =
         hookDispatcher.registerFunction(
             functionIdentifier, "comment", FunctionType.SCALAR, true, definitions);
@@ -108,7 +109,9 @@ public class TestFunctionHookDispatcher {
                 Mockito.eq(definitions)))
         .thenReturn(registeredFunction);
 
-    FunctionHookDispatcher hookDispatcher = new FunctionHookDispatcher(dispatcher, () -> null);
+    FunctionHookDispatcher hookDispatcher =
+        new FunctionHookDispatcher(
+            dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null));
     Function result =
         hookDispatcher.registerFunction(
             functionIdentifier, "comment", FunctionType.SCALAR, true, definitions);
@@ -135,7 +138,9 @@ public class TestFunctionHookDispatcher {
 
     FunctionDispatcher hook =
         new FunctionNormalizeDispatcher(
-            new FunctionHookDispatcher(mockFunctionDispatcher, () -> mockOwnerDispatcher),
+            new FunctionHookDispatcher(
+                mockFunctionDispatcher,
+                HookAuthorizationServices.withOwnerDispatcher(() -> mockOwnerDispatcher)),
             catalogManager);
     NameIdentifier ident = NameIdentifier.of("metalake1", "catalog1", "SCHEMA_NORM", "MY_FUNC");
     hook.registerFunction(ident, "comment", FunctionType.SCALAR, true, definitions);
@@ -163,7 +168,9 @@ public class TestFunctionHookDispatcher {
         .thenReturn(mockFunction);
 
     FunctionHookDispatcher hook =
-        new FunctionHookDispatcher(mockFunctionDispatcher, () -> mockOwnerDispatcher);
+        new FunctionHookDispatcher(
+            mockFunctionDispatcher,
+            HookAuthorizationServices.withOwnerDispatcher(() -> mockOwnerDispatcher));
     NameIdentifier ident =
         NameIdentifier.of("metalake1", "catalog1", "schema_owner_fail", "func_owner_fail");
     RuntimeException thrown =
@@ -202,7 +209,9 @@ public class TestFunctionHookDispatcher {
       envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
       FunctionDispatcher hookDispatcher =
           new FunctionNormalizeDispatcher(
-              new FunctionHookDispatcher(dispatcher, () -> null), catalogManager);
+              new FunctionHookDispatcher(
+                  dispatcher, HookAuthorizationServices.withOwnerDispatcher(() -> null)),
+              catalogManager);
 
       assertTrue(hookDispatcher.dropFunction(functionIdentifier));
       assertFalse(hookDispatcher.dropFunction(functionIdentifier));

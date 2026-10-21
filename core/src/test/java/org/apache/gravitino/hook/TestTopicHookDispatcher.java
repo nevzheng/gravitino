@@ -31,7 +31,9 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -64,10 +66,14 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
     TestTopicOperationDispatcher.initialize();
 
     topicHookDispatcher =
-        new TopicHookDispatcher(TestTopicOperationDispatcher.getTopicOperationDispatcher());
+        new TopicHookDispatcher(
+            TestTopicOperationDispatcher.getTopicOperationDispatcher(),
+            EnvironmentAuthorizationServices.INSTANCE);
     schemaHookDispatcher =
         new SchemaHookDispatcher(
-            TestTopicOperationDispatcher.getSchemaOperationDispatcher(), lockManager);
+            TestTopicOperationDispatcher.getSchemaOperationDispatcher(),
+            lockManager,
+            EnvironmentAuthorizationServices.INSTANCE);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalAccessControlDispatcher", accessControlManager, true);
@@ -83,7 +89,8 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
   @Test
   public void testDropTopicDoesNotRemovePrivilegesWhenTopicDoesNotExist() {
     TopicDispatcher dispatcher = Mockito.mock(TopicDispatcher.class);
-    TopicHookDispatcher hook = new TopicHookDispatcher(dispatcher);
+    TopicHookDispatcher hook =
+        new TopicHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
     NameIdentifier ident = NameIdentifier.of("test_metalake", "test_catalog", "topic");
     Mockito.when(dispatcher.dropTopic(ident)).thenReturn(false);
 
@@ -92,7 +99,10 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
       authz.verify(
           () ->
               AuthorizationUtils.authorizationPluginRemovePrivileges(
-                  ident, Entity.EntityType.TOPIC, null),
+                  Mockito.any(AuthorizationServices.class),
+                  Mockito.eq(ident),
+                  Mockito.eq(Entity.EntityType.TOPIC),
+                  Mockito.eq(null)),
           Mockito.never());
     }
   }
@@ -121,7 +131,9 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
     try {
       TopicDispatcher localHook =
           new TopicNormalizeDispatcher(
-              new TopicHookDispatcher(mockTopicDispatcher), mockCatalogManager);
+              new TopicHookDispatcher(
+                  mockTopicDispatcher, EnvironmentAuthorizationServices.INSTANCE),
+              mockCatalogManager);
       NameIdentifier ident = NameIdentifier.of(metalake, catalog, "SCHEMA_NORM", "MY_TOPIC");
       localHook.createTopic(ident, "comment", null, ImmutableMap.of());
 
@@ -181,19 +193,25 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
   @Test
   public void testDropKeepsPrivilegesWhenExternalDropReturnsFalse() {
     TopicDispatcher dispatcher = Mockito.mock(TopicDispatcher.class);
-    TopicHookDispatcher hook = new TopicHookDispatcher(dispatcher);
+    TopicHookDispatcher hook =
+        new TopicHookDispatcher(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
     NameIdentifier ident = NameIdentifier.of(metalake, catalog, "schema", "topic");
     Mockito.when(dispatcher.dropTopic(ident)).thenReturn(false);
 
     try (MockedStatic<AuthorizationUtils> authz = Mockito.mockStatic(AuthorizationUtils.class)) {
       authz
-          .when(() -> AuthorizationUtils.getMetadataObjectLocation(any(), any()))
+          .when(
+              () ->
+                  AuthorizationUtils.getMetadataObjectLocation(
+                      Mockito.any(AuthorizationServices.class), any(), any()))
           .thenReturn(ImmutableList.of("/test"));
 
       Assertions.assertFalse(hook.dropTopic(ident));
 
       authz.verify(
-          () -> AuthorizationUtils.authorizationPluginRemovePrivileges(any(), any(), any()),
+          () ->
+              AuthorizationUtils.authorizationPluginRemovePrivileges(
+                  Mockito.any(AuthorizationServices.class), any(), any(), any()),
           Mockito.never());
     }
   }

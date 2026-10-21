@@ -29,6 +29,7 @@ import java.util.Collections;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.tag.Tag;
@@ -61,7 +62,8 @@ public class TestTagHookDispatcher {
     mockAuthorizer = mock(GravitinoAuthorizer.class);
     savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
     GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
-    hookDispatcher = new TagHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new TagHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @AfterEach

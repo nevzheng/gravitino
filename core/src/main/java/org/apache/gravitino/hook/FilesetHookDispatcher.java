@@ -22,11 +22,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -49,9 +49,32 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class FilesetHookDispatcher implements FilesetDispatcher {
   private final FilesetDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public FilesetHookDispatcher(FilesetDispatcher dispatcher) {
+  /**
+   * Creates a fileset hook dispatcher.
+   *
+   * @param dispatcher the underlying fileset dispatcher
+   * @param authorizationServices the services that keep authorization in step with fileset changes
+   */
+  public FilesetHookDispatcher(
+      FilesetDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
+  }
+
+  /**
+   * Creates a fileset hook dispatcher that reads the authorization services from {@code
+   * GravitinoEnv}.
+   *
+   * @param dispatcher the underlying fileset dispatcher
+   * @deprecated Use {@link #FilesetHookDispatcher(FilesetDispatcher, AuthorizationServices)}, which
+   *     takes the authorization services explicitly.
+   */
+  @Deprecated
+  @SuppressWarnings("InlineMeSuggester")
+  public FilesetHookDispatcher(FilesetDispatcher dispatcher) {
+    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override
@@ -70,7 +93,6 @@ public class FilesetHookDispatcher implements FilesetDispatcher {
     return dispatcher.loadFileset(ident);
   }
 
-  @LegacyEnvAccess
   @Override
   public Fileset createMultipleLocationFileset(
       NameIdentifier ident,
@@ -86,7 +108,7 @@ public class FilesetHookDispatcher implements FilesetDispatcher {
             ident, comment, type, storageLocations, properties, secretBindings, secretReferences);
 
     // Set the creator as the owner of the fileset.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -109,7 +131,7 @@ public class FilesetHookDispatcher implements FilesetDispatcher {
     }
     if (lastRenameChange != null) {
       AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.FILESET, lastRenameChange.getNewName());
+          authorizationServices, ident, Entity.EntityType.FILESET, lastRenameChange.getNewName());
     }
 
     return alteredFileset;
@@ -118,12 +140,13 @@ public class FilesetHookDispatcher implements FilesetDispatcher {
   @Override
   public boolean dropFileset(NameIdentifier ident) {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.FILESET);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.FILESET);
     boolean dropped = dispatcher.dropFileset(ident);
     // A false result means the fileset was already gone and the registration was kept.
     if (dropped) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.FILESET, locations);
+          authorizationServices, ident, Entity.EntityType.FILESET, locations);
     }
     return dropped;
   }

@@ -28,6 +28,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.List;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
@@ -117,6 +120,34 @@ public class TestAuthorizationModule {
   }
 
   @Test
+  public void testHooksUseTheComponentAuthorizationServices() throws Exception {
+    List<Object> chains =
+        List.of(
+            component.metalakeDispatcher(),
+            component.catalogDispatcher(),
+            component.schemaDispatcher(),
+            component.tableDispatcher(),
+            component.viewDispatcher(),
+            component.filesetDispatcher(),
+            component.topicDispatcher(),
+            component.modelDispatcher(),
+            component.functionDispatcher(),
+            component.semanticModelDispatcher(),
+            component.tagDispatcher(),
+            component.policyDispatcher(),
+            component.accessControlDispatcher(),
+            component.jobOperationDispatcher());
+    for (Object chain : chains) {
+      Object hook = hookOf(chain, 0);
+      assertNotNull(hook, chain.getClass().getName());
+      assertSame(
+          component.authorizationServices(),
+          field(hook, "authorizationServices"),
+          hook.getClass().getName());
+    }
+  }
+
+  @Test
   public void testManagersUseTheComponentAuthorizationServices() throws Exception {
     Object accessControlManager = component.internalAccessControlDispatcher();
     assertSame(
@@ -151,5 +182,30 @@ public class TestAuthorizationModule {
     ModuleTestComponent configured = ModuleTestComponent.create(config, leaves);
 
     assertEquals(7, field(configured.bulkManager(), "maxBulkItems"));
+  }
+
+  private static Object hookOf(Object dispatcher, int depth) throws IllegalAccessException {
+    if (dispatcher == null || depth > 6) {
+      return null;
+    }
+    if (dispatcher.getClass().getPackageName().equals("org.apache.gravitino.hook")) {
+      return dispatcher;
+    }
+    for (Class<?> type = dispatcher.getClass(); type != null; type = type.getSuperclass()) {
+      for (Field declared : type.getDeclaredFields()) {
+        if (Modifier.isStatic(declared.getModifiers()) || declared.getType().isPrimitive()) {
+          continue;
+        }
+        if (!declared.getType().getName().endsWith("Dispatcher")) {
+          continue;
+        }
+        declared.setAccessible(true);
+        Object hook = hookOf(declared.get(dispatcher), depth + 1);
+        if (hook != null) {
+          return hook;
+        }
+      }
+    }
+    return null;
   }
 }

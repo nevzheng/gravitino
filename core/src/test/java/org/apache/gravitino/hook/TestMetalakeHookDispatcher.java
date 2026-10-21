@@ -31,6 +31,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Metalake;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.UserAlreadyExistsException;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
@@ -64,7 +65,8 @@ public class TestMetalakeHookDispatcher {
         "internalAccessControlDispatcher",
         mockAccessControlDispatcher,
         true);
-    hookDispatcher = new MetalakeHookDispatcher(mockDispatcher);
+    hookDispatcher =
+        new MetalakeHookDispatcher(mockDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @AfterEach

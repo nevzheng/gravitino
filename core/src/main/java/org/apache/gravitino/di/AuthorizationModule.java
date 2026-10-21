@@ -87,11 +87,12 @@ abstract class AuthorizationModule {
   static AccessControlDispatcher accessControlDispatcher(
       EventBus eventBus,
       @Undecorated AccessControlManager accessControlManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<AccessControlDispatcher>> decorators) {
     return Decorators.apply(
         "@Public AccessControlDispatcher",
         new AccessControlEventDispatcher(
-            eventBus, new AccessControlHookDispatcher(accessControlManager)),
+            eventBus, new AccessControlHookDispatcher(accessControlManager, authorizationServices)),
         decorators);
   }
 

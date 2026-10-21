@@ -127,10 +127,11 @@ abstract class GovernanceModule {
   static TagDispatcher tagDispatcher(
       EventBus eventBus,
       @Undecorated TagManager tagManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<TagDispatcher>> decorators) {
     return Decorators.apply(
         "@Public TagDispatcher",
-        new TagEventDispatcher(eventBus, new TagHookDispatcher(tagManager)),
+        new TagEventDispatcher(eventBus, new TagHookDispatcher(tagManager, authorizationServices)),
         decorators);
   }
 
@@ -156,10 +157,12 @@ abstract class GovernanceModule {
   static PolicyDispatcher policyDispatcher(
       EventBus eventBus,
       @Undecorated PolicyManager policyManager,
+      AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<PolicyDispatcher>> decorators) {
     return Decorators.apply(
         "@Public PolicyDispatcher",
-        new PolicyEventDispatcher(eventBus, new PolicyHookDispatcher(policyManager)),
+        new PolicyEventDispatcher(
+            eventBus, new PolicyHookDispatcher(policyManager, authorizationServices)),
         decorators);
   }
 
