@@ -54,6 +54,43 @@ jobs:
           grep -q '^:catalogs:catalog-jdbc-postgresql:test ' pg-check.txt
           echo "OK: $M:check runs no tests; postgresql (no plugin) unchanged"
 
+      - name: Plan of the integration suite, its deploy variant and the shim
+        run: |
+          plan() { ./gradlew -q --dry-run -PskipWeb=true "$@" | tee -a plans.txt; }
+          has() { grep -q "^$1 " <<<"$2" || { echo "::error::expected $1 in: ${*:3}"; exit 1; }; }
+          hasnt() { ! grep -q "^$1 " <<<"$2" || { echo "::error::unexpected $1 in: ${*:3}"; exit 1; }; }
+
+          p="$(plan "$M:integrationTest")"
+          has "$M:requireDocker" "$p" integrationTest
+          has "$M:integrationTest" "$p" integrationTest
+
+          p="$(plan "$M:deployIntegrationTest")"
+          has ":compileDistribution" "$p" deployIntegrationTest
+          has "$M:deployIntegrationTest" "$p" deployIntegrationTest
+
+          p="$(plan "$M:test")"
+          hasnt "$M:integrationTest" "$p" "test, no flags"
+
+          p="$(plan "$M:test" -PskipTests -PtestMode=deploy)"
+          has "$M:integrationTest" "$p" "test -PskipTests (shim)"
+          hasnt "$M:requireDocker" "$p" "test -PskipTests (shim)"
+          hasnt ":compileDistribution" "$p" "test -PskipTests (shim)"
+
+          p="$(plan "$M:test" -PskipITs -PskipDockerTests=false)"
+          has "$M:integrationTest" "$p" "test -PskipITs (shim)"
+          echo "OK: suite, variant and shim plans as expected"
+
+      - name: Docker fail-fast
+        run: |
+          start=$(date +%s)
+          if DOCKER_HOST=unix:///nonexistent.sock ./gradlew "$M:requireDocker" -PskipWeb=true \
+              > fail-fast.txt 2>&1; then
+            cat fail-fast.txt; echo "::error::requireDocker passed without Docker"; exit 1
+          fi
+          grep -q 'Docker is not available' fail-fast.txt
+          echo "OK: failed fast in $(( $(date +%s) - start ))s (includes configuration)"
+          ./gradlew "$M:requireDocker" -PskipWeb=true
+
       - name: Configuration cache report for the POC module
         run: |
           ./gradlew "$M:check" --dry-run -PskipWeb=true --configuration-cache \
@@ -70,6 +107,8 @@ jobs:
           name: poc-wiring
           path: |
             *-check.txt
+            plans.txt
+            fail-fast.txt
             build/reports/configuration-cache
           if-no-files-found: ignore
           retention-days: 7
