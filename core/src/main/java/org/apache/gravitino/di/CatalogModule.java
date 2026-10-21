@@ -139,8 +139,10 @@ abstract class CatalogModule {
   abstract CatalogAccess catalogAccess(@Undecorated CatalogManager catalogManager);
 
   /**
-   * Builds the metalake manager. It takes the catalog manager so that a force drop removes the
-   * child catalogs through {@link CatalogManager#dropCatalog}.
+   * Builds the metalake manager. A force drop removes each child catalog through the public catalog
+   * chain, so the catalog drop events fire and the catalog hook runs for it, as when a user
+   * force-drops the catalog. The chain is resolved on each force drop. The catalog manager marks
+   * the catalogs of an enabled or disabled metalake.
    */
   @Provides
   @Singleton
@@ -149,11 +151,13 @@ abstract class CatalogModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Undecorated CatalogManager catalogManager,
+      @Public Provider<CatalogDispatcher> catalogDispatcher,
       LockManager lockManager,
       BuiltServices built) {
     return built.add(
         BuiltServices.METALAKE_MANAGER,
-        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager));
+        new MetalakeManager(
+            entityStore, idGenerator, catalogManager, catalogDispatcher::get, lockManager));
   }
 
   @Provides

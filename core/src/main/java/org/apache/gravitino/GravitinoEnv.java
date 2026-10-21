@@ -995,8 +995,8 @@ public class GravitinoEnv {
     this.idGenerator = component.idGenerator();
     this.lockManager = component.lockManager();
 
-    // CatalogManager must be initialized before MetalakeManager so force-drop can remove child
-    // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
+    // CatalogManager is initialized before MetalakeManager, as before; a force drop removes the
+    // child catalogs through the public catalog chain around it.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
     // The component exposes the manager only as its read-only CatalogAccess face, which is the

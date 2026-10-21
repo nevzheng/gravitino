@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.util.function.Supplier;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
@@ -66,7 +67,12 @@ public class TestCatalogModule {
 
     MetalakeManager metalakeManager = component.metalakeManager();
     assertSame(metalakeManager, component.metalakeManager());
-    assertSame(catalogManager, field(metalakeManager, "catalogManager"));
+    // A force drop removes the child catalogs through the public chain, so their events and hook
+    // run; the catalog manager marks the catalogs of an enabled or disabled metalake.
+    assertSame(
+        component.catalogDispatcher(),
+        ((Supplier<?>) field(metalakeManager, "catalogDispatcher")).get());
+    assertSame(catalogManager, ((Supplier<?>) field(metalakeManager, "inUseCatalogManager")).get());
   }
 
   @Test

@@ -38,17 +38,32 @@ import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.AuthConstants;
+import org.apache.gravitino.authorization.AuthorizationServices;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
+import org.apache.gravitino.authorization.MetadataObjectChange;
+import org.apache.gravitino.catalog.CatalogAccess;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
+import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
+import org.apache.gravitino.hook.CatalogHookDispatcher;
+import org.apache.gravitino.listener.CatalogEventDispatcher;
+import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.listener.api.event.BaseEvent;
+import org.apache.gravitino.listener.api.event.DropCatalogEvent;
+import org.apache.gravitino.listener.api.event.DropCatalogPreEvent;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -58,10 +73,12 @@ import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.memory.TestMemoryEntityStore;
 import org.apache.gravitino.storage.memory.TestMemoryEntityStore.InMemoryEntityStore;
 import org.apache.gravitino.utils.PrincipalUtils;
+import org.apache.gravitino.utils.ThrowableFunction;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 public class TestMetalakeManager {
@@ -87,7 +104,8 @@ public class TestMetalakeManager {
 
     lockManager = new LockManager(config);
     metalakeManager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), null, new LockManager(config));
+        new MetalakeManager(
+            entityStore, new RandomIdGenerator(), null, null, new LockManager(config));
   }
 
   @AfterAll
@@ -231,7 +249,7 @@ public class TestMetalakeManager {
     InMemoryEntityStore store = Mockito.spy(new InMemoryEntityStore());
     store.initialize(config);
     MetalakeManager manager =
-        new MetalakeManager(store, new RandomIdGenerator(), null, new LockManager(config));
+        new MetalakeManager(store, new RandomIdGenerator(), null, null, new LockManager(config));
     NameIdentifier ident = NameIdentifier.of("concurrently_deleted_metalake");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     Mockito.doThrow(
@@ -292,7 +310,8 @@ public class TestMetalakeManager {
             null,
             EnvironmentAuthorizationPluginContext.INSTANCE);
     MetalakeManager manager =
-        new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            store, new RandomIdGenerator(), catalogManager, () -> catalogManager, lockManager);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_closes_catalogs_ml");
     manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
@@ -325,6 +344,103 @@ public class TestMetalakeManager {
   }
 
   @Test
+  public void testForceDropMetalakeDropsEachCatalogThroughTheCatalogChain() throws Exception {
+    // A forced metalake drop must drop each child catalog the way a user's catalog force drop
+    // does: through the public catalog chain, so the drop events fire and the catalog hook removes
+    // the catalog from the authorization plugins before the catalog manager drops it.
+    Config catalogConfig = new Config(false) {};
+    catalogConfig.set(Configs.CATALOG_LOAD_ISOLATED, false);
+    InMemoryEntityStore store = new InMemoryEntityStore();
+    store.initialize(catalogConfig);
+    CatalogManager catalogManager =
+        new CatalogManager(
+            catalogConfig,
+            store,
+            new RandomIdGenerator(),
+            new SecretManager(catalogConfig),
+            lockManager,
+            null,
+            EnvironmentAuthorizationPluginContext.INSTANCE);
+    AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
+    CatalogAccess pluginCatalogs = Mockito.mock(CatalogAccess.class);
+    Mockito.doAnswer(
+            invocation -> {
+              NameIdentifier ident = invocation.getArgument(0);
+              BaseCatalog<?> catalog = Mockito.mock(BaseCatalog.class);
+              Mockito.when(catalog.name()).thenReturn(ident.name());
+              Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
+              ThrowableFunction<BaseCatalog, Object> operation = invocation.getArgument(1);
+              return operation.apply(catalog);
+            })
+        .when(pluginCatalogs)
+        .doWithCatalog(Mockito.any(), Mockito.any());
+    AuthorizationServices services =
+        new FakeAuthorizationServices().withCatalogAccess(pluginCatalogs);
+    EventBus eventBus = Mockito.mock(EventBus.class);
+    CatalogDispatcher publicCatalogs =
+        new CatalogEventDispatcher(
+            eventBus,
+            new CatalogNormalizeDispatcher(new CatalogHookDispatcher(catalogManager, services)));
+    MetalakeManager manager =
+        new MetalakeManager(
+            store, new RandomIdGenerator(), catalogManager, () -> publicCatalogs, lockManager);
+
+    NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_through_chain_ml");
+    manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
+    List<NameIdentifier> catalogIdents =
+        List.of(
+            NameIdentifier.of(metalakeIdent.name(), "child_catalog_1"),
+            NameIdentifier.of(metalakeIdent.name(), "child_catalog_2"));
+    for (NameIdentifier catalogIdent : catalogIdents) {
+      catalogManager.createCatalog(
+          catalogIdent,
+          Catalog.Type.RELATIONAL,
+          "test",
+          "comment",
+          ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3"));
+    }
+    manager.disableMetalake(metalakeIdent);
+
+    Assertions.assertTrue(manager.dropMetalake(metalakeIdent, true));
+
+    ArgumentCaptor<BaseEvent> events = ArgumentCaptor.forClass(BaseEvent.class);
+    Mockito.verify(eventBus, Mockito.times(2 * catalogIdents.size()))
+        .dispatchEvent(events.capture());
+    ArgumentCaptor<MetadataObjectChange> changes =
+        ArgumentCaptor.forClass(MetadataObjectChange.class);
+    Mockito.verify(plugin, Mockito.times(catalogIdents.size()))
+        .onMetadataUpdated(changes.capture());
+    for (NameIdentifier catalogIdent : catalogIdents) {
+      Assertions.assertTrue(
+          events.getAllValues().stream()
+              .anyMatch(
+                  e -> e instanceof DropCatalogPreEvent && catalogIdent.equals(e.identifier())),
+          "no drop pre-event for " + catalogIdent);
+      Assertions.assertTrue(
+          events.getAllValues().stream()
+              .anyMatch(
+                  e ->
+                      e instanceof DropCatalogEvent
+                          && catalogIdent.equals(e.identifier())
+                          && ((DropCatalogEvent) e).isExists()),
+          "no drop event for " + catalogIdent);
+      Assertions.assertTrue(
+          changes.getAllValues().stream()
+              .map(change -> ((MetadataObjectChange.RemoveMetadataObject) change).metadataObject())
+              .anyMatch(
+                  object ->
+                      object.type() == MetadataObject.Type.CATALOG
+                          && object.name().equals(catalogIdent.name())),
+          "the authorization plugin was not told " + catalogIdent + " is removed");
+      Assertions.assertFalse(store.exists(catalogIdent, Entity.EntityType.CATALOG));
+    }
+    Assertions.assertFalse(store.exists(metalakeIdent, Entity.EntityType.METALAKE));
+
+    catalogManager.close();
+    store.close();
+  }
+
+  @Test
   public void testForceDropMetalakeAfterDisableDropsLeftoverCatalogs() throws Exception {
     // Mirrors IT tearDown: disableMetalake then dropMetalake(force=true) while a catalog entity
     // may still remain. CatalogManager.dropCatalog requires metalake-in-use on the catalog.
@@ -337,7 +453,8 @@ public class TestMetalakeManager {
         .when(catalogManager)
         .setMetalakeInUseStatus(Mockito.any(NameIdentifier.class), Mockito.anyBoolean());
     MetalakeManager manager =
-        new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            store, new RandomIdGenerator(), catalogManager, () -> catalogManager, lockManager);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_leftover_ml");
     manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
@@ -365,7 +482,12 @@ public class TestMetalakeManager {
   public void testEnableAndDisableMarkTheCatalogsThroughTheGivenCatalogManager() throws Exception {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     MetalakeManager manager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            entityStore,
+            new RandomIdGenerator(),
+            catalogManager,
+            () -> catalogManager,
+            lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_in_use_catalogs");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     NameIdentifier catalogIdent = NameIdentifier.of(ident.name(), "catalog1");
@@ -394,7 +516,12 @@ public class TestMetalakeManager {
   public void testFailedForceDropKeepsDisabledMetalakeDisabled() throws Exception {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     MetalakeManager manager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            entityStore,
+            new RandomIdGenerator(),
+            catalogManager,
+            () -> catalogManager,
+            lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_force_drop_failure");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     manager.disableMetalake(ident);
@@ -429,7 +556,8 @@ public class TestMetalakeManager {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     EntityStore spyStore = Mockito.spy(entityStore);
     MetalakeManager manager =
-        new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            spyStore, new RandomIdGenerator(), catalogManager, () -> catalogManager, lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_force_drop_delete_failure");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     manager.disableMetalake(ident);
@@ -452,7 +580,12 @@ public class TestMetalakeManager {
   public void testFailedForceDropDoesNotDisableMetalakeItDidNotEnable() throws Exception {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     MetalakeManager manager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            entityStore,
+            new RandomIdGenerator(),
+            catalogManager,
+            () -> catalogManager,
+            lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_force_drop_already_enabled");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     // Left enabled: this stands in for a metalake a concurrent user has enabled. The force drop
@@ -486,7 +619,12 @@ public class TestMetalakeManager {
   public void testFailedForceDropRestoresWhenTemporaryEnableFailsMidway() throws Exception {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     MetalakeManager manager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            entityStore,
+            new RandomIdGenerator(),
+            catalogManager,
+            () -> catalogManager,
+            lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_force_drop_enable_midfail");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     manager.disableMetalake(ident);
@@ -522,7 +660,8 @@ public class TestMetalakeManager {
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     EntityStore spyStore = Mockito.spy(entityStore);
     MetalakeManager manager =
-        new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager, lockManager);
+        new MetalakeManager(
+            spyStore, new RandomIdGenerator(), catalogManager, () -> catalogManager, lockManager);
     NameIdentifier ident = NameIdentifier.of("metalake_force_drop_enabled_delete_fail");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     // Left enabled (a concurrent user's enable); no catalogs, so phase 1 succeeds without this
