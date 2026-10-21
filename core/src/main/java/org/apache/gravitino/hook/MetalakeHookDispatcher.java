@@ -127,8 +127,9 @@ public class MetalakeHookDispatcher implements MetalakeDispatcher {
   @Override
   public boolean dropMetalake(NameIdentifier ident, boolean force)
       throws NonEmptyEntityException, MetalakeInUseException {
-    // Child catalog/schema/fileset write-through secrets are cleaned when MetalakeManager
-    // force-drops catalogs via CatalogManager.dropCatalog → FilesetCatalogOperations.dropSchema.
+    // MetalakeManager force-drops each child catalog through the public catalog chain, so its drop
+    // events fire and the catalog hook removes it from the authorization plugins; the catalog
+    // manager under that chain cleans the catalog/schema/fileset write-through secrets.
     return dispatcher.dropMetalake(ident, force);
   }
 
