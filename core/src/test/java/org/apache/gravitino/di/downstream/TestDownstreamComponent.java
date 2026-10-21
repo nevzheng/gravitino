@@ -222,7 +222,7 @@ public class TestDownstreamComponent {
   public void testIsAGravitinoComponent() {
     GravitinoComponent upstream = component;
     assertNotNull(upstream.lockManager());
-    assertNull(Tagging.tag(upstream.catalogManager()));
+    assertNull(Tagging.tag(upstream.catalogAccess()));
   }
 
   /** Strips the tagging proxies off a chain and returns the upstream chain inside them. */

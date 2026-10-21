@@ -945,8 +945,8 @@ public class GravitinoEnv {
   private void initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    // Built here, after the catalog manager, as before; the lifecycle closes it.
-    component.metalakeManager();
+    // Building the internal metalake chain builds the metalake manager, after the catalog manager,
+    // as before; the lifecycle closes it.
     this.internalMetalakeDispatcher = component.internalMetalakeDispatcher();
     this.internalCatalogDispatcher = component.internalCatalogDispatcher();
 
@@ -999,7 +999,9 @@ public class GravitinoEnv {
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
-    this.catalogManager = component.catalogManager();
+    // The component exposes the manager only as its read-only CatalogAccess face, which is the
+    // manager itself; this environment's catalogManager() getter still hands out the manager.
+    this.catalogManager = (CatalogManager) component.catalogAccess();
   }
 
   private void initGravitinoServerComponents() {

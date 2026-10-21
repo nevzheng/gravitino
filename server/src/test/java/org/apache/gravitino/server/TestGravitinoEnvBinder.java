@@ -170,7 +170,7 @@ public class TestGravitinoEnvBinder {
       assertSame(eventBus, locator.getService(EventBus.class));
       assertSame(idGenerator, locator.getService(IdGenerator.class));
       assertSame(entityStore, locator.getService(EntityStore.class));
-      assertSame(catalogManager, locator.getService(CatalogManager.class));
+      assertNull(locator.getService(CatalogManager.class));
       assertSame(catalogManager, locator.getService(CatalogAccess.class));
       assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
       assertSame(

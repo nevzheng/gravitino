@@ -118,7 +118,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static FilesetOperationDispatcher filesetOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
@@ -132,7 +132,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static FilesetDispatcher internalFilesetDispatcher(
       @Undecorated FilesetOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<FilesetDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal FilesetDispatcher",
@@ -146,7 +146,7 @@ abstract class FilesetTopicModelModule {
   static FilesetDispatcher filesetDispatcher(
       EventBus eventBus,
       @Undecorated FilesetOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<FilesetDispatcher>> decorators) {
     FilesetHookDispatcher hook = new FilesetHookDispatcher(operations, authorizationServices);
@@ -160,7 +160,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static TopicOperationDispatcher topicOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -180,7 +180,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static TopicDispatcher internalTopicDispatcher(
       @Undecorated TopicOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<TopicDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal TopicDispatcher",
@@ -194,7 +194,7 @@ abstract class FilesetTopicModelModule {
   static TopicDispatcher topicDispatcher(
       EventBus eventBus,
       @Undecorated TopicOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<TopicDispatcher>> decorators) {
     TopicHookDispatcher hook = new TopicHookDispatcher(operations, authorizationServices);
@@ -208,7 +208,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static ModelOperationDispatcher modelOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager) {
@@ -220,7 +220,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static ModelDispatcher internalModelDispatcher(
       @Undecorated ModelOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<ModelDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal ModelDispatcher",
@@ -234,7 +234,7 @@ abstract class FilesetTopicModelModule {
   static ModelDispatcher modelDispatcher(
       EventBus eventBus,
       @Undecorated ModelOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<ModelDispatcher>> decorators) {
     ModelHookDispatcher hook = new ModelHookDispatcher(operations, authorizationServices);
@@ -248,7 +248,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static FunctionOperationDispatcher functionOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
@@ -263,7 +263,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static FunctionDispatcher internalFunctionDispatcher(
       @Undecorated FunctionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<FunctionDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal FunctionDispatcher",
@@ -277,7 +277,7 @@ abstract class FilesetTopicModelModule {
   static FunctionDispatcher functionDispatcher(
       EventBus eventBus,
       @Undecorated FunctionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<FunctionDispatcher>> decorators) {
     FunctionHookDispatcher hook = new FunctionHookDispatcher(operations, authorizationServices);
@@ -292,7 +292,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static SemanticModelDispatcher internalSemanticModelDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
@@ -312,7 +312,7 @@ abstract class FilesetTopicModelModule {
   @Public
   static SemanticModelDispatcher semanticModelDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
