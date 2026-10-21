@@ -87,8 +87,9 @@ import org.apache.gravitino.tag.TagDispatcher;
  *
  * <p>The modules are listed once, in {@link GravitinoModules}. A downstream root component extends
  * this interface and is built from {@link GravitinoModules} and its own modules. Those modules
- * change a chain by contributing a {@link DispatcherDecorator} for it; upstream contributes none,
- * so this component's chains are exactly what its modules build.
+ * change a chain by contributing a {@link DispatcherDecorator} for it, and add services to the
+ * {@link #lifecycle()} by contributing a {@link ManagedService}; upstream contributes neither, so
+ * this component's chains and lifecycle are exactly what its modules build.
  */
 @Singleton
 @Component(modules = GravitinoModules.class)

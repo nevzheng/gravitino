@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.di.downstream;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.IntoSet;
@@ -35,6 +36,7 @@ import org.apache.gravitino.catalog.TopicDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.di.DispatcherDecorator;
 import org.apache.gravitino.di.Internal;
+import org.apache.gravitino.di.ManagedService;
 import org.apache.gravitino.di.Public;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
@@ -44,7 +46,7 @@ import org.apache.gravitino.tag.TagDispatcher;
 
 /**
  * The module of {@link DownstreamComponent}: one tagging decorator for every chain, two more around
- * the public table chain to show the order.
+ * the public table chain to show the order, and a managed service.
  */
 @Module
 abstract class DownstreamModule {
@@ -302,4 +304,8 @@ abstract class DownstreamModule {
   static DispatcherDecorator<TableDispatcher> innerTableTag() {
     return Tagging.decorator(TableDispatcher.class, -10, "inner");
   }
+
+  @Binds
+  @IntoSet
+  abstract ManagedService downstreamServiceIsManaged(DownstreamService service);
 }

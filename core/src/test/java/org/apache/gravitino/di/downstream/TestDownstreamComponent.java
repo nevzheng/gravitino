@@ -168,6 +168,26 @@ public class TestDownstreamComponent {
   }
 
   @Test
+  public void testManagedServicesJoinTheLifecycle() throws Exception {
+    DownstreamService service = component.downstreamService();
+    assertSame(service, component.downstreamService());
+
+    component.lifecycle().start();
+    assertEquals(List.of("start"), service.calls);
+
+    component.lifecycle().close();
+    assertEquals(List.of("start", "stop"), service.calls);
+  }
+
+  @Test
+  public void testClosingALifecycleThatNeverStartedBuildsNoManagedService() throws Exception {
+    component.lifecycle().close();
+
+    // Had close() built the service, it would have stopped it; it is built only now.
+    assertEquals(List.of(), component.downstreamService().calls);
+  }
+
+  @Test
   public void testIsAGravitinoComponent() {
     GravitinoComponent upstream = component;
     assertNotNull(upstream.lockManager());

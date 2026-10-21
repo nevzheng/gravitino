@@ -36,7 +36,8 @@ import dagger.Module;
  * }</pre>
  *
  * <p>The downstream modules change the upstream dispatcher chains through {@link
- * DispatcherDecorator} contributions; they cannot bind a type an upstream module already binds.
+ * DispatcherDecorator} contributions and add services to the lifecycle through {@link
+ * ManagedService} contributions; they cannot bind a type an upstream module already binds.
  */
 @Module(
     includes = {

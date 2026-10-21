@@ -18,8 +18,16 @@
  */
 package org.apache.gravitino.di;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -52,6 +60,12 @@ import org.slf4j.LoggerFactory;
  * {@code GravitinoEnv.shutdown()} always did. The entity store, auxiliary services, job dispatcher
  * and statistic dispatcher log a failure to stop and carry on, as before; other failures are
  * collected and thrown after every service has been stopped.
+ *
+ * <p>The {@link ManagedService managed services} a downstream component contributes start after the
+ * auxiliary services, in ascending order, and stop first, in reverse. Unlike the services above,
+ * they are built when the lifecycle starts, not when it is built: a lifecycle that closes without
+ * starting, for example after an initialization that failed part way, builds and stops none of
+ * them. Only the managed services that started are stopped.
  */
 @Module
 abstract class LifecycleModule {
@@ -60,11 +74,17 @@ abstract class LifecycleModule {
 
   private LifecycleModule() {}
 
+  /** The services a downstream component adds; upstream contributes none. */
+  @Multibinds
+  abstract Set<ManagedService> managedServices();
+
   @Provides
   @Singleton
-  static Lifecycle lifecycle(BuiltServices built, LegacyBridge legacy) {
+  static Lifecycle lifecycle(
+      BuiltServices built, LegacyBridge legacy, Provider<Set<ManagedService>> managedServices) {
     // Services are listed in start order and stop in reverse.
-    return Lifecycle.builder()
+    Lifecycle.Builder lifecycle = Lifecycle.builder();
+    lifecycle
         .alwaysStop()
         // Stopped last: the services above may take tree locks while they stop.
         .addStopOnly(
@@ -108,8 +128,26 @@ abstract class LifecycleModule {
             "entity store",
             logFailure(
                 "Failed to close EntityStore.",
-                () -> built.ifBuilt(BuiltServices.ENTITY_STORE, EntityStore::close)))
-        .build();
+                () -> built.ifBuilt(BuiltServices.ENTITY_STORE, EntityStore::close)));
+    // Managed services start after the services above and stop before them.
+    ManagedServices managed = new ManagedServices(managedServices);
+    lifecycle.add("managed services", managed::start, managed::stop);
+    return lifecycle.build();
+  }
+
+  /** Sorts the managed services by order, and rejects two with the same order. */
+  private static List<ManagedService> inOrder(Set<ManagedService> services) {
+    List<ManagedService> ordered = new ArrayList<>(services);
+    ordered.sort(Comparator.comparingInt(ManagedService::order));
+    for (int i = 1; i < ordered.size(); i++) {
+      Preconditions.checkState(
+          ordered.get(i - 1).order() != ordered.get(i).order(),
+          "Managed services %s and %s have order %s",
+          ordered.get(i - 1).name(),
+          ordered.get(i).name(),
+          ordered.get(i).order());
+    }
+    return ordered;
   }
 
   /** Closes the public statistic chain if it was built, and the statistic manager otherwise. */
@@ -149,6 +187,51 @@ abstract class LifecycleModule {
     }
     if (failure != null) {
       throw failure;
+    }
+  }
+
+  /**
+   * The managed services of the lifecycle. They are built when the lifecycle starts, so building or
+   * closing a lifecycle that never started builds none of them. Each one is recorded once its start
+   * returns, and only the recorded ones are stopped when the lifecycle closes or its start fails: a
+   * service whose start threw, and the services after it, are not stopped. The lifecycle calls
+   * these methods while it holds its lock.
+   */
+  private static final class ManagedServices {
+    private final Provider<Set<ManagedService>> provider;
+    private List<ManagedService> started = new ArrayList<>();
+
+    private ManagedServices(Provider<Set<ManagedService>> provider) {
+      this.provider = provider;
+    }
+
+    /** Builds the managed services, then starts them in ascending order. */
+    private void start() throws Exception {
+      for (ManagedService service : inOrder(provider.get())) {
+        service.start();
+        started.add(service);
+      }
+    }
+
+    /** Stops every managed service that started, in reverse order, once. */
+    private void stop() throws Exception {
+      List<ManagedService> toStop = started;
+      started = new ArrayList<>();
+      Exception failure = null;
+      for (ManagedService service : Lists.reverse(toStop)) {
+        try {
+          service.stop();
+        } catch (Exception e) {
+          if (failure == null) {
+            failure = e;
+          } else {
+            failure.addSuppressed(e);
+          }
+        }
+      }
+      if (failure != null) {
+        throw failure;
+      }
     }
   }
 }

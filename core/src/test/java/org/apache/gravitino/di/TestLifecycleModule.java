@@ -25,10 +25,15 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
+import java.util.Set;
+import javax.inject.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -82,7 +87,7 @@ public class TestLifecycleModule {
   @Test
   public void testFullProfileStartsAndStopsInTheEnvironmentOrder() throws Exception {
     buildFullProfile();
-    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy);
+    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy, ImmutableSet::of);
 
     lifecycle.start();
     InOrder start = inOrder(metrics, listeners, legacy);
@@ -97,7 +102,7 @@ public class TestLifecycleModule {
   @Test
   public void testStopsEveryBuiltServiceWhenNeverStarted() throws Exception {
     buildFullProfile();
-    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy);
+    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy, ImmutableSet::of);
 
     lifecycle.close();
 
@@ -114,7 +119,7 @@ public class TestLifecycleModule {
     built.add(BuiltServices.EVENT_LISTENER_MANAGER, listeners);
     built.add(BuiltServices.KMS_CLIENT_REGISTRY, kms);
     built.add(BuiltServices.SECRET_MANAGER, secrets);
-    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy);
+    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy, ImmutableSet::of);
 
     lifecycle.start();
     lifecycle.close();
@@ -133,7 +138,7 @@ public class TestLifecycleModule {
     // The metadata profile builds only the internal statistic chain.
     built.add(BuiltServices.INTERNAL_STATISTIC_DISPATCHER, internalStatistics);
 
-    LifecycleModule.lifecycle(built, legacy).close();
+    LifecycleModule.lifecycle(built, legacy, ImmutableSet::of).close();
 
     verify(internalStatistics).close();
   }
@@ -146,7 +151,7 @@ public class TestLifecycleModule {
     doThrow(new IOException("statistics")).when(statistics).close();
 
     // These failures were always logged and swallowed, so close() does not throw.
-    LifecycleModule.lifecycle(built, legacy).close();
+    LifecycleModule.lifecycle(built, legacy, ImmutableSet::of).close();
 
     verifyStopOrder();
   }
@@ -159,7 +164,7 @@ public class TestLifecycleModule {
     doThrow(catalogFailure).when(catalogs).close();
     doThrow(metricsFailure).when(metrics).close();
 
-    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy);
+    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy, ImmutableSet::of);
     Lifecycle.LifecycleException failure =
         assertThrows(Lifecycle.LifecycleException.class, lifecycle::close);
 
@@ -176,7 +181,7 @@ public class TestLifecycleModule {
     IllegalStateException failure = new IllegalStateException("aux");
     doThrow(failure).when(legacy).startAuxiliaryServices();
 
-    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy);
+    Lifecycle lifecycle = LifecycleModule.lifecycle(built, legacy, ImmutableSet::of);
 
     assertSame(failure, assertThrows(IllegalStateException.class, lifecycle::start));
     verifyStopOrder();
@@ -211,6 +216,110 @@ public class TestLifecycleModule {
     built.add(BuiltServices.STATISTIC_DISPATCHER, statistics);
     built.add(BuiltServices.JOB_OPERATION_DISPATCHER, jobs);
     built.add(BuiltServices.LOCK_MANAGER, locks);
+  }
+
+  @Test
+  public void testManagedServicesStartLastAndStopFirstInTheirOrder() throws Exception {
+    buildFullProfile();
+    ManagedService search = mock(ManagedService.class);
+    when(search.order()).thenReturn(20);
+    when(search.name()).thenReturn("search");
+    ManagedService license = mock(ManagedService.class);
+    when(license.order()).thenReturn(10);
+    when(license.name()).thenReturn("license");
+    Lifecycle lifecycle =
+        LifecycleModule.lifecycle(built, legacy, () -> ImmutableSet.of(search, license));
+
+    lifecycle.start();
+    InOrder start = inOrder(metrics, listeners, legacy, license, search);
+    start.verify(metrics).start();
+    start.verify(listeners).start();
+    start.verify(legacy).startAuxiliaryServices();
+    start.verify(license).start();
+    start.verify(search).start();
+
+    lifecycle.close();
+    InOrder stop = inOrder(search, license, entityStore);
+    stop.verify(search).stop();
+    stop.verify(license).stop();
+    stop.verify(entityStore).close();
+    verifyStopOrder();
+  }
+
+  @Test
+  public void testManagedServicesAreNotBuiltWhenNeverStarted() throws Exception {
+    buildFullProfile();
+    @SuppressWarnings("unchecked")
+    Provider<Set<ManagedService>> managedServices = mock(Provider.class);
+
+    LifecycleModule.lifecycle(built, legacy, managedServices).close();
+
+    // A shutdown after an initialization that failed part way builds no managed service.
+    verifyNoInteractions(managedServices);
+    verifyStopOrder();
+  }
+
+  @Test
+  public void testManagedServicesThatFailToBuildStopTheOthers() throws Exception {
+    buildFullProfile();
+    IllegalStateException failure = new IllegalStateException("cannot build");
+    Lifecycle lifecycle =
+        LifecycleModule.lifecycle(
+            built,
+            legacy,
+            () -> {
+              throw failure;
+            });
+
+    assertSame(failure, assertThrows(IllegalStateException.class, lifecycle::start));
+    verifyStopOrder();
+    lifecycle.close();
+  }
+
+  @Test
+  public void testOnlyStartedManagedServicesStopWhenOneFailsToStart() throws Exception {
+    buildFullProfile();
+    ManagedService audit = mock(ManagedService.class);
+    when(audit.order()).thenReturn(5);
+    when(audit.name()).thenReturn("audit");
+    ManagedService license = mock(ManagedService.class);
+    when(license.order()).thenReturn(10);
+    when(license.name()).thenReturn("license");
+    ManagedService search = mock(ManagedService.class);
+    when(search.order()).thenReturn(20);
+    when(search.name()).thenReturn("search");
+    IOException failure = new IOException("license expired");
+    doThrow(failure).when(license).start();
+    Lifecycle lifecycle =
+        LifecycleModule.lifecycle(built, legacy, () -> ImmutableSet.of(search, license, audit));
+
+    assertSame(failure, assertThrows(IOException.class, lifecycle::start));
+    lifecycle.close();
+
+    // Only the service that started is stopped, once: the failed one and the one after it never
+    // started.
+    verify(audit, times(1)).start();
+    verify(audit, times(1)).stop();
+    verify(license, never()).stop();
+    verify(search, never()).start();
+    verify(search, never()).stop();
+    InOrder stop = inOrder(audit, entityStore);
+    stop.verify(audit).stop();
+    stop.verify(entityStore).close();
+  }
+
+  @Test
+  public void testTwoManagedServicesWithTheSameOrderAreRejected() throws Exception {
+    ManagedService first = mock(ManagedService.class);
+    when(first.order()).thenReturn(5);
+    ManagedService second = mock(ManagedService.class);
+    when(second.order()).thenReturn(5);
+    Lifecycle lifecycle =
+        LifecycleModule.lifecycle(built, legacy, () -> ImmutableSet.of(first, second));
+
+    assertThrows(IllegalStateException.class, lifecycle::start);
+    verify(first, never()).start();
+    verify(second, never()).start();
   }
 
   /** The order GravitinoEnv.shutdown() has always used. */
