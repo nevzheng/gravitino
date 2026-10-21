@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Set;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
@@ -55,9 +57,10 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>Each type has two chains. The {@link Internal} chain is normalize → operation and is used by
  * infrastructure code. The {@link Public} chain is event → normalize → hook → operation, except for
- * partitions, whose public chain is event → the internal chain because partitions have no hook. The
- * schema chains share one {@link SchemaOperationDispatcher}; the table and view chains each build
- * their own operation dispatcher, as {@code GravitinoEnv} did.
+ * partitions, whose public chain is event → the undecorated internal chain because partitions have
+ * no hook. Each chain is wrapped in its {@link DispatcherDecorator decorators}. The schema chains
+ * share one {@link SchemaOperationDispatcher}; the table and view chains each build their own
+ * operation dispatcher, as {@code GravitinoEnv} did.
  *
  * <p>Table and view operation dispatchers import missing schemas through the internal schema chain.
  * They take it as a {@link Provider} and resolve it on first use (§5.3 of the design).
@@ -67,8 +70,41 @@ abstract class SchemaTableModule {
 
   private SchemaTableModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<SchemaDispatcher>> internalSchemaDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<SchemaDispatcher>> schemaDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<TableDispatcher>> internalTableDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<TableDispatcher>> tableDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<PartitionDispatcher>> internalPartitionDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<PartitionDispatcher>> partitionDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<ViewDispatcher>> internalViewDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<ViewDispatcher>> viewDecorators();
+
   @Provides
   @Singleton
+  @Undecorated
   static SchemaOperationDispatcher schemaOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
@@ -84,8 +120,13 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static SchemaDispatcher internalSchemaDispatcher(
-      SchemaOperationDispatcher operations, CatalogManager catalogManager) {
-    return new SchemaNormalizeDispatcher(operations, catalogManager);
+      @Undecorated SchemaOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Set<DispatcherDecorator<SchemaDispatcher>> decorators) {
+    return Decorators.apply(
+        "@Internal SchemaDispatcher",
+        new SchemaNormalizeDispatcher(operations, catalogManager),
+        decorators);
   }
 
   @Provides
@@ -93,11 +134,15 @@ abstract class SchemaTableModule {
   @Public
   static SchemaDispatcher schemaDispatcher(
       EventBus eventBus,
-      SchemaOperationDispatcher operations,
+      @Undecorated SchemaOperationDispatcher operations,
       CatalogManager catalogManager,
-      LockManager lockManager) {
+      LockManager lockManager,
+      @Public Set<DispatcherDecorator<SchemaDispatcher>> decorators) {
     SchemaHookDispatcher hook = new SchemaHookDispatcher(operations, lockManager);
-    return new SchemaEventDispatcher(eventBus, new SchemaNormalizeDispatcher(hook, catalogManager));
+    return Decorators.apply(
+        "@Public SchemaDispatcher",
+        new SchemaEventDispatcher(eventBus, new SchemaNormalizeDispatcher(hook, catalogManager)),
+        decorators);
   }
 
   @Provides
@@ -109,7 +154,8 @@ abstract class SchemaTableModule {
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
-      LockManager lockManager) {
+      LockManager lockManager,
+      @Internal Set<DispatcherDecorator<TableDispatcher>> decorators) {
     TableOperationDispatcher operations =
         new TableOperationDispatcher(
             catalogManager,
@@ -118,7 +164,10 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    return new TableNormalizeDispatcher(operations, catalogManager);
+    return Decorators.apply(
+        "@Internal TableDispatcher",
+        new TableNormalizeDispatcher(operations, catalogManager),
+        decorators);
   }
 
   @Provides
@@ -133,7 +182,8 @@ abstract class SchemaTableModule {
       SecretManager secretManager,
       LockManager lockManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Set<DispatcherDecorator<TableDispatcher>> decorators) {
     TableOperationDispatcher operations =
         new TableOperationDispatcher(
             catalogManager,
@@ -145,13 +195,17 @@ abstract class SchemaTableModule {
     TableHookDispatcher hook =
         new TableHookDispatcher(
             operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new TableEventDispatcher(eventBus, new TableNormalizeDispatcher(hook, catalogManager));
+    return Decorators.apply(
+        "@Public TableDispatcher",
+        new TableEventDispatcher(eventBus, new TableNormalizeDispatcher(hook, catalogManager)),
+        decorators);
   }
 
+  /** Builds the undecorated internal partition chain, which the public chain wraps. */
   @Provides
   @Singleton
-  @Internal
-  static PartitionDispatcher internalPartitionDispatcher(
+  @Undecorated
+  static PartitionNormalizeDispatcher partitionNormalizeDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
@@ -163,10 +217,24 @@ abstract class SchemaTableModule {
 
   @Provides
   @Singleton
+  @Internal
+  static PartitionDispatcher internalPartitionDispatcher(
+      @Undecorated PartitionNormalizeDispatcher normalize,
+      @Internal Set<DispatcherDecorator<PartitionDispatcher>> decorators) {
+    return Decorators.apply("@Internal PartitionDispatcher", normalize, decorators);
+  }
+
+  @Provides
+  @Singleton
   @Public
   static PartitionDispatcher partitionDispatcher(
-      EventBus eventBus, @Internal PartitionDispatcher internal) {
-    return new PartitionEventDispatcher(eventBus, internal);
+      EventBus eventBus,
+      @Undecorated PartitionNormalizeDispatcher normalize,
+      @Public Set<DispatcherDecorator<PartitionDispatcher>> decorators) {
+    return Decorators.apply(
+        "@Public PartitionDispatcher",
+        new PartitionEventDispatcher(eventBus, normalize),
+        decorators);
   }
 
   @Provides
@@ -178,7 +246,8 @@ abstract class SchemaTableModule {
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
-      LockManager lockManager) {
+      LockManager lockManager,
+      @Internal Set<DispatcherDecorator<ViewDispatcher>> decorators) {
     ViewOperationDispatcher operations =
         new ViewOperationDispatcher(
             catalogManager,
@@ -187,7 +256,10 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    return new ViewNormalizeDispatcher(operations, catalogManager);
+    return Decorators.apply(
+        "@Internal ViewDispatcher",
+        new ViewNormalizeDispatcher(operations, catalogManager),
+        decorators);
   }
 
   @Provides
@@ -202,7 +274,8 @@ abstract class SchemaTableModule {
       SecretManager secretManager,
       LockManager lockManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Set<DispatcherDecorator<ViewDispatcher>> decorators) {
     ViewOperationDispatcher operations =
         new ViewOperationDispatcher(
             catalogManager,
@@ -214,6 +287,9 @@ abstract class SchemaTableModule {
     ViewHookDispatcher hook =
         new ViewHookDispatcher(
             operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new ViewEventDispatcher(eventBus, new ViewNormalizeDispatcher(hook, catalogManager));
+    return Decorators.apply(
+        "@Public ViewDispatcher",
+        new ViewEventDispatcher(eventBus, new ViewNormalizeDispatcher(hook, catalogManager)),
+        decorators);
   }
 }

@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Set;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -46,13 +48,30 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
  * chains are event → normalize → hook → manager, around the same manager instance. Dagger does not
- * close the managers; the {@link LifecycleModule lifecycle} does.
+ * close the managers; the {@link LifecycleModule lifecycle} does. Each chain is wrapped in its
+ * {@link DispatcherDecorator decorators}.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class CatalogModule {
 
   private CatalogModule() {}
+
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<MetalakeDispatcher>> internalMetalakeDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<MetalakeDispatcher>> metalakeDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Set<DispatcherDecorator<CatalogDispatcher>> internalCatalogDecorators();
+
+  @Multibinds
+  @Public
+  abstract Set<DispatcherDecorator<CatalogDispatcher>> catalogDecorators();
 
   /**
    * Builds the catalog manager. It starts its catalog cache cleaner and registers a change-log
@@ -94,30 +113,50 @@ abstract class CatalogModule {
   @Provides
   @Singleton
   @Internal
-  static MetalakeDispatcher internalMetalakeDispatcher(MetalakeManager metalakeManager) {
-    return new MetalakeNormalizeDispatcher(metalakeManager);
+  static MetalakeDispatcher internalMetalakeDispatcher(
+      MetalakeManager metalakeManager,
+      @Internal Set<DispatcherDecorator<MetalakeDispatcher>> decorators) {
+    return Decorators.apply(
+        "@Internal MetalakeDispatcher",
+        new MetalakeNormalizeDispatcher(metalakeManager),
+        decorators);
   }
 
   @Provides
   @Singleton
   @Public
-  static MetalakeDispatcher metalakeDispatcher(EventBus eventBus, MetalakeManager metalakeManager) {
+  static MetalakeDispatcher metalakeDispatcher(
+      EventBus eventBus,
+      MetalakeManager metalakeManager,
+      @Public Set<DispatcherDecorator<MetalakeDispatcher>> decorators) {
     MetalakeHookDispatcher hook = new MetalakeHookDispatcher(metalakeManager);
-    return new MetalakeEventDispatcher(eventBus, new MetalakeNormalizeDispatcher(hook));
+    return Decorators.apply(
+        "@Public MetalakeDispatcher",
+        new MetalakeEventDispatcher(eventBus, new MetalakeNormalizeDispatcher(hook)),
+        decorators);
   }
 
   @Provides
   @Singleton
   @Internal
-  static CatalogDispatcher internalCatalogDispatcher(CatalogManager catalogManager) {
-    return new CatalogNormalizeDispatcher(catalogManager);
+  static CatalogDispatcher internalCatalogDispatcher(
+      CatalogManager catalogManager,
+      @Internal Set<DispatcherDecorator<CatalogDispatcher>> decorators) {
+    return Decorators.apply(
+        "@Internal CatalogDispatcher", new CatalogNormalizeDispatcher(catalogManager), decorators);
   }
 
   @Provides
   @Singleton
   @Public
-  static CatalogDispatcher catalogDispatcher(EventBus eventBus, CatalogManager catalogManager) {
+  static CatalogDispatcher catalogDispatcher(
+      EventBus eventBus,
+      CatalogManager catalogManager,
+      @Public Set<DispatcherDecorator<CatalogDispatcher>> decorators) {
     CatalogHookDispatcher hook = new CatalogHookDispatcher(catalogManager);
-    return new CatalogEventDispatcher(eventBus, new CatalogNormalizeDispatcher(hook));
+    return Decorators.apply(
+        "@Public CatalogDispatcher",
+        new CatalogEventDispatcher(eventBus, new CatalogNormalizeDispatcher(hook)),
+        decorators);
   }
 }

@@ -37,7 +37,6 @@ import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.PartitionDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.TopicDispatcher;
@@ -77,28 +76,22 @@ import org.apache.gravitino.tag.TagDispatcher;
  * and {@link LegacyModule}, so every object is built by exactly one side.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
- * chain for REST resources. The component builds nothing until it is asked: {@code GravitinoEnv}
- * asks for each object at the point of its initialization sequence where it used to build it.
+ * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
+ * bound with a package-private qualifier, {@link Undecorated}, and not exposed here, so no consumer
+ * can bypass a chain's hooks and decorators by injecting the object under it. The component builds
+ * nothing until it is asked: {@code GravitinoEnv} asks for each object at the point of its
+ * initialization sequence where it used to build it.
  *
  * <p>Singletons are per component: each component instance builds its own objects, each one the
  * first time it is requested.
+ *
+ * <p>The modules are listed once, in {@link GravitinoModules}. A downstream root component extends
+ * this interface and is built from {@link GravitinoModules} and its own modules. Those modules
+ * change a chain by contributing a {@link DispatcherDecorator} for it; upstream contributes none,
+ * so this component's chains are exactly what its modules build.
  */
 @Singleton
-@Component(
-    modules = {
-      ConfigModule.class,
-      StorageModule.class,
-      LockModule.class,
-      EventModule.class,
-      CatalogModule.class,
-      SchemaTableModule.class,
-      FilesetTopicModelModule.class,
-      GovernanceModule.class,
-      AuthorizationModule.class,
-      JobModule.class,
-      LifecycleModule.class,
-      LegacyModule.class
-    })
+@Component(modules = GravitinoModules.class)
 public interface GravitinoComponent {
 
   /**
@@ -236,16 +229,9 @@ public interface GravitinoComponent {
   SecretPropertyOperationDispatcher secretPropertyOperationDispatcher();
 
   /**
-   * Returns the schema operation dispatcher shared by the internal and public schema chains.
-   *
-   * <p>The function and semantic model operation dispatchers also work on schemas through it.
-   *
-   * @return the schema operation dispatcher
-   */
-  SchemaOperationDispatcher schemaOperationDispatcher();
-
-  /**
-   * Returns the internal schema chain: normalize, then {@link #schemaOperationDispatcher()}.
+   * Returns the internal schema chain: normalize, then the schema operation dispatcher that the
+   * internal and public schema chains share. The function and semantic model operation dispatchers
+   * also work on schemas through it.
    *
    * @return the internal schema dispatcher
    */
@@ -253,8 +239,8 @@ public interface GravitinoComponent {
   SchemaDispatcher internalSchemaDispatcher();
 
   /**
-   * Returns the public schema chain: event, normalize, hook, then {@link
-   * #schemaOperationDispatcher()}.
+   * Returns the public schema chain: event, normalize, hook, then the shared schema operation
+   * dispatcher.
    *
    * @return the public schema dispatcher
    */
