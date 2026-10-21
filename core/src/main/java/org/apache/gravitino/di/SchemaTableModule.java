@@ -106,7 +106,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Undecorated
   static SchemaOperationDispatcher schemaOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
@@ -121,7 +121,7 @@ abstract class SchemaTableModule {
   @Internal
   static SchemaDispatcher internalSchemaDispatcher(
       @Undecorated SchemaOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<SchemaDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal SchemaDispatcher",
@@ -135,7 +135,7 @@ abstract class SchemaTableModule {
   static SchemaDispatcher schemaDispatcher(
       EventBus eventBus,
       @Undecorated SchemaOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       LockManager lockManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<SchemaDispatcher>> decorators) {
@@ -151,7 +151,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static TableDispatcher internalTableDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -177,7 +177,7 @@ abstract class SchemaTableModule {
   @Public
   static TableDispatcher tableDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -205,7 +205,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Undecorated
   static PartitionNormalizeDispatcher partitionNormalizeDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager) {
@@ -240,7 +240,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static ViewDispatcher internalViewDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -266,7 +266,7 @@ abstract class SchemaTableModule {
   @Public
   static ViewDispatcher viewDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,

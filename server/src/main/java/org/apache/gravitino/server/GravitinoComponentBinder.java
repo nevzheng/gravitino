@@ -27,7 +27,6 @@ import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -130,8 +129,8 @@ class GravitinoComponentBinder extends AbstractBinder {
     bind(component.eventBus()).to(EventBus.class).ranked(1);
     bind(component.idGenerator()).to(IdGenerator.class).ranked(1);
     bind(component.entityStore()).to(EntityStore.class).ranked(1);
-    bind(component.catalogManager()).to(CatalogManager.class).ranked(1);
-    bind(component.catalogAccess()).to(CatalogAccess.class).ranked(1);
+    // Advertised only as CatalogAccess, so no resource can inject the catalog manager under it.
+    addActiveDescriptor(ContractBinding.only(component.catalogAccess(), CatalogAccess.class));
     bind(component.auxiliaryServiceManager()).to(AuxiliaryServiceManager.class).ranked(1);
     bind(component.internalTableDispatcher())
         .to(TableDispatcher.class)

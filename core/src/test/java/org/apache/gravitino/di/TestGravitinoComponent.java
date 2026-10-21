@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -36,6 +37,8 @@ import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerManager;
+import org.apache.gravitino.catalog.CatalogAccess;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
 import org.apache.gravitino.catalog.FunctionOperationDispatcher;
 import org.apache.gravitino.catalog.ModelOperationDispatcher;
@@ -44,6 +47,7 @@ import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 import org.apache.gravitino.catalog.TopicOperationDispatcher;
 import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
+import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.stats.StatisticManager;
@@ -103,13 +107,29 @@ public class TestGravitinoComponent {
             FilesetOperationDispatcher.class,
             TopicOperationDispatcher.class,
             ModelOperationDispatcher.class,
-            FunctionOperationDispatcher.class);
+            FunctionOperationDispatcher.class,
+            CatalogManager.class,
+            MetalakeManager.class);
     for (Method method : GravitinoComponent.class.getMethods()) {
       for (Class<?> type : undecorated) {
         assertFalse(
             type.isAssignableFrom(method.getReturnType()),
             method.getName() + " exposes " + type.getSimpleName());
       }
+    }
+  }
+
+  @Test
+  public void testExposesTheCatalogManagerOnlyAsCatalogAccess() throws Exception {
+    // testExposesNoUndecoratedImplementation covers both managers; outside the chains the catalog
+    // manager is reached only through CatalogAccess, which has no method that changes a catalog.
+    Method catalogAccess = GravitinoComponent.class.getMethod("catalogAccess");
+    assertSame(CatalogAccess.class, catalogAccess.getReturnType());
+    assertTrue(CatalogAccess.class.isInterface());
+    for (Method method : CatalogAccess.class.getMethods()) {
+      assertFalse(
+          method.getName().matches("(create|alter|drop|enable|disable|testConnection).*"),
+          "CatalogAccess exposes " + method.getName());
     }
   }
 

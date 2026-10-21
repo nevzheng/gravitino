@@ -29,7 +29,6 @@ import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -131,8 +130,11 @@ class GravitinoEnvBinder extends AbstractBinder {
     bindIfPresent(gravitinoEnv.eventBus(), EventBus.class);
     bindIfPresent(gravitinoEnv.idGenerator(), IdGenerator.class);
     bindIfPresent(gravitinoEnv.entityStore(), EntityStore.class);
-    bindIfPresent(gravitinoEnv.catalogManager(), CatalogManager.class);
-    bindIfPresent(gravitinoEnv.catalogManager(), CatalogAccess.class);
+    CatalogAccess catalogAccess = gravitinoEnv.catalogManager();
+    if (catalogAccess != null) {
+      // Advertised only as CatalogAccess, so no resource can inject the catalog manager under it.
+      addActiveDescriptor(ContractBinding.only(catalogAccess, CatalogAccess.class));
+    }
     bindIfPresent(gravitinoEnv.auxServiceManager(), AuxiliaryServiceManager.class);
     TableDispatcher internalTableDispatcher = gravitinoEnv.internalTableDispatcher();
     if (internalTableDispatcher != null) {

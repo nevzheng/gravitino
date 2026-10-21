@@ -212,7 +212,6 @@ public class TestGravitinoComponentBinder {
       when(component.eventBus()).thenReturn(eventBus);
       when(component.idGenerator()).thenReturn(idGenerator);
       when(component.entityStore()).thenReturn(entityStore);
-      when(component.catalogManager()).thenReturn(catalogManager);
       when(component.catalogAccess()).thenReturn(catalogManager);
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.tableDispatcher()).thenReturn(tables);
@@ -233,7 +232,7 @@ public class TestGravitinoComponentBinder {
         assertSame(eventBus, locator.getService(EventBus.class));
         assertSame(idGenerator, locator.getService(IdGenerator.class));
         assertSame(entityStore, locator.getService(EntityStore.class));
-        assertSame(catalogManager, locator.getService(CatalogManager.class));
+        assertNull(locator.getService(CatalogManager.class));
         assertSame(catalogManager, locator.getService(CatalogAccess.class));
         assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
         assertNotNull(locator.getService(MetadataAccessChecker.class));
@@ -280,7 +279,6 @@ public class TestGravitinoComponentBinder {
       when(component.eventBus()).thenReturn(eventBus);
       when(component.idGenerator()).thenReturn(idGenerator);
       when(component.entityStore()).thenReturn(entityStore);
-      when(component.catalogManager()).thenReturn(catalogManager);
       when(component.catalogAccess()).thenReturn(catalogManager);
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.internalTableDispatcher()).thenReturn(internalTables);

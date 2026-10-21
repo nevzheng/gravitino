@@ -36,6 +36,7 @@ import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
+import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
@@ -47,12 +48,16 @@ import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 
 /**
- * Binds the catalog and metalake managers and their dispatcher chains. The credential and secret
- * property dispatchers that work on catalogs have {@code @Inject} constructors, so they need no
- * binding here.
+ * Binds the catalog and metalake managers, their dispatcher chains and the credential and secret
+ * property dispatchers that work on catalogs.
+ *
+ * <p>Both managers are bound {@link Undecorated}, so only this package can inject them: the
+ * metalake manager is reached through its chains, and the catalog manager through its chains and
+ * through {@link CatalogAccess}, which has no method that changes a catalog.
  *
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
  * chains are event → normalize → hook → manager, around the same manager instance. Dagger does not
@@ -90,6 +95,7 @@ abstract class CatalogModule {
    */
   @Provides
   @Singleton
+  @Undecorated
   static CatalogManager catalogManager(
       Config config,
       @AuthorizationEnabled boolean authorizationEnabled,
@@ -130,7 +136,7 @@ abstract class CatalogModule {
    * @return the catalog access
    */
   @Binds
-  abstract CatalogAccess catalogAccess(CatalogManager catalogManager);
+  abstract CatalogAccess catalogAccess(@Undecorated CatalogManager catalogManager);
 
   /**
    * Builds the metalake manager. It takes the catalog manager so that a force drop removes the
@@ -138,10 +144,11 @@ abstract class CatalogModule {
    */
   @Provides
   @Singleton
+  @Undecorated
   static MetalakeManager metalakeManager(
       EntityStore entityStore,
       IdGenerator idGenerator,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       LockManager lockManager,
       BuiltServices built) {
     return built.add(
@@ -153,7 +160,7 @@ abstract class CatalogModule {
   @Singleton
   @Internal
   static MetalakeDispatcher internalMetalakeDispatcher(
-      MetalakeManager metalakeManager,
+      @Undecorated MetalakeManager metalakeManager,
       @Internal Set<DispatcherDecorator<MetalakeDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal MetalakeDispatcher",
@@ -166,7 +173,7 @@ abstract class CatalogModule {
   @Public
   static MetalakeDispatcher metalakeDispatcher(
       EventBus eventBus,
-      MetalakeManager metalakeManager,
+      @Undecorated MetalakeManager metalakeManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<MetalakeDispatcher>> decorators) {
     MetalakeHookDispatcher hook =
@@ -181,7 +188,7 @@ abstract class CatalogModule {
   @Singleton
   @Internal
   static CatalogDispatcher internalCatalogDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Set<DispatcherDecorator<CatalogDispatcher>> decorators) {
     return Decorators.apply(
         "@Internal CatalogDispatcher", new CatalogNormalizeDispatcher(catalogManager), decorators);
@@ -192,7 +199,7 @@ abstract class CatalogModule {
   @Public
   static CatalogDispatcher catalogDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Set<DispatcherDecorator<CatalogDispatcher>> decorators) {
     CatalogHookDispatcher hook = new CatalogHookDispatcher(catalogManager, authorizationServices);
@@ -200,5 +207,46 @@ abstract class CatalogModule {
         "@Public CatalogDispatcher",
         new CatalogEventDispatcher(eventBus, new CatalogNormalizeDispatcher(hook)),
         decorators);
+  }
+
+  /**
+   * Builds the credential operation dispatcher, which reaches the catalogs through the catalog
+   * manager.
+   *
+   * @param catalogManager the catalog manager
+   * @param entityStore the entity store
+   * @param idGenerator the id generator
+   * @param secretManager the secret manager
+   * @return the credential operation dispatcher
+   */
+  @Provides
+  @Singleton
+  static CredentialOperationDispatcher credentialOperationDispatcher(
+      @Undecorated CatalogManager catalogManager,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      SecretManager secretManager) {
+    return new CredentialOperationDispatcher(
+        catalogManager, entityStore, idGenerator, secretManager);
+  }
+
+  /**
+   * Builds the secret property dispatcher, which reaches the catalogs through the catalog manager.
+   *
+   * @param catalogManager the catalog manager
+   * @param entityStore the entity store
+   * @param idGenerator the id generator
+   * @param secretManager the secret manager
+   * @return the secret property dispatcher
+   */
+  @Provides
+  @Singleton
+  static SecretPropertyOperationDispatcher secretPropertyOperationDispatcher(
+      @Undecorated CatalogManager catalogManager,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      SecretManager secretManager) {
+    return new SecretPropertyOperationDispatcher(
+        catalogManager, entityStore, idGenerator, secretManager);
   }
 }
