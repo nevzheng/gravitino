@@ -53,38 +53,18 @@ jobs:
     outputs:
       source_changes: ${{ steps.filter.outputs.source_changes }}
 
-  BackendIT-on-push:
+  BackendIT:
     needs: changes
-    if: (github.event_name == 'push' && needs.changes.outputs.source_changes == 'true')
+    if: needs.changes.outputs.source_changes == 'true'
     strategy:
-      matrix:
-        architecture: [linux/amd64]
-        java-version: [ 17 ]
-        backend: [ h2, mysql, postgresql ]
-        test-mode: [ embedded, deploy ]
-        exclude:
-          - test-mode: 'embedded'
-            backend: 'mysql'
-          - test-mode: 'embedded'
-            backend: 'postgresql'
-          - test-mode: 'deploy'
-            backend: 'h2'
-    uses: ./.github/workflows/backend-integration-test-action.yml
-    with:
-      architecture: ${{ matrix.architecture }}
-      java-version: ${{ matrix.java-version }}
-      backend: ${{ matrix.backend }}
-      test-mode: ${{ matrix.test-mode }}
-
-  BackendIT-on-pr:
-    needs: changes
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.source_changes == 'true')
-    strategy:
+      fail-fast: false
       matrix:
         architecture: [ linux/amd64 ]
         java-version: [ 17 ]
         backend: [ h2, mysql, postgresql ]
         test-mode: [ embedded, deploy ]
+        # One job per shard. Shards are defined in build.gradle.kts.
+        shard: [ hive, lakehouse, others ]
         exclude:
           - test-mode: 'embedded'
             backend: 'mysql'
@@ -92,9 +72,18 @@ jobs:
             backend: 'postgresql'
           - test-mode: 'deploy'
             backend: 'h2'
+        include:
+          - shard: hive
+            test-task: backendITHive
+          - shard: lakehouse
+            test-task: backendITLakehouse
+          - shard: others
+            test-task: backendITOthers
     uses: ./.github/workflows/backend-integration-test-action.yml
     with:
       architecture: ${{ matrix.architecture }}
       java-version: ${{ matrix.java-version }}
       backend: ${{ matrix.backend }}
       test-mode: ${{ matrix.test-mode }}
+      shard: ${{ matrix.shard }}
+      test-task: ${{ matrix.test-task }}

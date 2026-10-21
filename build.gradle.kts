@@ -1599,6 +1599,50 @@ tasks {
   }
 }
 
+// Backend integration tests run in CI as shards, one job per shard. Integration tests share one
+// test environment lock, so a single job runs them one project at a time; shards spread the
+// projects over parallel jobs. Each named shard lists its test tasks, and backendITOthers runs the
+// `test` task of every project no named shard owns, so a new module is always tested.
+// Run a shard locally with, e.g., `./gradlew backendITHive -PskipTests -PskipDockerTests=false`.
+val backendITShards =
+  mapOf(
+    "backendITHive" to listOf(
+      ":catalogs:catalog-glue:test",
+      ":catalogs:catalog-hive:test",
+      ":catalogs:catalog-lakehouse-hudi:test"
+    ),
+    "backendITLakehouse" to listOf(
+      ":catalogs:catalog-lakehouse-iceberg:test",
+      ":catalogs:catalog-lakehouse-paimon:test",
+      ":iceberg:iceberg-rest-server:experimentalTest",
+      ":iceberg:iceberg-rest-server:test",
+      ":lance:lance-rest-server:test"
+    )
+  )
+
+backendITShards.forEach { (shardName, shardTasks) ->
+  tasks.register(shardName) {
+    group = "verification"
+    description = "Runs the $shardName shard of the backend integration tests."
+    dependsOn(shardTasks)
+  }
+}
+
+tasks.register("backendITOthers") {
+  group = "verification"
+  description = "Runs the backend integration tests of every project no named shard owns."
+  val shardedTasks = backendITShards.values.flatten().toSet()
+  dependsOn(
+    provider {
+      allprojects
+        .filter { project ->
+          "test" in project.tasks.names && "${project.path.trimEnd(':')}:test" !in shardedTasks
+        }
+        .map { project -> project.tasks.named("test") }
+    }
+  )
+}
+
 gradle.projectsEvaluated {
   val cleanDistributionPackageTask = rootProject.tasks.named("cleanDistributionPackage")
   val distributionPackagePaths =
