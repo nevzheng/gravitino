@@ -112,3 +112,75 @@ jobs:
             build/reports/configuration-cache
           if-no-files-found: ignore
           retention-days: 7
+
+  # Runs the moved module's suites by name, without any root flag, and checks that every test class
+  # in the module ran in exactly one suite (SPIP Guarantee 8).
+  mysql-suites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      M: ":catalogs:catalog-jdbc-mysql"
+      D: "catalogs/catalog-jdbc-mysql"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-java-toolchains
+        with:
+          java-version: 17
+
+      - name: Free up disk space
+        run: dev/ci/util_free_space.sh
+
+      - name: test (hermetic)
+        run: |
+          start=$(date +%s)
+          ./gradlew "$M:test" -PskipWeb=true
+          echo "test: $(( $(date +%s) - start ))s" >> timings.txt
+
+      - name: integrationTest (containers and an embedded server)
+        run: |
+          start=$(date +%s)
+          ./gradlew "$M:integrationTest" -PskipWeb=true
+          echo "integrationTest: $(( $(date +%s) - start ))s" >> timings.txt
+
+      - name: Executed classes per task
+        if: always()
+        run: |
+          classes() {
+            find "$D/build/test-results/$1" -name 'TEST-*.xml' 2>/dev/null \
+              | sed -E 's#.*/TEST-(.*)\.xml#\1#' | sort
+          }
+          classes test > executed-test.txt
+          classes integrationTest > executed-integrationTest.txt
+          find "$D/src/test" "$D/src/integrationTest" -name '*.java' \
+            \( -name 'Test*.java' -o -name '*IT.java' \) ! -name 'TestMysql.java' \
+            | sed -E 's#.*/src/[^/]+/java/##; s#\.java$##; s#/#.#g' | sort > expected.txt
+          sort executed-test.txt executed-integrationTest.txt > executed.txt
+          {
+            echo "### catalog-jdbc-mysql suites"
+            echo; echo '```'; cat timings.txt 2>/dev/null
+            echo; echo "test:"; sed 's/^/  /' executed-test.txt
+            echo "integrationTest:"; sed 's/^/  /' executed-integrationTest.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if ! diff expected.txt executed.txt; then
+            echo "::error::executed classes differ from the module's test classes"; exit 1
+          fi
+          if grep -E '\.integration\.test\.|TestMysqlDataSource|TestMysql(Catalog|Database|Table)Operations$' \
+              executed-test.txt; then
+            echo "::error::a container or integration test ran in test"; exit 1
+          fi
+          echo "OK: $(wc -l < executed.txt) classes, each in one suite"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mysql-suites
+          path: |
+            executed*.txt
+            expected.txt
+            timings.txt
+            ${{ env.D }}/build/test-results
+            ${{ env.D }}/build/*.log
+          if-no-files-found: ignore
+          retention-days: 7
