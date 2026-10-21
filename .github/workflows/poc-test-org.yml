@@ -1,0 +1,75 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+# POC only (fork-only, not for merge): checks the task wiring of the test-organization SPIP
+# (apache/gravitino#14093) on every push of a POC branch.
+name: poc-test-org
+
+on:
+  push:
+    branches: [ "claude/14092-poc-**", "branch-poc-14092**" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wiring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      M: ":catalogs:catalog-jdbc-mysql"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-java-toolchains
+        with:
+          java-version: 17
+
+      - name: Plan of `check` in the POC module and a control module
+        run: |
+          ./gradlew -q "$M:check" --dry-run -PskipWeb=true | tee mysql-check.txt
+          ./gradlew -q :catalogs:catalog-jdbc-postgresql:check --dry-run -PskipWeb=true \
+            | tee pg-check.txt
+          grep -q "^$M:spotlessCheck " mysql-check.txt
+          if grep -q "^$M:test " mysql-check.txt; then
+            echo "::error::$M:check still runs $M:test"; exit 1
+          fi
+          grep -q '^:catalogs:catalog-jdbc-postgresql:test ' pg-check.txt
+          echo "OK: $M:check runs no tests; postgresql (no plugin) unchanged"
+
+      - name: Configuration cache report for the POC module
+        run: |
+          ./gradlew "$M:check" --dry-run -PskipWeb=true --configuration-cache \
+            --configuration-cache-problems=warn | tail -n 30
+          report="$(find build/reports/configuration-cache -name '*.html' | head -n 1)"
+          echo "report: ${report:-none}"
+          if [ -n "$report" ] && grep -q 'build-logic' "$report"; then
+            echo "::warning::configuration cache problems mention build-logic"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: poc-wiring
+          path: |
+            *-check.txt
+            build/reports/configuration-cache
+          if-no-files-found: ignore
+          retention-days: 7

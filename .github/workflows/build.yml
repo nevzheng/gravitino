@@ -198,6 +198,9 @@ jobs:
 
           gradle_args=(
             build
+            # `check` no longer runs tests in modules that apply gravitino.test-suites (SPIP #14093),
+            # so the gate names `test` explicitly; elsewhere it is already in the graph.
+            test
             --max-workers=2
             -PskipWeb=true
             -PskipITs
