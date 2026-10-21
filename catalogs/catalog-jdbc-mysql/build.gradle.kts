@@ -22,6 +22,7 @@ plugins {
   `maven-publish`
   id("java")
   id("idea")
+  id("gravitino.test-suites")
 }
 
 dependencies {
