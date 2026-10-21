@@ -26,6 +26,7 @@ import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -131,6 +132,7 @@ class GravitinoComponentBinder extends AbstractBinder {
     bind(component.idGenerator()).to(IdGenerator.class).ranked(1);
     bind(component.entityStore()).to(EntityStore.class).ranked(1);
     bind(component.catalogManager()).to(CatalogManager.class).ranked(1);
+    bind(component.catalogAccess()).to(CatalogAccess.class).ranked(1);
     bind(component.auxiliaryServiceManager()).to(AuxiliaryServiceManager.class).ranked(1);
     bind(component.internalTableDispatcher())
         .to(TableDispatcher.class)
@@ -145,7 +147,7 @@ class GravitinoComponentBinder extends AbstractBinder {
         .ranked(1);
     bind(component.metadataObjectDispatchers()).to(MetadataObjectDispatchers.class).ranked(1);
     bind(component.authorizationServices()).to(AuthorizationServices.class).ranked(1);
-    bind(new MetadataIdResolver(component::catalogManager, component::entityStore))
+    bind(new MetadataIdResolver(component::catalogAccess, component::entityStore))
         .to(MetadataIdResolver.class)
         .ranked(1);
     if (enableAuthorization) {

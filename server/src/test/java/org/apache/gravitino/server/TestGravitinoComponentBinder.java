@@ -41,6 +41,7 @@ import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -215,6 +216,7 @@ public class TestGravitinoComponentBinder {
       when(component.idGenerator()).thenReturn(idGenerator);
       when(component.entityStore()).thenReturn(entityStore);
       when(component.catalogManager()).thenReturn(catalogManager);
+      when(component.catalogAccess()).thenReturn(catalogManager);
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.tableDispatcher()).thenReturn(tables);
       when(component.internalTableDispatcher()).thenReturn(internalTables);
@@ -237,6 +239,7 @@ public class TestGravitinoComponentBinder {
         assertSame(idGenerator, locator.getService(IdGenerator.class));
         assertSame(entityStore, locator.getService(EntityStore.class));
         assertSame(catalogManager, locator.getService(CatalogManager.class));
+        assertSame(catalogManager, locator.getService(CatalogAccess.class));
         assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
         assertNotNull(locator.getService(MetadataAccessChecker.class));
         assertNotNull(locator.getService(MetadataIdResolver.class));
@@ -284,6 +287,7 @@ public class TestGravitinoComponentBinder {
       when(component.idGenerator()).thenReturn(idGenerator);
       when(component.entityStore()).thenReturn(entityStore);
       when(component.catalogManager()).thenReturn(catalogManager);
+      when(component.catalogAccess()).thenReturn(catalogManager);
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.internalTableDispatcher()).thenReturn(internalTables);
       when(component.accessControlDispatcher()).thenReturn(accessControl);

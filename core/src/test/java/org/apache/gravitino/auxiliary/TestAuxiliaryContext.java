@@ -21,12 +21,15 @@ package org.apache.gravitino.auxiliary;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.catalog.CatalogAccess;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metrics.MetricsSystem;
@@ -55,6 +58,20 @@ public class TestAuxiliaryContext {
   }
 
   @Test
+  @SuppressWarnings("deprecation")
+  public void testDeprecatedCatalogManagerReturnsTheCatalogAccess() {
+    AuxiliaryContext context = mock(AuxiliaryContext.class);
+    when(context.catalogManager()).thenCallRealMethod();
+    CatalogManager catalogManager = mock(CatalogManager.class);
+    when(context.catalogAccess()).thenReturn(catalogManager);
+
+    assertSame(catalogManager, context.catalogManager());
+
+    when(context.catalogAccess()).thenReturn(mock(CatalogAccess.class));
+    assertThrows(ClassCastException.class, context::catalogManager);
+  }
+
+  @Test
   public void testStandaloneContextRejectsServerOnlyServices() {
     AuxiliaryContext context =
         AuxiliaryContext.standalone(
@@ -69,7 +86,7 @@ public class TestAuxiliaryContext {
             AuxiliaryContext::idGenerator,
             AuxiliaryContext::lockManager,
             AuxiliaryContext::entityStore,
-            AuxiliaryContext::catalogManager,
+            AuxiliaryContext::catalogAccess,
             AuxiliaryContext::catalogDispatcher,
             AuxiliaryContext::schemaDispatcher,
             AuxiliaryContext::tableDispatcher,

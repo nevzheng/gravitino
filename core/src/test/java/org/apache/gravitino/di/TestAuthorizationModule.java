@@ -79,7 +79,7 @@ public class TestAuthorizationModule {
         component.internalAccessControlDispatcher(), services.internalAccessControlDispatcher());
     assertSame(component.internalOwnerDispatcher(), services.internalOwnerDispatcher());
     assertSame(component.futureGrantManager(), services.futureGrantManager());
-    assertSame(component.catalogManager(), services.catalogManager());
+    assertSame(component.catalogManager(), services.catalogAccess());
     assertSame(component.internalCatalogDispatcher(), services.internalCatalogDispatcher());
     assertSame(component.internalSchemaDispatcher(), services.internalSchemaDispatcher());
     assertSame(component.internalTableDispatcher(), services.internalTableDispatcher());

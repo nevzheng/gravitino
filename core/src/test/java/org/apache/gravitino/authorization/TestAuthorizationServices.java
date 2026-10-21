@@ -36,6 +36,7 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -80,7 +81,7 @@ public class TestAuthorizationServices {
     Assertions.assertSame(owner, services.internalOwnerDispatcher());
     Assertions.assertSame(futureGrants, services.futureGrantManager());
     Assertions.assertSame(authorizer, services.gravitinoAuthorizer());
-    Assertions.assertSame(catalogManager, services.catalogManager());
+    Assertions.assertSame(catalogManager, services.catalogAccess());
     Assertions.assertSame(catalogs, services.internalCatalogDispatcher());
     Assertions.assertSame(schemas, services.internalSchemaDispatcher());
     Assertions.assertSame(tables, services.internalTableDispatcher());
@@ -115,7 +116,21 @@ public class TestAuthorizationServices {
         services, table, Entity.EntityType.TABLE, "renamed");
 
     verify(services, never()).gravitinoAuthorizer();
-    verify(services, never()).catalogManager();
+    verify(services, never()).catalogAccess();
+  }
+
+  @Test
+  @SuppressWarnings("deprecation")
+  public void testDeprecatedCatalogManagerReturnsTheCatalogAccess() {
+    AuthorizationServices services = mock(AuthorizationServices.class);
+    when(services.catalogManager()).thenCallRealMethod();
+    CatalogManager catalogManager = mock(CatalogManager.class);
+    when(services.catalogAccess()).thenReturn(catalogManager);
+
+    Assertions.assertSame(catalogManager, services.catalogManager());
+
+    when(services.catalogAccess()).thenReturn(mock(CatalogAccess.class));
+    Assertions.assertThrows(ClassCastException.class, services::catalogManager);
   }
 
   @Test
@@ -126,7 +141,7 @@ public class TestAuthorizationServices {
     when(services.internalAccessControlDispatcher())
         .thenReturn(mock(AccessControlDispatcher.class));
     when(services.gravitinoAuthorizer()).thenReturn(authorizer);
-    when(services.catalogManager()).thenReturn(catalogManager);
+    when(services.catalogAccess()).thenReturn(catalogManager);
     NameIdentifier table = NameIdentifier.of("metalake", "catalog", "schema", "table");
 
     AuthorizationUtils.authorizationPluginRemovePrivileges(

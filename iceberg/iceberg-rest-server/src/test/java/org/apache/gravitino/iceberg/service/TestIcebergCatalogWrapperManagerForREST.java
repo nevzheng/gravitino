@@ -28,7 +28,7 @@ import java.util.function.Consumer;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.iceberg.common.ops.IcebergCatalogWrapper;
@@ -45,14 +45,14 @@ import org.mockito.Mockito;
 public class TestIcebergCatalogWrapperManagerForREST {
 
   private static final String DEFAULT_CATALOG = "memory";
-  private static CatalogManager mockCatalogManager;
+  private static CatalogAccess mockCatalogManager;
   private static AuxiliaryContext auxiliaryContext;
 
   @BeforeAll
   public static void setup() {
-    mockCatalogManager = Mockito.mock(CatalogManager.class);
+    mockCatalogManager = Mockito.mock(CatalogAccess.class);
     auxiliaryContext = Mockito.mock(AuxiliaryContext.class);
-    Mockito.when(auxiliaryContext.catalogManager()).thenReturn(mockCatalogManager);
+    Mockito.when(auxiliaryContext.catalogAccess()).thenReturn(mockCatalogManager);
   }
 
   @ParameterizedTest

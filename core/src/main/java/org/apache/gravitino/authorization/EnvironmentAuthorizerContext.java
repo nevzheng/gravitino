@@ -25,7 +25,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 
 /**
  * An {@link AuthorizerContext} that reads each service from the getters of a {@link GravitinoEnv}
@@ -70,7 +70,7 @@ public final class EnvironmentAuthorizerContext implements AuthorizerContext {
   }
 
   @Override
-  public CatalogManager catalogManager() {
+  public CatalogAccess catalogAccess() {
     return env.get().catalogManager();
   }
 

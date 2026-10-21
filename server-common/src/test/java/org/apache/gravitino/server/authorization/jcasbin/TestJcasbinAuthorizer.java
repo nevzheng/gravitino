@@ -99,7 +99,7 @@ import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.cache.GravitinoCache;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.capability.Capability;
@@ -334,7 +334,7 @@ public class TestJcasbinAuthorizer {
     metadataIdResolver =
         spy(
             new MetadataIdResolver(
-                () -> authorizerContext.catalogManager(), () -> authorizerContext.entityStore()));
+                () -> authorizerContext.catalogAccess(), () -> authorizerContext.entityStore()));
     doReturn(Optional.empty()).when(metadataIdResolver).getID(any(), any());
     doAnswer(
             invocation ->
@@ -386,7 +386,7 @@ public class TestJcasbinAuthorizer {
   public void createAuthorizer() throws Exception {
     // Build a fresh authorizer per test so enforcer policies and version-validated cache state can
     // never bleed across cases regardless of the JUnit execution order.
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability()).thenReturn(Capability.DEFAULT);
     doAnswer(
@@ -396,7 +396,7 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(authorizerContext.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     jcasbinAuthorizer = new JcasbinAuthorizer(metadataIdResolver);
     jcasbinAuthorizer.initialize(authorizerContext);
     restoreDefaultPrincipal();
@@ -682,7 +682,7 @@ public class TestJcasbinAuthorizer {
   /** Verifies that a connector failure does not suppress healthy catalog grants. */
   @Test
   public void testCapabilityFailureDoesNotAbortHealthyCatalogPolicyLoading() throws Exception {
-    CatalogManager catalogs = authorizerContext.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -758,7 +758,7 @@ public class TestJcasbinAuthorizer {
                     Privilege.Name.SELECT_TABLE,
                     "DENY")));
     mockDirectUserRoles(allowRole, denyRole);
-    CatalogManager catalogs = authorizerContext.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -861,7 +861,7 @@ public class TestJcasbinAuthorizer {
           evaluator.evaluate(
               tableMetadataNames("broken", "sibling"), new AuthorizationRequestContext()));
       assertTrue(getLoadedRolesCache(jcasbinAuthorizer).getIfPresent(ALLOW_ROLE_ID).isPresent());
-      CatalogManager catalogs = authorizerContext.catalogManager();
+      CatalogAccess catalogs = authorizerContext.catalogAccess();
       Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
           .when(catalogs)
           .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -914,7 +914,7 @@ public class TestJcasbinAuthorizer {
   @Test
   public void testUnresolvedDenyWithoutCatalogIdFailsBeforePoliciesAreApplied() throws Exception {
     MetadataObject catalogObject = MetadataObjects.of(null, "broken", MetadataObject.Type.CATALOG);
-    CatalogManager catalogs = authorizerContext.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -3655,7 +3655,7 @@ public class TestJcasbinAuthorizer {
     JcasbinAuthorizationLookups lookups =
         new JcasbinAuthorizationLookups(
             cache, getOwnerRelCache(jcasbinAuthorizer), metadataIdResolver);
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability())
         .thenReturn(
@@ -3672,7 +3672,7 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(authorizerContext.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     NameIdentifier oldIdent = NameIdentifier.of(METALAKE, "catalog", "schema", "SalesModel");
     NameIdentifier newIdent = NameIdentifier.of(oldIdent.namespace(), "RenamedModel");
     MetadataObject oldObject =
@@ -3716,13 +3716,13 @@ public class TestJcasbinAuthorizer {
           Optional.of(400L),
           lookups.resolveMetadataId(oldObject, METALAKE, new AuthorizationRequestContext()));
     } finally {
-      when(authorizerContext.catalogManager()).thenReturn(null);
+      when(authorizerContext.catalogAccess()).thenReturn(null);
     }
   }
 
   @Test
   public void testSemanticModelCacheKeepsCaseSensitiveSchemasDistinct() throws Exception {
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability()).thenReturn(Capability.DEFAULT);
     Mockito.doAnswer(
@@ -3732,7 +3732,7 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(authorizerContext.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     JcasbinAuthorizationLookups lookups =
         new JcasbinAuthorizationLookups(
             getMetadataIdCache(jcasbinAuthorizer),
@@ -3763,7 +3763,7 @@ public class TestJcasbinAuthorizer {
           Optional.of(100L),
           lookups.resolveMetadataId(lower, METALAKE, new AuthorizationRequestContext()));
     } finally {
-      when(authorizerContext.catalogManager()).thenReturn(null);
+      when(authorizerContext.catalogAccess()).thenReturn(null);
     }
   }
 

@@ -99,7 +99,7 @@ public class TestEnvironmentAuxiliaryContext {
       Assertions.assertSame(idGenerator, context.idGenerator());
       Assertions.assertSame(lockManager, context.lockManager());
       Assertions.assertSame(entityStore, context.entityStore());
-      Assertions.assertSame(catalogManager, context.catalogManager());
+      Assertions.assertSame(catalogManager, context.catalogAccess());
       Assertions.assertSame(catalogDispatcher, context.catalogDispatcher());
       Assertions.assertSame(schemaDispatcher, context.schemaDispatcher());
       Assertions.assertSame(tableDispatcher, context.tableDispatcher());

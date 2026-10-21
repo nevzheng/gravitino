@@ -106,7 +106,7 @@ public class TestAccessControlManager {
   private static EntityStore entityStore;
   private static CatalogManager catalogManager = mock(CatalogManager.class);
   private static final FakeAuthorizationServices services =
-      new FakeAuthorizationServices().withCatalogManager(catalogManager);
+      new FakeAuthorizationServices().withCatalogAccess(catalogManager);
 
   private static final Config config = Mockito.mock(Config.class);
 

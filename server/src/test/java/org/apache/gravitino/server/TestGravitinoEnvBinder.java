@@ -33,6 +33,7 @@ import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
@@ -170,6 +171,7 @@ public class TestGravitinoEnvBinder {
       assertSame(idGenerator, locator.getService(IdGenerator.class));
       assertSame(entityStore, locator.getService(EntityStore.class));
       assertSame(catalogManager, locator.getService(CatalogManager.class));
+      assertSame(catalogManager, locator.getService(CatalogAccess.class));
       assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
       assertSame(
           internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));

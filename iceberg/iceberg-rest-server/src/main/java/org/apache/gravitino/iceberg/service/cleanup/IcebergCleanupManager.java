@@ -425,7 +425,7 @@ public class IcebergCleanupManager implements AutoCloseable {
   private static long environmentCatalogId(String catalogName) {
     String metalake = IcebergRESTServerContext.getInstance().metalakeName();
     return EnvironmentAuxiliaryContext.INSTANCE
-        .catalogManager()
+        .catalogAccess()
         .doWithCatalog(NameIdentifier.of(metalake, catalogName), catalog -> catalog.entity().id());
   }
 }

@@ -22,8 +22,8 @@ import com.google.common.base.Preconditions;
 import java.util.function.Supplier;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -80,7 +80,7 @@ public final class EnvironmentAuthorizationServices implements AuthorizationServ
   }
 
   @Override
-  public CatalogManager catalogManager() {
+  public CatalogAccess catalogAccess() {
     return env.get().catalogManager();
   }
 

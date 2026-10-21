@@ -36,7 +36,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.credential.Credential;
@@ -306,7 +306,7 @@ public class TestDynamicIcebergConfigProvider {
     // Enable authorization to use internal fetcher
     createMockServerContext(true);
 
-    CatalogManager mockCatalogManager = Mockito.mock(CatalogManager.class);
+    CatalogAccess mockCatalogManager = Mockito.mock(CatalogAccess.class);
     BaseCatalog<?> mockCatalog = Mockito.mock(BaseCatalog.class);
     // The internal fetcher now hands resolveProps the live BaseCatalog, which reads the catalog
     // entity to publish the Iceberg catalog UUID.
@@ -329,7 +329,7 @@ public class TestDynamicIcebergConfigProvider {
     Mockito.when(mockSecretManager.toPlaintextProperties(catalogProperties))
         .thenReturn(catalogProperties);
 
-    Mockito.when(context.catalogManager()).thenReturn(mockCatalogManager);
+    Mockito.when(context.catalogAccess()).thenReturn(mockCatalogManager);
     Mockito.when(context.secretManager()).thenReturn(mockSecretManager);
 
     // Initialize provider with required properties
@@ -393,7 +393,7 @@ public class TestDynamicIcebergConfigProvider {
     createMockServerContext(true);
 
     // The context has no catalog manager, as GravitinoEnv has none before it is initialized
-    Mockito.when(context.catalogManager()).thenReturn(null);
+    Mockito.when(context.catalogAccess()).thenReturn(null);
 
     // Initialize provider with required properties
     Map<String, String> properties = new HashMap<>();
@@ -406,7 +406,7 @@ public class TestDynamicIcebergConfigProvider {
         Assertions.assertThrows(
             IllegalStateException.class, () -> provider.getIcebergCatalogConfig(catalogName));
     Assertions.assertEquals(
-        "Internal CatalogManager is not available. "
+        "Internal catalog access is not available. "
             + "Internal catalog fetcher requires running within Gravitino server.",
         exception.getMessage());
   }
@@ -431,7 +431,7 @@ public class TestDynamicIcebergConfigProvider {
         Assertions.assertThrows(
             IllegalStateException.class, () -> provider.getIcebergCatalogConfig("catalog"));
     Assertions.assertEquals(
-        "Internal CatalogManager is not available. "
+        "Internal catalog access is not available. "
             + "Internal catalog fetcher requires running within Gravitino server.",
         exception.getMessage());
   }
@@ -456,15 +456,15 @@ public class TestDynamicIcebergConfigProvider {
     // Enable authorization to use internal fetcher
     createMockServerContext(true);
 
-    // Mock the lease-aware CatalogManager to throw NoSuchCatalogException.
-    CatalogManager mockCatalogManager = Mockito.mock(CatalogManager.class);
+    // Mock the lease-aware CatalogAccess to throw NoSuchCatalogException.
+    CatalogAccess mockCatalogManager = Mockito.mock(CatalogAccess.class);
     NameIdentifier catalogIdent =
         NameIdentifierUtil.ofCatalog(metalakeName, nonExistentCatalogName);
     Mockito.doThrow(new NoSuchCatalogException("Catalog not found: %s", nonExistentCatalogName))
         .when(mockCatalogManager)
         .doWithCatalog(Mockito.eq(catalogIdent), Mockito.any());
 
-    Mockito.when(context.catalogManager()).thenReturn(mockCatalogManager);
+    Mockito.when(context.catalogAccess()).thenReturn(mockCatalogManager);
 
     // Initialize provider with required properties
     Map<String, String> properties = new HashMap<>();
@@ -561,7 +561,7 @@ public class TestDynamicIcebergConfigProvider {
     // Enable authorization to use internal fetcher
     createMockServerContext(true);
 
-    CatalogManager mockCatalogManager = Mockito.mock(CatalogManager.class);
+    CatalogAccess mockCatalogManager = Mockito.mock(CatalogAccess.class);
     BaseCatalog<?> mockCatalog = Mockito.mock(BaseCatalog.class);
     // The internal fetcher now hands resolveProps the live BaseCatalog, which reads the catalog
     // entity to publish the Iceberg catalog UUID.
@@ -584,7 +584,7 @@ public class TestDynamicIcebergConfigProvider {
     Mockito.when(mockSecretManager.toPlaintextProperties(catalogProperties))
         .thenReturn(catalogProperties);
 
-    Mockito.when(context.catalogManager()).thenReturn(mockCatalogManager);
+    Mockito.when(context.catalogAccess()).thenReturn(mockCatalogManager);
     Mockito.when(context.secretManager()).thenReturn(mockSecretManager);
 
     // Initialize provider with required properties
@@ -637,7 +637,7 @@ public class TestDynamicIcebergConfigProvider {
   }
 
   @SuppressWarnings("unchecked")
-  private static void mockDoWithCatalog(CatalogManager catalogManager, BaseCatalog<?> baseCatalog) {
+  private static void mockDoWithCatalog(CatalogAccess catalogManager, BaseCatalog<?> baseCatalog) {
     Mockito.doAnswer(
             invocation -> {
               ThrowableFunction<BaseCatalog, Object> operation = invocation.getArgument(1);

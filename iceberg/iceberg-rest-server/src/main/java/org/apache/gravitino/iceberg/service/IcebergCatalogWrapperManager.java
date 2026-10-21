@@ -125,7 +125,7 @@ public class IcebergCatalogWrapperManager implements AutoCloseable {
             .build();
     if (auxMode) {
       auxiliaryContext
-          .catalogManager()
+          .catalogAccess()
           .addCatalogCacheRemoveListener(
               ident -> {
                 if (ident.namespace().level(0).equals(metalakeName)) {

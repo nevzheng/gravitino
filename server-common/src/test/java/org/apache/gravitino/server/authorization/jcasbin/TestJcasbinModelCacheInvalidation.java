@@ -40,7 +40,7 @@ import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CapabilityHelpers;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.ModelNormalizeDispatcher;
 import org.apache.gravitino.connector.capability.Capability;
@@ -71,8 +71,8 @@ public class TestJcasbinModelCacheInvalidation {
   @ValueSource(booleans = {false, true})
   void testModelMutationInvalidatesModel(boolean rename) throws Exception {
     AuthorizationServices services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    when(services.catalogManager()).thenReturn(catalogManager);
+    CatalogAccess catalogManager = mock(CatalogAccess.class);
+    when(services.catalogAccess()).thenReturn(catalogManager);
     ModelDispatcher delegate = mock(ModelDispatcher.class);
     NameIdentifier normalizedIdent = NameIdentifier.of(METALAKE, "cat1", "sch1", "model1");
     when(delegate.deleteModel(normalizedIdent)).thenReturn(true);

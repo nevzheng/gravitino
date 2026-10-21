@@ -55,8 +55,8 @@ import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
@@ -97,7 +97,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
   private final Map<NameIdentifier, Entity> entities = new HashMap<>();
   private CaffeineGravitinoCache<String, Long> metadataCache;
   private CaffeineGravitinoCache<Long, Optional<OwnerInfo>> ownerCache;
-  private CatalogManager catalogs;
+  private CatalogAccess catalogs;
   private BaseCatalog<?> catalog;
   private EntityStore store;
   private AuthorizationServices services;
@@ -119,7 +119,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     when(catalog.capability()).thenReturn(CASE_INSENSITIVE);
     when(catalog.provider()).thenReturn("test");
     when(catalog.type()).thenReturn(Catalog.Type.RELATIONAL);
-    catalogs = mock(CatalogManager.class);
+    catalogs = mock(CatalogAccess.class);
     doAnswer(
             invocation -> {
               ThrowableFunction<BaseCatalog<?>, Object> operation = invocation.getArgument(1);
@@ -140,7 +140,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
             });
     // The services the hooks read; the default authorizationEnabled() sees the dispatcher.
     services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
-    when(services.catalogManager()).thenReturn(catalogs);
+    when(services.catalogAccess()).thenReturn(catalogs);
     when(services.gravitinoAuthorizer()).thenReturn(authorizer);
     when(services.internalAccessControlDispatcher())
         .thenReturn(mock(AccessControlDispatcher.class));

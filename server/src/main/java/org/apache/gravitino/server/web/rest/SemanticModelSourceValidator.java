@@ -31,7 +31,7 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.connector.CatalogOperations;
@@ -62,7 +62,7 @@ public class SemanticModelSourceValidator {
    * @param tables table metadata dispatcher
    * @param views view metadata dispatcher
    * @deprecated Use {@link #SemanticModelSourceValidator(TableDispatcher, ViewDispatcher,
-   *     CatalogManager)}.
+   *     CatalogAccess)}.
    */
   @Deprecated
   public SemanticModelSourceValidator(TableDispatcher tables, ViewDispatcher views) {
@@ -78,20 +78,20 @@ public class SemanticModelSourceValidator {
    *
    * @param tables table metadata dispatcher
    * @param views view metadata dispatcher
-   * @param catalogManager the catalog manager that tells which source types a catalog supports
+   * @param catalogAccess the catalog access that tells which source types a catalog supports
    */
   @Inject
   public SemanticModelSourceValidator(
-      TableDispatcher tables, ViewDispatcher views, CatalogManager catalogManager) {
-    this(tables, views, SemanticModelSourceValidator::serverAuthorizer, catalogManager);
+      TableDispatcher tables, ViewDispatcher views, CatalogAccess catalogAccess) {
+    this(tables, views, SemanticModelSourceValidator::serverAuthorizer, catalogAccess);
   }
 
   SemanticModelSourceValidator(
       TableDispatcher tables,
       ViewDispatcher views,
       Supplier<GravitinoAuthorizer> authorizer,
-      CatalogManager catalogManager) {
-    this(tables, views, authorizer, supportedSourceTypes(() -> catalogManager));
+      CatalogAccess catalogAccess) {
+    this(tables, views, authorizer, supportedSourceTypes(() -> catalogAccess));
   }
 
   SemanticModelSourceValidator(
@@ -234,9 +234,9 @@ public class SemanticModelSourceValidator {
   }
 
   private static Function<NameIdentifier, Set<Entity.EntityType>> supportedSourceTypes(
-      Supplier<CatalogManager> catalogManager) {
+      Supplier<? extends CatalogAccess> catalogAccess) {
     return ident ->
-        catalogManager
+        catalogAccess
             .get()
             .doWithCatalog(
                 NameIdentifierUtil.getCatalogIdentifier(ident),

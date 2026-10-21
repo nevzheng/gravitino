@@ -19,8 +19,8 @@
 package org.apache.gravitino.authorization;
 
 import javax.annotation.Nullable;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -37,7 +37,7 @@ public final class FakeAuthorizationServices implements AuthorizationServices {
   @Nullable private OwnerDispatcher ownerDispatcher;
   @Nullable private FutureGrantManager futureGrantManager;
   private GravitinoAuthorizer authorizer = NoopGravitinoAuthorizer.INSTANCE;
-  @Nullable private CatalogManager catalogManager;
+  @Nullable private CatalogAccess catalogAccess;
   @Nullable private CatalogDispatcher catalogDispatcher;
   @Nullable private SchemaDispatcher schemaDispatcher;
   @Nullable private TableDispatcher tableDispatcher;
@@ -89,13 +89,13 @@ public final class FakeAuthorizationServices implements AuthorizationServices {
   }
 
   /**
-   * Sets the catalog manager.
+   * Sets the catalog access.
    *
-   * @param manager the manager, or null
+   * @param access the catalog access, or null
    * @return these services
    */
-  public FakeAuthorizationServices withCatalogManager(@Nullable CatalogManager manager) {
-    this.catalogManager = manager;
+  public FakeAuthorizationServices withCatalogAccess(@Nullable CatalogAccess access) {
+    this.catalogAccess = access;
     return this;
   }
 
@@ -164,8 +164,8 @@ public final class FakeAuthorizationServices implements AuthorizationServices {
   }
 
   @Override
-  public CatalogManager catalogManager() {
-    return catalogManager;
+  public CatalogAccess catalogAccess() {
+    return catalogAccess;
   }
 
   @Override

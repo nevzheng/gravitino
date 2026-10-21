@@ -34,25 +34,24 @@ import org.apache.gravitino.rel.partitions.Partition;
  * already be in their canonical, legal form and are not re-normalized here.
  */
 public class PartitionNormalizeDispatcher implements PartitionDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final PartitionDispatcher dispatcher;
 
-  public PartitionNormalizeDispatcher(
-      PartitionDispatcher dispatcher, CatalogManager catalogManager) {
+  public PartitionNormalizeDispatcher(PartitionDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
   public String[] listPartitionNames(NameIdentifier tableIdent) {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.listPartitionNames(
         applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities));
   }
 
   @Override
   public Partition[] listPartitions(NameIdentifier tableIdent) {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.listPartitions(
         CapabilityHelpers.applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities));
   }
@@ -60,7 +59,7 @@ public class PartitionNormalizeDispatcher implements PartitionDispatcher {
   @Override
   public Partition getPartition(NameIdentifier tableIdent, String partitionName)
       throws NoSuchPartitionException {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.getPartition(
         CapabilityHelpers.applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities),
         applyCaseSensitiveOnName(Capability.Scope.PARTITION, partitionName, capabilities));
@@ -69,7 +68,7 @@ public class PartitionNormalizeDispatcher implements PartitionDispatcher {
   @Override
   public Partition addPartition(NameIdentifier tableIdent, Partition partition)
       throws PartitionAlreadyExistsException {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.addPartition(
         CapabilityHelpers.applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities),
         applyCaseSensitive(partition, capabilities));
@@ -77,7 +76,7 @@ public class PartitionNormalizeDispatcher implements PartitionDispatcher {
 
   @Override
   public boolean dropPartition(NameIdentifier tableIdent, String partitionName) {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.dropPartition(
         CapabilityHelpers.applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities),
         applyCaseSensitiveOnName(Capability.Scope.PARTITION, partitionName, capabilities));
@@ -86,7 +85,7 @@ public class PartitionNormalizeDispatcher implements PartitionDispatcher {
   @Override
   public boolean purgePartition(NameIdentifier tableIdent, String partitionName)
       throws UnsupportedOperationException {
-    Capability capabilities = getCapability(tableIdent, catalogManager);
+    Capability capabilities = getCapability(tableIdent, catalogAccess);
     return dispatcher.purgePartition(
         CapabilityHelpers.applyCaseSensitive(tableIdent, Capability.Scope.TABLE, capabilities),
         applyCaseSensitiveOnName(Capability.Scope.PARTITION, partitionName, capabilities));
