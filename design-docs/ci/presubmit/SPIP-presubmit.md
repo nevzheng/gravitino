@@ -161,7 +161,8 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | ----------- | -------------------------------------------------------------------- | ---------- |
 | Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here |
 | Lint        | The Python client's `black` rewrites files and never fails CI        | P2         |
-| Lint        | No linter for 81 shell scripts, the workflows, or the Markdown docs  | P2         |
+| Lint        | No linter for the workflows                                          | Fixed here |
+| Lint        | No linter for 81 shell scripts or the Markdown docs                  | P2         |
 | Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here |
 | Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here |
 | Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision   |
@@ -211,7 +212,7 @@ and all of them run in parallel before `build`.
 | `lint (python)`    | `pylint`, and `black --check` for both Python projects | Inside the IT jobs       | P2    |
 | `lint (web)`       | `./gradlew :web:web:lintCheck :web-v2:web:lintCheck`   | Inside the web workflows | P2    |
 | `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                  | `chart-test.yaml`        | P2    |
-| `lint (workflows)` | `actionlint`                                           | Not run                  | P2    |
+| `lint (workflows)` | `actionlint` (shellcheck of `run:` blocks off for now) | Not run                  | P1    |
 | `lint (docs)`      | `rumdl check design-docs`                              | Not run                  | P2    |
 | `lint (shell)`     | `shellcheck` on the tracked `*.sh` files               | Not run                  | P2    |
 
