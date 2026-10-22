@@ -23,52 +23,11 @@ import java.util.Optional;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
 import org.apache.gravitino.server.authorization.annotations.ExpressionCondition;
 
 public class AuthorizeExecutorFactory {
-
-  /**
-   * Creates the executor for a request, probing table existence through the process environment.
-   *
-   * @param expression the authorization expression.
-   * @param requestType the kind of authorization request.
-   * @param metadataContext the metadata the call names.
-   * @param pathParams the path parameters of the call.
-   * @param entityType the metadata object type of the call, if any.
-   * @param parameters the parameters of the REST method.
-   * @param args the arguments of the REST call.
-   * @param secondaryExpression the stricter expression for a modify request.
-   * @param secondaryExpressionCondition when the secondary expression applies.
-   * @param allowCheckExistenceExpression the expression that allows probing table existence.
-   * @return the executor.
-   * @deprecated Use the overload that also takes the internal table dispatcher.
-   */
-  @Deprecated
-  public static AuthorizationExecutor create(
-      String expression,
-      AuthorizationRequest.RequestType requestType,
-      Map<Entity.EntityType, NameIdentifier> metadataContext,
-      Map<String, Object> pathParams,
-      Optional<String> entityType,
-      Parameter[] parameters,
-      Object[] args,
-      String secondaryExpression,
-      ExpressionCondition secondaryExpressionCondition,
-      String allowCheckExistenceExpression) {
-    return create(
-        expression,
-        requestType,
-        metadataContext,
-        pathParams,
-        entityType,
-        parameters,
-        args,
-        secondaryExpression,
-        secondaryExpressionCondition,
-        allowCheckExistenceExpression,
-        LoadTableAuthorizationExecutor.processInternalTableDispatcher());
-  }
 
   /**
    * Creates the executor for a request.
@@ -84,6 +43,7 @@ public class AuthorizeExecutorFactory {
    * @param secondaryExpressionCondition when the secondary expression applies.
    * @param allowCheckExistenceExpression the expression that allows probing table existence.
    * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   * @param internalViewDispatcher the internal view dispatcher that probes view existence.
    * @return the executor.
    */
   public static AuthorizationExecutor create(
@@ -97,7 +57,8 @@ public class AuthorizeExecutorFactory {
       String secondaryExpression,
       ExpressionCondition secondaryExpressionCondition,
       String allowCheckExistenceExpression,
-      TableDispatcher internalTableDispatcher) {
+      TableDispatcher internalTableDispatcher,
+      ViewDispatcher internalViewDispatcher) {
     return switch (requestType) {
       case COMMON -> new CommonAuthorizerExecutor(
           expression, metadataContext, pathParams, entityType);
@@ -118,7 +79,12 @@ public class AuthorizeExecutorFactory {
           allowCheckExistenceExpression,
           internalTableDispatcher);
       case LOAD_VIEW -> new LoadViewAuthorizationExecutor(
-          expression, metadataContext, pathParams, entityType, allowCheckExistenceExpression);
+          expression,
+          metadataContext,
+          pathParams,
+          entityType,
+          allowCheckExistenceExpression,
+          internalViewDispatcher);
       case CREATE_SCHEMA -> new CreateSchemaAuthorizationExecutor(
           parameters, args, expression, metadataContext, pathParams, entityType);
       case TEST_CATALOG_CONNECTION -> new CatalogConnectionTestAuthorizationExecutor(

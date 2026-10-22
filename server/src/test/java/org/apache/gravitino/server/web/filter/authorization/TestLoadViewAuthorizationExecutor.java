@@ -26,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -36,7 +35,6 @@ import java.util.Optional;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -50,7 +48,6 @@ import org.apache.gravitino.server.authorization.expression.AuthorizationExpress
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 import org.apache.gravitino.server.web.rest.ViewOperations;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 
 public class TestLoadViewAuthorizationExecutor {
   @Test
@@ -97,7 +94,8 @@ public class TestLoadViewAuthorizationExecutor {
             "",
             ExpressionCondition.NEVER,
             annotation.allowCheckExistence(),
-            mock(TableDispatcher.class)));
+            mock(TableDispatcher.class),
+            mock(ViewDispatcher.class)));
   }
 
   @Test
@@ -135,22 +133,21 @@ public class TestLoadViewAuthorizationExecutor {
       @Nullable RuntimeException probeFailure)
       throws Exception {
     NameIdentifier ident = NameIdentifier.of("m", "c", "s", "v");
+    var dispatcher = mock(ViewDispatcher.class);
     var executor =
         new LoadViewAuthorizationExecutor(
             AuthorizationExpressionConstants.LOAD_VIEW_AUTHORIZATION_EXPRESSION,
             Map.of(Entity.EntityType.VIEW, ident),
             Map.of(),
             Optional.empty(),
-            AuthorizationExpressionConstants.PROBE_TABLE_LIKE_AUTHORIZATION_EXPRESSION);
+            AuthorizationExpressionConstants.PROBE_TABLE_LIKE_AUTHORIZATION_EXPRESSION,
+            dispatcher);
     var primaryEvaluator = mock(AuthorizationExpressionEvaluator.class);
     var probeEvaluator = mock(AuthorizationExpressionEvaluator.class);
     when(primaryEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(primary);
     when(probeEvaluator.evaluate(anyMap(), anyMap(), any(), any())).thenReturn(probe);
     executor.authorizationExpressionEvaluator = primaryEvaluator;
     FieldUtils.writeField(executor, "allowCheckExistenceEvaluator", probeEvaluator, true);
-    var env = mock(GravitinoEnv.class);
-    var dispatcher = mock(ViewDispatcher.class);
-    when(env.internalViewDispatcher()).thenReturn(dispatcher);
     if (probeFailure != null) {
       when(dispatcher.loadView(ident)).thenThrow(probeFailure);
     } else if (exists) {
@@ -158,10 +155,7 @@ public class TestLoadViewAuthorizationExecutor {
     } else {
       when(dispatcher.loadView(ident)).thenThrow(new NoSuchViewException("View is absent"));
     }
-    try (MockedStatic<GravitinoEnv> mocked = mockStatic(GravitinoEnv.class)) {
-      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      assertEquals(expected, executor.execute(new AuthorizationRequestContext()));
-    }
+    assertEquals(expected, executor.execute(new AuthorizationRequestContext()));
     if (shouldProbe) {
       verify(dispatcher).loadView(ident);
     } else {

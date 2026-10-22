@@ -32,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 import org.aopalliance.intercept.ConstructorInterceptor;
@@ -40,16 +39,14 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.exceptions.BadRequestException;
 import org.apache.gravitino.exceptions.ForbiddenException;
@@ -112,43 +109,17 @@ import org.slf4j.LoggerFactory;
  */
 public class GravitinoInterceptionService implements InterceptionService {
 
-  private final Supplier<EventBus> eventBus;
-  private final Supplier<TableDispatcher> internalTableDispatcher;
+  private final EventBus eventBus;
+  private final TableDispatcher internalTableDispatcher;
+  private final ViewDispatcher internalViewDispatcher;
   private final AuthorizationServices authorizationServices;
-
-  /**
-   * Creates the interception service from the process environment, resolved at request time.
-   *
-   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher,
-   *     AuthorizationServices)}.
-   */
-  @Deprecated
-  public GravitinoInterceptionService() {
-    this(
-        () -> processEnv().eventBus(),
-        () -> processEnv().internalTableDispatcher(),
-        EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  /**
-   * Creates the interception service. It checks metalake membership with the authorizer of the
-   * process environment.
-   *
-   * @param eventBus the event bus that receives authorization denial events.
-   * @param internalTableDispatcher the internal table dispatcher that probes table existence.
-   * @deprecated Use {@link #GravitinoInterceptionService(EventBus, TableDispatcher,
-   *     AuthorizationServices)}; the server binds the authorization services.
-   */
-  @Deprecated
-  public GravitinoInterceptionService(EventBus eventBus, TableDispatcher internalTableDispatcher) {
-    this(() -> eventBus, () -> internalTableDispatcher, EnvironmentAuthorizationServices.INSTANCE);
-  }
 
   /**
    * Creates the interception service.
    *
    * @param eventBus the event bus that receives authorization denial events.
    * @param internalTableDispatcher the internal table dispatcher that probes table existence.
+   * @param internalViewDispatcher the internal view dispatcher that probes view existence.
    * @param authorizationServices the services whose authorizer checks that the current user is a
    *     user of the metalake.
    */
@@ -156,16 +127,11 @@ public class GravitinoInterceptionService implements InterceptionService {
   public GravitinoInterceptionService(
       EventBus eventBus,
       @Internal TableDispatcher internalTableDispatcher,
-      AuthorizationServices authorizationServices) {
-    this(() -> eventBus, () -> internalTableDispatcher, authorizationServices);
-  }
-
-  private GravitinoInterceptionService(
-      Supplier<EventBus> eventBus,
-      Supplier<TableDispatcher> internalTableDispatcher,
+      @Internal ViewDispatcher internalViewDispatcher,
       AuthorizationServices authorizationServices) {
     this.eventBus = eventBus;
     this.internalTableDispatcher = internalTableDispatcher;
+    this.internalViewDispatcher = internalViewDispatcher;
     this.authorizationServices = authorizationServices;
   }
 
@@ -206,7 +172,7 @@ public class GravitinoInterceptionService implements InterceptionService {
   public List<MethodInterceptor> getMethodInterceptors(Method method) {
     return ImmutableList.of(
         new MetadataAuthorizationMethodInterceptor(
-            eventBus, internalTableDispatcher, authorizationServices));
+            eventBus, internalTableDispatcher, internalViewDispatcher, authorizationServices));
   }
 
   @Override
@@ -222,16 +188,19 @@ public class GravitinoInterceptionService implements InterceptionService {
     private static final Logger LOG =
         LoggerFactory.getLogger(MetadataAuthorizationMethodInterceptor.class);
 
-    private final Supplier<EventBus> eventBus;
-    private final Supplier<TableDispatcher> internalTableDispatcher;
+    private final EventBus eventBus;
+    private final TableDispatcher internalTableDispatcher;
+    private final ViewDispatcher internalViewDispatcher;
     private final AuthorizationServices authorizationServices;
 
     private MetadataAuthorizationMethodInterceptor(
-        Supplier<EventBus> eventBus,
-        Supplier<TableDispatcher> internalTableDispatcher,
+        EventBus eventBus,
+        TableDispatcher internalTableDispatcher,
+        ViewDispatcher internalViewDispatcher,
         AuthorizationServices authorizationServices) {
       this.eventBus = eventBus;
       this.internalTableDispatcher = internalTableDispatcher;
+      this.internalViewDispatcher = internalViewDispatcher;
       this.authorizationServices = authorizationServices;
     }
 
@@ -294,7 +263,8 @@ public class GravitinoInterceptionService implements InterceptionService {
                     secondaryExpression,
                     secondaryExpressionCondition,
                     expressionAnnotation.allowCheckExistence(),
-                    internalTableDispatcher.get());
+                    internalTableDispatcher,
+                    internalViewDispatcher);
             Optional<String> dynamicMetalake;
             try {
               dynamicMetalake = executor.getAuthorizationMetalake();
@@ -489,7 +459,7 @@ public class GravitinoInterceptionService implements InterceptionService {
       try {
         AuthorizationDenialFailureEvent event =
             new AuthorizationDenialFailureEvent(user, accessMetadataName, methodName, expression);
-        eventBus.get().dispatchEvent(event);
+        eventBus.dispatchEvent(event);
       } catch (Exception e) {
         LOG.error(
             "Failed to dispatch authorization denial event for user {} on operation {}",
@@ -534,10 +504,5 @@ public class GravitinoInterceptionService implements InterceptionService {
       String implementation = descriptor.getImplementation();
       return targetClasses.contains(implementation);
     }
-  }
-
-  @LegacyEnvAccess
-  private static GravitinoEnv processEnv() {
-    return GravitinoEnv.getInstance();
   }
 }

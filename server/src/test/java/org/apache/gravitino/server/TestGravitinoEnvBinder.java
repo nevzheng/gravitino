@@ -150,6 +150,7 @@ public class TestGravitinoEnvBinder {
     CatalogManager catalogManager = mock(CatalogManager.class);
     AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
     TableDispatcher internalTables = mock(TableDispatcher.class);
+    ViewDispatcher internalViews = mock(ViewDispatcher.class);
     OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
     when(env.config()).thenReturn(config);
     when(env.eventBus()).thenReturn(eventBus);
@@ -158,6 +159,7 @@ public class TestGravitinoEnvBinder {
     when(env.catalogManager()).thenReturn(catalogManager);
     when(env.auxServiceManager()).thenReturn(auxiliaryServiceManager);
     when(env.internalTableDispatcher()).thenReturn(internalTables);
+    when(env.internalViewDispatcher()).thenReturn(internalViews);
     when(env.internalOwnerDispatcher()).thenReturn(internalOwners);
     when(env.accessControlDispatcher()).thenReturn(null);
     when(env.bulkManager()).thenReturn(null);
@@ -175,6 +177,8 @@ public class TestGravitinoEnvBinder {
       assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
       assertSame(
           internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
+      assertSame(
+          internalViews, locator.getService(ViewDispatcher.class, InternalQualifier.INSTANCE));
       assertSame(
           internalOwners, locator.getService(OwnerDispatcher.class, InternalQualifier.INSTANCE));
       // An unqualified injection point gets the public chain, not the internal one.

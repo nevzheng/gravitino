@@ -145,6 +145,13 @@ class GravitinoEnvBinder extends AbstractBinder {
           .qualifiedBy(InternalQualifier.INSTANCE)
           .ranked(InternalQualifier.RANK);
     }
+    ViewDispatcher internalViewDispatcher = gravitinoEnv.internalViewDispatcher();
+    if (internalViewDispatcher != null) {
+      bind(internalViewDispatcher)
+          .to(ViewDispatcher.class)
+          .qualifiedBy(InternalQualifier.INSTANCE)
+          .ranked(InternalQualifier.RANK);
+    }
     bindIfPresent(gravitinoEnv.accessControlDispatcher(), AccessControlDispatcher.class);
     bindIfPresent(gravitinoEnv.ownerDispatcher(), OwnerDispatcher.class);
     OwnerDispatcher internalOwnerDispatcher = gravitinoEnv.internalOwnerDispatcher();

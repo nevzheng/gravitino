@@ -65,6 +65,7 @@ import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.exceptions.BadRequestException;
 import org.apache.gravitino.exceptions.ForbiddenException;
@@ -96,7 +97,10 @@ class TestLineageAuthorizationExecutor {
   void testRegisterWithStandardInterceptionFlow() throws Exception {
     GravitinoInterceptionService service =
         new GravitinoInterceptionService(
-            mock(EventBus.class), mock(TableDispatcher.class), authorizationServices());
+            mock(EventBus.class),
+            mock(TableDispatcher.class),
+            mock(ViewDispatcher.class),
+            authorizationServices());
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(LineageOperations.class.getName());
     Method method = lineageMethod();
@@ -454,7 +458,8 @@ class TestLineageAuthorizationExecutor {
         "",
         ExpressionCondition.NEVER,
         "",
-        mock(TableDispatcher.class));
+        mock(TableDispatcher.class),
+        mock(ViewDispatcher.class));
   }
 
   private static AuthorizationServices authorizationServices() {
@@ -469,7 +474,10 @@ class TestLineageAuthorizationExecutor {
 
   private static MethodInterceptor lineageInterceptor() throws NoSuchMethodException {
     return new GravitinoInterceptionService(
-            mock(EventBus.class), mock(TableDispatcher.class), authorizationServices())
+            mock(EventBus.class),
+            mock(TableDispatcher.class),
+            mock(ViewDispatcher.class),
+            authorizationServices())
         .getMethodInterceptors(lineageMethod())
         .get(0);
   }
