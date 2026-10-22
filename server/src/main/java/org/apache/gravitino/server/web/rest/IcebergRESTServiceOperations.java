@@ -59,18 +59,6 @@ public class IcebergRESTServiceOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates the resource from the process environment, resolved at request time.
-   *
-   * @deprecated Use {@link #IcebergRESTServiceOperations(AuxiliaryServiceManager, Config)}.
-   */
-  @Deprecated
-  public IcebergRESTServiceOperations() {
-    this(
-        () -> EnvironmentServices.processEnv().auxServiceManager(),
-        () -> EnvironmentServices.processEnv().config());
-  }
-
-  /**
    * Creates the resource.
    *
    * @param auxServiceManager the auxiliary service manager that runs the Iceberg REST server.

@@ -23,7 +23,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -57,25 +56,6 @@ public class IcebergViewHookDispatcher implements IcebergViewOperationDispatcher
   private final IcebergNamespaceOperationDispatcher namespaceDispatcher;
   private final String metalake;
   private final AuxiliaryContext auxiliaryContext;
-
-  /**
-   * Creates a view hook dispatcher that reads host services from {@code GravitinoEnv}.
-   *
-   * @param dispatcher the view dispatcher to delegate to
-   * @param namespaceDispatcher the namespace dispatcher that probes namespace existence
-   * @param metalake the metalake of the service
-   * @deprecated Use {@link #IcebergViewHookDispatcher(IcebergViewOperationDispatcher,
-   *     IcebergNamespaceOperationDispatcher, String, AuxiliaryContext)}.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public IcebergViewHookDispatcher(
-      IcebergViewOperationDispatcher dispatcher,
-      IcebergNamespaceOperationDispatcher namespaceDispatcher,
-      String metalake) {
-    this(dispatcher, namespaceDispatcher, metalake, EnvironmentAuxiliaryContext.INSTANCE);
-  }
 
   /**
    * Creates a view hook dispatcher.

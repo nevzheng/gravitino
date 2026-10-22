@@ -76,19 +76,6 @@ public class GroupOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates a group REST resource from the process environment.
-   *
-   * @deprecated Use {@link #GroupOperations(AccessControlDispatcher, OwnerDispatcher)}.
-   */
-  @Deprecated
-  public GroupOperations() {
-    this(
-        EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentServices.processEnv().internalOwnerDispatcher(),
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a group REST resource. Both services are absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
@@ -103,22 +90,6 @@ public class GroupOperations {
     this.accessControlManager = accessControlManager;
     this.ownerDispatcher = ownerDispatcher;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a group REST resource. Both services are absent when authorization is disabled.
-   *
-   * @param accessControlManager the access-control dispatcher, or null.
-   * @param ownerDispatcher the internal owner dispatcher, or null.
-   * @deprecated Use {@link #GroupOperations(AccessControlDispatcher, OwnerDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public GroupOperations(
-      @Nullable AccessControlDispatcher accessControlManager,
-      @Nullable OwnerDispatcher ownerDispatcher) {
-    this(accessControlManager, ownerDispatcher, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET

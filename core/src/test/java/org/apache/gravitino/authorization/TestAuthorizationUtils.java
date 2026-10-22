@@ -27,7 +27,6 @@ import java.util.Collections;
 import java.util.List;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -70,44 +69,6 @@ class TestAuthorizationUtils {
     Assertions.assertEquals(
         "Current user tester is not a member of metalake metalake, or the metalake does not exist",
         exception.getMessage());
-  }
-
-  // Pins the services the overloads without services read for their callers outside core: those
-  // overloads pass EnvironmentAuthorizationServices, which reads each service from the environment.
-  // Every other test passes the services.
-  @Test
-  void testEnvironmentServicesReadTheEnvironment() {
-    GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
-    CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
-    CatalogTestUtils.mockDoWithCatalog(catalogManager, Mockito.mock(BaseCatalog.class));
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
-    Mockito.when(env.internalAccessControlDispatcher())
-        .thenReturn(Mockito.mock(AccessControlDispatcher.class));
-    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
-    AuthorizationServices services = EnvironmentAuthorizationServices.of(env);
-    NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
-
-    ForbiddenException exception =
-        Assertions.assertThrows(
-            ForbiddenException.class,
-            () ->
-                AuthorizationUtils.checkCurrentUser(
-                    services.gravitinoAuthorizer(),
-                    metalake,
-                    "tester",
-                    new AuthorizationRequestContext()));
-    Assertions.assertEquals(
-        AuthorizationUtils.metalakeMembershipFailureMessage(metalake, "tester"),
-        exception.getMessage());
-    AuthorizationUtils.authorizationPluginRenamePrivileges(
-        services, ident, Entity.EntityType.TABLE, "new_table");
-
-    Mockito.verify(authorizer).isMetalakeUser(Mockito.eq(metalake), Mockito.any());
-    Mockito.verify(authorizer)
-        .handleEntityNameIdMappingChange("metalake", ident, Entity.EntityType.TABLE);
-    Mockito.verify(catalogManager)
-        .doWithCatalog(Mockito.eq(NameIdentifier.of("metalake", "catalog")), Mockito.any());
   }
 
   @Test

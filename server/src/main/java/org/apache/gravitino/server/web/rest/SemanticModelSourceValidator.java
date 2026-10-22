@@ -57,23 +57,6 @@ public class SemanticModelSourceValidator {
   private final Function<NameIdentifier, Set<Entity.EntityType>> supportedSourceTypes;
 
   /**
-   * Creates a validator using the server's authorizer and the catalogs of the process environment.
-   *
-   * @param tables table metadata dispatcher
-   * @param views view metadata dispatcher
-   * @deprecated Use {@link #SemanticModelSourceValidator(TableDispatcher, ViewDispatcher,
-   *     CatalogAccess)}.
-   */
-  @Deprecated
-  public SemanticModelSourceValidator(TableDispatcher tables, ViewDispatcher views) {
-    this(
-        tables,
-        views,
-        SemanticModelSourceValidator::serverAuthorizer,
-        supportedSourceTypes(() -> EnvironmentServices.processEnv().catalogManager()));
-  }
-
-  /**
    * Creates a validator using the server's authorizer, including its disabled-mode pass-through.
    *
    * @param tables table metadata dispatcher

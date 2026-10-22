@@ -101,21 +101,6 @@ public class SemanticModelOperations {
   }
 
   /**
-   * Creates Semantic Model REST operations.
-   *
-   * @param dispatcher The Semantic Model dispatcher.
-   * @param sourceValidator The caller-facing source validator.
-   * @deprecated Use {@link #SemanticModelOperations(SemanticModelDispatcher,
-   *     SemanticModelSourceValidator, MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public SemanticModelOperations(
-      SemanticModelDispatcher dispatcher, SemanticModelSourceValidator sourceValidator) {
-    this(dispatcher, sourceValidator, EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Lists Semantic Models in a schema.
    *
    * @param metalake The metalake name.

@@ -62,9 +62,7 @@ import org.glassfish.hk2.utilities.binding.AbstractBinder;
  * server's {@link GravitinoComponent} (design section 5.6).
  *
  * <p>Each dispatcher is the {@code @Public} chain of its type, so it carries the decorators a
- * downstream component contributes. The contracts and ranks are those {@link GravitinoEnvBinder}
- * binds; the objects are the ones the {@code GravitinoEnv} getters return when the environment was
- * initialized with this component.
+ * downstream component contributes.
  */
 class GravitinoComponentBinder extends AbstractBinder {
 

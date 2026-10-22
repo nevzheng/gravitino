@@ -101,19 +101,6 @@ public class TagOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param tagDispatcher the {@link TagDispatcher} to serve requests with
-   * @deprecated Use {@link #TagOperations(TagDispatcher, MetadataAccessChecker)}; the server binds
-   *     the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public TagOperations(TagDispatcher tagDispatcher) {
-    this(tagDispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-tags." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

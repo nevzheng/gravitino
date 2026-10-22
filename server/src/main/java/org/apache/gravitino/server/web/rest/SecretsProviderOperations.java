@@ -75,19 +75,6 @@ public class SecretsProviderOperations {
   }
 
   /**
-   * Creates a secrets-provider REST resource.
-   *
-   * @param secretProviderRegistry the process-owned provider registry
-   * @deprecated Use {@link #SecretsProviderOperations(SecretProviderRegistry,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public SecretsProviderOperations(SecretProviderRegistry secretProviderRegistry) {
-    this(secretProviderRegistry, EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Lists configured secrets providers.
    *
    * @param metalake the metalake used for authorization scoping

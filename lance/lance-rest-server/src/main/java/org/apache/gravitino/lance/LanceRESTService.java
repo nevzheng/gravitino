@@ -29,7 +29,6 @@ import javax.inject.Singleton;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.auxiliary.GravitinoAuxiliaryService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.lance.common.ops.LanceNamespaceBackend;
@@ -78,14 +77,15 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
   }
 
   /**
-   * Initializes the service with the host services of {@code GravitinoEnv}.
+   * Not supported: the service needs the host services. The Gravitino server and the standalone
+   * server call {@link #serviceInit(Map, boolean, AuxiliaryContext)}.
    *
-   * <p>The Gravitino server and the standalone server call {@link #serviceInit(Map, boolean,
-   * AuxiliaryContext)} instead.
+   * @throws UnsupportedOperationException always
    */
   @Override
   public void serviceInit(Map<String, String> properties, boolean auxMode) {
-    serviceInit(properties, auxMode, EnvironmentAuxiliaryContext.INSTANCE);
+    throw new UnsupportedOperationException(
+        "The Lance REST service needs an AuxiliaryContext; call serviceInit(Map, boolean, AuxiliaryContext)");
   }
 
   @Override

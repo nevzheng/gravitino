@@ -93,19 +93,6 @@ public class MetadataObjectTagOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param tagDispatcher the {@link TagDispatcher} to serve requests with
-   * @deprecated Use {@link #MetadataObjectTagOperations(TagDispatcher, MetadataAccessChecker)}; the
-   *     server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetadataObjectTagOperations(TagDispatcher tagDispatcher) {
-    this(tagDispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   // TagOperations will reuse this class to be compatible with legacy interfaces.
   void setHttpRequest(HttpServletRequest httpRequest) {
     this.httpRequest = httpRequest;

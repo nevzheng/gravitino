@@ -248,20 +248,6 @@ public class TestIcebergCatalogWrapperManagerForREST {
             config, accessEvictionNanos, System.currentTimeMillis()));
   }
 
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedConstructorStillCreatesAManager() throws Exception {
-    Map<String, String> config = Maps.newHashMap();
-    IcebergConfigProvider configProvider = IcebergConfigProviderFactory.create(config);
-    configProvider.initialize(config);
-    try (IcebergCatalogWrapperManager manager =
-        new IcebergCatalogWrapperManager(
-            config, configProvider, false, configProvider.getMetalakeName())) {
-      IcebergRESTServerContext.create(configProvider, false, false, true, manager);
-      Assertions.assertEquals(DEFAULT_CATALOG, manager.getOps("").getCatalog().name());
-    }
-  }
-
   private static IcebergCatalogWrapperManager newManager() {
     Map<String, String> config = Maps.newHashMap();
     IcebergConfigProvider configProvider = IcebergConfigProviderFactory.create(config);

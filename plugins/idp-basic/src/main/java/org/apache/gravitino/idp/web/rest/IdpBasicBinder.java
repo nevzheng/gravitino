@@ -18,25 +18,13 @@
  */
 package org.apache.gravitino.idp.web.rest;
 
-import javax.annotation.Nullable;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 
 /** Registers built-in IdP REST dependencies for Jersey/HK2 injection. */
 public class IdpBasicBinder extends AbstractBinder {
 
-  @Nullable private final IdpUserGroupManager userGroupManager;
-
-  /**
-   * Creates a binder that binds the manager of the process environment.
-   *
-   * @deprecated Use {@link #IdpBasicBinder(IdpUserGroupManager)}.
-   */
-  @Deprecated
-  public IdpBasicBinder() {
-    this.userGroupManager = null;
-  }
+  private final IdpUserGroupManager userGroupManager;
 
   /**
    * Creates a binder that binds the given manager.
@@ -49,12 +37,6 @@ public class IdpBasicBinder extends AbstractBinder {
 
   @Override
   protected void configure() {
-    bind(userGroupManager != null ? userGroupManager : processUserGroupManager())
-        .to(IdpUserGroupManager.class);
-  }
-
-  private static IdpUserGroupManager processUserGroupManager() {
-    GravitinoEnv gravitinoEnv = IdpProcessEnvironment.get();
-    return IdpUserGroupManager.getInstance(gravitinoEnv.config(), gravitinoEnv.idGenerator());
+    bind(userGroupManager).to(IdpUserGroupManager.class);
   }
 }

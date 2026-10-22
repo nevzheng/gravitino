@@ -33,7 +33,6 @@ import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
-import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lifecycle.Lifecycle;
@@ -65,7 +64,6 @@ import org.apache.gravitino.server.web.mapper.NotFoundExceptionMapper;
 import org.apache.gravitino.server.web.mapper.ParamExceptionMapper;
 import org.apache.gravitino.server.web.mapper.WebApplicationExceptionMapper;
 import org.apache.gravitino.server.web.ui.WebUIFilter;
-import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.CommonProperties;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -103,8 +101,7 @@ public class GravitinoServer extends ResourceConfig {
 
   private final GravitinoEnv gravitinoEnv;
 
-  // Null for a server built with the deprecated constructor, which binds from the env's getters.
-  @Nullable private final GravitinoComponent.Factory componentFactory;
+  private final GravitinoComponent.Factory componentFactory;
 
   // The component the environment was initialized from; set by initialize().
   @Nullable private GravitinoComponent component;
@@ -112,9 +109,6 @@ public class GravitinoServer extends ResourceConfig {
   private final LineageService lineageService;
 
   private final GravitinoAuthorizerProvider authorizerProvider;
-
-  // Whether initialize() installed the provider's authorizer in the environment.
-  private boolean installedInEnv;
 
   private final Lifecycle lifecycle;
 
@@ -160,36 +154,11 @@ public class GravitinoServer extends ResourceConfig {
     this(config, processEnv(), componentFactory);
   }
 
-  /**
-   * Creates a server that initializes the environment with {@code
-   * GravitinoEnv.initializeFullComponents(Config)} and binds the dispatchers the REST resources
-   * inject from the environment's getters, so a {@code GravitinoEnv} subclass that overrides them
-   * keeps working. A subclass that overrides {@code initializeFullComponents} must call the
-   * overridden method: it builds the component that {@code GravitinoEnv.start()} starts, and
-   * without it the server fails to start with an {@link IllegalStateException}.
-   *
-   * @param config the server configuration
-   * @param gravitinoEnv the environment to initialize
-   * @deprecated Change dispatcher chains with {@code DispatcherDecorator}s in a downstream
-   *     component instead of overriding {@code GravitinoEnv} getters, and use {@link
-   *     #GravitinoServer(ServerConfig, GravitinoEnv, GravitinoComponent.Factory)}.
-   */
-  @Deprecated
-  public GravitinoServer(ServerConfig config, GravitinoEnv gravitinoEnv) {
-    this(
-        config,
-        gravitinoEnv,
-        null,
-        new JettyServer(),
-        new LineageService(),
-        GravitinoAuthorizerProvider.getInstance());
-  }
-
   @VisibleForTesting
   GravitinoServer(
       ServerConfig config,
       GravitinoEnv gravitinoEnv,
-      @Nullable GravitinoComponent.Factory componentFactory,
+      GravitinoComponent.Factory componentFactory,
       JettyServer server,
       LineageService lineageService,
       GravitinoAuthorizerProvider authorizerProvider) {
@@ -214,15 +183,10 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void initialize() {
-    if (componentFactory != null) {
-      gravitinoEnv.initializeFullComponents(serverConfig, componentFactory);
-      this.component =
-          Preconditions.checkNotNull(
-              gravitinoEnv.component(), "The environment holds no component after initialization");
-    } else {
-      // The deprecated constructor: a GravitinoEnv subclass may override this method.
-      gravitinoEnv.initializeFullComponents(serverConfig);
-    }
+    gravitinoEnv.initializeFullComponents(serverConfig, componentFactory);
+    this.component =
+        Preconditions.checkNotNull(
+            gravitinoEnv.component(), "The environment holds no component after initialization");
 
     JettyServerConfig jettyServerConfig =
         JettyServerConfig.fromConfig(serverConfig, WEBSERVER_CONF_PREFIX);
@@ -230,9 +194,11 @@ public class GravitinoServer extends ResourceConfig {
     server.addMetricsServlets(metricsSystem());
 
     ServerAuthenticator.getInstance()
-        .initialize(serverConfig, AuthenticatorContext.of(gravitinoEnv::idGenerator));
+        .initialize(serverConfig, AuthenticatorContext.of(component::idGenerator));
 
-    installAuthorizer();
+    // Install the authorizer of the component, so it is initialized before the server takes
+    // requests, for the code that reads it statically. The component closes it.
+    authorizerProvider.install(component.gravitinoAuthorizer());
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -251,13 +217,11 @@ public class GravitinoServer extends ResourceConfig {
    * to bind its own services into HK2.
    *
    * @return the component
-   * @throws IllegalStateException before {@link #initialize()}, or on a server built with the
-   *     deprecated {@link #GravitinoServer(ServerConfig, GravitinoEnv)}
+   * @throws IllegalStateException before {@link #initialize()}
    */
   protected GravitinoComponent component() {
     Preconditions.checkState(
-        component != null,
-        "The server has no component: it is not initialized, or it binds from GravitinoEnv getters");
+        component != null, "The server has no component: it is not initialized");
     return component;
   }
 
@@ -269,7 +233,7 @@ public class GravitinoServer extends ResourceConfig {
     packages(restApiPackagesSet.toArray(new String[0]));
 
     boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-    register(dispatcherBinder(enableAuthorization));
+    register(new GravitinoComponentBinder(component, enableAuthorization, lineageService));
     register(JsonProcessingExceptionMapper.class);
     register(new OutOfMemoryErrorListener());
     register(ErrorExceptionMapper.class);
@@ -443,59 +407,24 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
-  /**
-   * Returns the binder of the dispatchers the REST resources inject: from the component's provision
-   * methods, or, for the deprecated constructor, from the environment's getters.
-   */
-  private AbstractBinder dispatcherBinder(boolean enableAuthorization) {
-    return component != null
-        ? new GravitinoComponentBinder(component, enableAuthorization, lineageService)
-        : new GravitinoEnvBinder(gravitinoEnv, enableAuthorization, lineageService);
-  }
-
-  /**
-   * Builds the authorizer of the environment's component, so it is initialized before the server
-   * takes requests, and installs it in the provider for the code that reads it statically. The
-   * component closes it. An environment that holds no component, which only a {@code GravitinoEnv}
-   * subclass given to the deprecated constructor can produce, gets an authorizer the provider
-   * builds from the environment's getters and closes.
-   */
-  private void installAuthorizer() {
-    GravitinoComponent built = component != null ? component : gravitinoEnv.component();
-    if (built != null) {
-      authorizerProvider.install(built.gravitinoAuthorizer());
-      return;
-    }
-    authorizerProvider.initialize(serverConfig, EnvironmentAuthorizerContext.of(gravitinoEnv));
-    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
-    installedInEnv = true;
-  }
-
-  /**
-   * Takes the authorizer back from the provider, and from the environment if the server installed
-   * it there. The provider closes only an authorizer it built; the component closes its own.
-   */
+  /** Takes the authorizer back from the provider; the component closes it. */
   private void closeAuthorizer() throws IOException {
-    if (installedInEnv) {
-      gravitinoEnv.setGravitinoAuthorizer(null);
-      installedInEnv = false;
-    }
     authorizerProvider.close();
   }
 
-  // The server still holds the process environment, which its REST resources and the code it
-  // loads read; it is removed with the facade.
+  // The server still holds the process environment, which the code it loads reads; it is removed
+  // with the facade.
   @LegacyEnvAccess
   private static GravitinoEnv processEnv() {
     return GravitinoEnv.getInstance();
   }
 
   private MetricsSystem metricsSystem() {
-    return component != null ? component.metricsSystem() : gravitinoEnv.metricsSystem();
+    return component.metricsSystem();
   }
 
   private EventBus eventBus() {
-    return component != null ? component.eventBus() : gravitinoEnv.eventBus();
+    return component.eventBus();
   }
 
   /** Returns an action that runs {@code action} the first time it is run, and then does nothing. */

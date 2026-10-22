@@ -82,7 +82,6 @@ import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -109,21 +108,6 @@ public class BulkOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates a bulk operations resource from the process environment.
-   *
-   * @deprecated Use {@link #BulkOperations(BulkManager, AccessControlDispatcher, OwnerDispatcher)}.
-   */
-  @Deprecated
-  public BulkOperations() {
-    this(
-        EnvironmentServices.processEnv().bulkManager(),
-        EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentServices.processEnv().internalOwnerDispatcher(),
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a bulk operations resource. The services are absent when authorization is disabled.
    *
    * @param bulkManager the bulk manager, or null.
@@ -144,29 +128,6 @@ public class BulkOperations {
     this.ownerDispatcher = ownerDispatcher;
     this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a bulk operations resource. The services are absent when authorization is disabled.
-   *
-   * @param bulkManager the bulk manager, or null.
-   * @param accessControlDispatcher the access-control dispatcher, or null.
-   * @param ownerDispatcher the internal owner dispatcher, or null.
-   * @deprecated Use {@link #BulkOperations(BulkManager, AccessControlDispatcher, OwnerDispatcher,
-   *     MetadataObjectDispatchers, MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public BulkOperations(
-      @Nullable BulkManager bulkManager,
-      @Nullable AccessControlDispatcher accessControlDispatcher,
-      @Nullable OwnerDispatcher ownerDispatcher) {
-    this(
-        bulkManager,
-        accessControlDispatcher,
-        ownerDispatcher,
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
   }
 
   /**

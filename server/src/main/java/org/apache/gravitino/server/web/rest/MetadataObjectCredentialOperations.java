@@ -88,19 +88,6 @@ public class MetadataObjectCredentialOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link CredentialOperationDispatcher} to serve requests with
-   * @deprecated Use {@link #MetadataObjectCredentialOperations(CredentialOperationDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetadataObjectCredentialOperations(CredentialOperationDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "get-credentials." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

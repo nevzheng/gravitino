@@ -24,7 +24,6 @@ import java.util.function.Function;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
-import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.cache.GravitinoCache;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NotFoundException;
@@ -72,27 +71,6 @@ public class JcasbinAuthorizationLookups {
     this.metadataIdCache = metadataIdCache;
     this.ownerRelCache = ownerRelCache;
     this.metadataIdResolver = Preconditions.checkNotNull(metadataIdResolver, "metadataIdResolver");
-  }
-
-  /**
-   * Creates a new lookups facade that resolves metadata IDs through the process environment.
-   *
-   * @param metadataIdCache path-based metadata object key → entity id
-   * @param ownerRelCache {@code metadataObjectId} → {@link Optional} of {@link OwnerInfo}
-   * @deprecated Use {@link #JcasbinAuthorizationLookups(GravitinoCache, GravitinoCache,
-   *     MetadataIdResolver)} with a resolver over the authorizer's host services.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public JcasbinAuthorizationLookups(
-      GravitinoCache<String, Long> metadataIdCache,
-      GravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache) {
-    this(
-        metadataIdCache,
-        ownerRelCache,
-        new MetadataIdResolver(
-            EnvironmentAuthorizerContext.INSTANCE::catalogAccess,
-            EnvironmentAuthorizerContext.INSTANCE::entityStore));
   }
 
   /**

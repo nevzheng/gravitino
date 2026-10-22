@@ -44,7 +44,6 @@ import javax.ws.rs.core.Response;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.dto.HealthCheckDTO;
 import org.apache.gravitino.dto.responses.HealthResponse;
@@ -107,18 +106,6 @@ public class HealthOperations {
   private final Supplier<Config> config;
 
   /**
-   * Creates a health resource that resolves the entity store from the process environment at
-   * request time, so that probes issued before {@link GravitinoEnv} has finished initializing
-   * report DOWN rather than throwing NullPointerException.
-   *
-   * @deprecated Use {@link #HealthOperations(EntityStore, Config)}.
-   */
-  @Deprecated
-  public HealthOperations() {
-    this(ServerHealth.getInstance());
-  }
-
-  /**
    * Creates a health resource that probes the given entity store.
    *
    * @param entityStore the entity store to probe.
@@ -129,11 +116,9 @@ public class HealthOperations {
     this(ServerHealth.getInstance(), () -> entityStore, () -> config);
   }
 
+  // For tests, which override getEntityStore() and getProbeTimeoutMs().
   HealthOperations(ServerHealth serverHealth) {
-    this(
-        serverHealth,
-        () -> EnvironmentServices.processEnv().entityStore(),
-        () -> EnvironmentServices.processEnv().config());
+    this(serverHealth, () -> null, () -> null);
   }
 
   private HealthOperations(

@@ -58,7 +58,6 @@ import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.AuthorizerContext;
-import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
@@ -260,8 +259,8 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   /** Background HA invalidator for {@link #metadataIdCache} and {@link #ownerRelCache}. */
   private JcasbinChangeListener changePoller;
 
-  /** The host services; those of {@code GravitinoEnv} until {@link #initialize} sets them. */
-  private AuthorizerContext context = EnvironmentAuthorizerContext.INSTANCE;
+  /** The host services; set by {@link #initialize(AuthorizerContext)}. */
+  private AuthorizerContext context;
 
   /** The resolver given to the constructor, or null to build one from the context. */
   @Nullable private final MetadataIdResolver givenMetadataIdResolver;
@@ -302,10 +301,14 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
 
   /**
    * Initializes the authorizer with the host services set by {@link
-   * #initialize(AuthorizerContext)}, or those of {@code GravitinoEnv} when none were set.
+   * #initialize(AuthorizerContext)}.
+   *
+   * @throws IllegalStateException if no host services were set
    */
   @Override
   public void initialize() {
+    Preconditions.checkState(
+        context != null, "JcasbinAuthorizer needs an AuthorizerContext; call initialize(context)");
     Config config = context.config();
     long cacheExpirationSecs = config.get(Configs.GRAVITINO_AUTHORIZATION_CACHE_EXPIRATION_SECS);
     long roleCacheSize = config.get(Configs.GRAVITINO_AUTHORIZATION_ROLE_CACHE_SIZE);

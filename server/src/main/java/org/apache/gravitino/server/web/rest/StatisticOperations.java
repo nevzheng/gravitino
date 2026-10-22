@@ -73,7 +73,6 @@ import org.apache.gravitino.stats.PartitionStatisticsModification;
 import org.apache.gravitino.stats.Statistic;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticValue;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.slf4j.Logger;
@@ -102,20 +101,6 @@ public class StatisticOperations {
       StatisticDispatcher statisticDispatcher, MetadataObjectDispatchers objectDispatchers) {
     this.statisticDispatcher = statisticDispatcher;
     this.objectDispatchers = objectDispatchers;
-  }
-
-  /**
-   * Creates a statistic REST resource that asks {@code GravitinoEnv} whether a metadata object
-   * exists.
-   *
-   * @param statisticDispatcher the statistic dispatcher
-   * @deprecated Use {@link #StatisticOperations(StatisticDispatcher, MetadataObjectDispatchers)};
-   *     the server binds the dispatchers.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public StatisticOperations(StatisticDispatcher statisticDispatcher) {
-    this(statisticDispatcher, EnvironmentMetadataObjectDispatchers.INSTANCE);
   }
 
   @GET

@@ -79,19 +79,6 @@ public class ViewOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link ViewDispatcher} to serve requests with
-   * @deprecated Use {@link #ViewOperations(ViewDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public ViewOperations(ViewDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-view." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

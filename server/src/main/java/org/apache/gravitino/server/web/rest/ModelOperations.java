@@ -95,19 +95,6 @@ public class ModelOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param modelDispatcher the {@link ModelDispatcher} to serve requests with
-   * @deprecated Use {@link #ModelOperations(ModelDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public ModelOperations(ModelDispatcher modelDispatcher) {
-    this(modelDispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-model." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

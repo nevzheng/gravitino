@@ -26,7 +26,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.lance.common.ops.LanceMetadataFilter;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 
@@ -46,18 +45,6 @@ public class LanceAuthorizationMetadataFilter implements LanceMetadataFilter {
       String metalakeName, MetadataAccessChecker accessChecker) {
     this.metalakeName = metalakeName;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a filter bound to a metalake that checks access with the process-wide checker.
-   *
-   * @param metalakeName the metalake Lance REST is bound to.
-   * @deprecated Use {@link #LanceAuthorizationMetadataFilter(String, MetadataAccessChecker)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public LanceAuthorizationMetadataFilter(String metalakeName) {
-    this(metalakeName, MetadataAuthzHelper.processChecker());
   }
 
   @Override

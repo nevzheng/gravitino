@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -72,12 +71,5 @@ public class TestMetadataAccessCheckerInjection {
           parameters[parameters.length - 1],
           resource.getSimpleName() + " must take the checker from HK2");
     }
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedConstructorsUseTheProcessChecker() {
-    Assertions.assertSame(
-        MetadataAuthzHelper.processChecker(), EnvironmentServices.metadataAccessChecker());
   }
 }

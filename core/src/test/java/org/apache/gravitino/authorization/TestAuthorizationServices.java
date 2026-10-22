@@ -31,57 +31,14 @@ import java.util.Collections;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
-import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class TestAuthorizationServices {
-
-  @Test
-  public void testEnvironmentServicesReadTheGettersWhenAsked() {
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    AuthorizationServices services = EnvironmentAuthorizationServices.of(env);
-    Assertions.assertFalse(services.authorizationEnabled());
-    Assertions.assertNull(services.internalOwnerDispatcher());
-
-    AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
-    OwnerDispatcher owner = mock(OwnerDispatcher.class);
-    FutureGrantManager futureGrants = mock(FutureGrantManager.class);
-    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    CatalogDispatcher catalogs = mock(CatalogDispatcher.class);
-    SchemaDispatcher schemas = mock(SchemaDispatcher.class);
-    TableDispatcher tables = mock(TableDispatcher.class);
-    FilesetDispatcher filesets = mock(FilesetDispatcher.class);
-    when(env.internalAccessControlDispatcher()).thenReturn(accessControl);
-    when(env.internalOwnerDispatcher()).thenReturn(owner);
-    when(env.futureGrantManager()).thenReturn(futureGrants);
-    when(env.gravitinoAuthorizer()).thenReturn(authorizer);
-    when(env.catalogManager()).thenReturn(catalogManager);
-    when(env.internalCatalogDispatcher()).thenReturn(catalogs);
-    when(env.internalSchemaDispatcher()).thenReturn(schemas);
-    when(env.internalTableDispatcher()).thenReturn(tables);
-    when(env.internalFilesetDispatcher()).thenReturn(filesets);
-
-    Assertions.assertTrue(services.authorizationEnabled());
-    Assertions.assertSame(accessControl, services.internalAccessControlDispatcher());
-    Assertions.assertSame(owner, services.internalOwnerDispatcher());
-    Assertions.assertSame(futureGrants, services.futureGrantManager());
-    Assertions.assertSame(authorizer, services.gravitinoAuthorizer());
-    Assertions.assertSame(catalogManager, services.catalogAccess());
-    Assertions.assertSame(catalogs, services.internalCatalogDispatcher());
-    Assertions.assertSame(schemas, services.internalSchemaDispatcher());
-    Assertions.assertSame(tables, services.internalTableDispatcher());
-    Assertions.assertSame(filesets, services.internalFilesetDispatcher());
-  }
 
   @Test
   public void testNotifyMappingChangeUsesTheGivenAuthorizerAndSwallowsFailures() {

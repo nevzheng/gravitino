@@ -54,7 +54,6 @@ import org.apache.gravitino.iceberg.service.dispatcher.IcebergViewOperationDispa
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.IcebergAuthorizationMetadata;
@@ -97,19 +96,6 @@ public class IcebergViewOperations {
     this.viewOperationDispatcher = viewOperationDispatcher;
     this.accessChecker = accessChecker;
     this.icebergObjectMapper = IcebergObjectMapper.getInstance();
-  }
-
-  /**
-   * Creates the view resource with the process-wide access checker.
-   *
-   * @param viewOperationDispatcher serves the view requests
-   * @deprecated Use {@link #IcebergViewOperations(IcebergViewOperationDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public IcebergViewOperations(IcebergViewOperationDispatcher viewOperationDispatcher) {
-    this(viewOperationDispatcher, MetadataAuthzHelper.processChecker());
   }
 
   @GET

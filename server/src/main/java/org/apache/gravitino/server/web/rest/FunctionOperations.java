@@ -86,19 +86,6 @@ public class FunctionOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link FunctionDispatcher} to serve requests with
-   * @deprecated Use {@link #FunctionOperations(FunctionDispatcher, MetadataAccessChecker)}; the
-   *     server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public FunctionOperations(FunctionDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-function." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

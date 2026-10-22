@@ -86,19 +86,6 @@ public class TableOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link TableDispatcher} to serve requests with
-   * @deprecated Use {@link #TableOperations(TableDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public TableOperations(TableDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-table." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

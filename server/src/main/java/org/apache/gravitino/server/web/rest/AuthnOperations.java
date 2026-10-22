@@ -48,16 +48,6 @@ public class AuthnOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates an authenticated-principal REST resource from the process environment.
-   *
-   * @deprecated Use {@link #AuthnOperations(AccessControlDispatcher)}.
-   */
-  @Deprecated
-  public AuthnOperations() {
-    this(EnvironmentServices.processEnv().accessControlDispatcher());
-  }
-
-  /**
    * Creates an authenticated-principal REST resource.
    *
    * @param accessControlDispatcher the access-control dispatcher, or null when authorization is

@@ -61,17 +61,6 @@ public class IdpUserOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates the resource, reading the service admins from the process environment.
-   *
-   * @param userGroupManager the built-in IdP user and group manager.
-   * @deprecated Use {@link #IdpUserOperations(IdpUserGroupManager, Config)}.
-   */
-  @Deprecated
-  public IdpUserOperations(IdpUserGroupManager userGroupManager) {
-    this(userGroupManager, IdpUserOperations::processConfig);
-  }
-
-  /**
    * Creates the resource.
    *
    * @param userGroupManager the built-in IdP user and group manager.
@@ -212,9 +201,5 @@ public class IdpUserOperations {
         "user",
         IdpOperationType.REMOVE,
         user);
-  }
-
-  private static Config processConfig() {
-    return IdpProcessEnvironment.get().config();
   }
 }

@@ -19,17 +19,16 @@
 package org.apache.gravitino.iceberg;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import java.util.Collections;
-import java.util.Map;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.server.web.JettyServerConfig;
 import org.junit.jupiter.api.Test;
@@ -37,14 +36,13 @@ import org.junit.jupiter.api.Test;
 public class TestRESTService {
 
   @Test
-  public void testInitWithoutContextUsesTheEnvironment() {
+  public void testInitWithoutContextIsUnsupported() {
     RESTService service = spy(new RESTService());
-    doNothing().when(service).serviceInit(any(), anyBoolean(), any(AuxiliaryContext.class));
-    Map<String, String> properties = Collections.emptyMap();
 
-    service.serviceInit(properties, true);
-
-    verify(service).serviceInit(properties, true, EnvironmentAuxiliaryContext.INSTANCE);
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> service.serviceInit(Collections.emptyMap(), true));
+    verify(service, never()).serviceInit(any(), anyBoolean(), any(AuxiliaryContext.class));
   }
 
   /** The documented Iceberg REST key reaches the value the service passes to its error builder. */

@@ -43,22 +43,6 @@ public class ServerAuthenticator {
   }
 
   /**
-   * Initialize the server authenticator.
-   *
-   * @param config The configuration object to initialize the authenticator.
-   * @deprecated Use {@link #initialize(Config, AuthenticatorContext)}, which hands each
-   *     authenticator the services the server built.
-   */
-  @Deprecated
-  public void initialize(Config config) {
-    // Create and initialize Authenticator related modules
-    this.authenticators = AuthenticatorFactory.createAuthenticators(config);
-    for (Authenticator authenticator : authenticators) {
-      authenticator.initialize(config);
-    }
-  }
-
-  /**
    * Initialize the server authenticator with the services the server built.
    *
    * @param config The configuration object to initialize the authenticator.

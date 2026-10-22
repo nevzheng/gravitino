@@ -19,7 +19,6 @@
 package org.apache.gravitino.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -34,10 +33,8 @@ import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationServices;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -81,7 +78,6 @@ import org.apache.gravitino.server.web.rest.UserOperations;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.api.ActiveDescriptor;
 import org.glassfish.hk2.api.InterceptionService;
@@ -165,33 +161,18 @@ public class TestGravitinoComponentBinder {
   }
 
   @Test
-  public void testBindsTheContractsAndRanksOfTheEnvironmentBinder() {
+  public void testBindsTheInterceptionServiceOnlyWithAuthorization() {
     for (boolean enableAuthorization : new boolean[] {false, true}) {
-      LineageDispatcher lineage = mock(LineageDispatcher.class);
-      GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
       GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
-      // Both binders then advertise the same implementation class for the object dispatchers.
-      when(component.metadataObjectDispatchers())
-          .thenReturn(EnvironmentMetadataObjectDispatchers.of(env));
-      when(component.authorizationServices()).thenReturn(EnvironmentAuthorizationServices.of(env));
       Set<String> fromComponent =
-          descriptors(new GravitinoComponentBinder(component, enableAuthorization, lineage));
-      if (!enableAuthorization) {
-        // The environment builds no access-control services when authorization is disabled.
-        when(env.accessControlDispatcher()).thenReturn(null);
-        when(env.ownerDispatcher()).thenReturn(null);
-        when(env.internalOwnerDispatcher()).thenReturn(null);
-        when(env.bulkManager()).thenReturn(null);
-      }
-      Set<String> fromEnvironment =
-          descriptors(new GravitinoEnvBinder(env, enableAuthorization, lineage));
+          descriptors(
+              new GravitinoComponentBinder(
+                  component, enableAuthorization, mock(LineageDispatcher.class)));
 
-      assertEquals(fromEnvironment, fromComponent);
       assertEquals(
           enableAuthorization,
           fromComponent.stream().anyMatch(d -> d.contains(InterceptionService.class.getName())));
       assertTrue(fromComponent.stream().anyMatch(d -> d.contains(TableDispatcher.class.getName())));
-      assertFalse(fromComponent.isEmpty());
     }
   }
 

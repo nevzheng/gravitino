@@ -124,11 +124,11 @@ public class TestGravitinoAuthorizerProvider {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
   public void testInitializeAllowAuthorizer() {
     ServerConfig serverConfig = new ServerConfig();
     serverConfig.set(Configs.ENABLE_AUTHORIZATION, false);
-    GravitinoAuthorizerProvider.getInstance().initialize(serverConfig);
+    GravitinoAuthorizerProvider.getInstance()
+        .initialize(serverConfig, Mockito.mock(AuthorizerContext.class));
     GravitinoAuthorizer gravitinoAuthorizer =
         GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer();
     Assertions.assertInstanceOf(

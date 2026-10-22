@@ -25,7 +25,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
@@ -59,23 +58,6 @@ public class IcebergTableHookDispatcher implements IcebergTableOperationDispatch
   private final IcebergNamespaceOperationDispatcher namespaceDispatcher;
   private final AuxiliaryContext auxiliaryContext;
   private String metalake;
-
-  /**
-   * Creates a table hook dispatcher that reads host services from {@code GravitinoEnv}.
-   *
-   * @param dispatcher the table dispatcher to delegate to
-   * @param namespaceDispatcher the namespace dispatcher that probes namespace existence
-   * @deprecated Use {@link #IcebergTableHookDispatcher(IcebergTableOperationDispatcher,
-   *     IcebergNamespaceOperationDispatcher, AuxiliaryContext)}.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public IcebergTableHookDispatcher(
-      IcebergTableOperationDispatcher dispatcher,
-      IcebergNamespaceOperationDispatcher namespaceDispatcher) {
-    this(dispatcher, namespaceDispatcher, EnvironmentAuxiliaryContext.INSTANCE);
-  }
 
   /**
    * Creates a table hook dispatcher.

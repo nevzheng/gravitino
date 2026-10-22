@@ -75,19 +75,6 @@ public class UserOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates a user REST resource from the process environment.
-   *
-   * @deprecated Use {@link #UserOperations(AccessControlDispatcher, OwnerDispatcher)}.
-   */
-  @Deprecated
-  public UserOperations() {
-    this(
-        EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentServices.processEnv().internalOwnerDispatcher(),
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a user REST resource. Both services are absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
@@ -102,22 +89,6 @@ public class UserOperations {
     this.accessControlManager = accessControlManager;
     this.ownerManager = ownerManager;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a user REST resource. Both services are absent when authorization is disabled.
-   *
-   * @param accessControlManager the access-control dispatcher, or null.
-   * @param ownerManager the internal owner dispatcher, or null.
-   * @deprecated Use {@link #UserOperations(AccessControlDispatcher, OwnerDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public UserOperations(
-      @Nullable AccessControlDispatcher accessControlManager,
-      @Nullable OwnerDispatcher ownerManager) {
-    this(accessControlManager, ownerManager, EnvironmentServices.metadataAccessChecker());
   }
 
   @GET

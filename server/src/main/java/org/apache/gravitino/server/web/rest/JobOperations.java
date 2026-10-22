@@ -99,20 +99,6 @@ public class JobOperations {
   @Context HttpServletRequest httpRequest;
 
   /**
-   * Creates a job REST resource that takes template ids from the process environment.
-   *
-   * @param jobOperationDispatcher the job operation dispatcher.
-   * @deprecated Use {@link #JobOperations(JobOperationDispatcher, IdGenerator)}.
-   */
-  @Deprecated
-  public JobOperations(JobOperationDispatcher jobOperationDispatcher) {
-    this(
-        jobOperationDispatcher,
-        () -> EnvironmentServices.processEnv().idGenerator(),
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a job REST resource.
    *
    * @param jobOperationDispatcher the job operation dispatcher.
@@ -125,20 +111,6 @@ public class JobOperations {
       IdGenerator idGenerator,
       MetadataAccessChecker accessChecker) {
     this(jobOperationDispatcher, () -> idGenerator, accessChecker);
-  }
-
-  /**
-   * Creates a job REST resource.
-   *
-   * @param jobOperationDispatcher the job operation dispatcher.
-   * @param idGenerator the generator of job template ids.
-   * @deprecated Use {@link #JobOperations(JobOperationDispatcher, IdGenerator,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public JobOperations(JobOperationDispatcher jobOperationDispatcher, IdGenerator idGenerator) {
-    this(jobOperationDispatcher, idGenerator, EnvironmentServices.metadataAccessChecker());
   }
 
   private JobOperations(

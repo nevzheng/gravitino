@@ -56,16 +56,6 @@ public class IdpAuthorizationFilter implements ContainerRequestFilter {
   private final Supplier<String> currentUserSupplier;
 
   /**
-   * Creates a filter backed by the configuration of the process environment.
-   *
-   * @deprecated Use {@link #IdpAuthorizationFilter(Config)}.
-   */
-  @Deprecated
-  public IdpAuthorizationFilter() {
-    this(() -> processConfig().get(Configs.SERVICE_ADMINS), PrincipalUtils::getCurrentUserName);
-  }
-
-  /**
    * Creates a filter backed by the server configuration.
    *
    * @param config the server configuration, which lists the service admins.
@@ -117,9 +107,5 @@ public class IdpAuthorizationFilter implements ContainerRequestFilter {
     return "PUT".equalsIgnoreCase(method)
         && segments.size() == 4
         && "password".equals(segments.get(3).getPath());
-  }
-
-  private static Config processConfig() {
-    return IdpProcessEnvironment.get().config();
   }
 }

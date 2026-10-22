@@ -66,7 +66,6 @@ import org.apache.gravitino.iceberg.service.metrics.IcebergMetricsManager;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.IcebergAuthorizationMetadata;
@@ -132,22 +131,6 @@ public class IcebergTableOperations {
     this.tableOperationDispatcher = tableOperationDispatcher;
     this.accessChecker = accessChecker;
     this.icebergObjectMapper = IcebergObjectMapper.getInstance();
-  }
-
-  /**
-   * Creates the table resource with the process-wide access checker.
-   *
-   * @param icebergMetricsManager records the metrics that clients report
-   * @param tableOperationDispatcher serves the table requests
-   * @deprecated Use {@link #IcebergTableOperations(IcebergMetricsManager,
-   *     IcebergTableOperationDispatcher, MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public IcebergTableOperations(
-      IcebergMetricsManager icebergMetricsManager,
-      IcebergTableOperationDispatcher tableOperationDispatcher) {
-    this(icebergMetricsManager, tableOperationDispatcher, MetadataAuthzHelper.processChecker());
   }
 
   @GET

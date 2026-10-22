@@ -52,7 +52,6 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationFullNa
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationObjectType;
 import org.apache.gravitino.server.web.Utils;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 
@@ -65,20 +64,6 @@ public class OwnerOperations {
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
-
-  /**
-   * Creates an owner REST resource from the process environment.
-   *
-   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataObjectDispatchers,
-   *     MetadataAccessChecker)}.
-   */
-  @Deprecated
-  public OwnerOperations() {
-    this(
-        EnvironmentServices.processEnv().ownerDispatcher(),
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
-  }
 
   /**
    * Creates an owner REST resource. The service is absent when authorization is disabled.
@@ -95,22 +80,6 @@ public class OwnerOperations {
     this.ownerDispatcher = ownerDispatcher;
     this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates an owner REST resource. The service is absent when authorization is disabled.
-   *
-   * @param ownerDispatcher the owner dispatcher, or null.
-   * @deprecated Use {@link #OwnerOperations(OwnerDispatcher, MetadataObjectDispatchers,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public OwnerOperations(@Nullable OwnerDispatcher ownerDispatcher) {
-    this(
-        ownerDispatcher,
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET

@@ -60,7 +60,6 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationExpres
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -80,19 +79,6 @@ public class RoleOperations {
   @Context private HttpServletRequest httpRequest;
 
   /**
-   * Creates a role REST resource from the process environment.
-   *
-   * @deprecated Use {@link #RoleOperations(AccessControlDispatcher)}.
-   */
-  @Deprecated
-  public RoleOperations() {
-    this(
-        EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a role REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
@@ -107,22 +93,6 @@ public class RoleOperations {
     this.accessControlManager = accessControlManager;
     this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a role REST resource. The service is absent when authorization is disabled.
-   *
-   * @param accessControlManager the access-control dispatcher, or null.
-   * @deprecated Use {@link #RoleOperations(AccessControlDispatcher, MetadataObjectDispatchers,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public RoleOperations(@Nullable AccessControlDispatcher accessControlManager) {
-    this(
-        accessControlManager,
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET

@@ -95,19 +95,6 @@ public class FilesetOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link FilesetDispatcher} to serve requests with
-   * @deprecated Use {@link #FilesetOperations(FilesetDispatcher, MetadataAccessChecker)}; the
-   *     server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public FilesetOperations(FilesetDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-fileset." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

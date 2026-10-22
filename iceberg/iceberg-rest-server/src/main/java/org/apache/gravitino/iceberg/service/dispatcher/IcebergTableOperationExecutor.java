@@ -36,7 +36,6 @@ import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.meta.TableEntity;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.iceberg.TableMetadata;
@@ -78,22 +77,6 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
     this.icebergCatalogWrapperManager = icebergCatalogWrapperManager;
     this.cleanupManager = cleanupManager;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates the executor with the process-wide access checker.
-   *
-   * @param icebergCatalogWrapperManager supplies the Iceberg catalogs
-   * @param cleanupManager purges dropped tables asynchronously, when present
-   * @deprecated Use {@link #IcebergTableOperationExecutor(IcebergCatalogWrapperManager, Optional,
-   *     MetadataAccessChecker)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public IcebergTableOperationExecutor(
-      IcebergCatalogWrapperManager icebergCatalogWrapperManager,
-      Optional<IcebergCleanupManager> cleanupManager) {
-    this(icebergCatalogWrapperManager, cleanupManager, MetadataAuthzHelper.processChecker());
   }
 
   @Override

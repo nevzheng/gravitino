@@ -21,20 +21,19 @@ package org.apache.gravitino.lance;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.Collections;
-import java.util.Map;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.lance.common.ops.NamespaceWrapper;
 import org.apache.gravitino.lance.common.ops.gravitino.GravitinoLanceNamespaceWrapper;
@@ -44,14 +43,13 @@ import org.junit.jupiter.api.Test;
 public class TestLanceRESTService {
 
   @Test
-  public void testInitWithoutContextUsesTheEnvironment() {
+  public void testInitWithoutContextIsUnsupported() {
     LanceRESTService service = spy(new LanceRESTService());
-    doNothing().when(service).serviceInit(any(), anyBoolean(), any(AuxiliaryContext.class));
-    Map<String, String> properties = Collections.emptyMap();
 
-    service.serviceInit(properties, true);
-
-    verify(service).serviceInit(properties, true, EnvironmentAuxiliaryContext.INSTANCE);
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> service.serviceInit(Collections.emptyMap(), true));
+    verify(service, never()).serviceInit(any(), anyBoolean(), any(AuxiliaryContext.class));
   }
 
   @Test

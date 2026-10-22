@@ -23,7 +23,6 @@ import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
 import org.apache.gravitino.Entity;
@@ -32,7 +31,6 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SupportsSchemas;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -251,20 +249,6 @@ public class TestGravitinoLanceNamespaceWrapper {
     Assertions.assertEquals("400", allConfig.get("gravitino.client.maxConnectionsPerRoute"));
     Assertions.assertEquals("10000", allConfig.get("gravitino.client.connectionTimeoutMs"));
     Assertions.assertEquals("60000", allConfig.get("gravitino.client.socketTimeoutMs"));
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testWrapperWithoutContextUsesTheEnvironment() throws IllegalAccessException {
-    LanceConfig lanceConfig =
-        new LanceConfig(ImmutableMap.of(LanceConfig.METALAKE_NAME.getKey(), "test_metalake"));
-
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper(lanceConfig, true);
-
-    Assertions.assertTrue(wrapper.isAuxMode());
-    Assertions.assertSame(
-        EnvironmentAuxiliaryContext.INSTANCE,
-        FieldUtils.readField(wrapper, "auxiliaryContext", true));
   }
 
   @Test

@@ -19,7 +19,6 @@
 package org.apache.gravitino.utils;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,7 +26,6 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -249,7 +247,7 @@ public class TestMetadataObjectUtil {
 
   @Test
   public void testCheckMetadataObjectUsesInternalDispatchers() {
-    GravitinoEnv env = mock(GravitinoEnv.class);
+    MetadataObjectDispatchers dispatchers = mock(MetadataObjectDispatchers.class);
     MetalakeDispatcher metalakeDispatcher = mock(MetalakeDispatcher.class);
     CatalogDispatcher catalogDispatcher = mock(CatalogDispatcher.class);
     SchemaDispatcher schemaDispatcher = mock(SchemaDispatcher.class);
@@ -265,20 +263,20 @@ public class TestMetadataObjectUtil {
     PolicyDispatcher policyDispatcher = mock(PolicyDispatcher.class);
     JobOperationDispatcher jobDispatcher = mock(JobOperationDispatcher.class);
 
-    when(env.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
-    when(env.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
-    when(env.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
-    when(env.internalFilesetDispatcher()).thenReturn(filesetDispatcher);
-    when(env.internalTableDispatcher()).thenReturn(tableDispatcher);
-    when(env.internalTopicDispatcher()).thenReturn(topicDispatcher);
-    when(env.internalModelDispatcher()).thenReturn(modelDispatcher);
-    when(env.internalFunctionDispatcher()).thenReturn(functionDispatcher);
-    when(env.internalViewDispatcher()).thenReturn(viewDispatcher);
-    when(env.internalSemanticModelDispatcher()).thenReturn(semanticModelDispatcher);
-    when(env.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
-    when(env.internalTagDispatcher()).thenReturn(tagDispatcher);
-    when(env.internalPolicyDispatcher()).thenReturn(policyDispatcher);
-    when(env.internalJobOperationDispatcher()).thenReturn(jobDispatcher);
+    when(dispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(dispatchers.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
+    when(dispatchers.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
+    when(dispatchers.internalFilesetDispatcher()).thenReturn(filesetDispatcher);
+    when(dispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
+    when(dispatchers.internalTopicDispatcher()).thenReturn(topicDispatcher);
+    when(dispatchers.internalModelDispatcher()).thenReturn(modelDispatcher);
+    when(dispatchers.internalFunctionDispatcher()).thenReturn(functionDispatcher);
+    when(dispatchers.internalViewDispatcher()).thenReturn(viewDispatcher);
+    when(dispatchers.internalSemanticModelDispatcher()).thenReturn(semanticModelDispatcher);
+    when(dispatchers.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
+    when(dispatchers.internalTagDispatcher()).thenReturn(tagDispatcher);
+    when(dispatchers.internalPolicyDispatcher()).thenReturn(policyDispatcher);
+    when(dispatchers.internalJobOperationDispatcher()).thenReturn(jobDispatcher);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("metalake");
     NameIdentifier catalogIdent = NameIdentifier.of("metalake", "catalog");
@@ -300,8 +298,6 @@ public class TestMetadataObjectUtil {
     when(functionDispatcher.functionExists(functionIdent)).thenReturn(true);
     when(viewDispatcher.viewExists(viewIdent)).thenReturn(true);
     when(semanticModelDispatcher.semanticModelExists(modelIdent)).thenReturn(true);
-
-    MetadataObjectDispatchers dispatchers = EnvironmentMetadataObjectDispatchers.of(env);
 
     MetadataObjectUtil.checkMetadataObject(
         dispatchers,
@@ -368,7 +364,6 @@ public class TestMetadataObjectUtil {
     verify(functionDispatcher).functionExists(functionIdent);
     verify(viewDispatcher).viewExists(viewIdent);
     verify(semanticModelDispatcher).semanticModelExists(modelIdent);
-    verify(env, never()).semanticModelDispatcher();
     verify(accessControlDispatcher).getRole("metalake", "role");
     verify(tagDispatcher).getTag("metalake", "tag");
     verify(policyDispatcher).getPolicy("metalake", "policy");

@@ -93,19 +93,6 @@ public class PolicyOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param policyDispatcher the {@link PolicyDispatcher} to serve requests with
-   * @deprecated Use {@link #PolicyOperations(PolicyDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public PolicyOperations(PolicyDispatcher policyDispatcher) {
-    this(policyDispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-policies." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

@@ -35,7 +35,6 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.connector.BaseCatalog;
@@ -437,15 +436,13 @@ public class TestDynamicIcebergConfigProvider {
   }
 
   @Test
-  public void testInitializeWithoutContextUsesTheEnvironment() throws IllegalAccessException {
+  public void testInitializeWithoutContextIsUnsupported() {
     Map<String, String> properties = new HashMap<>();
     properties.put(IcebergConstants.GRAVITINO_METALAKE, "test_metalake");
     DynamicIcebergConfigProvider provider = new DynamicIcebergConfigProvider();
 
-    provider.initialize(properties);
-
-    Assertions.assertSame(
-        EnvironmentAuxiliaryContext.INSTANCE, FieldUtils.readField(provider, "context", true));
+    Assertions.assertThrows(
+        UnsupportedOperationException.class, () -> provider.initialize(properties));
   }
 
   @Test

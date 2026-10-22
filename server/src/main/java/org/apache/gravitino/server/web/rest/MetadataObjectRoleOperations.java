@@ -39,7 +39,6 @@ import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.web.Utils;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -58,19 +57,6 @@ public class MetadataObjectRoleOperations {
   private static final String LIST_ROLE_PRIVILEGE = "METALAKE::OWNER || ROLE::OWNER || ROLE::SELF";
 
   /**
-   * Creates a metadata-object role REST resource from the process environment.
-   *
-   * @deprecated Use {@link #MetadataObjectRoleOperations(AccessControlDispatcher)}.
-   */
-  @Deprecated
-  public MetadataObjectRoleOperations() {
-    this(
-        EnvironmentServices.processEnv().accessControlDispatcher(),
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
-  }
-
-  /**
    * Creates a metadata-object role REST resource. The service is absent when authorization is
    * disabled.
    *
@@ -86,23 +72,6 @@ public class MetadataObjectRoleOperations {
     this.accessControlDispatcher = accessControlDispatcher;
     this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
-  }
-
-  /**
-   * Creates a metadata-object role REST resource. The service is absent when authorization is
-   * disabled.
-   *
-   * @param accessControlDispatcher the access-control dispatcher, or null.
-   * @deprecated Use {@link #MetadataObjectRoleOperations(AccessControlDispatcher,
-   *     MetadataObjectDispatchers, MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetadataObjectRoleOperations(@Nullable AccessControlDispatcher accessControlDispatcher) {
-    this(
-        accessControlDispatcher,
-        EnvironmentMetadataObjectDispatchers.INSTANCE,
-        EnvironmentServices.metadataAccessChecker());
   }
 
   @GET

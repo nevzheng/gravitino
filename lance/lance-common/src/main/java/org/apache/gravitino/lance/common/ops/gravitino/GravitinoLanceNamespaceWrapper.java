@@ -38,7 +38,6 @@ import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.auth.AuthProperties;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -86,21 +85,6 @@ public class GravitinoLanceNamespaceWrapper extends NamespaceWrapper {
   GravitinoLanceNamespaceWrapper(AuxiliaryContext auxiliaryContext) {
     super(null);
     this.auxiliaryContext = auxiliaryContext;
-  }
-
-  /**
-   * Creates a wrapper that reads the host services from {@code GravitinoEnv}.
-   *
-   * @param config the Lance REST service configuration
-   * @param auxMode whether the service runs inside the Gravitino server
-   * @deprecated Use {@link #GravitinoLanceNamespaceWrapper(LanceConfig, boolean,
-   *     AuxiliaryContext)}.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public GravitinoLanceNamespaceWrapper(LanceConfig config, boolean auxMode) {
-    this(config, auxMode, EnvironmentAuxiliaryContext.INSTANCE);
   }
 
   /**

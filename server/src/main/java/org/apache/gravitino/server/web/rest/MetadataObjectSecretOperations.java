@@ -90,19 +90,6 @@ public class MetadataObjectSecretOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link SecretPropertyOperationDispatcher} to serve requests with
-   * @deprecated Use {@link #MetadataObjectSecretOperations(SecretPropertyOperationDispatcher,
-   *     MetadataAccessChecker)}; the server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetadataObjectSecretOperations(SecretPropertyOperationDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "get-secrets." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

@@ -18,7 +18,6 @@
  */
 package org.apache.gravitino.server;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -64,7 +63,6 @@ public class TestGravitinoServerEnvironment {
       verify(env, never()).initializeFullComponents(any(Config.class));
       assertSame(component, server.component());
       assertTrue(hasInstance(server, GravitinoComponentBinder.class));
-      assertFalse(hasInstance(server, GravitinoEnvBinder.class));
       verify(metricsSystem).register(any(HttpServerMetricsSource.class));
       verify(env, never()).metricsSystem();
       verify(env, never()).eventBus();
@@ -111,30 +109,6 @@ public class TestGravitinoServerEnvironment {
     // The provider takes the authorizer back; the component's lifecycle closes it.
     verify(provider).close();
     verify(authorizer, never()).close();
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testTheDeprecatedConstructorBindsFromTheEnvironmentGetters() throws Exception {
-    ServerConfig config = new ServerConfig();
-    GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
-    MetricsSystem metricsSystem = mock(MetricsSystem.class);
-    when(env.metricsSystem()).thenReturn(metricsSystem);
-    // What the public deprecated constructor passes: no component factory.
-    GravitinoServer server = server(config, env, null);
-    try {
-      server.initialize();
-
-      // The one-argument method, which a GravitinoEnv subclass may override.
-      verify(env).initializeFullComponents(config);
-      verify(env, never()).initializeFullComponents(any(), any());
-      assertTrue(hasInstance(server, GravitinoEnvBinder.class));
-      assertFalse(hasInstance(server, GravitinoComponentBinder.class));
-      assertThrows(IllegalStateException.class, server::component);
-      verify(metricsSystem).register(any(HttpServerMetricsSource.class));
-    } finally {
-      server.stop();
-    }
   }
 
   private static GravitinoServer server(

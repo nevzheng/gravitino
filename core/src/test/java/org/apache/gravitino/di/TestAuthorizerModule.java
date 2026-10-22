@@ -273,6 +273,9 @@ public class TestAuthorizerModule {
     public void handleRolePrivilegeChange(Long roleId) {}
 
     @Override
+    public void handleRolePrivilegeChange(String metalake, String roleName) {}
+
+    @Override
     public void handleMetadataOwnerChange(
         String metalake, Long oldOwnerId, NameIdentifier nameIdentifier, Entity.EntityType type) {}
 

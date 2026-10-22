@@ -32,7 +32,6 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auth.AuthProperties;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.client.DefaultOAuth2TokenProvider;
@@ -71,16 +70,19 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
   private Map<String, String> properties;
 
   private volatile CatalogFetcher catalogFetcher;
-  private AuxiliaryContext context = EnvironmentAuxiliaryContext.INSTANCE;
+  // Set by initialize(Map, AuxiliaryContext).
+  private AuxiliaryContext context;
 
   /**
-   * Initializes the provider with the host services of {@code GravitinoEnv}.
+   * Not supported: the provider needs the host services. The Iceberg REST service calls {@link
+   * #initialize(Map, AuxiliaryContext)}.
    *
-   * <p>The Iceberg REST service calls {@link #initialize(Map, AuxiliaryContext)} instead.
+   * @throws UnsupportedOperationException always
    */
   @Override
   public void initialize(Map<String, String> properties) {
-    initialize(properties, EnvironmentAuxiliaryContext.INSTANCE);
+    throw new UnsupportedOperationException(
+        "DynamicIcebergConfigProvider needs an AuxiliaryContext; call initialize(Map, AuxiliaryContext)");
   }
 
   @Override

@@ -89,19 +89,6 @@ public class SchemaOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link SchemaDispatcher} to serve requests with
-   * @deprecated Use {@link #SchemaOperations(SchemaDispatcher, MetadataAccessChecker)}; the server
-   *     binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public SchemaOperations(SchemaDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-schema." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)

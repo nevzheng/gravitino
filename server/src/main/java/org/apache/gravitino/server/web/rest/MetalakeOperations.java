@@ -87,19 +87,6 @@ public class MetalakeOperations {
     this.accessChecker = accessChecker;
   }
 
-  /**
-   * Creates the resource.
-   *
-   * @param dispatcher the {@link MetalakeDispatcher} to serve requests with
-   * @deprecated Use {@link #MetalakeOperations(MetalakeDispatcher, MetadataAccessChecker)}; the
-   *     server binds the checker.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetalakeOperations(MetalakeDispatcher dispatcher) {
-    this(dispatcher, EnvironmentServices.metadataAccessChecker());
-  }
-
   @GET
   @Produces("application/vnd.gravitino.v1+json")
   @Timed(name = "list-metalake." + MetricNames.HTTP_PROCESS_DURATION, absolute = true)
