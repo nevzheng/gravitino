@@ -51,6 +51,7 @@ import dagger.Module;
       GovernanceModule.class,
       AuthorizationModule.class,
       JobModule.class,
+      AuxiliaryModule.class,
       LifecycleModule.class
     })
 public abstract class GravitinoModules {

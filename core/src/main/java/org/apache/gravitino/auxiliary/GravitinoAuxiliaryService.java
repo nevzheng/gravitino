@@ -43,6 +43,22 @@ public interface GravitinoAuxiliaryService {
    */
   void serviceInit(Map<String, String> config, boolean auxMode);
 
+  /**
+   * Initializes the service with the host services it may use.
+   *
+   * <p>The Gravitino server and the standalone servers initialize a service through this method.
+   * The default ignores the context and calls {@link #serviceInit(Map, boolean)}, so a service that
+   * does not override it behaves as before.
+   *
+   * @param config the configuration of the service, as for {@link #serviceInit(Map, boolean)}
+   * @param auxMode whether the service is running as an auxiliary service (true) or standalone
+   *     (false)
+   * @param context the host services the service may use
+   */
+  default void serviceInit(Map<String, String> config, boolean auxMode, AuxiliaryContext context) {
+    serviceInit(config, auxMode);
+  }
+
   /** Start aux service */
   void serviceStart();
 
