@@ -157,22 +157,22 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 A scan of the code base for each stage, against main at `b748d734` (method and evidence in
 [Appendix C](#appendix-c-gap-scan)). **Fixed here** means this SPIP's first PR closes it.
 
-| Stage       | Gap                                                                  | Plan       |
-| ----------- | -------------------------------------------------------------------- | ---------- |
-| Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here |
-| Lint        | The Python client's `black` rewrites files and never fails CI        | P2         |
-| Lint        | No linter for the workflows                                          | Fixed here |
-| Lint        | No linter for 81 shell scripts or the Markdown docs                  | P2         |
-| Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here |
-| Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here |
-| Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision   |
-| Small       | `integration-test-common` unit tests also ran in backend-it          | Fixed here |
-| Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org   |
-| Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced   |
-| Integration | `clients/cli` `TableFormatOutputIT` ran in no job                    | Fixed here |
-| Integration | The CLI (about 130 commands) has one end-to-end test class           | Follow-up  |
-| Integration | `web/integration-test` (web UI v1) runs in no PR job                 | Decision   |
-| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | P2         |
+| Stage       | Gap                                                                  | Plan                      |
+| ----------- | -------------------------------------------------------------------- | ------------------------- |
+| Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here                |
+| Lint        | The Python client's `black` rewrites files and never fails CI        | P2                        |
+| Lint        | No linter for the workflows                                          | Fixed here                |
+| Lint        | No linter for 81 shell scripts or the Markdown docs                  | P2                        |
+| Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here                |
+| Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here                |
+| Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Deprecated: no job        |
+| Small       | `integration-test-common` unit tests also ran in backend-it          | Fixed here                |
+| Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org                  |
+| Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced                  |
+| Integration | `clients/cli` `TableFormatOutputIT` ran in no job                    | Fixed here                |
+| Integration | The CLI (about 130 commands) has one end-to-end test class           | Follow-up                 |
+| Integration | `web/integration-test` (web UI v1) ran in no PR job                  | Own job; reviewers decide |
+| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | P2                        |
 
 **Decision** needs an owner's call (keep and test it, or
 retire it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
@@ -209,7 +209,7 @@ and all of them run in parallel before `build`.
 | Job                | Command                                                | Today                    | Joins |
 | ------------------ | ------------------------------------------------------ | ------------------------ | ----- |
 | `lint (jvm)`       | `./gradlew ciLint`                                     | Inside `build (17)`      | P1    |
-| `lint (python)`    | `pylint`, and `black --check` for both Python projects | Inside the IT jobs       | P2    |
+| `lint (python)`    | `blackCheck`, `pylint` and the mcp-server format check | Inside the IT jobs       | P1    |
 | `lint (web)`       | `./gradlew :web:web:lintCheck :web-v2:web:lintCheck`   | Inside the web workflows | P2    |
 | `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                  | `chart-test.yaml`        | P2    |
 | `lint (workflows)` | `actionlint` (shellcheck of `run:` blocks off for now) | Not run                  | P1    |
@@ -412,7 +412,8 @@ file scans. It is a snapshot; P2 turns the repeatable ones into `ciVerifyShards`
 - `shadedJarTest` is a `Test` task that `check` depends on, so `build` ran a test. The build job
   now excludes it and `ciSmallTest` runs it.
 - `clients/filesystem-fuse` has a `build.gradle.kts` but is not in `settings.gradle.kts`, and no
-  workflow mentions it. The nightly workflow lists `gvfs-fuse` as excluded.
+  workflow mentions it. Its README marks it deprecated and kept for reference only, so it gets no
+  job; removing it is a separate question for reviewers.
 
 **Tests.** Each module's test classes, counted by `@Test` inside and outside `integration/test/`,
 matched to the job that runs them:
@@ -430,7 +431,7 @@ matched to the job that runs them:
 | `plugins/idp-basic`                                                    | `idp-basic-it`                                                      |
 | `web-v2/integration-test`                                              | `frontend-integration-test.yml`                                     |
 | `clients/cli` (1 IT class, 6 tests)                                    | `cli-it`; catalogs with `verify-on-create=false`                    |
-| `web/integration-test` (4 IT classes)                                  | None on PRs: frontend runs web-v2 only                              |
+| `web/integration-test` (4 IT classes)                                  | `FrontendITWebV1` in `frontend-integration-test.yml`                |
 | `integration-test-common` (5 classes)                                  | Small stage only: plain unit tests in an `integration.test` package |
 
 Off PRs by design: the Lance Spark bundle matrix (weekly), multi-instance consistency and Trino
