@@ -441,3 +441,27 @@ removes others with 28 `-x` flags. A new module's ITs land there without anyone 
 module removed with `-x` but given no other job is lost, which is what happened to `clients/cli`.
 The [catch-all rules](#catch-all-shards) apply to it in P2: every module with ITs maps to exactly
 one job, checked in `lint`.
+
+## Appendix D. Peer Apache projects
+
+How other Apache projects order and share their CI work, read from their workflow files on
+2026-10-22.
+
+| Project | Order                                                        | Build once                                      | Lint                                           |
+| ------- | ------------------------------------------------------------ | ----------------------------------------------- | ---------------------------------------------- |
+| Kafka   | `validate` (`check -x test`) gates the `test` matrix         | `setup-gradle`, read-only off trunk, Develocity | Checkstyle, RAT inside `validate`              |
+| Iceberg | Parallel jobs; `build -x test` is its own check              | `setup-gradle`, writes only from main           | Spotless separate; zizmor on workflows         |
+| Spark   | `precondition` (what changed), then `precompile`, then tests | Uploads compiled `target/` dirs as an artifact  | Own `lint` job in a CI image                   |
+| Airflow | `build-info` (selective checks) gates everything             | Prebuilt CI images                              | pre-commit: ruff, shellcheck, yamllint, zizmor |
+| Arrow   | `lint` workflow separate from builds                         | Per-language caches                             | pre-commit, including shellcheck               |
+
+What this SPIP takes from them:
+
+- **Kafka's order**, the closest peer on Gradle: one validate stage before any test, and
+  Develocity as the build cache, written only from trunk.
+- **Spark's build-once**, but Gradle-aware: Spark ships raw `target/` directories because sbt has
+  no shared cache; Gradle's build cache does the same job and knows what is stale (Q4).
+- **Iceberg's `setup-gradle` settings**: cache written from `main` only. `setup-gradle` is on the
+  ASF allowlist; actionlint and zizmor actions are not, so `lint (workflows)` runs actionlint with
+  `go run`.
+- **Airflow and Arrow's shellcheck**, for the P2 `lint (shell)` job.
