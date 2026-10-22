@@ -25,6 +25,7 @@ import static org.mockito.Mockito.when;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -67,6 +68,7 @@ public class TestEnvironmentAuxiliaryContext {
     TableDispatcher internalTableDispatcher = mock(TableDispatcher.class);
     ViewDispatcher internalViewDispatcher = mock(ViewDispatcher.class);
     OwnerDispatcher internalOwnerDispatcher = mock(OwnerDispatcher.class);
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
     when(env.config()).thenReturn(config);
     when(env.eventBus()).thenReturn(eventBus);
     when(env.metricsSystem()).thenReturn(metricsSystem);
@@ -85,6 +87,7 @@ public class TestEnvironmentAuxiliaryContext {
     when(env.internalTableDispatcher()).thenReturn(internalTableDispatcher);
     when(env.internalViewDispatcher()).thenReturn(internalViewDispatcher);
     when(env.internalOwnerDispatcher()).thenReturn(internalOwnerDispatcher);
+    when(env.gravitinoAuthorizer()).thenReturn(authorizer);
 
     // The context is taken before GravitinoEnv is stubbed: it reads each service when asked.
     AuxiliaryContext context = EnvironmentAuxiliaryContext.INSTANCE;
@@ -110,6 +113,7 @@ public class TestEnvironmentAuxiliaryContext {
       Assertions.assertSame(internalTableDispatcher, context.internalTableDispatcher());
       Assertions.assertSame(internalViewDispatcher, context.internalViewDispatcher());
       Assertions.assertSame(internalOwnerDispatcher, context.internalOwnerDispatcher());
+      Assertions.assertSame(authorizer, context.gravitinoAuthorizer());
     }
   }
 }

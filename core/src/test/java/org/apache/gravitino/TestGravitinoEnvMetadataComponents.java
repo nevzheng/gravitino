@@ -209,9 +209,8 @@ class TestGravitinoEnvMetadataComponents {
     GravitinoEnv env = singleton;
     List<GravitinoComponent> created = new ArrayList<>();
     GravitinoComponent.Factory factory =
-        (componentConfig, legacy) -> {
-          GravitinoComponent component =
-              DaggerGravitinoComponent.factory().create(componentConfig, legacy);
+        componentConfig -> {
+          GravitinoComponent component = DaggerGravitinoComponent.factory().create(componentConfig);
           created.add(component);
           return component;
         };

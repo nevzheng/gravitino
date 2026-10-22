@@ -44,7 +44,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
-import org.apache.gravitino.di.LegacyBridge;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -694,8 +693,7 @@ public class TestLockManager {
     // Each component builds its own lock manager, so its lifecycle must stop that lock manager's
     // threads, or every component a test builds leaks them.
     Config config = new Config(false) {};
-    GravitinoComponent component =
-        DaggerGravitinoComponent.factory().create(config, Mockito.mock(LegacyBridge.class));
+    GravitinoComponent component = DaggerGravitinoComponent.factory().create(config);
     LockManager lockManager = component.lockManager();
     Assertions.assertFalse(lockManager.isClosed());
 

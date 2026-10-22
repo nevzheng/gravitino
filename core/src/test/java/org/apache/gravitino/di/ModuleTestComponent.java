@@ -28,7 +28,7 @@ import org.apache.gravitino.metalake.MetalakeManager;
 
 /**
  * A graph with the production modules and fake leaves: {@link FakeLeavesModule} replaces the
- * storage and event modules and the legacy bridge, so module tests run against mocks.
+ * storage, event and authorizer modules, so module tests run against mocks.
  */
 @Singleton
 @Component(

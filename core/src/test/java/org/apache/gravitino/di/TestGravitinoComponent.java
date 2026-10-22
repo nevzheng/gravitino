@@ -34,8 +34,6 @@ import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.authorization.AccessControlManager;
-import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerManager;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -63,7 +61,6 @@ public class TestGravitinoComponent {
   @TempDir Path stagingDir;
 
   private Config config;
-  private FakeLegacyBridge legacy;
   private GravitinoComponent component;
 
   /**
@@ -84,8 +81,7 @@ public class TestGravitinoComponent {
   @BeforeEach
   public void setUp() {
     config = testConfig();
-    legacy = new FakeLegacyBridge();
-    component = DaggerGravitinoComponent.factory().create(config, legacy);
+    component = DaggerGravitinoComponent.factory().create(config);
   }
 
   @Test
@@ -159,7 +155,7 @@ public class TestGravitinoComponent {
 
   @Test
   public void testSingletonsArePerComponent() {
-    GravitinoComponent other = DaggerGravitinoComponent.factory().create(config, legacy);
+    GravitinoComponent other = DaggerGravitinoComponent.factory().create(config);
 
     assertNotSame(component.lockManager(), other.lockManager());
     assertNotSame(component.idGenerator(), other.idGenerator());
@@ -211,16 +207,9 @@ public class TestGravitinoComponent {
   }
 
   @Test
-  public void testAuthorizerComesFromTheBridge() {
-    assertSame(legacy.gravitinoAuthorizer, component.authorizationServices().gravitinoAuthorizer());
-  }
-
-  static class FakeLegacyBridge implements LegacyBridge {
-    GravitinoAuthorizer gravitinoAuthorizer = NoopGravitinoAuthorizer.INSTANCE;
-
-    @Override
-    public GravitinoAuthorizer gravitinoAuthorizer() {
-      return gravitinoAuthorizer;
-    }
+  public void testAuthorizationServicesHandOutTheComponentAuthorizer() {
+    assertSame(
+        component.gravitinoAuthorizer(), component.authorizationServices().gravitinoAuthorizer());
+    assertSame(component.gravitinoAuthorizer(), component.auxiliaryContext().gravitinoAuthorizer());
   }
 }

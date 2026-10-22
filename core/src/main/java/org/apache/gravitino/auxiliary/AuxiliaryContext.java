@@ -22,6 +22,7 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.annotation.Evolving;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -216,6 +217,19 @@ public interface AuxiliaryContext {
    */
   @Nullable
   OwnerDispatcher internalOwnerDispatcher();
+
+  /**
+   * Returns the authorizer of the server, which decides the privileges of a request. Only available
+   * inside the Gravitino server.
+   *
+   * <p>The default returns {@code null}, as a standalone server has no authorizer.
+   *
+   * @return the authorizer, or null when the service runs standalone
+   */
+  @Nullable
+  default GravitinoAuthorizer gravitinoAuthorizer() {
+    return null;
+  }
 
   /**
    * Creates the context of a standalone server, which builds only the base services. Every other

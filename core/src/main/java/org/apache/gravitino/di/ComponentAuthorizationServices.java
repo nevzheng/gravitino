@@ -18,7 +18,6 @@
  */
 package org.apache.gravitino.di;
 
-import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Provider;
@@ -55,7 +54,7 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
   private final Provider<AccessControlDispatcher> internalAccessControlDispatcher;
   private final Provider<OwnerDispatcher> internalOwnerDispatcher;
   private final Provider<FutureGrantManager> futureGrantManager;
-  private final Supplier<GravitinoAuthorizer> gravitinoAuthorizer;
+  private final Provider<GravitinoAuthorizer> gravitinoAuthorizer;
   private final Provider<CatalogAccess> catalogAccess;
   private final Provider<CatalogDispatcher> internalCatalogDispatcher;
   private final Provider<SchemaDispatcher> internalSchemaDispatcher;
@@ -68,7 +67,7 @@ final class ComponentAuthorizationServices implements AuthorizationServices {
       @Internal Provider<AccessControlDispatcher> internalAccessControlDispatcher,
       @Internal Provider<OwnerDispatcher> internalOwnerDispatcher,
       Provider<FutureGrantManager> futureGrantManager,
-      Supplier<GravitinoAuthorizer> gravitinoAuthorizer,
+      Provider<GravitinoAuthorizer> gravitinoAuthorizer,
       Provider<CatalogAccess> catalogAccess,
       @Internal Provider<CatalogDispatcher> internalCatalogDispatcher,
       @Internal Provider<SchemaDispatcher> internalSchemaDispatcher,

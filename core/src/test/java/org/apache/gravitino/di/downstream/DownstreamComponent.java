@@ -26,7 +26,6 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.di.ForDispatcherChains;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.di.GravitinoModules;
-import org.apache.gravitino.di.LegacyBridge;
 
 /**
  * A root component built the way a downstream distribution builds its own: from {@link
@@ -59,9 +58,8 @@ interface DownstreamComponent extends GravitinoComponent {
      * Creates a component.
      *
      * @param config the configuration
-     * @param legacy the legacy bridge
      * @return a new component
      */
-    DownstreamComponent create(@BindsInstance Config config, @BindsInstance LegacyBridge legacy);
+    DownstreamComponent create(@BindsInstance Config config);
   }
 }

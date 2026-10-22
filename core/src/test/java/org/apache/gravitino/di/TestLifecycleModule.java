@@ -36,6 +36,7 @@ import java.util.Set;
 import javax.inject.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
@@ -69,6 +70,7 @@ public class TestLifecycleModule {
   private JobOperationDispatcher jobs;
   private AuxiliaryServiceManager aux;
   private LockManager locks;
+  private GravitinoAuthorizer authorizer;
 
   @BeforeEach
   public void setUp() {
@@ -84,6 +86,7 @@ public class TestLifecycleModule {
     jobs = mock(JobOperationDispatcher.class);
     aux = mock(AuxiliaryServiceManager.class);
     locks = mock(LockManager.class);
+    authorizer = mock(GravitinoAuthorizer.class);
   }
 
   @Test
@@ -204,9 +207,7 @@ public class TestLifecycleModule {
 
   @Test
   public void testComponentLifecycleStopsWhatTheComponentBuilt() throws Exception {
-    GravitinoComponent component =
-        DaggerGravitinoComponent.factory()
-            .create(new Config(false) {}, new TestGravitinoComponent.FakeLegacyBridge());
+    GravitinoComponent component = DaggerGravitinoComponent.factory().create(new Config(false) {});
     KmsClientRegistry registry = component.kmsClientRegistry();
     Lifecycle lifecycle = component.lifecycle();
     assertSame(lifecycle, component.lifecycle());
@@ -231,6 +232,7 @@ public class TestLifecycleModule {
     built.add(BuiltServices.JOB_OPERATION_DISPATCHER, jobs);
     built.add(BuiltServices.AUXILIARY_SERVICE_MANAGER, aux);
     built.add(BuiltServices.LOCK_MANAGER, locks);
+    built.add(BuiltServices.AUTHORIZER, authorizer);
   }
 
   @Test
@@ -253,7 +255,9 @@ public class TestLifecycleModule {
     start.verify(search).start();
 
     lifecycle.close();
-    InOrder stop = inOrder(search, license, entityStore);
+    // The authorizer stops before the managed services, as the server closed it first.
+    InOrder stop = inOrder(authorizer, search, license, entityStore);
+    stop.verify(authorizer).close();
     stop.verify(search).stop();
     stop.verify(license).stop();
     stop.verify(entityStore).close();
@@ -338,6 +342,7 @@ public class TestLifecycleModule {
   private void verifyStopOrder() throws Exception {
     InOrder stop =
         inOrder(
+            authorizer,
             entityStore,
             catalogs,
             aux,
@@ -349,6 +354,7 @@ public class TestLifecycleModule {
             kms,
             secrets,
             locks);
+    stop.verify(authorizer).close();
     stop.verify(entityStore).close();
     stop.verify(catalogs).close();
     stop.verify(aux).serviceStop();

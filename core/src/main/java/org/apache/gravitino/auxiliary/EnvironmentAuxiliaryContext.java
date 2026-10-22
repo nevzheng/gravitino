@@ -22,6 +22,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -143,6 +144,11 @@ public final class EnvironmentAuxiliaryContext implements AuxiliaryContext {
   @Override
   public OwnerDispatcher internalOwnerDispatcher() {
     return env().internalOwnerDispatcher();
+  }
+
+  @Override
+  public GravitinoAuthorizer gravitinoAuthorizer() {
+    return env().gravitinoAuthorizer();
   }
 
   @LegacyEnvAccess

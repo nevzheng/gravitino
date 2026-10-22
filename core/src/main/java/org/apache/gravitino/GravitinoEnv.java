@@ -44,7 +44,6 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
-import org.apache.gravitino.di.LegacyBridge;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lifecycle.Lifecycle;
@@ -72,8 +71,7 @@ import org.slf4j.LoggerFactory;
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
  * initialization sequence where it used to build them, so they are still built in the same order.
- * The component's Lifecycle starts and stops the components. The authorizer the server installs
- * reaches the component through LegacyBridge.
+ * The component's Lifecycle starts and stops the components, the authorizer among them.
  */
 public class GravitinoEnv {
 
@@ -292,8 +290,9 @@ public class GravitinoEnv {
   /**
    * Get the dependency-injection component built by the last initialization.
    *
-   * <p>The component owns every component this environment holds except the installed authorizer;
-   * this environment returns the same instances from its own getters.
+   * <p>The component owns every component this environment holds; this environment returns the same
+   * instances from its own getters. An authorizer installed with {@link #setGravitinoAuthorizer} is
+   * the exception.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -764,8 +763,9 @@ public class GravitinoEnv {
   }
 
   /**
-   * Installs the GravitinoAuthorizer. The server installs its authorizer after the environment is
-   * initialized.
+   * Installs a GravitinoAuthorizer in place of the one the component builds. {@link
+   * #gravitinoAuthorizer()} returns it, but the component and the services it builds keep using
+   * their own; the server no longer installs one. The caller owns the authorizer it installs.
    *
    * @param gravitinoAuthorizer the GravitinoAuthorizer instance, or null to uninstall it
    */
@@ -776,21 +776,26 @@ public class GravitinoEnv {
   /**
    * Get the GravitinoAuthorizer.
    *
-   * <p>When none is installed, it fails closed if authorization is enabled: the server installs its
-   * authorizer after the environment is initialized and takes it back while it shuts down, and a
-   * request that runs in between must not be allowed.
+   * <p>Without an installed authorizer it returns the component's, which the first request builds
+   * and initializes. Before the environment is initialized, it fails closed if authorization is
+   * enabled.
    *
-   * @return the installed GravitinoAuthorizer; when none is installed, {@link
-   *     DenyAllGravitinoAuthorizer#INSTANCE} if authorization is enabled, and {@link
-   *     NoopGravitinoAuthorizer#INSTANCE} otherwise; never null
+   * @return the installed GravitinoAuthorizer; when none is installed, the component's; when the
+   *     environment holds no component, {@link DenyAllGravitinoAuthorizer#INSTANCE} if
+   *     authorization is enabled, and {@link NoopGravitinoAuthorizer#INSTANCE} otherwise; never
+   *     null
    */
   public GravitinoAuthorizer gravitinoAuthorizer() {
     GravitinoAuthorizer installed = gravitinoAuthorizer;
     if (installed != null) {
       return installed;
     }
-    Config current = config;
-    return current != null && current.get(Configs.ENABLE_AUTHORIZATION)
+    GravitinoComponent current = component;
+    if (current != null) {
+      return current.gravitinoAuthorizer();
+    }
+    Config currentConfig = config;
+    return currentConfig != null && currentConfig.get(Configs.ENABLE_AUTHORIZATION)
         ? DenyAllGravitinoAuthorizer.INSTANCE
         : NoopGravitinoAuthorizer.INSTANCE;
   }
@@ -931,7 +936,7 @@ public class GravitinoEnv {
   private void initializeConfig(Config config, GravitinoComponent.Factory componentFactory) {
     this.config = config;
     // Building the component creates nothing yet: each object it owns is built on first request.
-    this.component = componentFactory.create(config, new Bridge());
+    this.component = componentFactory.create(config);
     FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
     SecretPropertyUtils.configureSensitiveKeyKeywords(config);
     HierarchicalSchemaUtil.seedSchemaSeparator(config);
@@ -1053,14 +1058,5 @@ public class GravitinoEnv {
 
     this.tagDispatcher = component.tagDispatcher();
     this.policyDispatcher = component.policyDispatcher();
-  }
-
-  /** The objects the component reads from this environment. */
-  private final class Bridge implements LegacyBridge {
-
-    @Override
-    public GravitinoAuthorizer gravitinoAuthorizer() {
-      return GravitinoEnv.this.gravitinoAuthorizer();
-    }
   }
 }

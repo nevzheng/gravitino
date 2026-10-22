@@ -40,7 +40,6 @@ import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.FutureGrantManager;
-import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -99,9 +98,7 @@ public class TestDownstreamComponent {
 
   @BeforeEach
   public void setUp() {
-    component =
-        DaggerDownstreamComponent.factory()
-            .create(config(), () -> NoopGravitinoAuthorizer.INSTANCE);
+    component = DaggerDownstreamComponent.factory().create(config());
   }
 
   private Config config() {

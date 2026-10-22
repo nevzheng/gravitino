@@ -20,7 +20,6 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
-import java.util.function.Supplier;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -29,7 +28,7 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.secret.SecretManager;
 
-/** Binds the {@link FakeLeaves} in place of the storage and event modules. */
+/** Binds the {@link FakeLeaves} in place of the storage, event and authorizer modules. */
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class FakeLeavesModule {
@@ -67,12 +66,7 @@ abstract class FakeLeavesModule {
   }
 
   @Provides
-  static Supplier<GravitinoAuthorizer> gravitinoAuthorizer(FakeLeaves leaves) {
-    return () -> leaves.gravitinoAuthorizer;
-  }
-
-  @Provides
-  static LegacyBridge legacyBridge(FakeLeaves leaves) {
-    return () -> leaves.gravitinoAuthorizer;
+  static GravitinoAuthorizer gravitinoAuthorizer(FakeLeaves leaves) {
+    return leaves.gravitinoAuthorizer;
   }
 }

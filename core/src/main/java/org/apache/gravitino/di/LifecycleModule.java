@@ -30,6 +30,7 @@ import java.util.Set;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
@@ -62,11 +63,12 @@ import org.slf4j.LoggerFactory;
  * and statistic dispatcher log a failure to stop and carry on, as before; other failures are
  * collected and thrown after every service has been stopped.
  *
- * <p>The {@link ManagedService managed services} a downstream component contributes start after the
- * auxiliary services, in ascending order, and stop first, in reverse. Unlike the services above,
- * they are built when the lifecycle starts, not when it is built: a lifecycle that closes without
- * starting, for example after an initialization that failed part way, builds and stops none of
- * them. Only the managed services that started are stopped.
+ * <p>The authorizer is stopped before every other service, as the server closed it before it shut
+ * the environment down. The {@link ManagedService managed services} a downstream component
+ * contributes start after the auxiliary services, in ascending order, and stop next, in reverse.
+ * Unlike the services above, they are built when the lifecycle starts, not when it is built: a
+ * lifecycle that closes without starting, for example after an initialization that failed part way,
+ * builds and stops none of them. Only the managed services that started are stopped.
  */
 @Module
 abstract class LifecycleModule {
@@ -142,6 +144,9 @@ abstract class LifecycleModule {
     // Managed services start after the services above and stop before them.
     ManagedServices managed = new ManagedServices(managedServices);
     lifecycle.add("managed services", managed::start, managed::stop);
+    // Stopped first: the server closed its authorizer before the services above, and still does.
+    lifecycle.addStopOnly(
+        "authorizer", () -> built.ifBuilt(BuiltServices.AUTHORIZER, GravitinoAuthorizer::close));
     return lifecycle.build();
   }
 

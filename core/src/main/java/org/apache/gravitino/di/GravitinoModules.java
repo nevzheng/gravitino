@@ -30,7 +30,7 @@ import dagger.Module;
  * public interface EnterpriseComponent extends GravitinoComponent {
  *   @Component.Factory
  *   interface Factory {
- *     EnterpriseComponent create(@BindsInstance Config config, @BindsInstance LegacyBridge legacy);
+ *     EnterpriseComponent create(@BindsInstance Config config);
  *   }
  * }
  * }</pre>
@@ -52,8 +52,8 @@ import dagger.Module;
       AuthorizationModule.class,
       JobModule.class,
       AuxiliaryModule.class,
-      LifecycleModule.class,
-      LegacyModule.class
+      AuthorizerModule.class,
+      LifecycleModule.class
     })
 public abstract class GravitinoModules {
 

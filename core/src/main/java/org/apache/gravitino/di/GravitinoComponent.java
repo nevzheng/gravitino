@@ -27,6 +27,8 @@ import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
@@ -74,11 +76,8 @@ import org.apache.gravitino.utils.MetadataObjectDispatchers;
  * {@link GovernanceModule} the tag, policy, owner and statistic chains, {@link AuthorizationModule}
  * the access-control components, {@link JobModule} the job manager and chains, {@link
  * AuxiliaryModule} an auxiliary service manager, not used yet, and the context it hands to the
- * auxiliary services, and {@link LifecycleModule} the lifecycle that starts and stops them. The
- * authorizer, which the server installs later, reaches the graph through {@link LegacyBridge} and
- * {@link LegacyModule}, so every object is built by exactly one side. It is bound only as a {@code
- * Supplier<GravitinoAuthorizer>} read on every check, and read from outside the graph through
- * {@link AuthorizationServices#gravitinoAuthorizer()}, because it changes after the graph is built.
+ * auxiliary services, {@link AuthorizerModule} the authorizer, and {@link LifecycleModule} the
+ * lifecycle that starts and stops them.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
@@ -484,6 +483,15 @@ public interface GravitinoComponent {
   FutureGrantManager futureGrantManager();
 
   /**
+   * Returns the authorizer: the class {@code Configs.AUTHORIZATION_IMPL} names when authorization
+   * is enabled, and {@link NoopGravitinoAuthorizer#INSTANCE} otherwise. The first request builds it
+   * and initializes it with the component's services; the {@link #lifecycle()} closes it.
+   *
+   * @return the authorizer
+   */
+  GravitinoAuthorizer gravitinoAuthorizer();
+
+  /**
    * Returns the services that keep authorization in step with metadata changes. Building them
    * builds nothing: each service is resolved when it is asked for, and the access control, owner
    * and future grant services are null while authorization is disabled.
@@ -558,10 +566,8 @@ public interface GravitinoComponent {
      * Creates a component.
      *
      * @param config the server configuration, the only leaf the graph does not build itself
-     * @param legacy the source of the objects the graph does not build; removed when the migration
-     *     is complete
      * @return a new component
      */
-    GravitinoComponent create(@BindsInstance Config config, @BindsInstance LegacyBridge legacy);
+    GravitinoComponent create(@BindsInstance Config config);
   }
 }

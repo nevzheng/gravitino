@@ -21,18 +21,17 @@ import com.google.common.base.Preconditions;
 import java.io.Closeable;
 import java.io.IOException;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.EnvironmentAuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.server.ServerConfig;
 
 /**
- * Used to initialize and store {@link GravitinoAuthorizer}. When Gravitino Server starts up, it
- * initializes GravitinoAuthorizer by reading the ServerConfig through the init method and stores it
- * in the GravitinoAuthorizerProvider. The GravitinoAuthorizer instance can then be retrieved using
- * the getGravitinoAuthorizer method.
+ * Holds the {@link GravitinoAuthorizer} of the server for the code that reads it statically. When
+ * the Gravitino server starts up, it {@link #install installs} the authorizer its component built;
+ * the deprecated {@link #initialize(ServerConfig)} and {@link #initialize(ServerConfig,
+ * AuthorizerContext)} still build one here. The GravitinoAuthorizer instance can then be retrieved
+ * using the getGravitinoAuthorizer method.
  */
 public class GravitinoAuthorizerProvider implements Closeable {
 
@@ -41,6 +40,9 @@ public class GravitinoAuthorizerProvider implements Closeable {
   private GravitinoAuthorizerProvider() {}
 
   private volatile GravitinoAuthorizer gravitinoAuthorizer;
+
+  // Whether this provider built the authorizer and closes it; an installed one is not closed here.
+  private volatile boolean owned;
 
   // Whether the deprecated initialize(ServerConfig) handed the authorizer to GravitinoEnv.
   private volatile boolean handedToProcessEnv;
@@ -58,7 +60,7 @@ public class GravitinoAuthorizerProvider implements Closeable {
     synchronized (this) {
       if (gravitinoAuthorizer == null) {
         initialize(serverConfig, EnvironmentAuthorizerContext.INSTANCE);
-        processEnv().setGravitinoAuthorizer(gravitinoAuthorizer);
+        EnvironmentAuthorizerContext.installInProcessEnvironment(gravitinoAuthorizer);
         handedToProcessEnv = true;
       }
     }
@@ -80,11 +82,28 @@ public class GravitinoAuthorizerProvider implements Closeable {
     if (gravitinoAuthorizer == null) {
       synchronized (this) {
         if (gravitinoAuthorizer == null) {
-          gravitinoAuthorizer = newAuthorizer(serverConfig);
-          gravitinoAuthorizer.initialize(context);
+          GravitinoAuthorizer authorizer = newAuthorizer(serverConfig);
+          authorizer.initialize(context);
+          owned = true;
+          gravitinoAuthorizer = authorizer;
         }
       }
     }
+  }
+
+  /**
+   * Installs an authorizer that something else built and closes, such as the component of the
+   * server. {@link #close()} takes it back without closing it.
+   *
+   * @param authorizer the authorizer
+   * @throws IllegalStateException if another authorizer is installed or initialized
+   */
+  public synchronized void install(GravitinoAuthorizer authorizer) {
+    Preconditions.checkNotNull(authorizer, "authorizer");
+    Preconditions.checkState(
+        gravitinoAuthorizer == null || gravitinoAuthorizer == authorizer,
+        "Another authorizer is already installed");
+    gravitinoAuthorizer = authorizer;
   }
 
   public static GravitinoAuthorizerProvider getInstance() {
@@ -98,12 +117,6 @@ public class GravitinoAuthorizerProvider implements Closeable {
    */
   public GravitinoAuthorizer getGravitinoAuthorizer() {
     return gravitinoAuthorizer;
-  }
-
-  // Only the deprecated initialize(ServerConfig) hands the authorizer to the process environment.
-  @LegacyEnvAccess
-  private static GravitinoEnv processEnv() {
-    return GravitinoEnv.getInstance();
   }
 
   private static GravitinoAuthorizer newAuthorizer(ServerConfig serverConfig) {
@@ -120,18 +133,22 @@ public class GravitinoAuthorizerProvider implements Closeable {
   }
 
   /**
-   * Closes the authorizer. An authorizer that {@link #initialize(ServerConfig)} handed to {@code
-   * GravitinoEnv} is taken back from it first.
+   * Takes the authorizer back, and closes it if this provider built it. An authorizer that {@link
+   * #initialize(ServerConfig)} handed to {@code GravitinoEnv} is taken back from it first; an
+   * installed one is left to its owner to close.
    */
   @Override
-  public void close() throws IOException {
+  public synchronized void close() throws IOException {
     if (handedToProcessEnv) {
-      processEnv().setGravitinoAuthorizer(null);
+      EnvironmentAuthorizerContext.installInProcessEnvironment(null);
       handedToProcessEnv = false;
     }
-    if (gravitinoAuthorizer != null) {
-      gravitinoAuthorizer.close();
-    }
+    GravitinoAuthorizer authorizer = gravitinoAuthorizer;
+    boolean close = owned;
     gravitinoAuthorizer = null;
+    owned = false;
+    if (close && authorizer != null) {
+      authorizer.close();
+    }
   }
 }

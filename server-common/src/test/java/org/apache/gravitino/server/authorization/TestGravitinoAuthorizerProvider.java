@@ -64,6 +64,55 @@ public class TestGravitinoAuthorizerProvider {
         GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
   }
 
+  @Test
+  public void testCloseTakesAnInstalledAuthorizerBackWithoutClosingIt() throws IOException {
+    GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+
+    provider.install(authorizer);
+    // Installing the same authorizer again is allowed.
+    provider.install(authorizer);
+    Assertions.assertSame(authorizer, provider.getGravitinoAuthorizer());
+
+    provider.close();
+    Assertions.assertNull(provider.getGravitinoAuthorizer());
+    Mockito.verify(authorizer, Mockito.never()).close();
+  }
+
+  @Test
+  public void testInstallRejectsASecondAuthorizer() {
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+    provider.install(Mockito.mock(GravitinoAuthorizer.class));
+
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        () -> provider.install(Mockito.mock(GravitinoAuthorizer.class)));
+  }
+
+  @Test
+  public void testCloseClosesAnAuthorizerTheProviderBuilt() throws IOException {
+    ServerConfig serverConfig = new ServerConfig();
+    serverConfig.set(Configs.ENABLE_AUTHORIZATION, true);
+    serverConfig.set(Configs.AUTHORIZATION_IMPL, ClosingAuthorizer.class.getName());
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+    provider.initialize(serverConfig, Mockito.mock(AuthorizerContext.class));
+    ClosingAuthorizer authorizer = (ClosingAuthorizer) provider.getGravitinoAuthorizer();
+
+    provider.close();
+
+    Assertions.assertTrue(authorizer.closed);
+  }
+
+  /** An authorizer that records that it was closed. */
+  public static class ClosingAuthorizer extends PassThroughAuthorizer {
+    boolean closed;
+
+    @Override
+    public void close() {
+      closed = true;
+    }
+  }
+
   /** An authorizer that records the context it is initialized with. */
   public static class RecordingAuthorizer extends PassThroughAuthorizer {
     static AuthorizerContext context;

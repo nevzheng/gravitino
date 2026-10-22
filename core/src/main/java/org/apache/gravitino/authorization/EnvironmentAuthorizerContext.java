@@ -59,6 +59,17 @@ public final class EnvironmentAuthorizerContext implements AuthorizerContext {
     return new EnvironmentAuthorizerContext(() -> env);
   }
 
+  /**
+   * Installs an authorizer in {@code GravitinoEnv.getInstance()} with {@link
+   * GravitinoEnv#setGravitinoAuthorizer}. It keeps the deprecated paths that hand an authorizer to
+   * the process environment working, and is deleted with them.
+   *
+   * @param authorizer the authorizer, or null to uninstall it
+   */
+  public static void installInProcessEnvironment(@Nullable GravitinoAuthorizer authorizer) {
+    processEnv().setGravitinoAuthorizer(authorizer);
+  }
+
   @Override
   public Config config() {
     return env.get().config();

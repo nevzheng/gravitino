@@ -22,6 +22,7 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.CatalogAccess;
@@ -68,6 +69,7 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
   private final Provider<ViewDispatcher> internalViewDispatcher;
   private final boolean authorizationEnabled;
   private final Provider<OwnerDispatcher> internalOwnerDispatcher;
+  private final Provider<GravitinoAuthorizer> gravitinoAuthorizer;
 
   @Inject
   ComponentAuxiliaryContext(
@@ -89,7 +91,8 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
       @Internal Provider<TableDispatcher> internalTableDispatcher,
       @Internal Provider<ViewDispatcher> internalViewDispatcher,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> internalOwnerDispatcher) {
+      @Internal Provider<OwnerDispatcher> internalOwnerDispatcher,
+      Provider<GravitinoAuthorizer> gravitinoAuthorizer) {
     this.config = config;
     this.eventBus = eventBus;
     this.metricsSystem = metricsSystem;
@@ -109,6 +112,7 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
     this.internalViewDispatcher = internalViewDispatcher;
     this.authorizationEnabled = authorizationEnabled;
     this.internalOwnerDispatcher = internalOwnerDispatcher;
+    this.gravitinoAuthorizer = gravitinoAuthorizer;
   }
 
   @Override
@@ -199,5 +203,10 @@ final class ComponentAuxiliaryContext implements AuxiliaryContext {
   @Override
   public OwnerDispatcher internalOwnerDispatcher() {
     return authorizationEnabled ? internalOwnerDispatcher.get() : null;
+  }
+
+  @Override
+  public GravitinoAuthorizer gravitinoAuthorizer() {
+    return gravitinoAuthorizer.get();
   }
 }

@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.auxiliary;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -99,6 +100,8 @@ public class TestAuxiliaryContext {
     for (Function<AuxiliaryContext, Object> service : serverOnly) {
       assertThrows(IllegalStateException.class, () -> service.apply(context));
     }
+    // A standalone server has no authorizer.
+    assertNull(context.gravitinoAuthorizer());
   }
 
   @Test

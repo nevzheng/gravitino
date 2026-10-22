@@ -18,13 +18,12 @@
  */
 package org.apache.gravitino.server.authorization;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import java.security.Principal;
 import org.apache.gravitino.Config;
@@ -35,29 +34,27 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
-import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
 
 /**
  * Checks that a {@link MetadataAccessChecker} built over the authorizer of the component, as the
- * server binders build it, fails closed while authorization is enabled and no authorizer is
- * installed, for example while the server shuts down.
+ * server binders build it, decides with the authorizer the component builds from the configuration.
  */
-public class TestMetadataAccessCheckerWithoutAuthorizer {
+public class TestMetadataAccessCheckerWithComponentAuthorizer {
 
   private static final String EXPRESSION = "CATALOG::USE_CATALOG";
 
   @Test
-  public void testCheckerDeniesWhileNoAuthorizerIsInstalled() {
+  public void testCheckerUsesTheAuthorizerTheComponentBuilds() {
     GravitinoEnv env = new GravitinoEnv() {};
     Config config = new Config(false) {};
     config.set(Configs.ENABLE_AUTHORIZATION, true);
     config.set(Configs.CACHE_ENABLED, false);
+    config.set(Configs.AUTHORIZATION_IMPL, DenyingAuthorizer.class.getName());
     try {
       env.initializeBaseComponents(config);
       GravitinoComponent component = env.component();
@@ -72,26 +69,11 @@ public class TestMetadataAccessCheckerWithoutAuthorizer {
         NameIdentifierUtil.ofSchema("metalake", "catalog", "schema2")
       };
 
-      // Nothing is installed yet.
       assertDenied(checker, schemas);
+      assertInstanceOf(DenyingAuthorizer.class, component.gravitinoAuthorizer());
 
-      // The server installs its authorizer, and the checker reads it on the next check.
-      GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
-      when(installed.authorize(
-              ArgumentMatchers.<Principal>any(),
-              ArgumentMatchers.anyString(),
-              ArgumentMatchers.<MetadataObject>any(),
-              ArgumentMatchers.<Privilege.Name>any(),
-              ArgumentMatchers.<AuthorizationRequestContext>any()))
-          .thenReturn(true);
-      env.setGravitinoAuthorizer(installed);
-      assertTrue(checker.checkAccess(schemas[0], Entity.EntityType.SCHEMA, EXPRESSION));
-      assertArrayEquals(
-          schemas,
-          checker.filterByExpression("metalake", EXPRESSION, Entity.EntityType.SCHEMA, schemas));
-
-      // The server takes it back while it shuts down; a request still running is denied.
-      env.setGravitinoAuthorizer(null);
+      // An authorizer installed in the environment does not change what the component hands out.
+      env.setGravitinoAuthorizer(new PassThroughAuthorizer());
       assertDenied(checker, schemas);
     } finally {
       env.shutdown();
@@ -118,6 +100,33 @@ public class TestMetadataAccessCheckerWithoutAuthorizer {
           checker.filterByExpression("metalake", EXPRESSION, Entity.EntityType.SCHEMA, schemas));
     } finally {
       env.shutdown();
+    }
+  }
+
+  /** An authorizer that allows nothing. */
+  public static class DenyingAuthorizer extends PassThroughAuthorizer {
+    @Override
+    public boolean authorize(
+        Principal principal,
+        String metalake,
+        MetadataObject metadataObject,
+        Privilege.Name privilege,
+        AuthorizationRequestContext requestContext) {
+      return false;
+    }
+
+    @Override
+    public boolean isOwner(
+        Principal principal,
+        String metalake,
+        MetadataObject metadataObject,
+        AuthorizationRequestContext requestContext) {
+      return false;
+    }
+
+    @Override
+    public boolean isServiceAdmin() {
+      return false;
     }
   }
 

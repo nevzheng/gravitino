@@ -113,6 +113,9 @@ public class GravitinoServer extends ResourceConfig {
 
   private final GravitinoAuthorizerProvider authorizerProvider;
 
+  // Whether initialize() installed the provider's authorizer in the environment.
+  private boolean installedInEnv;
+
   private final Lifecycle lifecycle;
 
   // The stop actions of the lifecycle, in stop order. Each runs at most once, whether the
@@ -217,10 +220,7 @@ public class GravitinoServer extends ResourceConfig {
     ServerAuthenticator.getInstance()
         .initialize(serverConfig, AuthenticatorContext.of(gravitinoEnv::idGenerator));
 
-    // The environment's getters return what its component built, or what a GravitinoEnv subclass
-    // given to the deprecated constructor overrides them with.
-    authorizerProvider.initialize(serverConfig, EnvironmentAuthorizerContext.of(gravitinoEnv));
-    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
+    installAuthorizer();
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -444,9 +444,33 @@ public class GravitinoServer extends ResourceConfig {
         : new GravitinoEnvBinder(gravitinoEnv, enableAuthorization, lineageService);
   }
 
-  /** Takes the authorizer back from the environment, then closes it. */
+  /**
+   * Builds the authorizer of the environment's component, so it is initialized before the server
+   * takes requests, and installs it in the provider for the code that reads it statically. The
+   * component closes it. An environment that holds no component, which only a {@code GravitinoEnv}
+   * subclass given to the deprecated constructor can produce, gets an authorizer the provider
+   * builds from the environment's getters and closes.
+   */
+  private void installAuthorizer() {
+    GravitinoComponent built = component != null ? component : gravitinoEnv.component();
+    if (built != null) {
+      authorizerProvider.install(built.gravitinoAuthorizer());
+      return;
+    }
+    authorizerProvider.initialize(serverConfig, EnvironmentAuthorizerContext.of(gravitinoEnv));
+    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
+    installedInEnv = true;
+  }
+
+  /**
+   * Takes the authorizer back from the provider, and from the environment if the server installed
+   * it there. The provider closes only an authorizer it built; the component closes its own.
+   */
   private void closeAuthorizer() throws IOException {
-    gravitinoEnv.setGravitinoAuthorizer(null);
+    if (installedInEnv) {
+      gravitinoEnv.setGravitinoAuthorizer(null);
+      installedInEnv = false;
+    }
     authorizerProvider.close();
   }
 

@@ -31,6 +31,7 @@ import static org.mockito.Mockito.when;
 
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lineage.LineageService;
 import org.apache.gravitino.listener.EventBus;
@@ -70,6 +71,39 @@ public class TestGravitinoServerEnvironment {
     } finally {
       server.stop();
     }
+  }
+
+  @Test
+  public void testInstallsTheAuthorizerOfTheComponentInTheProvider() throws Exception {
+    ServerConfig config = new ServerConfig();
+    GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
+    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
+    when(component.gravitinoAuthorizer()).thenReturn(authorizer);
+    when(component.metricsSystem()).thenReturn(mock(MetricsSystem.class));
+    when(component.eventBus()).thenReturn(mock(EventBus.class));
+    when(env.component()).thenReturn(component);
+    GravitinoAuthorizerProvider provider = mock(GravitinoAuthorizerProvider.class);
+    GravitinoServer server =
+        new GravitinoServer(
+            config,
+            env,
+            mock(GravitinoComponent.Factory.class),
+            mock(JettyServer.class),
+            mock(LineageService.class),
+            provider);
+    try {
+      server.initialize();
+
+      verify(provider).install(authorizer);
+      verify(provider, never()).initialize(any(ServerConfig.class), any());
+      verify(env, never()).setGravitinoAuthorizer(any());
+    } finally {
+      server.stop();
+    }
+    // The provider takes the authorizer back; the component's lifecycle closes it.
+    verify(provider).close();
+    verify(authorizer, never()).close();
   }
 
   @Test
