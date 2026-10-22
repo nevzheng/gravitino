@@ -14,8 +14,8 @@
     "gravitino_env.new_calls": 2,
     "gravitino_env_get_instance.production.files": 1,
     "gravitino_env_get_instance.production.occurrences": 1,
-    "gravitino_env_get_instance.test.files": 5,
-    "gravitino_env_get_instance.test.occurrences": 11,
+    "gravitino_env_get_instance.test.files": 3,
+    "gravitino_env_get_instance.test.occurrences": 8,
     "legacy_env_access.production.files": 1,
     "legacy_env_access.production.occurrences": 1,
     "legacy_env_access.test.files": 0,
@@ -39,5 +39,5 @@
   },
   "migrated_packages": [],
   "schema_version": 1,
-  "source_revision": "6ba797fe67"
+  "source_revision": "38c49e55af"
 }
