@@ -31,7 +31,6 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
         with:
-          list-files: shell
           filters: |
             source_changes:
               - '.github/**'
@@ -61,6 +60,9 @@ jobs:
               - '!docs/**/*.gif'
               - '!docs/**/*.webp'
               - 'mcp-server/**'
+            # A PR is maintenance-only when it changes source and nothing outside maintenance/.
+            outside_maintenance:
+              - '!maintenance/**'
             spark_connector_changes:
               - spark-connector/**
             mcp_server_changes:
@@ -282,34 +284,6 @@ jobs:
               - 'gradle.properties'
               - 'gradlew'
               - 'settings.gradle.kts'
-      - name: Determine maintenance-module-only changes
-        id: maintenance_module_only
-        env:
-          SOURCE_CHANGE_FILES: ${{ steps.filter.outputs.source_changes_files }}
-        run: |
-          # Route to the maintenance-only build path only when every source
-          # change in the PR is under maintenance/. Non-source changes are
-          # already filtered out by source_changes_files.
-          source_files=()
-          if [ -n "${SOURCE_CHANGE_FILES}" ]; then
-            eval "source_files=(${SOURCE_CHANGE_FILES})"
-          fi
-
-          maintenance_module_only=false
-          if [ "${#source_files[@]}" -gt 0 ]; then
-            maintenance_module_only=true
-            for path in "${source_files[@]}"; do
-              case "$path" in
-                maintenance/*) ;;
-                *)
-                  maintenance_module_only=false
-                  break
-                  ;;
-              esac
-            done
-          fi
-
-          echo "maintenance_module_only_changes=${maintenance_module_only}" >> "${GITHUB_OUTPUT}"
       - name: Detect idp-basic module
         id: idp_basic_module
         run: echo "exists=${{ hashFiles('plugins/idp-basic/build.gradle.kts') != '' }}" >> "${GITHUB_OUTPUT}"
@@ -317,7 +291,7 @@ jobs:
       source_changes: ${{ steps.filter.outputs.source_changes }}
       spark_connector_changes: ${{ steps.filter.outputs.spark_connector_changes }}
       mcp_server_changes: ${{ steps.filter.outputs.mcp_server_changes }}
-      maintenance_module_only_changes: ${{ steps.maintenance_module_only.outputs.maintenance_module_only_changes }}
+      maintenance_module_only_changes: ${{ steps.filter.outputs.source_changes == 'true' && steps.filter.outputs.outside_maintenance != 'true' }}
       access_control_it: ${{ steps.filter.outputs.access_control_it }}
       backend_it: ${{ steps.filter.outputs.backend_it }}
       cli_it: ${{ steps.filter.outputs.cli_it }}
