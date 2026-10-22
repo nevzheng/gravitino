@@ -18,21 +18,13 @@
  */
 package org.apache.gravitino.catalog;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import java.util.Arrays;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.rel.Column;
 import org.apache.gravitino.rel.expressions.literals.Literal;
@@ -81,17 +73,14 @@ public class TestPartitionOperationDispatcher extends TestOperationDispatcher {
 
   protected static void prepareTable() throws IllegalAccessException {
     schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new SchemaOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     tableOperationDispatcher =
-        new TableOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new TableOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     partitionOperationDispatcher =
         new PartitionOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
 
-    Config config = mock(Config.class);
-    doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
 

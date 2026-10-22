@@ -86,6 +86,7 @@ public class TestCatalogWrapperLease {
 
   private static Config config;
   private static InMemoryEntityStore entityStore;
+  private static LockManager lockManager;
 
   private CatalogManager catalogManager;
 
@@ -98,7 +99,8 @@ public class TestCatalogWrapperLease {
     entityStore.initialize(config);
     entityStore.put(METALAKE_ENTITY, true);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
   }
 
   @AfterAll
@@ -112,7 +114,8 @@ public class TestCatalogWrapperLease {
   @BeforeEach
   public void beforeEach() {
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
   }
 
   @AfterEach
@@ -184,7 +187,8 @@ public class TestCatalogWrapperLease {
             expiringConfig,
             entityStore,
             new RandomIdGenerator(),
-            new SecretManager(expiringConfig));
+            new SecretManager(expiringConfig),
+            lockManager);
     try {
       NameIdentifier ident = NameIdentifier.of(METALAKE, "expiring_catalog");
       expiringManager.createCatalog(ident, Catalog.Type.RELATIONAL, PROVIDER, "comment", PROPS);

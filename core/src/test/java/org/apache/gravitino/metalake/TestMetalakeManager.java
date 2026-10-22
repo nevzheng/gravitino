@@ -73,6 +73,8 @@ public class TestMetalakeManager {
 
   private static Config config;
 
+  private static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws IllegalAccessException {
     config = Mockito.mock(Config.class);
@@ -84,8 +86,9 @@ public class TestMetalakeManager {
     entityStore = new TestMemoryEntityStore.InMemoryEntityStore();
     entityStore.initialize(config);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    metalakeManager = new MetalakeManager(entityStore, new RandomIdGenerator());
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
+    metalakeManager = new MetalakeManager(entityStore, new RandomIdGenerator(), lockManager);
   }
 
   @AfterAll
@@ -228,7 +231,7 @@ public class TestMetalakeManager {
   public void testDropMetalakeReturnsFalseWhenConcurrentDeleteWins() throws IOException {
     InMemoryEntityStore store = Mockito.spy(new InMemoryEntityStore());
     store.initialize(config);
-    MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator());
+    MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator(), lockManager);
     NameIdentifier ident = NameIdentifier.of("concurrently_deleted_metalake");
     manager.createMetalake(ident, "comment", ImmutableMap.of());
     Mockito.doThrow(
@@ -257,7 +260,7 @@ public class TestMetalakeManager {
     metalakeManager.disableMetalake(ident2);
 
     // List in-use metalakes
-    List<String> inUseMetalakes = MetalakeManager.listInUseMetalakes(entityStore);
+    List<String> inUseMetalakes = MetalakeManager.listInUseMetalakes(entityStore, lockManager);
 
     // Should contain metalake1 and metalake3, but not metalake2
     Assertions.assertTrue(inUseMetalakes.contains("metalake1"));
@@ -281,8 +284,13 @@ public class TestMetalakeManager {
     store.initialize(catalogConfig);
     CatalogManager catalogManager =
         new CatalogManager(
-            catalogConfig, store, new RandomIdGenerator(), new SecretManager(catalogConfig));
-    MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator(), catalogManager);
+            catalogConfig,
+            store,
+            new RandomIdGenerator(),
+            new SecretManager(catalogConfig),
+            lockManager);
+    MetalakeManager manager =
+        new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_closes_catalogs_ml");
     manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
@@ -328,7 +336,8 @@ public class TestMetalakeManager {
         .setMetalakeInUseStatus(Mockito.any(NameIdentifier.class), Mockito.anyBoolean());
 
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
-    MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator(), catalogManager);
+    MetalakeManager manager =
+        new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_leftover_ml");
     manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
@@ -360,7 +369,7 @@ public class TestMetalakeManager {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
     try {
       MetalakeManager manager =
-          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager);
+          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
       NameIdentifier ident = NameIdentifier.of("metalake_force_drop_failure");
       manager.createMetalake(ident, "comment", ImmutableMap.of());
       manager.disableMetalake(ident);
@@ -403,7 +412,7 @@ public class TestMetalakeManager {
     try {
       EntityStore spyStore = Mockito.spy(entityStore);
       MetalakeManager manager =
-          new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager);
+          new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager, lockManager);
       NameIdentifier ident = NameIdentifier.of("metalake_force_drop_delete_failure");
       manager.createMetalake(ident, "comment", ImmutableMap.of());
       manager.disableMetalake(ident);
@@ -434,7 +443,7 @@ public class TestMetalakeManager {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
     try {
       MetalakeManager manager =
-          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager);
+          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
       NameIdentifier ident = NameIdentifier.of("metalake_force_drop_already_enabled");
       manager.createMetalake(ident, "comment", ImmutableMap.of());
       // Left enabled: this stands in for a metalake a concurrent user has enabled. The force drop
@@ -476,7 +485,7 @@ public class TestMetalakeManager {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
     try {
       MetalakeManager manager =
-          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager);
+          new MetalakeManager(entityStore, new RandomIdGenerator(), catalogManager, lockManager);
       NameIdentifier ident = NameIdentifier.of("metalake_force_drop_enable_midfail");
       manager.createMetalake(ident, "comment", ImmutableMap.of());
       manager.disableMetalake(ident);
@@ -520,7 +529,7 @@ public class TestMetalakeManager {
     try {
       EntityStore spyStore = Mockito.spy(entityStore);
       MetalakeManager manager =
-          new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager);
+          new MetalakeManager(spyStore, new RandomIdGenerator(), catalogManager, lockManager);
       NameIdentifier ident = NameIdentifier.of("metalake_force_drop_enabled_delete_fail");
       manager.createMetalake(ident, "comment", ImmutableMap.of());
       // Left enabled (a concurrent user's enable); no catalogs, so phase 1 succeeds without this

@@ -83,6 +83,8 @@ public abstract class TestOperationDispatcher {
 
   private static Config config;
 
+  protected static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws IOException, IllegalAccessException {
     config = new Config(false) {};
@@ -101,15 +103,17 @@ public abstract class TestOperationDispatcher {
             .build();
     entityStore.put(metalakeEntity, true);
 
-    secretManager = new SecretManager(config);
-    catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+    Config lockConfig = mock(Config.class);
+    doReturn(100000L).when(lockConfig).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
+    doReturn(1000L).when(lockConfig).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
+    doReturn(36000L).when(lockConfig).get(TREE_LOCK_CLEAN_INTERVAL);
+    lockManager = new LockManager(lockConfig);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
-    Config config = mock(Config.class);
-    doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    secretManager = new SecretManager(config);
+    catalogManager =
+        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     NameIdentifier ident = NameIdentifier.of(metalake, catalog);
     Map<String, String> props =

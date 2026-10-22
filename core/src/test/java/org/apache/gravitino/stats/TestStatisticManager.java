@@ -106,6 +106,8 @@ public class TestStatisticManager {
 
   private static IdGenerator idGenerator;
 
+  private static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws IOException, IllegalAccessException {
     idGenerator = new RandomIdGenerator();
@@ -147,7 +149,8 @@ public class TestStatisticManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -221,7 +224,8 @@ public class TestStatisticManager {
 
   @Test
   public void testStatisticLifeCycle() {
-    StatisticManager statisticManager = new StatisticManager(entityStore, idGenerator, config);
+    StatisticManager statisticManager =
+        new StatisticManager(entityStore, idGenerator, config, lockManager);
 
     MetadataObject tableObject =
         MetadataObjects.of(Lists.newArrayList(CATALOG, SCHEMA, TABLE), MetadataObject.Type.TABLE);
@@ -315,7 +319,8 @@ public class TestStatisticManager {
 
   @Test
   public void testPartitionStatisticLifeCycle() {
-    StatisticManager statisticManager = new StatisticManager(entityStore, idGenerator, config);
+    StatisticManager statisticManager =
+        new StatisticManager(entityStore, idGenerator, config, lockManager);
 
     MetadataObject tableObject =
         MetadataObjects.of(Lists.newArrayList(CATALOG, SCHEMA, TABLE), MetadataObject.Type.TABLE);
@@ -418,7 +423,8 @@ public class TestStatisticManager {
 
   @Test
   public void testTableStatisticsDoNotWaitForTableTreeLock() throws Exception {
-    StatisticManager statisticManager = new StatisticManager(entityStore, idGenerator, config);
+    StatisticManager statisticManager =
+        new StatisticManager(entityStore, idGenerator, config, lockManager);
     MetadataObject tableObject =
         MetadataObjects.of(Lists.newArrayList(CATALOG, SCHEMA, TABLE), MetadataObject.Type.TABLE);
     Map<String, StatisticValue<?>> stats = Maps.newHashMap();
@@ -444,7 +450,8 @@ public class TestStatisticManager {
 
   @Test
   public void testPartitionStatisticsStillWaitForTableTreeLock() throws Exception {
-    StatisticManager statisticManager = new StatisticManager(entityStore, idGenerator, config);
+    StatisticManager statisticManager =
+        new StatisticManager(entityStore, idGenerator, config, lockManager);
     MetadataObject tableObject =
         MetadataObjects.of(Lists.newArrayList(CATALOG, SCHEMA, TABLE), MetadataObject.Type.TABLE);
     Map<String, StatisticValue<?>> stats = Maps.newHashMap();

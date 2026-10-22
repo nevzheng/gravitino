@@ -104,7 +104,8 @@ public class RESTService implements GravitinoAuxiliaryService {
             return new IcebergAuthenticationFilter();
           }
         };
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    GravitinoEnv env = GravitinoEnv.getInstance();
+    MetricsSystem metricsSystem = env.metricsSystem();
     server.initialize(serverConfig, SERVICE_NAME, false /* shouldEnableUI */);
     boolean metricsEnabled = shouldEnableMetrics(auxMode, icebergConfig);
     if (metricsEnabled) {
@@ -128,8 +129,8 @@ public class RESTService implements GravitinoAuxiliaryService {
     boolean skipAuthorizationForRestBackend =
         icebergConfig.get(IcebergConfig.ICEBERG_REST_DISABLE_REST_AUTHZ);
 
-    Boolean enableAuth = GravitinoEnv.getInstance().config().get(Configs.ENABLE_AUTHORIZATION);
-    EventBus eventBus = GravitinoEnv.getInstance().eventBus();
+    Boolean enableAuth = env.config().get(Configs.ENABLE_AUTHORIZATION);
+    EventBus eventBus = env.eventBus();
     this.icebergCatalogWrapperManager =
         new IcebergCatalogWrapperManager(configProperties, configProvider, auxMode, metalakeName);
     IcebergRESTServerContext authorizationContext =
@@ -148,8 +149,7 @@ public class RESTService implements GravitinoAuxiliaryService {
       this.cleanupManager =
           Optional.of(
               new IcebergCleanupManager(
-                  new IcebergCleanupJobStore(GravitinoEnv.getInstance().idGenerator()),
-                  icebergConfig));
+                  new IcebergCleanupJobStore(env.idGenerator()), icebergConfig));
     } else {
       this.cleanupManager = Optional.empty();
       LOG.info(
@@ -187,7 +187,7 @@ public class RESTService implements GravitinoAuxiliaryService {
     // Namespace: EventDispatcher -> HookDispatcher -> OperationExecutor
     if (authorizationContext.isAuthorizationEnabled()) {
       namespaceOperationDispatcher =
-          new IcebergNamespaceHookDispatcher(namespaceOperationDispatcher);
+          new IcebergNamespaceHookDispatcher(namespaceOperationDispatcher, env.lockManager());
     }
     IcebergNamespaceOperationDispatcher icebergNamespaceDispatcher =
         new IcebergNamespaceEventDispatcher(namespaceOperationDispatcher, eventBus, metalakeName);
