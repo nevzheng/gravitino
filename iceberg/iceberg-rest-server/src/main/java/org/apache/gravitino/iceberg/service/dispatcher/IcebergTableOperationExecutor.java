@@ -158,7 +158,7 @@ public class IcebergTableOperationExecutor implements IcebergTableOperationDispa
           manager.addJob(
               new IcebergCleanupJob(
                   0L,
-                  IcebergCleanupHelper.catalogId(context.catalogName()),
+                  manager.catalogId(context.catalogName()),
                   tableIdentifier.namespace().toString(),
                   tableIdentifier.name(),
                   metadata.metadataFileLocation(),

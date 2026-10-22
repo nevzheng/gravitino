@@ -21,6 +21,7 @@ package org.apache.gravitino.iceberg.service.provider;
 import java.io.Closeable;
 import java.util.Map;
 import java.util.Optional;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 
@@ -37,6 +38,22 @@ public interface IcebergConfigProvider extends Closeable {
    *     is 'gravitino.iceberg-rest.'
    */
   void initialize(Map<String, String> properties);
+
+  /**
+   * Initialize {@code IcebergConfigProvider} with properties and the host services of the Iceberg
+   * REST service.
+   *
+   * <p>The Iceberg REST service initializes its provider through this method. The default ignores
+   * the context and calls {@link #initialize(Map)}, so a provider that does not override it behaves
+   * as before.
+   *
+   * @param properties The parameters for creating Provider which from configurations whose prefix
+   *     is 'gravitino.iceberg-rest.'
+   * @param context The host services the provider may use.
+   */
+  default void initialize(Map<String, String> properties, AuxiliaryContext context) {
+    initialize(properties);
+  }
 
   /**
    * Get Iceberg configuration from catalog name.

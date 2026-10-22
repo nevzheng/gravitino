@@ -142,7 +142,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   void testDeleteAllBatches() {
     CopyOnWriteArrayList<String> deleted = new CopyOnWriteArrayList<>();
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       svc.deleteAll(new RecordingFileIO(deleted), Arrays.asList("a", "b", "c", "d", "e", "f", "g"));
       Assertions.assertEquals(7, deleted.size());
@@ -154,7 +154,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   @TestTemplate
   void testDeleteAllIgnoresMissing() {
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       Assertions.assertDoesNotThrow(
           () -> svc.deleteAll(new MissingFileIO(), Arrays.asList("already-gone")));
@@ -166,7 +166,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   @TestTemplate
   void testDeleteAllIgnoresMissingBulk() {
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       Assertions.assertDoesNotThrow(
           () -> svc.deleteAll(new MissingBulkFileIO(), Arrays.asList("already-gone")));
@@ -194,7 +194,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
     expected.forEach(file -> Assertions.assertTrue(((InMemoryFileIO) io).fileExists(file), file));
 
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       svc.cleanupFiles(io, metadataLocation);
     } finally {
@@ -208,7 +208,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   void testCleanupToleratesMissingMetadata() {
     // A missing root metadata.json means the table is already gone, so cleanup just returns.
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       Assertions.assertDoesNotThrow(
           () -> svc.cleanupFiles(new InMemoryFileIO(), "memory://db/t/metadata/missing.json"));
@@ -221,7 +221,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   void testWorkerSucceeds() {
     AtomicInteger calls = new AtomicInteger();
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, fastPollConfig()) {
+        new IcebergCleanupManager(store, fastPollConfig(), name -> CATALOG_ID) {
           @Override
           void cleanupFiles(FileIO io, String metadataLocation) {
             calls.incrementAndGet();
@@ -246,7 +246,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
     config.put("async-cleanup.poll-interval-secs", "1");
     config.put("async-cleanup.max-attempts", "3");
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(config)) {
+        new IcebergCleanupManager(store, new IcebergConfig(config), name -> CATALOG_ID) {
           @Override
           void cleanupFiles(FileIO io, String metadataLocation) {
             throw new RuntimeException("transient");
@@ -266,7 +266,7 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   @TestTemplate
   void testStartAfterCloseFailsFast() {
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     svc.close();
 
     Assertions.assertThrows(IllegalStateException.class, svc::start);
@@ -277,7 +277,8 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   void testRefreshHeartbeatsPublishesNewTokenBeforeStoreUpdate() throws Exception {
     BlockingHeartbeatStore blockingStore = new BlockingHeartbeatStore();
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(blockingStore, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(
+            blockingStore, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       Map<Long, Long> heartbeats =
           (Map<Long, Long>) FieldUtils.readField(svc, "ownedHeartbeats", true);
@@ -302,11 +303,24 @@ class TestIcebergCleanupManager extends TestJDBCBackend {
   @TestTemplate
   void testIsNameOccupied() {
     IcebergCleanupManager svc =
-        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()));
+        new IcebergCleanupManager(store, new IcebergConfig(new HashMap<>()), name -> CATALOG_ID);
     try {
       Assertions.assertFalse(svc.isNameOccupied(CATALOG_ID, "db", "t"));
       svc.addJob(sampleJob());
       Assertions.assertTrue(svc.isNameOccupied(CATALOG_ID, "db", "t"));
+    } finally {
+      svc.close();
+    }
+  }
+
+  @TestTemplate
+  void testCatalogIdUsesTheResolver() {
+    IcebergCleanupManager svc =
+        new IcebergCleanupManager(
+            store, new IcebergConfig(new HashMap<>()), name -> "cat".equals(name) ? 7L : -1L);
+    try {
+      Assertions.assertEquals(7L, svc.catalogId("cat"));
+      Assertions.assertEquals(-1L, svc.catalogId("other"));
     } finally {
       svc.close();
     }
