@@ -18,8 +18,11 @@
  */
 package org.apache.gravitino.di;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -27,6 +30,7 @@ import static org.mockito.Mockito.verify;
 
 import dagger.BindsInstance;
 import dagger.Component;
+import java.io.IOException;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -53,6 +57,27 @@ public class TestStorageModule {
 
       factory.verify(() -> EntityStoreFactory.createEntityStore(config));
       verify(entityStore).initialize(config);
+    }
+  }
+
+  @Test
+  public void testEntityStoreIsClosedWhenItsInitializationFails() throws Exception {
+    Config config = new Config(false) {};
+    EntityStore entityStore = mock(EntityStore.class);
+    IllegalStateException failure = new IllegalStateException("backend unreachable");
+    IOException closeFailure = new IOException("close failed");
+    doThrow(failure).when(entityStore).initialize(config);
+    doThrow(closeFailure).when(entityStore).close();
+    try (MockedStatic<EntityStoreFactory> factory = mockStatic(EntityStoreFactory.class)) {
+      factory.when(() -> EntityStoreFactory.createEntityStore(config)).thenReturn(entityStore);
+      StorageComponent component =
+          DaggerTestStorageModule_StorageComponent.factory().create(config);
+
+      assertSame(failure, assertThrows(IllegalStateException.class, component::entityStore));
+
+      // The store started part of its backend before it failed, so it is closed here.
+      verify(entityStore).close();
+      assertArrayEquals(new Throwable[] {closeFailure}, failure.getSuppressed());
     }
   }
 

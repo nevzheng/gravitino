@@ -9,11 +9,11 @@
     "field_utils_read_write.production.occurrences": 23,
     "field_utils_read_write.test.files": 103,
     "field_utils_read_write.test.occurrences": 450,
-    "gravitino_env.instance_fields": 53,
-    "gravitino_env.lines": 991,
-    "gravitino_env.new_calls": 2,
+    "gravitino_env.instance_fields": 52,
+    "gravitino_env.lines": 986,
+    "gravitino_env.new_calls": 3,
     "gravitino_env_get_instance.production.files": 69,
-    "gravitino_env_get_instance.production.occurrences": 149,
+    "gravitino_env_get_instance.production.occurrences": 148,
     "gravitino_env_get_instance.test.files": 90,
     "gravitino_env_get_instance.test.occurrences": 376,
     "meta_service_get_instance.production.files": 25,
@@ -35,5 +35,5 @@
   },
   "migrated_packages": [],
   "schema_version": 1,
-  "source_revision": "76d267c73b"
+  "source_revision": "3da00db86f"
 }

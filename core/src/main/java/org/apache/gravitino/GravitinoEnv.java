@@ -44,11 +44,11 @@ import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
@@ -68,8 +68,9 @@ import org.slf4j.LoggerFactory;
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
  * initialization sequence where it used to build them, so they are still built in the same order.
- * It still builds the auxiliary service manager itself, and it starts and stops the components.
- * The server still installs the authorizer here.
+ * The component's {@link ManagedServices} registry starts and closes what the component built. The
+ * environment still builds, starts and stops the auxiliary service manager itself, and the server
+ * still installs the authorizer here.
  */
 public class GravitinoEnv {
 
@@ -86,8 +87,6 @@ public class GravitinoEnv {
   private CatalogDispatcher internalCatalogDispatcher;
 
   private CatalogManager catalogManager;
-
-  private MetalakeManager metalakeManager;
 
   private SchemaDispatcher schemaDispatcher;
   private SchemaDispatcher internalSchemaDispatcher;
@@ -783,31 +782,48 @@ public class GravitinoEnv {
     return config == null || config.get(Configs.CACHE_ENABLED);
   }
 
+  /**
+   * Starts the environment: the {@link ManagedServices managed services} of the component, in the
+   * order the component built them, then the auxiliary services.
+   *
+   * <p>If a service fails to start, the services already started are closed and the failure is
+   * rethrown; {@link #shutdown()} then closes the rest.
+   *
+   * @throws IllegalStateException if no initialization built a component, or the environment was
+   *     shut down or failed to start since its last initialization
+   */
   public void start() {
-    metricsSystem.start();
-    if (eventListenerManager != null) {
-      eventListenerManager.start();
+    Preconditions.checkState(
+        component != null,
+        "GravitinoEnv is not initialized: call an initialize*Components method before start(). A"
+            + " subclass that overrides one must call the overridden method, which builds the"
+            + " component.");
+    ManagedServices services = component.managedServices();
+    Preconditions.checkState(
+        services.state() == ManagedServices.State.NEW,
+        "GravitinoEnv was started, shut down or failed to start: initialize it again before"
+            + " calling start() again.");
+    try {
+      services.start();
+    } catch (Exception e) {
+      throw unchecked(e);
     }
     if (manageFullComponents) {
       auxServiceManager.serviceStart();
     }
   }
 
-  /** Shutdown the Gravitino environment. */
+  /**
+   * Shutdown the Gravitino environment.
+   *
+   * <p>Stops the auxiliary services, then closes every {@link ManagedServices managed service} the
+   * last initialization built, whether or not {@link #start()} ran, in the reverse of the order the
+   * component built them. A service that fails to close does not keep the others from closing; the
+   * first failure is rethrown when all of them are closed. Calling it again does nothing until the
+   * environment is initialized again.
+   */
   public void shutdown() {
     LOG.info("Shutting down Gravitino Environment...");
-
-    if (entityStore != null) {
-      try {
-        entityStore.close();
-      } catch (Exception e) {
-        LOG.warn("Failed to close EntityStore.", e);
-      }
-    }
-
-    if (catalogManager != null) {
-      catalogManager.close();
-    }
 
     if (auxServiceManager != null) {
       try {
@@ -817,46 +833,24 @@ public class GravitinoEnv {
       }
     }
 
-    if (metricsSystem != null) {
-      metricsSystem.close();
-    }
-
-    if (eventListenerManager != null) {
-      eventListenerManager.stop();
-    }
-
-    if (metalakeManager != null) {
-      metalakeManager.close();
-    }
-
-    if (jobOperationDispatcher != null) {
+    if (component != null) {
       try {
-        jobOperationDispatcher.close();
-        jobOperationDispatcher = null;
+        component.managedServices().close();
       } catch (Exception e) {
-        LOG.warn("Failed to close JobOperationDispatcher", e);
+        throw unchecked(e);
+      } finally {
+        // The job manager is closed; the getter reports the environment as not initialized.
+        this.jobOperationDispatcher = null;
       }
-    }
-
-    StatisticDispatcher statisticDispatcherToClose =
-        statisticDispatcher != null ? statisticDispatcher : internalStatisticDispatcher;
-    if (statisticDispatcherToClose != null) {
-      try {
-        statisticDispatcherToClose.close();
-      } catch (Exception e) {
-        LOG.warn("Failed to close StatisticDispatcher", e);
-      }
-    }
-
-    if (kmsClientRegistry != null) {
-      kmsClientRegistry.close();
-    }
-
-    if (secretManager != null) {
-      secretManager.close();
     }
 
     LOG.info("Gravitino Environment is shut down.");
+  }
+
+  private static RuntimeException unchecked(Exception e) {
+    return e instanceof RuntimeException
+        ? (RuntimeException) e
+        : new IllegalStateException(e.getMessage(), e);
   }
 
   private void initBaseComponents() {
@@ -885,7 +879,8 @@ public class GravitinoEnv {
   private void initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager = component.metalakeManager();
+    // Built here, as before, so it registers with the managed services at the same point.
+    component.metalakeManager();
     this.internalMetalakeDispatcher = component.internalMetalakeDispatcher();
     this.internalCatalogDispatcher = component.internalCatalogDispatcher();
 

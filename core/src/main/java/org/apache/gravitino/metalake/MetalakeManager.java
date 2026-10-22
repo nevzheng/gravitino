@@ -48,6 +48,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.NonEmptyMetalakeException;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
@@ -63,7 +64,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Manages Metalakes within the Apache Gravitino system. */
-public class MetalakeManager implements MetalakeDispatcher, Closeable {
+public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedService {
 
   private static final String METALAKE_DOES_NOT_EXIST_MSG = "Metalake %s does not exist";
 

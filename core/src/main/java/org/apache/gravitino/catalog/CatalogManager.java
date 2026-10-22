@@ -101,6 +101,7 @@ import org.apache.gravitino.exceptions.NonEmptyCatalogException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.file.FilesetCatalog;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
@@ -136,7 +137,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Manages the catalog instances and operations. */
-public class CatalogManager implements CatalogDispatcher, Closeable {
+public class CatalogManager implements CatalogDispatcher, Closeable, ManagedService {
 
   private static final String CATALOG_DOES_NOT_EXIST_MSG = "Catalog %s does not exist";
 

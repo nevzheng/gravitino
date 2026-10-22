@@ -24,9 +24,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.lifecycle.ManagedService;
 
 /** Creates, resolves, and owns server-private KMS clients by configured provider. */
-public final class KmsClientRegistry implements AutoCloseable {
+public final class KmsClientRegistry implements ManagedService {
 
   private final Map<String, KmsClient> clients;
   private volatile boolean closed;

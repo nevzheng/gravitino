@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +46,7 @@ import org.slf4j.LoggerFactory;
  * MetricsSystem manages the lifecycle of MetricsSources and MetricsReporters. MetricsReporter will
  * report metrics from MetricsSources registered to MetricsSystem.
  */
-public class MetricsSystem implements Closeable {
+public class MetricsSystem implements Closeable, ManagedService {
   private static final Logger LOG = LoggerFactory.getLogger(MetricsSystem.class);
   private final String name;
   private final MetricRegistry metricRegistry;

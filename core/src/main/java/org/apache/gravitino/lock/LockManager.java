@@ -28,14 +28,17 @@ import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,8 +49,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>It has two main functions: 1. Create the tree lock. 2. Clean up the stale tree lock nodes
  * shared by all tree lock instances.
+ *
+ * <p>The constructor starts a lock cleaner and a deadlock checker thread; {@link #close()} stops
+ * them. The owner of a lock manager closes it when it is done with it.
  */
-public class LockManager {
+public class LockManager implements ManagedService {
   private static final Logger LOG = LoggerFactory.getLogger(LockManager.class);
 
   static final NameIdentifier ROOT = NameIdentifier.of("/");
@@ -63,6 +69,10 @@ public class LockManager {
 
   // The interval in seconds to clean up the stale tree lock nodes.
   @VisibleForTesting long cleanTreeNodeIntervalInSecs;
+
+  // The background threads, or null for a lock manager that starts none.
+  @Nullable private ScheduledExecutorService lockCleaner;
+  @Nullable private ScheduledExecutorService deadLockChecker;
 
   private void initParameters(Config config) {
     long maxNodesInMemory = config.get(TREE_LOCK_MAX_NODE_IN_MEMORY);
@@ -102,7 +112,7 @@ public class LockManager {
   }
 
   private void startDeadLockChecker() {
-    ScheduledThreadPoolExecutor deadLockChecker =
+    deadLockChecker =
         new ScheduledThreadPoolExecutor(
             1,
             new ThreadFactoryBuilder()
@@ -149,7 +159,7 @@ public class LockManager {
   }
 
   private void startNodeCleaner() {
-    ScheduledThreadPoolExecutor lockCleaner =
+    lockCleaner =
         new ScheduledThreadPoolExecutor(
             1,
             new ThreadFactoryBuilder()
@@ -191,6 +201,32 @@ public class LockManager {
 
     // Start deadlock checker.
     startDeadLockChecker();
+  }
+
+  /**
+   * Stops the lock cleaner and deadlock checker threads. Tree locks can still be created and used
+   * afterwards, but stale lock nodes are no longer evicted. Closing again does nothing.
+   */
+  @Override
+  public synchronized void close() {
+    if (lockCleaner != null) {
+      lockCleaner.shutdownNow();
+      lockCleaner = null;
+    }
+    if (deadLockChecker != null) {
+      deadLockChecker.shutdownNow();
+      deadLockChecker = null;
+    }
+  }
+
+  /**
+   * Returns whether {@link #close()} stopped the background threads, or none were started.
+   *
+   * @return true if no background thread of this lock manager is running
+   */
+  @VisibleForTesting
+  synchronized boolean isClosed() {
+    return lockCleaner == null && deadLockChecker == null;
   }
 
   /**

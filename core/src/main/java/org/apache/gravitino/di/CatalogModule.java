@@ -28,6 +28,7 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.MetalakeHookDispatcher;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.MetalakeEventDispatcher;
@@ -45,8 +46,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * binding here.
  *
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
- * chains are event → normalize → hook → manager, around the same manager instance. Dagger does not
- * close the managers; {@code GravitinoEnv.shutdown()} does.
+ * chains are event → normalize → hook → manager, around the same manager instance. Both managers
+ * register with the {@link ManagedServices registry}, which closes them.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
@@ -66,9 +67,11 @@ abstract class CatalogModule {
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
-      MetricsSystem metricsSystem) {
-    return new CatalogManager(
-        config, entityStore, idGenerator, secretManager, lockManager, metricsSystem);
+      MetricsSystem metricsSystem,
+      ManagedServices services) {
+    return services.register(
+        new CatalogManager(
+            config, entityStore, idGenerator, secretManager, lockManager, metricsSystem));
   }
 
   /**
@@ -81,8 +84,10 @@ abstract class CatalogModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       CatalogManager catalogManager,
-      LockManager lockManager) {
-    return new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager);
+      LockManager lockManager,
+      ManagedServices services) {
+    return services.register(
+        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager));
   }
 
   @Provides

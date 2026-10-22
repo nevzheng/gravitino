@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.listener.api.EventListenerPlugin;
 import org.apache.gravitino.utils.MapUtils;
 import org.slf4j.Logger;
@@ -47,7 +48,7 @@ import org.slf4j.LoggerFactory;
  * <p>For async listeners with the isolated dispatcher, will create a separate AsyncQueueListener
  * for each EventListenerWrapper.
  */
-public class EventListenerManager {
+public class EventListenerManager implements ManagedService {
   private static final Logger LOG = LoggerFactory.getLogger(EventListenerManager.class);
   public static final String GRAVITINO_EVENT_LISTENER_PREFIX = "gravitino.eventListener.";
   public static final String GRAVITINO_EVENT_LISTENER_NAMES = "names";
@@ -92,6 +93,12 @@ public class EventListenerManager {
 
   public void stop() {
     eventListeners.stream().forEach(listener -> listener.stop());
+  }
+
+  /** Stops the event listeners; the same as {@link #stop()}. */
+  @Override
+  public void close() {
+    stop();
   }
 
   public EventBus createEventBus() {

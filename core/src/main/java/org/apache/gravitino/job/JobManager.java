@@ -70,6 +70,7 @@ import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.json.JsonUtils;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
@@ -84,7 +85,7 @@ import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JobManager implements JobOperationDispatcher {
+public class JobManager implements JobOperationDispatcher, ManagedService {
 
   private static final Logger LOG = LoggerFactory.getLogger(JobManager.class);
 

@@ -18,17 +18,22 @@
  */
 package org.apache.gravitino;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.encryption.kms.KmsClientRegistry;
+import org.apache.gravitino.encryption.kms.KmsReference;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -122,6 +127,76 @@ public class TestGravitinoEnvComponent {
       // The server takes its authorizer back while it shuts down.
       env.setGravitinoAuthorizer(null);
       assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
+    } finally {
+      env.shutdown();
+    }
+  }
+
+  @Test
+  public void testStartAndShutdownDriveTheManagedServices() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    // Shutting down an environment that was never initialized does nothing, as before.
+    env.shutdown();
+    assertThrows(IllegalStateException.class, env::start);
+
+    env.initializeBaseComponents(new Config(false) {});
+    ManagedServices services = env.component().managedServices();
+    assertEquals(ManagedServices.State.NEW, services.state());
+
+    env.start();
+    assertEquals(ManagedServices.State.STARTED, services.state());
+
+    env.shutdown();
+    assertEquals(ManagedServices.State.CLOSED, services.state());
+    // A second shutdown closes nothing twice.
+    env.shutdown();
+  }
+
+  @Test
+  public void testShutdownWithoutStartClosesWhatWasBuilt() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    env.initializeBaseComponents(new Config(false) {});
+    KmsClientRegistry registry = env.kmsClientRegistry();
+
+    env.shutdown();
+
+    assertEquals(ManagedServices.State.CLOSED, env.component().managedServices().state());
+    assertThrows(
+        IllegalStateException.class, () -> registry.getClient(new KmsReference("missing", "key")));
+  }
+
+  @Test
+  public void testStartWithoutComponentSaysTheEnvironmentIsNotInitialized() {
+    // A downstream subclass that overrides the initialization without calling super builds no
+    // component, so start() has nothing to start.
+    GravitinoEnv env =
+        new GravitinoEnv() {
+          @Override
+          public void initializeFullComponents(Config config) {}
+        };
+    env.initializeFullComponents(new Config(false) {});
+    assertNull(env.component());
+
+    IllegalStateException e = assertThrows(IllegalStateException.class, env::start);
+    assertTrue(e.getMessage().contains("GravitinoEnv is not initialized"), e.getMessage());
+    assertTrue(e.getMessage().contains("must call the overridden method"), e.getMessage());
+  }
+
+  @Test
+  public void testStartAfterShutdownNeedsANewInitialization() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    env.initializeBaseComponents(new Config(false) {});
+    env.start();
+    env.shutdown();
+
+    IllegalStateException e = assertThrows(IllegalStateException.class, env::start);
+    assertTrue(e.getMessage().contains("initialize it again"), e.getMessage());
+
+    // Initializing again builds a new component that can start.
+    env.initializeBaseComponents(new Config(false) {});
+    try {
+      env.start();
+      assertEquals(ManagedServices.State.STARTED, env.component().managedServices().state());
     } finally {
       env.shutdown();
     }
