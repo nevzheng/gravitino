@@ -100,6 +100,7 @@ import org.apache.gravitino.exceptions.NonEmptyCatalogException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.file.FilesetCatalog;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.messaging.TopicCatalog;
@@ -522,6 +523,8 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
 
   private final SecretManager secretManager;
 
+  private final LockManager lockManager;
+
   // Copy-on-write: listeners may be registered while the cache's removal listener (running on a
   // cache executor thread) is iterating this list.
   private final List<Consumer<NameIdentifier>> removalListeners = new CopyOnWriteArrayList<>();
@@ -541,13 +544,19 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
    * @param store The entity store to use.
    * @param idGenerator The id generator to use.
    * @param secretManager The secret manager to use for create-time secret bindings/references.
+   * @param lockManager The lock manager that guards catalog operations with tree locks.
    */
   public CatalogManager(
-      Config config, EntityStore store, IdGenerator idGenerator, SecretManager secretManager) {
+      Config config,
+      EntityStore store,
+      IdGenerator idGenerator,
+      SecretManager secretManager,
+      LockManager lockManager) {
     this.config = config;
     this.store = store;
     this.idGenerator = idGenerator;
     this.secretManager = secretManager;
+    this.lockManager = lockManager;
     this.classLoaderSharingEnabled = config.get(Configs.CATALOG_CLASSLOADER_SHARING_ENABLED);
 
     long cacheEvictionIntervalInMs = config.get(Configs.CATALOG_CACHE_EVICTION_INTERVAL_MS);
@@ -676,6 +685,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
     NameIdentifier metalakeIdent = NameIdentifier.of(namespace.levels());
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         metalakeIdent,
         LockType.READ,
         () -> {
@@ -698,6 +708,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
     try {
       List<CatalogEntity> catalogEntities =
           TreeLockUtils.doWithTreeLock(
+              lockManager,
               metalakeIdent,
               LockType.READ,
               () -> {
@@ -727,6 +738,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
   @Override
   public Catalog loadCatalog(NameIdentifier ident) throws NoSuchCatalogException {
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.READ,
         () -> {
@@ -852,6 +864,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
             .build();
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         metalakeIdent,
         LockType.WRITE,
         () -> {
@@ -971,6 +984,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
   @Override
   public void testConnection(NameIdentifier ident) {
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.READ,
         () -> {
@@ -1011,6 +1025,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
     }
 
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.READ,
         () -> {
@@ -1075,6 +1090,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       throws NoSuchCatalogException, CatalogNotInUseException {
     NameIdentifier metalakeIdent = NameIdentifier.of(ident.namespace().levels());
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         metalakeIdent,
         LockType.WRITE,
         () -> {
@@ -1115,6 +1131,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
   public void disableCatalog(NameIdentifier ident) throws NoSuchCatalogException {
     NameIdentifier metalakeIdent = NameIdentifier.of(ident.namespace().levels());
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         metalakeIdent,
         LockType.WRITE,
         () -> {
@@ -1165,6 +1182,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       throws NoSuchCatalogException, IllegalArgumentException {
 
     TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.READ,
         () -> {
@@ -1203,6 +1221,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
         containsRenameCatalog ? NameIdentifier.of(ident.namespace().level(0)) : ident;
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         nameIdentifierForLock,
         LockType.WRITE,
         () -> {
@@ -1303,6 +1322,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
     NameIdentifier metalakeIdent = NameIdentifier.of(ident.namespace().levels());
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         metalakeIdent,
         LockType.WRITE,
         () -> {

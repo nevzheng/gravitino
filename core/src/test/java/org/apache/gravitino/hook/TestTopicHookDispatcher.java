@@ -66,7 +66,8 @@ public class TestTopicHookDispatcher extends TestOperationDispatcher {
     topicHookDispatcher =
         new TopicHookDispatcher(TestTopicOperationDispatcher.getTopicOperationDispatcher());
     schemaHookDispatcher =
-        new SchemaHookDispatcher(TestTopicOperationDispatcher.getSchemaOperationDispatcher());
+        new SchemaHookDispatcher(
+            TestTopicOperationDispatcher.getSchemaOperationDispatcher(), lockManager);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalAccessControlDispatcher", accessControlManager, true);

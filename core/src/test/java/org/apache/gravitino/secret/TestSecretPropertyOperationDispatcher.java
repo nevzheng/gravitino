@@ -18,7 +18,6 @@
  */
 package org.apache.gravitino.secret;
 
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -28,8 +27,6 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
@@ -42,7 +39,6 @@ import org.apache.gravitino.catalog.TestOperationDispatcher;
 import org.apache.gravitino.catalog.TopicOperationDispatcher;
 import org.apache.gravitino.catalog.ViewOperationDispatcher;
 import org.apache.gravitino.connector.HasPropertyMetadata;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.SchemaVersion;
@@ -76,26 +72,29 @@ public class TestSecretPropertyOperationDispatcher extends TestOperationDispatch
   @BeforeAll
   public static void initialize() throws IOException, IllegalAccessException {
     schemaOperationDispatcher =
-        new SchemaOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new SchemaOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     tableOperationDispatcher =
-        new TableOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new TableOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     topicOperationDispatcher =
-        new TopicOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
+        new TopicOperationDispatcher(
+            catalogManager, entityStore, idGenerator, secretManager, lockManager);
     Supplier<SchemaDispatcher> schemaDispatcherSupplier = () -> schemaOperationDispatcher;
     viewOperationDispatcher =
         new ViewOperationDispatcher(
-            catalogManager, entityStore, idGenerator, schemaDispatcherSupplier, secretManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            schemaDispatcherSupplier,
+            secretManager,
+            lockManager);
     modelOperationDispatcher =
         new ModelOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
     secretDispatcher =
         new SecretPropertyOperationDispatcher(
             catalogManager, entityStore, idGenerator, secretManager);
 
-    Config config = mock(Config.class);
-    doReturn(100000L).when(config).get(Configs.TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(Configs.TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(Configs.TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
 

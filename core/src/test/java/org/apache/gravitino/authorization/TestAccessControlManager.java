@@ -145,6 +145,8 @@ public class TestAccessControlManager {
           .withVersion(SchemaVersion.V_0_1)
           .build();
 
+  private static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws Exception {
     File dbDir = new File(DB_DIR);
@@ -184,7 +186,8 @@ public class TestAccessControlManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -217,7 +220,8 @@ public class TestAccessControlManager {
             .build();
     entityStore.put(anotherCatalogEntity, true);
 
-    accessControlManager = new AccessControlManager(entityStore, new RandomIdGenerator(), config);
+    accessControlManager =
+        new AccessControlManager(entityStore, new RandomIdGenerator(), config, lockManager);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "accessControlDispatcher", accessControlManager, true);

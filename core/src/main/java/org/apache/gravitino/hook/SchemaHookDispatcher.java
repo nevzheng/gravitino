@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
@@ -37,6 +38,7 @@ import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NonEmptySchemaException;
 import org.apache.gravitino.exceptions.SchemaAlreadyExistsException;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.secret.SecretBinding;
@@ -52,9 +54,22 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class SchemaHookDispatcher implements SchemaDispatcher {
   private final SchemaDispatcher dispatcher;
+  private final Supplier<LockManager> lockManagerSupplier;
 
-  public SchemaHookDispatcher(SchemaDispatcher dispatcher) {
+  /**
+   * Creates a schema hook dispatcher.
+   *
+   * @param dispatcher The schema dispatcher to delegate to.
+   * @param lockManager The lock manager that serializes schema creation on the catalog.
+   */
+  public SchemaHookDispatcher(SchemaDispatcher dispatcher, LockManager lockManager) {
+    this(dispatcher, () -> lockManager);
+  }
+
+  private SchemaHookDispatcher(
+      SchemaDispatcher dispatcher, Supplier<LockManager> lockManagerSupplier) {
     this.dispatcher = dispatcher;
+    this.lockManagerSupplier = lockManagerSupplier;
   }
 
   @Override
@@ -85,6 +100,7 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
     NameIdentifier catalogIdent =
         NameIdentifierUtil.ofCatalog(ident.namespace().level(0), ident.namespace().level(1));
     return TreeLockUtils.doWithTreeLock(
+        lockManagerSupplier.get(),
         catalogIdent,
         LockType.WRITE,
         () -> {

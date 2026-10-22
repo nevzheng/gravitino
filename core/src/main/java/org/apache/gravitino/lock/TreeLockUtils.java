@@ -19,11 +19,16 @@
 
 package org.apache.gravitino.lock;
 
-import org.apache.gravitino.GravitinoEnv;
+import com.google.common.base.Preconditions;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.utils.Executable;
 
-/** Utility class for tree locks. */
+/**
+ * Utility class for tree locks.
+ *
+ * <p>Callers pass the {@link LockManager} they hold, usually one they received through their
+ * constructor.
+ */
 public class TreeLockUtils {
 
   private TreeLockUtils() {
@@ -33,6 +38,7 @@ public class TreeLockUtils {
   /**
    * Execute the given executable with the given tree lock.
    *
+   * @param lockManager The lock manager that creates the tree lock.
    * @param identifier The identifier of resource path that the lock attempts to lock.
    * @param lockType The type of lock to use.
    * @param executable The executable to execute.
@@ -42,8 +48,13 @@ public class TreeLockUtils {
    * @throws E If the executable throws an exception.
    */
   public static <R, E extends Exception> R doWithTreeLock(
-      NameIdentifier identifier, LockType lockType, Executable<R, E> executable) throws E {
-    TreeLock lock = GravitinoEnv.getInstance().lockManager().createTreeLock(identifier);
+      LockManager lockManager,
+      NameIdentifier identifier,
+      LockType lockType,
+      Executable<R, E> executable)
+      throws E {
+    Preconditions.checkNotNull(lockManager, "lockManager must not be null");
+    TreeLock lock = lockManager.createTreeLock(identifier);
     try {
       lock.lock(lockType);
       return executable.execute();
@@ -55,6 +66,7 @@ public class TreeLockUtils {
   /**
    * Execute the given executable with the root tree lock.
    *
+   * @param lockManager The lock manager that creates the tree lock.
    * @param lockType The type of lock to use.
    * @param executable The executable to execute.
    * @return The result of the executable.
@@ -63,7 +75,7 @@ public class TreeLockUtils {
    * @throws E If the executable throws an exception.
    */
   public static <R, E extends Exception> R doWithRootTreeLock(
-      LockType lockType, Executable<R, E> executable) throws E {
-    return doWithTreeLock(LockManager.ROOT, lockType, executable);
+      LockManager lockManager, LockType lockType, Executable<R, E> executable) throws E {
+    return doWithTreeLock(lockManager, LockManager.ROOT, lockType, executable);
   }
 }

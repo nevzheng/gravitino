@@ -122,6 +122,8 @@ public class TestJobManager {
 
   private IdGenerator idGenerator;
 
+  private LockManager lockManager;
+
   @BeforeEach
   public void setUp() throws IllegalAccessException {
     config = new Config(false) {};
@@ -129,14 +131,15 @@ public class TestJobManager {
     config.set(Configs.JOB_STAGING_DIR, testStagingDir);
     config.set(Configs.JOB_STAGING_DIR_KEEP_TIME_IN_MS, 1000L);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     entityStore = Mockito.mock(EntityStore.class);
     jobExecutor = Mockito.mock(JobExecutor.class);
     // Mocks don't call the default interface methods, so stub the defaults explicitly.
     when(jobExecutor.ownsJob(any())).thenReturn(true);
     idGenerator = new RandomIdGenerator();
-    JobManager jm = new JobManager(config, entityStore, idGenerator, jobExecutor);
+    JobManager jm = new JobManager(config, entityStore, idGenerator, jobExecutor, lockManager);
     jobManager = Mockito.spy(jm);
 
     // Stop the background schedulers to prevent interference with tests
@@ -1132,7 +1135,8 @@ public class TestJobManager {
     IdGenerator fixedIdGenerator = Mockito.mock(IdGenerator.class);
     when(fixedIdGenerator.nextId()).thenReturn(12345L);
     JobManager fixedIdJobManager =
-        Mockito.spy(new JobManager(config, entityStore, fixedIdGenerator, jobExecutor));
+        Mockito.spy(
+            new JobManager(config, entityStore, fixedIdGenerator, jobExecutor, lockManager));
     try {
       // Stop the background schedulers to prevent interference with the test, like setUp does.
       fixedIdJobManager.cleanUpExecutor.shutdownNow();
@@ -1349,7 +1353,7 @@ public class TestJobManager {
 
     // Mock MetalakeManager.listInUseMetalakes to return the test metalake
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty())).thenReturn(ImmutableList.of(job));
@@ -1399,7 +1403,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
     when(jobManager.listJobs(metalake, Optional.empty())).thenReturn(ImmutableList.of(job));
     when(jobExecutor.getJobExecutionInfo(job.jobExecutionId()))
@@ -1439,7 +1443,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty())).thenReturn(ImmutableList.of(job));
@@ -1503,7 +1507,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty())).thenReturn(ImmutableList.of(queuedJob));
@@ -1546,7 +1550,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty()))
@@ -1603,7 +1607,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty()))
@@ -1650,7 +1654,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty()))
@@ -1830,9 +1834,9 @@ public class TestJobManager {
     ownerExecutor.initialize(executorConfigs);
     otherExecutor.initialize(executorConfigs);
     JobManager ownerManager =
-        Mockito.spy(new JobManager(config, entityStore, idGenerator, ownerExecutor));
+        Mockito.spy(new JobManager(config, entityStore, idGenerator, ownerExecutor, lockManager));
     JobManager otherManager =
-        Mockito.spy(new JobManager(config, entityStore, idGenerator, otherExecutor));
+        Mockito.spy(new JobManager(config, entityStore, idGenerator, otherExecutor, lockManager));
 
     try {
       JobTemplate jobTemplate =
@@ -1848,7 +1852,7 @@ public class TestJobManager {
           newJobEntity(
               idGenerator.nextId(), executionId, JobHandle.Status.QUEUED, Instant.now(), null);
       mockedMetalake
-          .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+          .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
           .thenReturn(ImmutableList.of(metalake));
       doReturn(ImmutableList.of(job)).when(otherManager).listJobs(metalake, Optional.empty());
       doReturn(ImmutableList.of(job)).when(ownerManager).listJobs(metalake, Optional.empty());
@@ -1980,7 +1984,7 @@ public class TestJobManager {
     JobEntity conflicted = expiredJob();
     JobEntity other = expiredJob();
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
     when(jobManager.listJobs(metalake, Optional.empty()))
         .thenReturn(ImmutableList.of(conflicted, other), ImmutableList.of(conflicted));
@@ -2011,7 +2015,7 @@ public class TestJobManager {
   public void testPullJobStatusContinuesAfterFailingToListMetalakes() throws IOException {
     JobEntity job = newJobEntity("shell_job", JobHandle.Status.QUEUED);
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenThrow(new RuntimeException("Failed to list in-use metalakes"))
         .thenReturn(ImmutableList.of(metalake));
     doReturn(ImmutableList.of(job)).when(jobManager).listJobs(metalake, Optional.empty());
@@ -2032,7 +2036,7 @@ public class TestJobManager {
     String disabledMetalake = "disabled_metalake";
     JobEntity job = newJobEntity("shell_job", JobHandle.Status.QUEUED);
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(disabledMetalake, metalake));
     doThrow(new MetalakeNotInUseException("Metalake %s is not in use", disabledMetalake))
         .when(jobManager)
@@ -2053,7 +2057,7 @@ public class TestJobManager {
     String brokenMetalake = "broken_metalake";
     JobEntity job = newJobEntity("shell_job", JobHandle.Status.QUEUED);
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(brokenMetalake, metalake));
     doThrow(new NoClassDefFoundError("org/example/MissingClass"))
         .when(jobManager)
@@ -2157,7 +2161,7 @@ public class TestJobManager {
   public void testCleanUpStagingDirsContinuesAfterFailingToListMetalakes() throws IOException {
     JobEntity job = expiredJob();
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenThrow(new RuntimeException("Failed to list in-use metalakes"))
         .thenReturn(ImmutableList.of(metalake));
     doReturn(ImmutableList.of(job)).when(jobManager).listJobs(metalake, Optional.empty());
@@ -2181,7 +2185,7 @@ public class TestJobManager {
     String failingMetalake = "failing_metalake";
     JobEntity job = expiredJob();
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(failingMetalake, metalake));
     doThrow(new RuntimeException(new IOException("store error")))
         .when(jobManager)
@@ -2207,7 +2211,7 @@ public class TestJobManager {
         .when(jobManager)
         .listJobs(metalake, Optional.empty());
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
     NameIdentifier failingIdent = NameIdentifierUtil.ofJob(metalake, failing.name());
     NameIdentifier otherIdent = NameIdentifierUtil.ofJob(metalake, other.name());
@@ -2450,7 +2454,7 @@ public class TestJobManager {
 
     // Mock MetalakeManager.listInUseMetalakes to return the test metalake
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty())).thenReturn(ImmutableList.of(job));
@@ -2703,7 +2707,7 @@ public class TestJobManager {
     when(entityStore.list(Namespace.empty(), BaseMetalake.class, Entity.EntityType.METALAKE))
         .thenReturn(ImmutableList.of(mockMetalake));
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
 
     when(jobManager.listJobs(metalake, Optional.empty()))
@@ -3138,7 +3142,7 @@ public class TestJobManager {
 
   private void mockListActiveJobs(JobEntity... jobs) {
     mockedMetalake
-        .when(() -> MetalakeManager.listInUseMetalakes(entityStore))
+        .when(() -> MetalakeManager.listInUseMetalakes(entityStore, lockManager))
         .thenReturn(ImmutableList.of(metalake));
     doReturn(ImmutableList.copyOf(jobs)).when(jobManager).listJobs(metalake, Optional.empty());
   }
@@ -3230,7 +3234,8 @@ public class TestJobManager {
     JobExecutor failingJobExecutor = Mockito.mock(JobExecutor.class);
     doThrow(new IOException("close failed")).when(failingJobExecutor).close();
 
-    JobManager manager = new JobManager(config, entityStore, idGenerator, failingJobExecutor);
+    JobManager manager =
+        new JobManager(config, entityStore, idGenerator, failingJobExecutor, lockManager);
     try {
       Assertions.assertThrows(IOException.class, manager::close);
       Assertions.assertTrue(manager.statusPullExecutor.isShutdown());

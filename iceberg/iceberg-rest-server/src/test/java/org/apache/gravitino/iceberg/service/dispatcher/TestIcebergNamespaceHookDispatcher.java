@@ -93,7 +93,6 @@ public class TestIcebergNamespaceHookDispatcher {
   private ViewDispatcher previousViewDispatcher;
   private ViewDispatcher previousInternalViewDispatcher;
   private EntityStore previousEntityStore;
-  private LockManager previousLockManager;
 
   @BeforeEach
   public void setUp() throws IllegalAccessException {
@@ -130,8 +129,6 @@ public class TestIcebergNamespaceHookDispatcher {
             FieldUtils.readField(GravitinoEnv.getInstance(), "internalViewDispatcher", true);
     previousEntityStore =
         (EntityStore) FieldUtils.readField(GravitinoEnv.getInstance(), "entityStore", true);
-    previousLockManager =
-        (LockManager) FieldUtils.readField(GravitinoEnv.getInstance(), "lockManager", true);
 
     FieldUtils.writeField(GravitinoEnv.getInstance(), "ownerDispatcher", mockOwnerDispatcher, true);
     FieldUtils.writeField(
@@ -153,14 +150,13 @@ public class TestIcebergNamespaceHookDispatcher {
     mockLockManager = mock(LockManager.class);
     TreeLock mockTreeLock = mock(TreeLock.class);
     when(mockLockManager.createTreeLock(any())).thenReturn(mockTreeLock);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", mockLockManager, true);
 
     IcebergConfigProvider mockConfigProvider = mock(IcebergConfigProvider.class);
     when(mockConfigProvider.getMetalakeName()).thenReturn(TEST_METALAKE);
     when(mockConfigProvider.getDefaultCatalogName()).thenReturn(TEST_CATALOG);
     IcebergRESTServerContext.create(mockConfigProvider, false, false, true, null);
 
-    hookDispatcher = new IcebergNamespaceHookDispatcher(mockDispatcher);
+    hookDispatcher = new IcebergNamespaceHookDispatcher(mockDispatcher, mockLockManager);
 
     mockContext = mock(IcebergRequestContext.class);
     when(mockContext.catalogName()).thenReturn(TEST_CATALOG);
@@ -195,7 +191,6 @@ public class TestIcebergNamespaceHookDispatcher {
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalViewDispatcher", previousInternalViewDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", previousEntityStore, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", previousLockManager, true);
 
     Class<?> holderClass =
         Arrays.stream(IcebergRESTServerContext.class.getDeclaredClasses())

@@ -32,7 +32,7 @@ import org.mockito.Mockito;
 public class TestCatalogMutationMarkerRace {
   @Test
   void testLocalRemoteAndRepeatedEventsAlwaysInvalidateReloadedCatalog() {
-    CatalogManager manager = new CatalogManager(new Config() {}, null, null, null);
+    CatalogManager manager = new CatalogManager(new Config() {}, null, null, null, null);
     CatalogChangeLogListener listener = new CatalogChangeLogListener(manager);
     NameIdentifier ident = NameIdentifier.of("lake", "catalog");
     CatalogWrapper versionOne = Mockito.mock(CatalogWrapper.class);

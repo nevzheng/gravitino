@@ -29,6 +29,7 @@ import org.apache.gravitino.Metalake;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.memory.TestMemoryEntityStore;
 import org.junit.jupiter.api.AfterAll;
@@ -47,7 +48,8 @@ public class TestMetalakeNormalizeDispatcher {
     entityStore = new TestMemoryEntityStore.InMemoryEntityStore();
     entityStore.initialize(config);
 
-    MetalakeManager metalakeManager = new MetalakeManager(entityStore, new RandomIdGenerator());
+    MetalakeManager metalakeManager =
+        new MetalakeManager(entityStore, new RandomIdGenerator(), new LockManager(config));
     metalakeNormalizeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
   }
 
