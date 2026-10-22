@@ -37,6 +37,8 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - uses: ./.github/actions/restore-build-cache
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
@@ -53,40 +55,17 @@ jobs:
         run: |
           dev/ci/util_free_space.sh
 
-      - name: Install dependencies
-        run: |
-          # libssl1.1 is not in the runner's apt sources, so the .deb is fetched directly.
-          deb=libssl1.1_1.1.1f-1ubuntu2_amd64.deb
-          for host in archive.ubuntu.com nz2.archive.ubuntu.com security.ubuntu.com; do
-            wget --tries=3 --timeout=30 -O "$deb" "https://$host/ubuntu/pool/main/o/openssl/$deb" && break
-            rm -f "$deb"
-          done
-          [ -s "$deb" ] || { echo "Could not download $deb from any mirror" >&2; exit 1; }
-          sudo dpkg -i "$deb"
-
       - name: Backend Integration Test (JDK${{ inputs.java-version }}-${{ inputs.test-mode }}-${{ inputs.backend }})
         id: integrationTest
-        run: |
-          EXCLUDE_CONTRIB_TESTS=""
-          for module in $(find catalogs-contrib -mindepth 1 -maxdepth 1 -type d -name 'catalog-*' -exec basename {} \; | sort); do
-            EXCLUDE_CONTRIB_TESTS="$EXCLUDE_CONTRIB_TESTS -x :catalogs-contrib:$module:test"
-          done
-
-          ./gradlew test :iceberg:iceberg-rest-server:experimentalTest -PskipTests -PtestMode=${{ inputs.test-mode }} -PjdbcBackend=${{ inputs.backend }} -PskipDockerTests=false -PskipWeb=true \
-            -x :web:web:test -x :web:integration-test:test -x :web-v2:web:test -x :web-v2:integration-test:test -x :clients:client-python:test \
-            -x :flink-connector:flink-common:test \
-            -x :flink-connector:flink-1.19:test -x :flink-connector:flink-runtime-1.19:test \
-            -x :flink-connector:flink-1.20:test -x :flink-connector:flink-runtime-1.20:test \
-            -x :flink-connector:flink-2.1:test -x :flink-connector:flink-runtime-2.1:test \
-            -x :flink-connector:flink-2.2:test -x :flink-connector:flink-runtime-2.2:test \
-            -x :spark-connector:spark-3.5:test -x :spark-connector:spark-4.0:test \
-            -x :spark-connector:spark-runtime-3.5:test -x :spark-connector:spark-runtime-4.0:test \
-            -x :trino-connector:integration-test:test -x :trino-connector:trino-connector:test \
-            -x :iceberg:iceberg-rest-trino-it:test \
-            -x :plugins:idp-basic:test \
-            -x :authorizations:authorization-chain:test -x :authorizations:authorization-ranger:test \
-            -x :clients:cli:test -x :maintenance:jobs:test -x :maintenance:optimizer:test \
-            $EXCLUDE_CONTRIB_TESTS
+        # ciBackendIntegrationTest owns the module list: every module that no other integration-test
+        # job claims (see ciIntegrationTestJobs in gradle/ci-stages.gradle.kts).
+        run: >-
+          ./gradlew ciBackendIntegrationTest
+          -PskipTests
+          -PtestMode=${{ inputs.test-mode }}
+          -PjdbcBackend=${{ inputs.backend }}
+          -PskipDockerTests=false
+          -PskipWeb=true
 
       - name: Upload integrate tests reports
         uses: actions/upload-artifact@v7
