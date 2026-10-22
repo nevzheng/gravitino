@@ -31,16 +31,15 @@ import static org.mockito.Mockito.when;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity.EntityType;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.iceberg.common.utils.IcebergIdentifierUtils;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -61,20 +60,22 @@ public class TestIcebergOwnershipUtils {
   private static final String SEPARATOR = ":";
 
   private OwnerDispatcher mockOwnerDispatcher;
-  private Config previousConfig;
+  private String previousSeparator;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
     Config mockConfig = mock(Config.class);
     when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(SEPARATOR);
-    previousConfig = (Config) FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
+    previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
+    HierarchicalSchemaUtil.seedSchemaSeparator(mockConfig);
   }
 
   @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
+  public void tearDown() {
+    Config previous = new Config(false) {};
+    previous.set(Configs.SCHEMA_SEPARATOR, previousSeparator);
+    HierarchicalSchemaUtil.seedSchemaSeparator(previous);
   }
 
   @Test

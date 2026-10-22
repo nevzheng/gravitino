@@ -30,17 +30,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.NamespacedEntityId;
 import org.apache.gravitino.metrics.Monitored;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.mapper.FilesetMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetVersionMapper;
 import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
@@ -376,16 +375,14 @@ public class FilesetMetaService {
     return filesetPO;
   }
 
-  @LegacyEnvAccess
   private Function<Namespace, List<FilesetPO>> filesetListFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::listFilesetPOsBySchemaId
         : this::listFilesetPOsByFullQualifiedName;
   }
 
-  @LegacyEnvAccess
   private Function<NameIdentifier, FilesetPO> filesetPOFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::getFilesetPOBySchemaId
         : this::getFilesetPOByFullQualifiedName;
   }

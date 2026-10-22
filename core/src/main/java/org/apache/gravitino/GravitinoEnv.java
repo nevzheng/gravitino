@@ -62,6 +62,7 @@ import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.utils.FileFetcher;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -933,6 +934,7 @@ public class GravitinoEnv {
     this.component = componentFactory.create(config, new Bridge());
     FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
     SecretPropertyUtils.configureSensitiveKeyKeywords(config);
+    HierarchicalSchemaUtil.seedSchemaSeparator(config);
   }
 
   private void initCommonComponents() {

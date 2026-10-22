@@ -32,11 +32,9 @@ import java.util.Map;
 import java.util.Optional;
 import javax.ws.rs.core.Response;
 import org.aopalliance.intercept.MethodInvocation;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.ActiveRoles;
@@ -51,6 +49,7 @@ import org.apache.gravitino.iceberg.service.rest.IcebergTableOperations;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.apache.iceberg.catalog.Catalog;
@@ -378,23 +377,26 @@ public class TestIcebergMetadataAuthorizationMethodInterceptor {
 
   /**
    * Extracts the identifiers with the schema separator {@code ":"}. The interceptor reads the
-   * separator through {@code HierarchicalSchemaUtil.schemaSeparator()}, which still reads the
-   * config of the process environment, so the config is swapped there for the call.
+   * separator through {@code HierarchicalSchemaUtil.schemaSeparator()}, which returns the one the
+   * server seeded, so the separator is seeded for the call and the previous one put back.
    */
   private static Map<Entity.EntityType, NameIdentifier> extractWithColonSeparator(
       IcebergMetadataAuthorizationMethodInterceptor interceptor,
       Parameter[] parameters,
-      Object[] args)
-      throws IllegalAccessException {
-    Config config = Mockito.mock(Config.class);
-    Mockito.when(config.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
-    Object previousConfig = FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+      Object[] args) {
+    String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
+    HierarchicalSchemaUtil.seedSchemaSeparator(separatorConfig(":"));
     try {
       return interceptor.extractNameIdentifierFromParameters(parameters, args);
     } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
+      HierarchicalSchemaUtil.seedSchemaSeparator(separatorConfig(previousSeparator));
     }
+  }
+
+  private static Config separatorConfig(String separator) {
+    Config config = new Config(false) {};
+    config.set(Configs.SCHEMA_SEPARATOR, separator);
+    return config;
   }
 
   private void resetContext(IcebergCatalogWrapperManager wrapperManager) {

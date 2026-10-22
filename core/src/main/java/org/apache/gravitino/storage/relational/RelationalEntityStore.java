@@ -40,7 +40,6 @@ import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -49,7 +48,6 @@ import org.apache.gravitino.RelationQuery;
 import org.apache.gravitino.RelationUpdate;
 import org.apache.gravitino.RelationalEntity;
 import org.apache.gravitino.SupportsRelationOperations;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.cache.BaseEntityCache;
 import org.apache.gravitino.cache.CacheFactory;
 import org.apache.gravitino.cache.CachedEntityIdResolver;
@@ -109,7 +107,6 @@ public class RelationalEntityStore
     return cache;
   }
 
-  @LegacyEnvAccess
   @Override
   public void initialize(Config config) throws RuntimeException {
     if (config.get(Configs.CACHE_ENABLED)) {
@@ -127,7 +124,7 @@ public class RelationalEntityStore
 
     // Polling and cleanup use separate single-threaded schedulers. Polling only dispatches changes
     // to local listeners, while cleanup independently removes records beyond the retention period.
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem = RelationalStoreSeeds.metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.register(changeLogMetrics);
     }
@@ -351,7 +348,6 @@ public class RelationalEntityStore
     entityChangeLogPoller.unregisterListener(listener);
   }
 
-  @LegacyEnvAccess
   @Override
   public void close() throws IOException {
     // Keep shutting the remaining components down even if one of them fails, and tolerate a
@@ -362,7 +358,7 @@ public class RelationalEntityStore
     failure = closeComponent(failure, "entity change log cleaner", entityChangeLogCleaner);
     failure = closeComponent(failure, "relational garbage collector", garbageCollector);
     failure = closeComponent(failure, "relational backend", backend);
-    MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+    MetricsSystem metricsSystem = RelationalStoreSeeds.metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.unregister(changeLogMetrics);
     }

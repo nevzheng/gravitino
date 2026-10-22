@@ -27,16 +27,15 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.NamespacedEntityId;
 import org.apache.gravitino.meta.TopicEntity;
 import org.apache.gravitino.metrics.Monitored;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.SecurableObjectMapper;
 import org.apache.gravitino.storage.relational.mapper.StatisticMetaMapper;
@@ -248,16 +247,14 @@ public class TopicMetaService {
     return topicPO;
   }
 
-  @LegacyEnvAccess
   private Function<Namespace, List<TopicPO>> topicListFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::listTopicPOsBySchemaId
         : this::listTopicPOsByFullQualifiedName;
   }
 
-  @LegacyEnvAccess
   private Function<NameIdentifier, TopicPO> topicPOFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::getTopicPOBySchemaId
         : this::getTopicPOByFullQualifiedName;
   }

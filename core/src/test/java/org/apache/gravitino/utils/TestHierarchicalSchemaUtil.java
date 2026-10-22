@@ -21,10 +21,8 @@ package org.apache.gravitino.utils;
 import java.util.List;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestHierarchicalSchemaUtil {
@@ -124,17 +122,22 @@ public class TestHierarchicalSchemaUtil {
     Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator(mockConfig));
   }
 
-  // Pins the overload without a configuration, which reads it from GravitinoEnv for the store
-  // layer. Every other test passes the configuration.
+  // Pins the overload without a configuration, which returns the separator the server seeded for
+  // the store layer. Every other test passes the configuration.
   @Test
-  public void testSchemaSeparatorWithoutConfigReadsTheEnvironment() {
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+  public void testSchemaSeparatorWithoutConfigReturnsTheSeededOne() {
+    String previous = HierarchicalSchemaUtil.schemaSeparator();
     Config mockConfig = Mockito.mock(Config.class);
     Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn("|");
-    Mockito.when(env.config()).thenReturn(mockConfig);
-    try (MockedStatic<GravitinoEnv> mocked = Mockito.mockStatic(GravitinoEnv.class)) {
-      mocked.when(GravitinoEnv::getInstance).thenReturn(env);
+    try {
+      HierarchicalSchemaUtil.seedSchemaSeparator(mockConfig);
       Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator());
+      HierarchicalSchemaUtil.seedSchemaSeparator(null);
+      Assertions.assertEquals(":", HierarchicalSchemaUtil.schemaSeparator());
+    } finally {
+      Config restore = new Config(false) {};
+      restore.set(Configs.SCHEMA_SEPARATOR, previous);
+      HierarchicalSchemaUtil.seedSchemaSeparator(restore);
     }
   }
 }

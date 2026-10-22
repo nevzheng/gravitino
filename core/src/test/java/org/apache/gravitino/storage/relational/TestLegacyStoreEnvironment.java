@@ -19,9 +19,10 @@
 package org.apache.gravitino.storage.relational;
 
 import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -29,12 +30,14 @@ import org.mockito.Mockito;
 public class TestLegacyStoreEnvironment {
 
   @Test
-  public void testBindsTheValuesAndRestoresThePreviousOnes() {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Config previousConfig = env.config();
-    IdGenerator previousIdGenerator = env.idGenerator();
-    MetricsSystem previousMetricsSystem = env.metricsSystem();
-    Config config = Mockito.mock(Config.class);
+  public void testSeedsTheValuesAndRestoresThePreviousOnes() {
+    MetricsSystem previousMetricsSystem = RelationalStoreSeeds.metricsSystem();
+    boolean previousCacheEnabled = RelationalStoreSeeds.cacheEnabled();
+    IdGenerator previousIdGenerator = RelationalStoreSeeds.idGenerator();
+    String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
+    Config config = new Config(false) {};
+    config.set(Configs.CACHE_ENABLED, !previousCacheEnabled);
+    config.set(Configs.SCHEMA_SEPARATOR, "|");
     IdGenerator idGenerator = Mockito.mock(IdGenerator.class);
     MetricsSystem metricsSystem = Mockito.mock(MetricsSystem.class);
 
@@ -43,41 +46,45 @@ public class TestLegacyStoreEnvironment {
             .withConfig(config)
             .withIdGenerator(idGenerator)
             .withMetricsSystem(metricsSystem)) {
-      Assertions.assertSame(config, env.config());
-      Assertions.assertSame(idGenerator, env.idGenerator());
-      Assertions.assertSame(metricsSystem, env.metricsSystem());
+      Assertions.assertEquals(!previousCacheEnabled, RelationalStoreSeeds.cacheEnabled());
+      Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator());
+      Assertions.assertSame(idGenerator, RelationalStoreSeeds.idGenerator());
+      Assertions.assertSame(metricsSystem, RelationalStoreSeeds.metricsSystem());
     }
 
-    Assertions.assertSame(previousConfig, env.config());
-    Assertions.assertSame(previousIdGenerator, env.idGenerator());
-    Assertions.assertSame(previousMetricsSystem, env.metricsSystem());
+    Assertions.assertEquals(previousCacheEnabled, RelationalStoreSeeds.cacheEnabled());
+    Assertions.assertEquals(previousSeparator, HierarchicalSchemaUtil.schemaSeparator());
+    Assertions.assertSame(previousIdGenerator, RelationalStoreSeeds.idGenerator());
+    Assertions.assertSame(previousMetricsSystem, RelationalStoreSeeds.metricsSystem());
   }
 
   @Test
-  public void testRebindingAFieldRestoresTheOriginalValue() {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Config previousConfig = env.config();
-    Config first = Mockito.mock(Config.class);
-    Config second = Mockito.mock(Config.class);
+  public void testReseedingRestoresTheOriginalValue() {
+    IdGenerator previousIdGenerator = RelationalStoreSeeds.idGenerator();
+    IdGenerator first = Mockito.mock(IdGenerator.class);
+    IdGenerator second = Mockito.mock(IdGenerator.class);
 
-    LegacyStoreEnvironment binding = new LegacyStoreEnvironment().withConfig(first);
-    binding.withConfig(second);
-    Assertions.assertSame(second, env.config());
+    LegacyStoreEnvironment binding = new LegacyStoreEnvironment().withIdGenerator(first);
+    binding.withIdGenerator(second);
+    Assertions.assertSame(second, RelationalStoreSeeds.idGenerator());
 
     binding.close();
-    Assertions.assertSame(previousConfig, env.config());
+    Assertions.assertSame(previousIdGenerator, RelationalStoreSeeds.idGenerator());
   }
 
   @Test
-  public void testBindsNullAndCloseIsIdempotent() {
-    GravitinoEnv env = GravitinoEnv.getInstance();
-    Config previousConfig = env.config();
+  public void testNullConfigSeedsTheDefaultsAndCloseIsIdempotent() {
+    boolean previousCacheEnabled = RelationalStoreSeeds.cacheEnabled();
+    String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
 
     LegacyStoreEnvironment binding = new LegacyStoreEnvironment().withConfig(null);
-    Assertions.assertNull(env.config());
+    Assertions.assertTrue(RelationalStoreSeeds.cacheEnabled());
+    Assertions.assertEquals(
+        Configs.SCHEMA_SEPARATOR.getDefaultValue(), HierarchicalSchemaUtil.schemaSeparator());
 
     binding.close();
     binding.close();
-    Assertions.assertSame(previousConfig, env.config());
+    Assertions.assertEquals(previousCacheEnabled, RelationalStoreSeeds.cacheEnabled());
+    Assertions.assertEquals(previousSeparator, HierarchicalSchemaUtil.schemaSeparator());
   }
 }

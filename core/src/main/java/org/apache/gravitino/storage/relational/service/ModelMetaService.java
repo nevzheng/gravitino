@@ -29,17 +29,16 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.ModelEntity;
 import org.apache.gravitino.meta.NamespacedEntityId;
 import org.apache.gravitino.metrics.Monitored;
 import org.apache.gravitino.storage.relational.EntityChangeLogWriter;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.mapper.ModelMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelVersionAliasRelMapper;
 import org.apache.gravitino.storage.relational.mapper.ModelVersionMetaMapper;
@@ -297,16 +296,14 @@ public class ModelMetaService {
     return modelPO;
   }
 
-  @LegacyEnvAccess
   private Function<Namespace, List<ModelPO>> modelListFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::listModelPOsBySchemaId
         : this::listModelPOsByFullQualifiedName;
   }
 
-  @LegacyEnvAccess
   private Function<NameIdentifier, ModelPO> modelPOFetcher() {
-    return GravitinoEnv.getInstance().cacheEnabled()
+    return RelationalStoreSeeds.cacheEnabled()
         ? this::getModelPOBySchemaId
         : this::getModelPOByFullQualifiedName;
   }

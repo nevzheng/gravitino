@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -31,12 +33,17 @@ import static org.mockito.Mockito.verify;
 import dagger.BindsInstance;
 import dagger.Component;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -82,6 +89,38 @@ public class TestStorageModule {
   }
 
   @Test
+  public void testEntityStoreSeedsTheRelationalStoreBeforeItInitializes() {
+    Config config = new Config(false) {};
+    config.set(Configs.CACHE_ENABLED, false);
+    EntityStore entityStore = mock(EntityStore.class);
+    MetricsSystem previousMetricsSystem = RelationalStoreSeeds.metricsSystem();
+    boolean previousCacheEnabled = RelationalStoreSeeds.cacheEnabled();
+    IdGenerator previousIdGenerator = RelationalStoreSeeds.idGenerator();
+    try (MockedStatic<EntityStoreFactory> factory = mockStatic(EntityStoreFactory.class)) {
+      factory.when(() -> EntityStoreFactory.createEntityStore(config)).thenReturn(entityStore);
+      StorageComponent component =
+          DaggerTestStorageModule_StorageComponent.factory().create(config);
+      AtomicBoolean seededBeforeInitialize = new AtomicBoolean();
+      doAnswer(
+              invocation -> {
+                seededBeforeInitialize.set(
+                    RelationalStoreSeeds.metricsSystem() == component.metricsSystem()
+                        && RelationalStoreSeeds.idGenerator() == component.idGenerator()
+                        && !RelationalStoreSeeds.cacheEnabled());
+                return null;
+              })
+          .when(entityStore)
+          .initialize(config);
+
+      component.entityStore();
+
+      assertTrue(seededBeforeInitialize.get());
+    } finally {
+      RelationalStoreSeeds.seed(previousMetricsSystem, previousCacheEnabled, previousIdGenerator);
+    }
+  }
+
+  @Test
   public void testSecretsAreSingletons() {
     StorageComponent component =
         DaggerTestStorageModule_StorageComponent.factory().create(new Config(false) {});
@@ -93,9 +132,13 @@ public class TestStorageModule {
 
   /** A graph of the storage module alone. */
   @Singleton
-  @Component(modules = StorageModule.class)
+  @Component(modules = {ConfigModule.class, StorageModule.class})
   interface StorageComponent {
     EntityStore entityStore();
+
+    MetricsSystem metricsSystem();
+
+    IdGenerator idGenerator();
 
     KmsClientRegistry kmsClientRegistry();
 

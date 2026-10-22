@@ -33,17 +33,16 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NonEmptyEntityException;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.metrics.Monitored;
 import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.helper.SchemaIds;
 import org.apache.gravitino.storage.relational.mapper.CatalogMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetMetaMapper;
@@ -684,12 +683,11 @@ public class SchemaMetaService {
     return ops;
   }
 
-  @LegacyEnvAccess
   private static long nextIdForNestedAncestor() {
-    IdGenerator generator = GravitinoEnv.getInstance().idGenerator();
+    IdGenerator generator = RelationalStoreSeeds.idGenerator();
     if (generator == null) {
       throw new IllegalStateException(
-          "IdGenerator is not initialized in GravitinoEnv; ensure it is set up before inserting nested schemas");
+          "The relational store has no IdGenerator; seed RelationalStoreSeeds before inserting nested schemas");
     }
     return generator.nextId();
   }

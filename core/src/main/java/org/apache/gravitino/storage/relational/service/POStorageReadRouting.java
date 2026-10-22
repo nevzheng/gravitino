@@ -20,10 +20,9 @@ package org.apache.gravitino.storage.relational.service;
 
 import java.util.List;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 
 /**
@@ -47,13 +46,12 @@ public final class POStorageReadRouting {
    * @param <Mapper> mapper type
    * @return loaded PO or null when the delegate returns null
    */
-  @LegacyEnvAccess
   public static <PO, Mapper> PO getPO(
       Mapper mapper,
       NameIdentifier identifier,
       BasePOStorageOps<PO, Mapper> ops,
       Entity.EntityType entityType) {
-    return getPO(mapper, identifier, ops, entityType, GravitinoEnv.getInstance().cacheEnabled());
+    return getPO(mapper, identifier, ops, entityType, RelationalStoreSeeds.cacheEnabled());
   }
 
   /**
@@ -89,13 +87,12 @@ public final class POStorageReadRouting {
    * @param <Mapper> mapper type
    * @return list from the delegate (may be empty)
    */
-  @LegacyEnvAccess
   public static <PO, Mapper> List<PO> listPOs(
       Mapper mapper,
       Namespace namespace,
       BasePOStorageOps<PO, Mapper> ops,
       Entity.EntityType entityType) {
-    return listPOs(mapper, namespace, ops, entityType, GravitinoEnv.getInstance().cacheEnabled());
+    return listPOs(mapper, namespace, ops, entityType, RelationalStoreSeeds.cacheEnabled());
   }
 
   /**
