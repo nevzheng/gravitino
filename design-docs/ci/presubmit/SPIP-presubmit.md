@@ -157,24 +157,25 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 A scan of the code base for each stage, against main at `b748d734` (method and evidence in
 [Appendix C](#appendix-c-gap-scan)). **Fixed here** means this SPIP's first PR closes it.
 
-| Stage       | Gap                                                                  | Plan       |
-| ----------- | -------------------------------------------------------------------- | ---------- |
-| Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here |
-| Lint        | The Python client's `black` rewrites files and never fails CI        | P2         |
-| Lint        | No linter for 81 shell scripts, the workflows, or the Markdown docs  | P2         |
-| Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here |
-| Build       | `:plugins:k8s-job-executor:shadedJarTest` runs inside `build`        | P2         |
-| Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision   |
-| Small       | `integration-test-common` ITs run in the small stage and in backend  | P2         |
-| Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org   |
-| Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced   |
-| Integration | `clients/cli` `TableFormatOutputIT` runs in no job                   | Side fix   |
-| Integration | `web/integration-test` (web UI v1) runs in no PR job                 | Decision   |
-| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | P2         |
+| Stage       | Gap                                                                  | Plan             |
+| ----------- | -------------------------------------------------------------------- | ---------------- |
+| Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here       |
+| Lint        | The Python client's `black` rewrites files and never fails CI        | P2               |
+| Lint        | No linter for 81 shell scripts, the workflows, or the Markdown docs  | P2               |
+| Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here       |
+| Build       | `:plugins:k8s-job-executor:shadedJarTest` runs inside `build`        | P2               |
+| Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision         |
+| Small       | `integration-test-common` ITs run in the small stage and in backend  | P2               |
+| Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org         |
+| Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced         |
+| Integration | `clients/cli` `TableFormatOutputIT` ran in no job; now `cli-it`      | Expected to fail |
+| Integration | `web/integration-test` (web UI v1) runs in no PR job                 | Decision         |
+| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | P2               |
 
-**Side fix** follows the project rule for bugs that exist on main: a small PR off main with its
-own issue, not part of this stack. **Decision** needs an owner's call (keep and test it, or retire
-it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
+**Expected to fail** means the job runs and reports, but does not block, until the test is
+fixed. `TableFormatOutputIT` creates a Postgres catalog with no database behind it, and the CLI's
+`System.exit` then ends the test JVM. **Decision** needs an owner's call (keep and test it, or
+retire it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
 
 ---
 
@@ -415,21 +416,21 @@ file scans. It is a snapshot; P2 turns the repeatable ones into `ciVerifyShards`
 **Tests.** Each module's test classes, counted by `@Test` inside and outside `integration/test/`,
 matched to the job that runs them:
 
-| Module                                                                 | Runs in                                 |
-| ---------------------------------------------------------------------- | --------------------------------------- |
-| `catalogs/*`, `client-java`, `filesystem-hadoop3`, `lance-rest-server` | `backend-it` (catch-all)                |
-| `authorizations/*`                                                     | `access-control-it`                     |
-| `catalogs-contrib/*`                                                   | `contrib-catalog-test.yml`              |
-| `flink-connector/*` (common sources compile into each version)         | `flink-it`                              |
-| `spark-connector/v3.5`, `v4.0`                                         | `spark-it`                              |
-| `trino-connector/integration-test`                                     | `trino-it`                              |
-| `iceberg-rest-trino-it`                                                | `iceberg-rest-trino-it`                 |
-| `maintenance/optimizer`                                                | `maintenance-it`                        |
-| `plugins/idp-basic`                                                    | `idp-basic-it`                          |
-| `web-v2/integration-test`                                              | `frontend-integration-test.yml`         |
-| `clients/cli` (1 IT class, 4 tests)                                    | None: small skips ITs, backend has `-x` |
-| `web/integration-test` (4 IT classes)                                  | None on PRs: frontend runs web-v2 only  |
-| `integration-test-common` (5 classes)                                  | Small stage and `backend-it`            |
+| Module                                                                 | Runs in                                        |
+| ---------------------------------------------------------------------- | ---------------------------------------------- |
+| `catalogs/*`, `client-java`, `filesystem-hadoop3`, `lance-rest-server` | `backend-it` (catch-all)                       |
+| `authorizations/*`                                                     | `access-control-it`                            |
+| `catalogs-contrib/*`                                                   | `contrib-catalog-test.yml`                     |
+| `flink-connector/*` (common sources compile into each version)         | `flink-it`                                     |
+| `spark-connector/v3.5`, `v4.0`                                         | `spark-it`                                     |
+| `trino-connector/integration-test`                                     | `trino-it`                                     |
+| `iceberg-rest-trino-it`                                                | `iceberg-rest-trino-it`                        |
+| `maintenance/optimizer`                                                | `maintenance-it`                               |
+| `plugins/idp-basic`                                                    | `idp-basic-it`                                 |
+| `web-v2/integration-test`                                              | `frontend-integration-test.yml`                |
+| `clients/cli` (1 IT class, 5 tests)                                    | `cli-it`, expected to fail: the test is broken |
+| `web/integration-test` (4 IT classes)                                  | None on PRs: frontend runs web-v2 only         |
+| `integration-test-common` (5 classes)                                  | Small stage and `backend-it`                   |
 
 Off PRs by design: the Lance Spark bundle matrix (weekly), multi-instance consistency and Trino
 multi-version (manual), and Doris multi-version (`-PdorisMultiVersionTest`, local).
