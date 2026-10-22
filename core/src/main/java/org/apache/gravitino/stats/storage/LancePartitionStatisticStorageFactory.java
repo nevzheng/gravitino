@@ -23,16 +23,17 @@ import org.apache.gravitino.EntityStore;
 
 public class LancePartitionStatisticStorageFactory implements PartitionStatisticStorageFactory {
   /**
-   * Creates the storage, which reads table metadata from the entity store of {@code GravitinoEnv}.
-   * The server calls {@link #create(Map, EntityStore)} instead.
+   * Not supported: the storage reads table metadata from an entity store. Call {@link #create(Map,
+   * EntityStore)}.
    *
    * @param properties the storage configuration
-   * @return the storage
+   * @return never
+   * @throws UnsupportedOperationException always
    */
   @Override
-  @SuppressWarnings("deprecation")
   public PartitionStatisticStorage create(Map<String, String> properties) {
-    return new LancePartitionStatisticStorage(properties);
+    throw new UnsupportedOperationException(
+        "LancePartitionStatisticStorage needs an entity store; call create(Map, EntityStore)");
   }
 
   @Override

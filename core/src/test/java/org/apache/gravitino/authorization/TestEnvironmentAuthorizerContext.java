@@ -27,7 +27,6 @@ import static org.mockito.Mockito.when;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -52,20 +51,6 @@ public class TestEnvironmentAuthorizerContext {
     Assertions.assertSame(entityStore, context.entityStore());
     Assertions.assertSame(catalogManager, context.catalogAccess());
     Assertions.assertSame(accessControl, context.internalAccessControlDispatcher());
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedCatalogManagerReturnsTheCatalogAccess() {
-    AuthorizerContext context = mock(AuthorizerContext.class);
-    when(context.catalogManager()).thenCallRealMethod();
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    when(context.catalogAccess()).thenReturn(catalogManager);
-
-    Assertions.assertSame(catalogManager, context.catalogManager());
-
-    when(context.catalogAccess()).thenReturn(mock(CatalogAccess.class));
-    Assertions.assertThrows(ClassCastException.class, context::catalogManager);
   }
 
   @Test

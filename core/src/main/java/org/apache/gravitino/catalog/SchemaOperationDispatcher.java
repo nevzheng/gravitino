@@ -113,57 +113,6 @@ public class SchemaOperationDispatcher extends OperationDispatcher implements Sc
     this(catalogManager, store, idGenerator, secretManager, filesetDispatcher, () -> lockManager);
   }
 
-  /**
-   * Creates a new SchemaOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for schema operations.
-   * @param store The EntityStore instance to be used for schema operations.
-   * @param idGenerator The IdGenerator instance to be used for schema operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #SchemaOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public SchemaOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(
-        catalogManager, store, idGenerator, secretManager, null, TreeLockUtils.legacyLockManager());
-  }
-
-  /**
-   * Creates a new SchemaOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for schema operations.
-   * @param store The EntityStore instance to be used for schema operations.
-   * @param idGenerator The IdGenerator instance to be used for schema operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @param filesetDispatcher The fileset dispatcher used to drop filesets on cascade schema drop.
-   * @deprecated Use {@link #SchemaOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, FilesetDispatcher, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public SchemaOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      @Nullable FilesetDispatcher filesetDispatcher) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        secretManager,
-        filesetDispatcher,
-        TreeLockUtils.legacyLockManager());
-  }
-
   private SchemaOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,

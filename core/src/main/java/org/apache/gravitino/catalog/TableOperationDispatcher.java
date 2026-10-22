@@ -49,11 +49,9 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.MaskAndOmitKeys;
 import org.apache.gravitino.connector.capability.Capability;
@@ -99,35 +97,6 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
   /**
    * Creates a new TableOperationDispatcher instance.
    *
-   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
-   *
-   * @param catalogManager The CatalogManager instance to be used for table operations.
-   * @param store The EntityStore instance to be used for table operations.
-   * @param idGenerator The IdGenerator instance to be used for table operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @param lockManager The LockManager that guards table operations with tree locks.
-   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
-   */
-  @Deprecated
-  public TableOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        TableOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        () -> lockManager);
-  }
-
-  /**
-   * Creates a new TableOperationDispatcher instance.
-   *
    * @param catalogManager The CatalogManager instance to be used for table operations.
    * @param store The EntityStore instance to be used for table operations.
    * @param idGenerator The IdGenerator instance to be used for table operations.
@@ -149,64 +118,6 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         schemaDispatcherSupplier,
         secretManager,
         () -> lockManager);
-  }
-
-  /**
-   * Creates a new TableOperationDispatcher instance.
-   *
-   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for table operations.
-   * @param store The EntityStore instance to be used for table operations.
-   * @param idGenerator The IdGenerator instance to be used for table operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public TableOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        TableOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        TreeLockUtils.legacyLockManager());
-  }
-
-  /**
-   * Creates a new TableOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for table operations.
-   * @param store The EntityStore instance to be used for table operations.
-   * @param idGenerator The IdGenerator instance to be used for table operations.
-   * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #TableOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public TableOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        schemaDispatcherSupplier,
-        secretManager,
-        TreeLockUtils.legacyLockManager());
   }
 
   private TableOperationDispatcher(
@@ -1219,11 +1130,6 @@ public class TableOperationDispatcher extends OperationDispatcher implements Tab
         ColumnEntity.COMMENT.validate(updateComment.getNewComment(), COLUMN);
       }
     }
-  }
-
-  @LegacyEnvAccess
-  private static SchemaDispatcher envSchemaDispatcher() {
-    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 
   private static class TableCatalogResult {

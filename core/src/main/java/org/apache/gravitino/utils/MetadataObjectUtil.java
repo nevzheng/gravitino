@@ -213,24 +213,6 @@ public class MetadataObjectUtil {
    * entity, with this uid tags can be associated with this entity. This method should be called out
    * of the tree lock, otherwise it will cause deadlock.
    *
-   * @param metalake The metalake name
-   * @param object The metadata object
-   * @throws NoSuchMetadataObjectException if the metadata object type doesn't exist.
-   * @deprecated Use {@link #checkMetadataObject(MetadataObjectDispatchers, String,
-   *     MetadataObject)}, which asks the given dispatchers instead of {@code GravitinoEnv}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public static void checkMetadataObject(String metalake, MetadataObject object) {
-    checkMetadataObject(EnvironmentMetadataObjectDispatchers.INSTANCE, metalake, object);
-  }
-
-  /**
-   * This method will check if the entity is existed explicitly, internally this check will load the
-   * entity from underlying sources to entity store if not stored, and will allocate an uid for this
-   * entity, with this uid tags can be associated with this entity. This method should be called out
-   * of the tree lock, otherwise it will cause deadlock.
-   *
    * @param dispatchers the internal dispatchers asked whether the object exists
    * @param metalake The metalake name
    * @param object The metadata object

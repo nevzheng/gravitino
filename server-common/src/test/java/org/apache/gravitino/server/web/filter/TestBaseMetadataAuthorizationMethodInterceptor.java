@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -127,7 +128,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
     authorizationUtils.verify(
         () ->
             AuthorizationUtils.checkCurrentUser(
-                eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)));
+                same(authorizer),
+                eq("metalake"),
+                eq("tester"),
+                any(AuthorizationRequestContext.class)));
   }
 
   @Test
@@ -137,7 +141,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
         .when(
             () ->
                 AuthorizationUtils.checkCurrentUser(
-                    eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)))
+                    same(authorizer),
+                    eq("metalake"),
+                    eq("tester"),
+                    any(AuthorizationRequestContext.class)))
         .thenThrow(failure);
     TestInterceptor interceptor = new TestInterceptor(Entity.EntityType.SCHEMA);
     TestInvocation invocation = invocation("canAccessMetadata", "authorized");
@@ -153,7 +160,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
         .when(
             () ->
                 AuthorizationUtils.checkCurrentUser(
-                    eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)))
+                    same(authorizer),
+                    eq("metalake"),
+                    eq("tester"),
+                    any(AuthorizationRequestContext.class)))
         .thenThrow(failure);
     TestInterceptor interceptor = new TestInterceptor(Entity.EntityType.SCHEMA);
     TestInvocation invocation = invocation("canAccessMetadata", "authorized");
@@ -239,7 +249,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
     authorizationUtils.verify(
         () ->
             AuthorizationUtils.checkCurrentUser(
-                eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)));
+                same(authorizer),
+                eq("metalake"),
+                eq("tester"),
+                any(AuthorizationRequestContext.class)));
     verify(authorizer, never()).authorize(any(), any(), any(), any(), any());
   }
 
@@ -352,10 +365,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
         new MetadataAccessChecker(config, () -> authorizer, () -> null, () -> null);
     principalUtils.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
     authorizationUtils
-        .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any()))
+        .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
-              AuthorizationRequestContext context = invocation.getArgument(2);
+              AuthorizationRequestContext context = invocation.getArgument(3);
               entryContext.set(context);
               context.computeUserInfoIfAbsent("metalake::tester", loadUser);
               return null;

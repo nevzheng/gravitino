@@ -48,7 +48,6 @@ import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
@@ -109,16 +108,6 @@ public class KafkaCatalogOperations implements CatalogOperations, SupportsSchema
   KafkaCatalogOperations(EntityStore store, IdGenerator idGenerator) {
     this.store = store;
     this.idGenerator = idGenerator;
-  }
-
-  /**
-   * Creates operations that read the entity store and the id generator from {@code GravitinoEnv}.
-   * {@link KafkaCatalog} passes them from its {@code CatalogContext} instead.
-   */
-  public KafkaCatalogOperations() {
-    this(
-        EnvironmentCatalogContext.INSTANCE.entityStore(),
-        EnvironmentCatalogContext.INSTANCE.idGenerator());
   }
 
   @Override

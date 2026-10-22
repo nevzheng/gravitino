@@ -36,11 +36,9 @@ import javax.annotation.Nullable;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
@@ -61,7 +59,6 @@ import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.utils.Executable;
-import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,45 +88,6 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   /**
    * Constructs a MetalakeManager instance.
    *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken, and the
-   * catalog manager when the catalogs of an enabled or disabled metalake are marked.
-   *
-   * @param store The EntityStore to use for managing Metalakes.
-   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
-   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, CatalogManager, Supplier,
-   *     LockManager)}, which takes the catalog services and the lock manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public MetalakeManager(EntityStore store, IdGenerator idGenerator) {
-    this(store, idGenerator, TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
-   * Constructs a MetalakeManager instance.
-   *
-   * @param store The EntityStore to use for managing Metalakes.
-   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
-   * @param lockManager The LockManager that guards metalake operations with tree locks.
-   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, CatalogManager, Supplier,
-   *     LockManager)}. This constructor reads the catalog manager from {@code GravitinoEnv} when it
-   *     marks the catalogs of an enabled or disabled metalake, and drops no child catalog on a
-   *     force drop.
-   */
-  @Deprecated
-  public MetalakeManager(EntityStore store, IdGenerator idGenerator, LockManager lockManager) {
-    this(
-        store,
-        idGenerator,
-        (Supplier<CatalogDispatcher>) null,
-        MetalakeManager::envCatalogManager,
-        lockManager);
-  }
-
-  /**
-   * Constructs a MetalakeManager instance.
-   *
    * @param store The EntityStore to use for managing Metalakes.
    * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
    * @param catalogManager Marks the catalogs of an enabled or disabled metalake; when it is null,
@@ -149,54 +107,6 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
       @Nullable Supplier<? extends CatalogDispatcher> catalogDispatcher,
       LockManager lockManager) {
     this(store, idGenerator, catalogDispatcher, () -> catalogManager, lockManager);
-  }
-
-  /**
-   * Constructs a MetalakeManager instance.
-   *
-   * @param store The EntityStore to use for managing Metalakes.
-   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
-   * @param catalogManager Used on force-drop to drop child catalogs via {@link
-   *     CatalogManager#dropCatalog}, and to mark the catalogs of an enabled or disabled metalake;
-   *     may be null.
-   * @param lockManager The LockManager that guards metalake operations with tree locks.
-   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, CatalogManager, Supplier,
-   *     LockManager)} with the public catalog dispatcher. This constructor drops the child catalogs
-   *     of a force-dropped metalake through the catalog manager itself, so no catalog event fires
-   *     and no catalog hook runs for them.
-   */
-  @Deprecated
-  public MetalakeManager(
-      EntityStore store,
-      IdGenerator idGenerator,
-      @Nullable CatalogManager catalogManager,
-      LockManager lockManager) {
-    this(
-        store,
-        idGenerator,
-        catalogManager == null ? null : () -> catalogManager,
-        () -> catalogManager,
-        lockManager);
-  }
-
-  /**
-   * Constructs a MetalakeManager instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param store The EntityStore to use for managing Metalakes.
-   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
-   * @param catalogManager Used on force-drop to drop child catalogs and to mark the catalogs of an
-   *     enabled or disabled metalake; may be null.
-   * @deprecated Use {@link #MetalakeManager(EntityStore, IdGenerator, CatalogManager, Supplier,
-   *     LockManager)}, which takes the catalog dispatcher and the lock manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public MetalakeManager(
-      EntityStore store, IdGenerator idGenerator, CatalogManager catalogManager) {
-    this(store, idGenerator, catalogManager, TreeLockUtils.legacyForwardingLockManager());
   }
 
   private MetalakeManager(
@@ -258,40 +168,6 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
       LOG.error("Failed to do store operation", e);
       throw new RuntimeException(e);
     }
-  }
-
-  /**
-   * Checks that a metalake exists and is in use, reading it from the entity store of {@code
-   * GravitinoEnv}.
-   *
-   * @param metalake the metalake name
-   * @deprecated Use {@link #checkMetalake(NameIdentifier, EntityStore)} with the entity store of
-   *     the caller.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  @LegacyEnvAccess
-  public static void checkMetalakeInUse(String metalake) {
-    checkMetalake(
-        NameIdentifierUtil.ofMetalake(metalake), GravitinoEnv.getInstance().entityStore());
-  }
-
-  /**
-   * Lists all in-use Metalakes.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv}.
-   *
-   * @param entityStore The EntityStore to use for managing Metalakes.
-   * @return A list of names of in-use Metalakes.
-   * @throws RuntimeException If listing in-use Metalakes encounters storage issues.
-   * @deprecated Use {@link #listInUseMetalakes(EntityStore, LockManager)}, which takes the lock
-   *     manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public static List<String> listInUseMetalakes(EntityStore entityStore) {
-    return listInUseMetalakes(entityStore, TreeLockUtils.legacyLockManager().get());
   }
 
   /**
@@ -816,10 +692,5 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
           failedCatalogs.stream().map(NameIdentifier::toString).collect(Collectors.joining(", ")));
       throw new RuntimeException("Failed to update in use status of the following catalogs.");
     }
-  }
-
-  @LegacyEnvAccess
-  private static CatalogManager envCatalogManager() {
-    return GravitinoEnv.getInstance().catalogManager();
   }
 }

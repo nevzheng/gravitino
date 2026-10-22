@@ -26,7 +26,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.auxiliary.EnvironmentAuxiliaryContext;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -74,24 +73,6 @@ public class IcebergNamespaceHookDispatcher implements IcebergNamespaceOperation
   public IcebergNamespaceHookDispatcher(
       IcebergNamespaceOperationDispatcher dispatcher, AuxiliaryContext auxiliaryContext) {
     this(dispatcher, auxiliaryContext, auxiliaryContext.lockManager());
-  }
-
-  /**
-   * Creates a namespace hook dispatcher that reads its host services from {@code GravitinoEnv}. The
-   * lock manager is read each time a tree lock is taken, and the other services when they are used.
-   *
-   * @param dispatcher The namespace dispatcher to delegate to.
-   * @deprecated Use {@link #IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher,
-   *     AuxiliaryContext)}, which takes the host services explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public IcebergNamespaceHookDispatcher(IcebergNamespaceOperationDispatcher dispatcher) {
-    this(
-        dispatcher,
-        EnvironmentAuxiliaryContext.INSTANCE,
-        TreeLockUtils.legacyForwardingLockManager());
   }
 
   private IcebergNamespaceHookDispatcher(

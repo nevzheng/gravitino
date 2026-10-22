@@ -143,31 +143,6 @@ public class TestAuxiliaryServiceManager {
     verify(auxService, never()).serviceInit(any(), anyBoolean());
   }
 
-  @SuppressWarnings("deprecation")
-  @Test
-  public void testManagerWithoutContextUsesTheTwoArgumentInit() throws Exception {
-    GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);
-    IsolatedClassLoader isolatedClassLoader =
-        new IsolatedClassLoader(
-            Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-
-    AuxiliaryServiceManager spyAuxManager = spy(new AuxiliaryServiceManager());
-    doReturn(isolatedClassLoader).when(spyAuxManager).getIsolatedClassLoader(anyList());
-    doReturn(auxService).when(spyAuxManager).loadAuxService("mock1", isolatedClassLoader);
-
-    spyAuxManager.serviceInit(
-        DummyConfig.of(
-            ImmutableMap.of(
-                AuxiliaryServiceManager.GRAVITINO_AUX_SERVICE_PREFIX
-                    + AuxiliaryServiceManager.AUX_SERVICE_NAMES,
-                "mock1",
-                "gravitino.mock1." + AuxiliaryServiceManager.AUX_SERVICE_CLASSPATH,
-                "/tmp")));
-
-    verify(auxService).serviceInit(ImmutableMap.of("classpath", "/tmp"), true);
-    verify(auxService, never()).serviceInit(any(), anyBoolean(), any());
-  }
-
   @Test
   public void testIsAuxServiceRegistered() throws Exception {
     GravitinoAuxiliaryService auxService = mock(GravitinoAuxiliaryService.class);

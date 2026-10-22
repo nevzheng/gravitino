@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -124,5 +125,22 @@ public class TestCatalogContext {
     TestCatalogOperations ops = (TestCatalogOperations) catalog.ops();
 
     assertNull(ops.catalogContext());
+  }
+
+  @Test
+  public void testACatalogWithoutContextDoesNotBackfillCredentials() {
+    assertFalse(new TestCatalog().shouldBackfillCredential());
+  }
+
+  @Test
+  public void testRequireCatalogContext() {
+    CatalogContext context =
+        CatalogContext.of(
+            mock(EntityStore.class), mock(SecretManager.class), null, mock(IdGenerator.class));
+
+    assertSame(context, new TestCatalog().withCatalogContext(context).requireCatalogContext());
+    IllegalStateException e =
+        assertThrows(IllegalStateException.class, () -> new TestCatalog().requireCatalogContext());
+    assertTrue(e.getMessage().contains("withCatalogContext"));
   }
 }

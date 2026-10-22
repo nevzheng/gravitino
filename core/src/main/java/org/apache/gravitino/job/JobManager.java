@@ -132,23 +132,6 @@ public class JobManager implements JobOperationDispatcher {
   private final LockManager lockManager;
 
   /**
-   * Creates a job manager with the job executor named by the configuration. The lock manager is
-   * read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param config The server configuration.
-   * @param entityStore The entity store that holds job templates and jobs.
-   * @param idGenerator The id generator for new job entities.
-   * @deprecated Use {@link #JobManager(Config, EntityStore, IdGenerator, LockManager)}, which takes
-   *     the lock manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public JobManager(Config config, EntityStore entityStore, IdGenerator idGenerator) {
-    this(config, entityStore, idGenerator, TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
    * Creates a job manager with the job executor named by the configuration.
    *
    * @param config The server configuration.

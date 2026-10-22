@@ -539,6 +539,8 @@ public class TestIcebergMetadataAuthorizationMethodInterceptor {
             authorizer.findUnheldRoles(
                 Mockito.any(), Mockito.eq(TEST_METALAKE), Mockito.any(), Mockito.any()))
         .thenReturn(Collections.singleton("ghostRole"));
+    Mockito.when(authorizer.isMetalakeUser(Mockito.eq(TEST_METALAKE), Mockito.any()))
+        .thenReturn(true);
 
     try (MockedStatic<PrincipalUtils> principalUtils = Mockito.mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> providerStatic =

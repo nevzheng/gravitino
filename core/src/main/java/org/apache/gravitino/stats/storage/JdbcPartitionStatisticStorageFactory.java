@@ -72,16 +72,17 @@ public class JdbcPartitionStatisticStorageFactory implements PartitionStatisticS
   private static final String DEFAULT_JDBC_DRIVER = "com.mysql.cj.jdbc.Driver";
 
   /**
-   * Creates the storage, which reads table metadata from the entity store of {@code GravitinoEnv}.
-   * The server calls {@link #create(Map, EntityStore)} instead.
+   * Not supported: the storage reads table metadata from an entity store. Call {@link #create(Map,
+   * EntityStore)}.
    *
    * @param properties the storage configuration
-   * @return the storage
+   * @return never
+   * @throws UnsupportedOperationException always
    */
   @Override
-  @SuppressWarnings("deprecation")
   public PartitionStatisticStorage create(Map<String, String> properties) {
-    return create(properties, JdbcPartitionStatisticStorage::new);
+    throw new UnsupportedOperationException(
+        "JdbcPartitionStatisticStorage needs an entity store; call create(Map, EntityStore)");
   }
 
   @Override

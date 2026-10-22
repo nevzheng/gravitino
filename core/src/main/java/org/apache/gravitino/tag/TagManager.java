@@ -57,7 +57,6 @@ import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.policy.PolicyAssociationSelector;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.relational.service.MetadataObjectService;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -87,19 +86,6 @@ public class TagManager implements TagDispatcher {
           MetadataObject.Type.MODEL,
           MetadataObject.Type.FUNCTION,
           MetadataObject.Type.SEMANTIC_MODEL);
-
-  /**
-   * Creates a tag manager that asks {@code GravitinoEnv} whether a metadata object exists.
-   *
-   * @param idGenerator the id generator for new tags
-   * @param entityStore the entity store that holds tags and their associations
-   * @deprecated Use {@link #TagManager(IdGenerator, EntityStore, MetadataObjectDispatchers)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public TagManager(IdGenerator idGenerator, EntityStore entityStore) {
-    this(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
-  }
 
   /**
    * Creates a tag manager.

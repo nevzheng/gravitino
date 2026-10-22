@@ -69,23 +69,6 @@ public class StatisticManager implements Closeable, StatisticDispatcher {
   private final LockManager lockManager;
 
   /**
-   * Creates a statistic manager that reads the lock manager from {@code GravitinoEnv} each time a
-   * tree lock is taken.
-   *
-   * @param store The entity store that holds the statistics.
-   * @param idGenerator The id generator for new statistic entities.
-   * @param config The server configuration, which names the partition statistics storage.
-   * @deprecated Use {@link #StatisticManager(EntityStore, IdGenerator, Config, LockManager)}, which
-   *     takes the lock manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public StatisticManager(EntityStore store, IdGenerator idGenerator, Config config) {
-    this(store, idGenerator, config, TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
    * Creates a statistic manager.
    *
    * @param store The entity store that holds the statistics.

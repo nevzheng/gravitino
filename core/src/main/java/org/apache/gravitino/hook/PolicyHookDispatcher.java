@@ -23,7 +23,6 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.NoSuchPolicyException;
@@ -51,20 +50,6 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
       PolicyDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a policy hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying policy dispatcher
-   * @deprecated Use {@link #PolicyHookDispatcher(PolicyDispatcher, AuthorizationServices)}, which
-   *     takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public PolicyHookDispatcher(PolicyDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

@@ -35,10 +35,8 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TableEntity;
@@ -113,19 +111,6 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
     this.dataSource = dataSource;
     this.entityStore = entityStore;
     this.databaseType = detectDatabaseType();
-  }
-
-  /**
-   * Constructs a new JdbcPartitionStatisticStorage that reads tables from the entity store of
-   * {@code GravitinoEnv}.
-   *
-   * @param dataSource the JDBC DataSource for database connections
-   * @deprecated Use {@link #JdbcPartitionStatisticStorage(DataSource, EntityStore)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public JdbcPartitionStatisticStorage(DataSource dataSource) {
-    this(dataSource, envEntityStore());
   }
 
   /**
@@ -516,10 +501,5 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
     return partitionMap.entrySet().stream()
         .map(entry -> PersistedPartitionStatistics.of(entry.getKey(), entry.getValue()))
         .collect(Collectors.toList());
-  }
-
-  @LegacyEnvAccess
-  private static EntityStore envEntityStore() {
-    return GravitinoEnv.getInstance().entityStore();
   }
 }

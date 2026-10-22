@@ -56,7 +56,6 @@ import org.apache.iceberg.rest.requests.ImmutableRegisterViewRequest;
 import org.apache.iceberg.rest.requests.RegisterTableRequest;
 import org.apache.iceberg.rest.requests.RegisterViewRequest;
 import org.apache.iceberg.rest.responses.CreateNamespaceResponse;
-import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -133,22 +132,6 @@ public class TestIcebergNamespaceHookDispatcher {
             .findFirst()
             .orElseThrow(() -> new RuntimeException("InstanceHolder class not found"));
     FieldUtils.writeStaticField(holderClass, "INSTANCE", null, true);
-  }
-
-  // The one-argument constructor stays for callers outside this repository.
-  @SuppressWarnings("deprecation")
-  @Test
-  public void testDeprecatedConstructorDelegatesToTheDispatcher() {
-    // GravitinoEnv may have no lock manager here: the constructor must not need one.
-    IcebergNamespaceHookDispatcher legacy = new IcebergNamespaceHookDispatcher(mockDispatcher);
-
-    Namespace namespace = Namespace.of("test_schema");
-    GetNamespaceResponse response = mock(GetNamespaceResponse.class);
-    when(mockDispatcher.loadNamespace(mockContext, namespace)).thenReturn(response);
-    when(mockDispatcher.namespaceExists(mockContext, namespace)).thenReturn(true);
-
-    Assertions.assertSame(response, legacy.loadNamespace(mockContext, namespace));
-    Assertions.assertTrue(legacy.namespaceExists(mockContext, namespace));
   }
 
   @Test

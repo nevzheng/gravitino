@@ -75,27 +75,6 @@ public class FilesetOperationDispatcher extends OperationDispatcher implements F
     this(catalogManager, store, idGenerator, secretManager, () -> lockManager);
   }
 
-  /**
-   * Creates a new FilesetOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for fileset operations.
-   * @param store The EntityStore instance to be used for fileset operations.
-   * @param idGenerator The IdGenerator instance to be used for fileset operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #FilesetOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public FilesetOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(catalogManager, store, idGenerator, secretManager, TreeLockUtils.legacyLockManager());
-  }
-
   private FilesetOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,

@@ -41,7 +41,6 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.policy.rego.RestrictedRegoExpressionParserFacade;
 import org.apache.gravitino.storage.IdGenerator;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
@@ -57,19 +56,6 @@ public class PolicyManager implements PolicyDispatcher {
   private final EntityStore entityStore;
   private final MetadataObjectDispatchers metadataObjects;
   private final ObjectPolicyResolver objectPolicyResolver;
-
-  /**
-   * Creates a policy manager that asks {@code GravitinoEnv} whether a metadata object exists.
-   *
-   * @param idGenerator the id generator for new policies
-   * @param entityStore the entity store, which must support relation operations
-   * @deprecated Use {@link #PolicyManager(IdGenerator, EntityStore, MetadataObjectDispatchers)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public PolicyManager(IdGenerator idGenerator, EntityStore entityStore) {
-    this(idGenerator, entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
-  }
 
   /**
    * Creates a policy manager.

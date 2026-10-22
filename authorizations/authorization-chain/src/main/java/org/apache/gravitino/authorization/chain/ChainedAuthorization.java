@@ -22,7 +22,6 @@ import java.util.Map;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 
 /** Implementation of a Chained authorization in Gravitino. */
 public class ChainedAuthorization extends BaseAuthorization<ChainedAuthorization> {
@@ -34,8 +33,8 @@ public class ChainedAuthorization extends BaseAuthorization<ChainedAuthorization
   @Override
   public AuthorizationPlugin newPlugin(
       String metalake, String catalogProvider, Map<String, String> config) {
-    return newPlugin(
-        metalake, catalogProvider, config, EnvironmentAuthorizationPluginContext.INSTANCE);
+    throw new UnsupportedOperationException(
+        "The chained authorization needs an AuthorizationPluginContext; call the four-argument newPlugin");
   }
 
   @Override

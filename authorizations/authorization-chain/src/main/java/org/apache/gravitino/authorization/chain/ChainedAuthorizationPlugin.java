@@ -37,7 +37,6 @@ import org.apache.gravitino.authorization.common.ChainedAuthorizationProperties;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.utils.IsolatedClassLoader;
 
@@ -45,22 +44,6 @@ import org.apache.gravitino.utils.IsolatedClassLoader;
 public class ChainedAuthorizationPlugin implements AuthorizationPlugin {
   private List<AuthorizationPlugin> plugins = Lists.newArrayList();
   private final String metalake;
-
-  /**
-   * Creates a chained plugin whose plugins read host services from the process environment.
-   *
-   * @param metalake the metalake the catalog belongs to
-   * @param catalogProvider the provider of the catalog
-   * @param config the chained plugin configuration
-   * @deprecated Use {@link #ChainedAuthorizationPlugin(String, String, Map,
-   *     AuthorizationPluginContext)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public ChainedAuthorizationPlugin(
-      String metalake, String catalogProvider, Map<String, String> config) {
-    this(metalake, catalogProvider, config, EnvironmentAuthorizationPluginContext.INSTANCE);
-  }
 
   /**
    * Creates a chained plugin.

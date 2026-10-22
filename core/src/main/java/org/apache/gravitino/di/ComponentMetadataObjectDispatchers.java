@@ -43,10 +43,8 @@ import org.apache.gravitino.utils.MetadataObjectDispatchers;
  * resolved when it is asked for. The access control dispatcher is the one of the component's {@link
  * AuthorizationServices}, null while authorization is disabled.
  *
- * <p>Like {@link ComponentAuthorizationServices}, this is the component side of the strangler
- * bridge to {@code GravitinoEnv}, whose facade side is {@code
- * EnvironmentMetadataObjectDispatchers}; the providers keep the laziness of the facade's getters.
- * Both sides go when the facade is deleted. See section 5.3 of the design document.
+ * <p>Like {@link ComponentAuthorizationServices}, the providers resolve each chain lazily. See
+ * section 5.3 of the design document.
  */
 @Singleton
 final class ComponentMetadataObjectDispatchers implements MetadataObjectDispatchers {

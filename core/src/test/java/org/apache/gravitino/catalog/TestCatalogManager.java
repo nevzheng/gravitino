@@ -1096,34 +1096,6 @@ public class TestCatalogManager {
     }
   }
 
-  // Pins the deprecated constructor kept for callers outside this repository.
-  @SuppressWarnings("deprecation")
-  @Test
-  void testDeprecatedConstructorHandsCatalogsNoContext() throws Exception {
-    TestMemoryEntityStore.InMemoryEntityStore store =
-        new TestMemoryEntityStore.InMemoryEntityStore();
-    store.initialize(config);
-    store.put(metalakeEntity, true);
-    NameIdentifier ident = NameIdentifier.of("metalake", "catalog_without_context");
-    Map<String, String> props =
-        ImmutableMap.of(
-            PROPERTY_KEY1, "value1", PROPERTY_KEY2, "value2", PROPERTY_KEY5_PREFIX + "1", "value3");
-
-    try (CatalogManager manager =
-        new CatalogManager(
-            config, store, new RandomIdGenerator(), new SecretManager(config), lockManager)) {
-      manager.createCatalog(ident, Catalog.Type.RELATIONAL, provider, "comment", props);
-      TestCatalogOperations ops =
-          (TestCatalogOperations) manager.loadCatalogAndWrap(ident).catalog().ops();
-
-      // Its catalogs are initialized through the three-argument method and keep reading host
-      // services from GravitinoEnv.
-      Assertions.assertNull(ops.catalogContext());
-    } finally {
-      store.close();
-    }
-  }
-
   @Test
   void testPollBeforeLocalMutationReturnsDoesNotMaskRemoteMutation() throws Exception {
     ChangeLogAwareEntityStore store = Mockito.spy(new ChangeLogAwareEntityStore());

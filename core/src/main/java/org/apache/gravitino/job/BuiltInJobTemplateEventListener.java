@@ -79,24 +79,6 @@ public class BuiltInJobTemplateEventListener implements EventListenerPlugin {
   private final LockManager lockManager;
 
   /**
-   * Creates the listener. The lock manager is read from {@code GravitinoEnv} each time a tree lock
-   * is taken.
-   *
-   * @param jobManager The job manager that registers the built-in job templates.
-   * @param entityStore The entity store that holds the metalakes and job templates.
-   * @param idGenerator The id generator for new job template entities.
-   * @deprecated Use {@link #BuiltInJobTemplateEventListener(JobManager, EntityStore, IdGenerator,
-   *     LockManager)}, which takes the lock manager explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public BuiltInJobTemplateEventListener(
-      JobManager jobManager, EntityStore entityStore, IdGenerator idGenerator) {
-    this(jobManager, entityStore, idGenerator, TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
    * Creates the listener.
    *
    * @param jobManager The job manager that registers the built-in job templates.

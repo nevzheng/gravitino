@@ -31,7 +31,6 @@ import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.meta.TagEntity;
-import org.apache.gravitino.utils.EnvironmentMetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.slf4j.Logger;
@@ -50,19 +49,6 @@ public class EffectiveTagResolver {
 
   private final EntityStore entityStore;
   private final MetadataObjectDispatchers metadataObjects;
-
-  /**
-   * Creates an effective tag resolver.
-   *
-   * @param entityStore The entity store used to read tag relations.
-   * @deprecated Use {@link #EffectiveTagResolver(EntityStore, MetadataObjectDispatchers)}, which
-   *     does not ask {@code GravitinoEnv} whether a metadata object exists.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public EffectiveTagResolver(EntityStore entityStore) {
-    this(entityStore, EnvironmentMetadataObjectDispatchers.INSTANCE);
-  }
 
   /**
    * Creates an effective tag resolver.

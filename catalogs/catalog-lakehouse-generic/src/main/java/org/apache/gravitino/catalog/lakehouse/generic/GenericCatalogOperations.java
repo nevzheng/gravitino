@@ -46,7 +46,6 @@ import org.apache.gravitino.catalog.ManagedTableOperations;
 import org.apache.gravitino.catalog.lakehouse.lance.LanceTableOperations;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
@@ -87,16 +86,6 @@ public class GenericCatalogOperations implements CatalogOperations, SupportsSche
   private final Cache<NameIdentifier, String> tableFormatCache;
 
   private final EntityStore store;
-
-  /**
-   * Creates operations that read the entity store and the id generator from {@code GravitinoEnv}.
-   * {@link GenericCatalog} passes them from its {@code CatalogContext} instead.
-   */
-  public GenericCatalogOperations() {
-    this(
-        EnvironmentCatalogContext.INSTANCE.entityStore(),
-        EnvironmentCatalogContext.INSTANCE.idGenerator());
-  }
 
   GenericCatalogOperations(EntityStore store, IdGenerator idGenerator) {
     this.store = store;

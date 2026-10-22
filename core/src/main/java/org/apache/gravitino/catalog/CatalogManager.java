@@ -88,7 +88,6 @@ import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.CatalogInUseException;
@@ -530,7 +529,7 @@ public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeab
   private final LockManager lockManager;
 
   // The host services handed to every catalog; null for a manager built without them.
-  @Nullable private final CatalogContext catalogContext;
+  private final CatalogContext catalogContext;
 
   // The host services handed to the authorization plugin of every catalog.
   private final AuthorizationPluginContext authorizationPluginContext;
@@ -546,90 +545,6 @@ public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeab
 
   /** Guarded by {@link #lifecycleLock}. */
   private boolean closed;
-
-  /**
-   * Constructs a CatalogManager instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param config The configuration for the manager.
-   * @param store The entity store to use.
-   * @param idGenerator The id generator to use.
-   * @param secretManager The secret manager to use for create-time secret bindings/references.
-   * @deprecated Use {@link #CatalogManager(Config, EntityStore, IdGenerator, SecretManager,
-   *     LockManager, MetricsSystem, AuthorizationPluginContext)}, which takes the lock manager and
-   *     the host services explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public CatalogManager(
-      Config config, EntityStore store, IdGenerator idGenerator, SecretManager secretManager) {
-    this(config, store, idGenerator, secretManager, TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
-   * Constructs a CatalogManager instance.
-   *
-   * @param config The configuration for the manager.
-   * @param store The entity store to use.
-   * @param idGenerator The id generator to use.
-   * @param secretManager The secret manager to use for create-time secret bindings/references.
-   * @param lockManager The lock manager that guards catalog operations with tree locks.
-   * @deprecated The catalogs of this manager get no {@link CatalogContext}, so they read host
-   *     services from {@code GravitinoEnv}. Use {@link #CatalogManager(Config, EntityStore,
-   *     IdGenerator, SecretManager, LockManager, MetricsSystem, AuthorizationPluginContext)}.
-   */
-  @Deprecated
-  public CatalogManager(
-      Config config,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager) {
-    this(
-        config,
-        store,
-        idGenerator,
-        secretManager,
-        lockManager,
-        (CatalogContext) null,
-        EnvironmentAuthorizationPluginContext.INSTANCE);
-  }
-
-  /**
-   * Constructs a CatalogManager instance that hands every catalog it loads a {@link CatalogContext}
-   * with the given host services.
-   *
-   * @param config The configuration for the manager.
-   * @param store The entity store to use.
-   * @param idGenerator The id generator to use.
-   * @param secretManager The secret manager to use for create-time secret bindings/references.
-   * @param lockManager The lock manager that guards catalog operations with tree locks.
-   * @param metricsSystem The metrics system catalogs register their metrics with, or null when
-   *     there is none.
-   * @deprecated The authorization plugins of this manager's catalogs read host services from {@code
-   *     GravitinoEnv}. Use {@link #CatalogManager(Config, EntityStore, IdGenerator, SecretManager,
-   *     LockManager, MetricsSystem, AuthorizationPluginContext)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public CatalogManager(
-      Config config,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager,
-      @Nullable MetricsSystem metricsSystem) {
-    this(
-        config,
-        store,
-        idGenerator,
-        secretManager,
-        lockManager,
-        metricsSystem,
-        EnvironmentAuthorizationPluginContext.INSTANCE);
-  }
 
   /**
    * Constructs a CatalogManager instance that hands every catalog it loads a {@link CatalogContext}
@@ -676,7 +591,7 @@ public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeab
       IdGenerator idGenerator,
       SecretManager secretManager,
       LockManager lockManager,
-      @Nullable CatalogContext catalogContext,
+      CatalogContext catalogContext,
       AuthorizationPluginContext authorizationPluginContext) {
     this.catalogContext = catalogContext;
     this.authorizationPluginContext =
@@ -2070,10 +1985,8 @@ public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeab
     catalog
         .withCatalogConf(secretManager.toPlaintextProperties(entity.getProperties()))
         .withCatalogEntity(entity)
-        .withSecretManager(secretManager);
-    if (catalogContext != null) {
-      catalog.withCatalogContext(catalogContext);
-    }
+        .withSecretManager(secretManager)
+        .withCatalogContext(catalogContext);
     catalog.initAuthorizationPluginInstance(
         classLoader, metalakeEntity.id(), authorizationPluginContext);
     return catalog;

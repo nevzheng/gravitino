@@ -27,13 +27,11 @@ import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.List;
-import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationServices;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -78,33 +76,6 @@ public class TestHookAuthorizationServices {
             new ViewHookDispatcher(mock(ViewDispatcher.class), services));
     for (Object hook : hooks) {
       assertSame(services, servicesOf(hook), hook.getClass().getName());
-    }
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedConstructorsReadTheEnvironment() throws Exception {
-    List<Supplier<Object>> hooks =
-        List.of(
-            () -> new AccessControlHookDispatcher(mock(AccessControlDispatcher.class)),
-            () -> new CatalogHookDispatcher(mock(CatalogDispatcher.class)),
-            () -> new FilesetHookDispatcher(mock(FilesetDispatcher.class)),
-            () -> new FunctionHookDispatcher(mock(FunctionDispatcher.class), () -> null),
-            () -> new JobHookDispatcher(mock(JobOperationDispatcher.class)),
-            () -> new MetalakeHookDispatcher(mock(MetalakeDispatcher.class)),
-            () -> new ModelHookDispatcher(mock(ModelDispatcher.class)),
-            () -> new PolicyHookDispatcher(mock(PolicyDispatcher.class)),
-            () -> new SchemaHookDispatcher(mock(SchemaDispatcher.class)),
-            () -> new SchemaHookDispatcher(mock(SchemaDispatcher.class), mock(LockManager.class)),
-            () -> new SemanticModelHookDispatcher(mock(SemanticModelDispatcher.class), () -> null),
-            () -> new TableHookDispatcher(mock(TableDispatcher.class), () -> null),
-            () -> new TagHookDispatcher(mock(TagDispatcher.class)),
-            () -> new TopicHookDispatcher(mock(TopicDispatcher.class)),
-            () -> new ViewHookDispatcher(mock(ViewDispatcher.class), () -> null));
-    for (Supplier<Object> hook : hooks) {
-      Object built = hook.get();
-      assertSame(
-          EnvironmentAuthorizationServices.INSTANCE, servicesOf(built), built.getClass().getName());
     }
   }
 

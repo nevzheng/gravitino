@@ -310,7 +310,8 @@ public class PermissionOperations {
             accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeGrantRequest.getPrivileges()) {
-              AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
+              AuthorizationUtils.checkPrivilege(
+                  objectDispatchers.internalCatalogDispatcher(), privilegeDTO, object, metalake);
             }
 
             MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
@@ -366,7 +367,8 @@ public class PermissionOperations {
             accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeRevokeRequest.getPrivileges()) {
-              AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
+              AuthorizationUtils.checkPrivilege(
+                  objectDispatchers.internalCatalogDispatcher(), privilegeDTO, object, metalake);
             }
 
             MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
@@ -418,7 +420,11 @@ public class PermissionOperations {
 
             for (SecurableObjectDTO dto : request.getOverrides()) {
               for (Privilege privilegeDTO : dto.privileges()) {
-                AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilegeDTO, dto, metalake);
+                AuthorizationUtils.checkPrivilege(
+                    objectDispatchers.internalCatalogDispatcher(),
+                    (PrivilegeDTO) privilegeDTO,
+                    dto,
+                    metalake);
               }
 
               MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, dto);

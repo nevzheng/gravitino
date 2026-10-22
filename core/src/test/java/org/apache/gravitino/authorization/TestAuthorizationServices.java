@@ -29,22 +29,17 @@ import static org.mockito.Mockito.withSettings;
 
 import java.util.Collections;
 import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
-import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.ForbiddenException;
-import org.apache.gravitino.lock.LockManager;
-import org.apache.gravitino.storage.IdGenerator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -120,20 +115,6 @@ public class TestAuthorizationServices {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedCatalogManagerReturnsTheCatalogAccess() {
-    AuthorizationServices services = mock(AuthorizationServices.class);
-    when(services.catalogManager()).thenCallRealMethod();
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    when(services.catalogAccess()).thenReturn(catalogManager);
-
-    Assertions.assertSame(catalogManager, services.catalogManager());
-
-    when(services.catalogAccess()).thenReturn(mock(CatalogAccess.class));
-    Assertions.assertThrows(ClassCastException.class, services::catalogManager);
-  }
-
-  @Test
   public void testRemoveNotifiesTheAuthorizerAndThePluginsOfTheServices() {
     AuthorizationServices services = mock(AuthorizationServices.class);
     GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
@@ -164,26 +145,6 @@ public class TestAuthorizationServices {
         () ->
             AuthorizationUtils.checkCurrentUser(
                 authorizer, "other", "user", new AuthorizationRequestContext()));
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedManagerConstructorsReadTheEnvironment() throws Exception {
-    EntityStore store =
-        mock(EntityStore.class, withSettings().extraInterfaces(SupportsRelationOperations.class));
-    Config config = new Config(false) {};
-    config.set(Configs.SERVICE_ADMINS, Collections.singletonList("admin"));
-    AccessControlManager accessControlManager =
-        new AccessControlManager(store, mock(IdGenerator.class), config, mock(LockManager.class));
-    Assertions.assertSame(
-        EnvironmentAuthorizationServices.INSTANCE,
-        FieldUtils.readField(
-            FieldUtils.readField(accessControlManager, "roleManager", true),
-            "authorizationServices",
-            true));
-    Assertions.assertSame(
-        EnvironmentAuthorizationServices.INSTANCE,
-        FieldUtils.readField(new OwnerManager(store), "authorizationServices", true));
   }
 
   @Test

@@ -423,8 +423,6 @@ public class TestLancePartitionStatisticStorage {
     }
   }
 
-  // The server passes the store to the factory; the deprecated factory method without a store reads
-  // it from GravitinoEnv and is deleted with it.
   @Test
   public void testCreateWithStoreUsesTheGivenStore() throws Exception {
     EntityStore entityStore = mock(EntityStore.class);
@@ -440,5 +438,12 @@ public class TestLancePartitionStatisticStorage {
       storage.close();
       FileUtils.deleteDirectory(new File(location));
     }
+  }
+
+  @Test
+  public void testCreateWithoutAnEntityStoreIsUnsupported() {
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> new LancePartitionStatisticStorageFactory().create(Maps.newHashMap()));
   }
 }

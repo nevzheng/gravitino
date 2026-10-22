@@ -60,7 +60,6 @@ import org.apache.gravitino.catalog.jdbc.utils.JdbcConnectionTimeouts;
 import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.SupportsSchemas;
 import org.apache.gravitino.connector.SupportsTableNameResolution;
@@ -217,8 +216,7 @@ public class JdbcCatalogOperations
       ((RequireDatabaseOperation) tableOperation).setDatabaseOperation(databaseOperation);
     }
 
-    MetricsSystem metricsSystem =
-        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
+    MetricsSystem metricsSystem = catalogContext == null ? null : catalogContext.metricsSystem();
     // Metrics System could be null in UT.
     if (metricsSystem != null) {
       this.catalogMetricsSource =
@@ -232,8 +230,7 @@ public class JdbcCatalogOperations
   @Override
   public void close() {
     // Metrics System could be null in UT.
-    MetricsSystem metricsSystem =
-        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
+    MetricsSystem metricsSystem = catalogContext == null ? null : catalogContext.metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.unregister(catalogMetricsSource);
     }

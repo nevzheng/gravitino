@@ -22,15 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.apache.gravitino.Config;
-import org.apache.gravitino.catalog.CatalogAccess;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.metrics.MetricsSystem;
@@ -56,20 +53,6 @@ public class TestAuxiliaryContext {
     assertSame(metricsSystem, context.metricsSystem());
     assertSame(secretManager, context.secretManager());
     assertSame(kmsClientRegistry, context.kmsClientRegistry());
-  }
-
-  @Test
-  @SuppressWarnings("deprecation")
-  public void testDeprecatedCatalogManagerReturnsTheCatalogAccess() {
-    AuxiliaryContext context = mock(AuxiliaryContext.class);
-    when(context.catalogManager()).thenCallRealMethod();
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    when(context.catalogAccess()).thenReturn(catalogManager);
-
-    assertSame(catalogManager, context.catalogManager());
-
-    when(context.catalogAccess()).thenReturn(mock(CatalogAccess.class));
-    assertThrows(ClassCastException.class, context::catalogManager);
   }
 
   @Test

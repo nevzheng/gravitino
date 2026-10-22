@@ -28,11 +28,9 @@ import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
@@ -85,66 +83,6 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
         schemaDispatcherSupplier,
         secretManager,
         () -> lockManager);
-  }
-
-  /**
-   * Creates a new TopicOperationDispatcher instance.
-   *
-   * <p>Schemas are checked and imported through the internal schema dispatcher of {@code
-   * GravitinoEnv}.
-   *
-   * @param catalogManager The CatalogManager instance to be used for catalog operations.
-   * @param store The EntityStore instance to be used for catalog operations.
-   * @param idGenerator The IdGenerator instance to be used for catalog operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @param lockManager The LockManager that guards topic operations with tree locks.
-   * @deprecated Use {@link #TopicOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
-   */
-  @Deprecated
-  public TopicOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        TopicOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        () -> lockManager);
-  }
-
-  /**
-   * Creates a new TopicOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken, and
-   * schemas are checked and imported through the internal schema dispatcher of {@code
-   * GravitinoEnv}.
-   *
-   * @param catalogManager The CatalogManager instance to be used for catalog operations.
-   * @param store The EntityStore instance to be used for catalog operations.
-   * @param idGenerator The IdGenerator instance to be used for catalog operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #TopicOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher and the lock
-   *     manager explicitly.
-   */
-  @Deprecated
-  public TopicOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        TopicOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        TreeLockUtils.legacyLockManager());
   }
 
   private TopicOperationDispatcher(
@@ -513,10 +451,5 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
         .withHiddenProperties(
             getMaskAndOmitKeys(
                 catalogIdent, HasPropertyMetadata::topicPropertiesMetadata, topic.properties()));
-  }
-
-  @LegacyEnvAccess
-  private static SchemaDispatcher envSchemaDispatcher() {
-    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 }

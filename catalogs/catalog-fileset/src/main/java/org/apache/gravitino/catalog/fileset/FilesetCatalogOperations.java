@@ -90,7 +90,6 @@ import org.apache.gravitino.catalog.hadoop.fs.SupportsCredentialVending;
 import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.credential.PathContext;
 import org.apache.gravitino.connector.credential.SupportsPathBasedCredentials;
@@ -213,13 +212,6 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     this.credentialManagerSupplier = credentialManagerSupplier;
   }
 
-  FilesetCatalogOperations(Supplier<CatalogCredentialManager> credentialManagerSupplier) {
-    this(
-        EnvironmentCatalogContext.INSTANCE.entityStore(),
-        EnvironmentCatalogContext.INSTANCE.secretManager(),
-        credentialManagerSupplier);
-  }
-
   static class FileSystemCacheKey {
     /**
      * When the path is a path without scheme such as 'file','hdfs', etc., then the scheme and
@@ -262,17 +254,6 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
   }
 
-  /**
-   * Creates operations that read the entity store and the secret manager from {@code GravitinoEnv}.
-   * {@link FilesetCatalogImpl} passes them from its {@code CatalogContext} instead.
-   */
-  public FilesetCatalogOperations() {
-    this(
-        EnvironmentCatalogContext.INSTANCE.entityStore(),
-        EnvironmentCatalogContext.INSTANCE.secretManager(),
-        null);
-  }
-
   @Override
   public EntityStore store() {
     return store;
@@ -311,8 +292,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
                 .catalogPropertiesMetadata()
                 .getOrDefault(config, FilesetCatalogPropertiesMetadata.DISABLE_FILESYSTEM_OPS);
 
-    MetricsSystem metricsSystem =
-        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
+    MetricsSystem metricsSystem = catalogContext == null ? null : catalogContext.metricsSystem();
     // Metrics System could be null in UT.
     if (metricsSystem != null) {
       this.catalogMetricsSource =
@@ -1137,8 +1117,7 @@ public class FilesetCatalogOperations extends ManagedSchemaOperations
     }
 
     // Metrics System could be null in UT.
-    MetricsSystem metricsSystem =
-        EnvironmentCatalogContext.orEnvironment(catalogContext).metricsSystem();
+    MetricsSystem metricsSystem = catalogContext == null ? null : catalogContext.metricsSystem();
     if (metricsSystem != null) {
       metricsSystem.unregister(catalogMetricsSource);
     }

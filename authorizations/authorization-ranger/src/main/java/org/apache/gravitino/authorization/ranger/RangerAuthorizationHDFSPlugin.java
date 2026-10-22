@@ -51,7 +51,6 @@ import org.apache.gravitino.authorization.common.PathBasedSecurableObject;
 import org.apache.gravitino.authorization.common.RangerAuthorizationProperties;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.utils.MetadataObjectUtil;
@@ -67,21 +66,6 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
   private static final Pattern HDFS_PATTERN = Pattern.compile("^hdfs://[^/]*");
 
   private final AuthorizationPluginContext pluginContext;
-
-  /**
-   * Creates a plugin that reads catalogs, schemas, tables and filesets from the process
-   * environment.
-   *
-   * @param metalake the metalake the catalog belongs to
-   * @param config the plugin configuration
-   * @deprecated Use {@link #RangerAuthorizationHDFSPlugin(String, Map,
-   *     AuthorizationPluginContext)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public RangerAuthorizationHDFSPlugin(String metalake, Map<String, String> config) {
-    this(metalake, config, EnvironmentAuthorizationPluginContext.INSTANCE);
-  }
 
   /**
    * Creates a plugin.

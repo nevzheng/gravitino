@@ -24,7 +24,6 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.NoSuchTagException;
@@ -52,19 +51,6 @@ public class TagHookDispatcher implements TagDispatcher {
   public TagHookDispatcher(TagDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a tag hook dispatcher that reads the authorization services from {@code GravitinoEnv}.
-   *
-   * @param dispatcher the underlying tag dispatcher
-   * @deprecated Use {@link #TagHookDispatcher(TagDispatcher, AuthorizationServices)}, which takes
-   *     the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public TagHookDispatcher(TagDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

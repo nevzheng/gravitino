@@ -28,7 +28,6 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.Owner;
@@ -79,20 +78,6 @@ public class AccessControlHookDispatcher implements AccessControlDispatcher {
       AccessControlDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a access control hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying access control dispatcher
-   * @deprecated Use {@link #AccessControlHookDispatcher(AccessControlDispatcher,
-   *     AuthorizationServices)}, which takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public AccessControlHookDispatcher(AccessControlDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

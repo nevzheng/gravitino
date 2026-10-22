@@ -25,7 +25,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
@@ -58,22 +57,6 @@ public class FunctionHookDispatcher implements FunctionDispatcher {
   public FunctionHookDispatcher(
       FunctionDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this(dispatcher, authorizationServices::internalOwnerDispatcher, authorizationServices);
-  }
-
-  /**
-   * Creates a function hook dispatcher that reads the other authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying function dispatcher
-   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
-   *     disabled
-   * @deprecated Use {@link #FunctionHookDispatcher(FunctionDispatcher, AuthorizationServices)},
-   *     which takes the authorization services explicitly.
-   */
-  @Deprecated
-  public FunctionHookDispatcher(
-      FunctionDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
-    this(dispatcher, ownerDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   private FunctionHookDispatcher(

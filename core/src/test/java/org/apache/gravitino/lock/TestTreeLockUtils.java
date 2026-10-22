@@ -29,12 +29,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
-import java.util.function.Supplier;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,24 +40,15 @@ public class TestTreeLockUtils {
 
   private static final NameIdentifier IDENT = NameIdentifier.of("metalake", "catalog");
 
-  private final GravitinoEnv env = GravitinoEnv.getInstance();
-
-  private Object savedEnvLockManager;
   private LockManager lockManager;
   private TreeLock treeLock;
 
   @BeforeEach
-  void setUp() throws IllegalAccessException {
-    savedEnvLockManager = FieldUtils.readField(env, "lockManager", true);
+  void setUp() {
     lockManager = mock(LockManager.class);
     treeLock = mock(TreeLock.class);
     when(lockManager.createTreeLock(IDENT)).thenReturn(treeLock);
     when(lockManager.createTreeLock(LockManager.ROOT)).thenReturn(treeLock);
-  }
-
-  @AfterEach
-  void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(env, "lockManager", savedEnvLockManager, true);
   }
 
   @Test
@@ -140,34 +127,5 @@ public class TestTreeLockUtils {
     Assertions.assertThrows(
         NullPointerException.class,
         () -> TreeLockUtils.doWithRootTreeLock(null, LockType.READ, () -> null));
-  }
-
-  // The legacy overloads stay for callers outside this repository; this pins their behavior.
-  @SuppressWarnings("deprecation")
-  @Test
-  void testLegacyOverloadsUseTheEnvLockManager() throws Exception {
-    FieldUtils.writeField(env, "lockManager", lockManager, true);
-
-    Assertions.assertEquals(
-        "tree", TreeLockUtils.doWithTreeLock(IDENT, LockType.WRITE, () -> "tree"));
-    Assertions.assertEquals("root", TreeLockUtils.doWithRootTreeLock(LockType.READ, () -> "root"));
-
-    verify(lockManager).createTreeLock(IDENT);
-    verify(lockManager).createTreeLock(LockManager.ROOT);
-    verify(treeLock).lock(LockType.WRITE);
-    verify(treeLock).lock(LockType.READ);
-  }
-
-  @SuppressWarnings("deprecation")
-  @Test
-  void testLegacyLockManagerResolvesOnEachCall() throws Exception {
-    Supplier<LockManager> supplier = TreeLockUtils.legacyLockManager();
-
-    FieldUtils.writeField(env, "lockManager", lockManager, true);
-    Assertions.assertSame(lockManager, supplier.get());
-
-    LockManager replacement = mock(LockManager.class);
-    FieldUtils.writeField(env, "lockManager", replacement, true);
-    Assertions.assertSame(replacement, supplier.get());
   }
 }

@@ -37,7 +37,6 @@ import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.credential.AzureAccountKeyCredential;
 import org.apache.gravitino.credential.COSSecretKeyCredential;
@@ -314,22 +313,6 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   }
 
   /**
-   * Initializes the authorization plugin for this catalog. The plugin reads the host services from
-   * the process environment.
-   *
-   * @param classLoader the catalog isolated class loader
-   * @param metalakeId the stable entity ID of the metalake containing this catalog
-   * @deprecated Use {@link #initAuthorizationPluginInstance(IsolatedClassLoader, long,
-   *     AuthorizationPluginContext)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public void initAuthorizationPluginInstance(IsolatedClassLoader classLoader, long metalakeId) {
-    initAuthorizationPluginInstance(
-        classLoader, metalakeId, EnvironmentAuthorizationPluginContext.INSTANCE);
-  }
-
-  /**
    * Initializes the authorization plugin for this catalog.
    *
    * @param classLoader the catalog isolated class loader
@@ -528,6 +511,20 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   }
 
   /**
+   * Returns the host services this catalog was given, for a catalog that cannot work without them.
+   *
+   * @return The context set with {@link #withCatalogContext(CatalogContext)}.
+   * @throws IllegalStateException if the catalog was built without a context
+   */
+  protected CatalogContext requireCatalogContext() {
+    CatalogContext context = catalogContext;
+    Preconditions.checkState(
+        context != null,
+        "The catalog has no CatalogContext; set one with withCatalogContext before using it");
+    return context;
+  }
+
+  /**
    * Retrieves the CatalogEntity associated with this catalog.
    *
    * @return The CatalogEntity instance.
@@ -669,10 +666,13 @@ public abstract class BaseCatalog<T extends BaseCatalog>
    * compatibility with connectors that do not support credential vending. Controlled by
    * server-level config {@code gravitino.catalog.credential.backfillToProperties}.
    *
+   * <p>A catalog built without a {@link CatalogContext} does not backfill.
+   *
    * @return true if backfill is enabled
    */
   protected boolean shouldBackfillCredential() {
-    return EnvironmentCatalogContext.orEnvironment(catalogContext).credentialBackfillToProperties();
+    CatalogContext context = catalogContext;
+    return context != null && context.credentialBackfillToProperties();
   }
 
   @Evolving

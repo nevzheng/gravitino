@@ -79,37 +79,6 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
   }
 
   /**
-   * Creates a new FunctionOperationDispatcher instance that reads the lock manager from {@code
-   * GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for function operations.
-   * @param schemaOps The SchemaOperationDispatcher used to validate schema existence.
-   * @param store The EntityStore instance to be used for function operations.
-   * @param idGenerator The IdGenerator instance to be used for function operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #FunctionOperationDispatcher(CatalogManager, SchemaOperationDispatcher,
-   *     EntityStore, IdGenerator, SecretManager, LockManager)}, which takes the lock manager
-   *     explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public FunctionOperationDispatcher(
-      CatalogManager catalogManager,
-      SchemaOperationDispatcher schemaOps,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        schemaOps,
-        store,
-        idGenerator,
-        secretManager,
-        TreeLockUtils.legacyForwardingLockManager());
-  }
-
-  /**
    * List the functions in a namespace from the catalog.
    *
    * @param namespace A namespace.

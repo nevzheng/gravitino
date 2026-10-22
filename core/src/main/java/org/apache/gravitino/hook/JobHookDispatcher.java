@@ -26,7 +26,6 @@ import java.util.Optional;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.InUseException;
@@ -54,19 +53,6 @@ public class JobHookDispatcher implements JobOperationDispatcher {
       JobOperationDispatcher jobOperationDispatcher, AuthorizationServices authorizationServices) {
     this.jobOperationDispatcher = jobOperationDispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a job hook dispatcher that reads the authorization services from {@code GravitinoEnv}.
-   *
-   * @param jobOperationDispatcher the underlying job dispatcher
-   * @deprecated Use {@link #JobHookDispatcher(JobOperationDispatcher, AuthorizationServices)},
-   *     which takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public JobHookDispatcher(JobOperationDispatcher jobOperationDispatcher) {
-    this(jobOperationDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

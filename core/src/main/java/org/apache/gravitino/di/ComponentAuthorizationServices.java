@@ -40,12 +40,9 @@ import org.apache.gravitino.catalog.TableDispatcher;
  * services can be built before the chains they reach. The access control, owner and future grant
  * services are null while authorization is disabled, as they are in {@code GravitinoEnv}.
  *
- * <p>This is the component side of the strangler bridge to {@code GravitinoEnv}; {@code
- * EnvironmentAuthorizationServices} is the facade side, behind the deprecated constructors. Only
- * the owner and access control dispatchers, and the catalog services the plugin context hands out,
- * are on a real cycle; the other providers keep the laziness of the facade's getters. Both sides go
- * when the facade is deleted, and the hooks and managers then take the narrow dependencies they
- * use. See section 5.3 of the design document.
+ * <p>Only the owner and access control dispatchers, and the catalog services the plugin context
+ * hands out, are on a real cycle; the other providers resolve lazily as well. Taking the narrow
+ * dependencies each hook and manager uses is a follow-up. See section 5.3 of the design document.
  */
 @Singleton
 final class ComponentAuthorizationServices implements AuthorizationServices {

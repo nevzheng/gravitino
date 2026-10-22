@@ -26,7 +26,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -62,22 +61,6 @@ public class TableHookDispatcher implements TableDispatcher {
   public TableHookDispatcher(
       TableDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this(dispatcher, authorizationServices::internalOwnerDispatcher, authorizationServices);
-  }
-
-  /**
-   * Creates a table hook dispatcher that reads the other authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying table dispatcher
-   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
-   *     disabled
-   * @deprecated Use {@link #TableHookDispatcher(TableDispatcher, AuthorizationServices)}, which
-   *     takes the authorization services explicitly.
-   */
-  @Deprecated
-  public TableHookDispatcher(
-      TableDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
-    this(dispatcher, ownerDispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   private TableHookDispatcher(

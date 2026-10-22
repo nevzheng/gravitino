@@ -21,7 +21,6 @@ package org.apache.gravitino.catalog.model;
 import java.util.Map;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.PropertiesMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 
@@ -46,8 +45,7 @@ public class ModelCatalogImpl extends BaseCatalog<ModelCatalogImpl> {
 
   @Override
   protected CatalogOperations newOps(Map<String, String> config) {
-    return new ModelCatalogOperations(
-        EnvironmentCatalogContext.orEnvironment(catalogContext()).entityStore());
+    return new ModelCatalogOperations(requireCatalogContext().entityStore());
   }
 
   @Override

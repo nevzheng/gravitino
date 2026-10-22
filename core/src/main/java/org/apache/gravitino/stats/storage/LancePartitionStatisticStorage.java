@@ -44,10 +44,8 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.json.JsonUtils;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TableEntity;
@@ -119,19 +117,6 @@ public class LancePartitionStatisticStorage implements PartitionStatisticStorage
   private final int maxStatisticsPerUpdate;
 
   private final EntityStore entityStore;
-
-  /**
-   * Creates a Lance partition statistics storage that reads tables from the entity store of {@code
-   * GravitinoEnv}.
-   *
-   * @param properties the storage configuration
-   * @deprecated Use {@link #LancePartitionStatisticStorage(Map, EntityStore)}.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public LancePartitionStatisticStorage(Map<String, String> properties) {
-    this(properties, envEntityStore());
-  }
 
   /**
    * Creates a Lance partition statistics storage.
@@ -541,10 +526,5 @@ public class LancePartitionStatisticStorage implements PartitionStatisticStorage
         throw illegalArgumentException;
       }
     }
-  }
-
-  @LegacyEnvAccess
-  private static EntityStore envEntityStore() {
-    return GravitinoEnv.getInstance().entityStore();
   }
 }

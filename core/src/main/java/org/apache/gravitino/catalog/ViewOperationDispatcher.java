@@ -34,11 +34,9 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
@@ -74,35 +72,6 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
   /**
    * Creates a new ViewOperationDispatcher instance.
    *
-   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
-   *
-   * @param catalogManager The CatalogManager instance to be used for view operations.
-   * @param store The EntityStore instance to be used for view operations.
-   * @param idGenerator The IdGenerator instance to be used for view operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @param lockManager The LockManager that guards view operations with tree locks.
-   * @deprecated Use {@link #ViewOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the schema dispatcher explicitly.
-   */
-  @Deprecated
-  public ViewOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        ViewOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        () -> lockManager);
-  }
-
-  /**
-   * Creates a new ViewOperationDispatcher instance.
-   *
    * @param catalogManager The CatalogManager instance to be used for view operations.
    * @param store The EntityStore instance to be used for view operations.
    * @param idGenerator The IdGenerator instance to be used for view operations.
@@ -124,64 +93,6 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
         schemaDispatcherSupplier,
         secretManager,
         () -> lockManager);
-  }
-
-  /**
-   * Creates a new ViewOperationDispatcher instance.
-   *
-   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for view operations.
-   * @param store The EntityStore instance to be used for view operations.
-   * @param idGenerator The IdGenerator instance to be used for view operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #ViewOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public ViewOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        ViewOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        TreeLockUtils.legacyLockManager());
-  }
-
-  /**
-   * Creates a new ViewOperationDispatcher instance.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken.
-   *
-   * @param catalogManager The CatalogManager instance to be used for view operations.
-   * @param store The EntityStore instance to be used for view operations.
-   * @param idGenerator The IdGenerator instance to be used for view operations.
-   * @param schemaDispatcherSupplier The SchemaDispatcher supplier to ensure schemas are imported.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @deprecated Use {@link #ViewOperationDispatcher(CatalogManager, EntityStore, IdGenerator,
-   *     Supplier, SecretManager, LockManager)}, which takes the lock manager explicitly.
-   */
-  @Deprecated
-  public ViewOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
-      SecretManager secretManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        schemaDispatcherSupplier,
-        secretManager,
-        TreeLockUtils.legacyLockManager());
   }
 
   private ViewOperationDispatcher(
@@ -752,10 +663,5 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
         .withProperties(properties)
         .withAuditInfo(newAudit)
         .build();
-  }
-
-  @LegacyEnvAccess
-  private static SchemaDispatcher envSchemaDispatcher() {
-    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 }

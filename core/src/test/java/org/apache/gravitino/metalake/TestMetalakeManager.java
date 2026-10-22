@@ -54,7 +54,7 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
-import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
@@ -308,7 +308,7 @@ public class TestMetalakeManager {
             new SecretManager(catalogConfig),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            Mockito.mock(AuthorizationPluginContext.class));
     MetalakeManager manager =
         new MetalakeManager(
             store, new RandomIdGenerator(), catalogManager, () -> catalogManager, lockManager);
@@ -360,7 +360,7 @@ public class TestMetalakeManager {
             new SecretManager(catalogConfig),
             lockManager,
             null,
-            EnvironmentAuthorizationPluginContext.INSTANCE);
+            Mockito.mock(AuthorizationPluginContext.class));
     AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
     CatalogAccess pluginCatalogs = Mockito.mock(CatalogAccess.class);
     Mockito.doAnswer(

@@ -26,7 +26,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
@@ -56,20 +55,6 @@ public class MetalakeHookDispatcher implements MetalakeDispatcher {
       MetalakeDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a metalake hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying metalake dispatcher
-   * @deprecated Use {@link #MetalakeHookDispatcher(MetalakeDispatcher, AuthorizationServices)},
-   *     which takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public MetalakeHookDispatcher(MetalakeDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

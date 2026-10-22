@@ -53,20 +53,6 @@ public class OwnerManager implements OwnerDispatcher {
   private final AuthorizationServices authorizationServices;
 
   /**
-   * Creates an owner manager that reads the catalog authorization plugins from {@code
-   * GravitinoEnv}.
-   *
-   * @param store the entity store, which must be a relational entity store
-   * @deprecated Use {@link #OwnerManager(EntityStore, AuthorizationServices)}, which takes the
-   *     authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public OwnerManager(EntityStore store) {
-    this(store, EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  /**
    * Creates an owner manager.
    *
    * @param store the entity store, which must be a relational entity store

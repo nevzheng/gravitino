@@ -28,7 +28,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -66,20 +65,6 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
       CatalogDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a catalog hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying catalog dispatcher
-   * @deprecated Use {@link #CatalogHookDispatcher(CatalogDispatcher, AuthorizationServices)}, which
-   *     takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public CatalogHookDispatcher(CatalogDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

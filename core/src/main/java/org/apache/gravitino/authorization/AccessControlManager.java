@@ -83,42 +83,6 @@ public class AccessControlManager implements AccessControlDispatcher {
     this.lockManager = lockManager;
   }
 
-  /**
-   * Creates an access control manager that reads the catalog authorization plugins from {@code
-   * GravitinoEnv}.
-   *
-   * @param store The entity store that holds users, groups and roles.
-   * @param idGenerator The id generator for new users, groups and roles.
-   * @param config The server configuration, which lists the service admins.
-   * @param lockManager The lock manager that guards access control operations with tree locks.
-   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager,
-   *     AuthorizationServices)}, which takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public AccessControlManager(
-      EntityStore store, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    this(store, idGenerator, config, lockManager, EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  /**
-   * Creates an access control manager that reads the lock manager and the catalog authorization
-   * plugins from {@code GravitinoEnv}. The lock manager is read each time a tree lock is taken.
-   *
-   * @param store The entity store that holds users, groups and roles.
-   * @param idGenerator The id generator for new users, groups and roles.
-   * @param config The server configuration, which lists the service admins.
-   * @deprecated Use {@link #AccessControlManager(EntityStore, IdGenerator, Config, LockManager,
-   *     AuthorizationServices)}, which takes the lock manager and the authorization services
-   *     explicitly.
-   */
-  // Inlining would copy the GravitinoEnv lookup into every caller.
-  @SuppressWarnings("InlineMeSuggester")
-  @Deprecated
-  public AccessControlManager(EntityStore store, IdGenerator idGenerator, Config config) {
-    this(store, idGenerator, config, TreeLockUtils.legacyForwardingLockManager());
-  }
-
   @Override
   public User addUser(String metalake, String user)
       throws UserAlreadyExistsException, NoSuchMetalakeException {

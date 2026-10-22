@@ -62,15 +62,6 @@ public class TestAuthorizationPluginContext {
   }
 
   @Test
-  public void testOrEnvironment() {
-    AuthorizationPluginContext given = mock(AuthorizationPluginContext.class);
-    Assertions.assertSame(given, EnvironmentAuthorizationPluginContext.orEnvironment(given));
-    Assertions.assertSame(
-        EnvironmentAuthorizationPluginContext.INSTANCE,
-        EnvironmentAuthorizationPluginContext.orEnvironment(null));
-  }
-
-  @Test
   public void testDefaultNewPluginIgnoresTheContext() {
     AuthorizationPlugin plugin = mock(AuthorizationPlugin.class);
     BaseAuthorization<?> authorization = mock(BaseAuthorization.class);

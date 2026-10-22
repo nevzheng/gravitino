@@ -26,7 +26,6 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -63,20 +62,6 @@ public class ModelHookDispatcher implements ModelDispatcher {
       ModelDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
     this.authorizationServices = authorizationServices;
-  }
-
-  /**
-   * Creates a model hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher the underlying model dispatcher
-   * @deprecated Use {@link #ModelHookDispatcher(ModelDispatcher, AuthorizationServices)}, which
-   *     takes the authorization services explicitly.
-   */
-  @Deprecated
-  @SuppressWarnings("InlineMeSuggester")
-  public ModelHookDispatcher(ModelDispatcher dispatcher) {
-    this(dispatcher, EnvironmentAuthorizationServices.INSTANCE);
   }
 
   @Override

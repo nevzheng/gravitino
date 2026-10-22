@@ -23,7 +23,6 @@ import java.util.Map;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogOperations;
-import org.apache.gravitino.connector.EnvironmentCatalogContext;
 import org.apache.gravitino.connector.PropertiesMetadata;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.credential.CredentialConstants;
@@ -50,7 +49,7 @@ public class FilesetCatalogImpl extends BaseCatalog<FilesetCatalogImpl> {
 
   @Override
   protected CatalogOperations newOps(Map<String, String> config) {
-    CatalogContext context = EnvironmentCatalogContext.orEnvironment(catalogContext());
+    CatalogContext context = requireCatalogContext();
     return new FilesetCatalogOperations(
         context.entityStore(), context.secretManager(), this::catalogCredentialManager);
   }

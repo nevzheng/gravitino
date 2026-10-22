@@ -31,7 +31,6 @@ import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
-import org.apache.gravitino.authorization.EnvironmentAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
@@ -70,36 +69,6 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
       LockManager lockManager,
       AuthorizationServices authorizationServices) {
     this(dispatcher, () -> lockManager, authorizationServices);
-  }
-
-  /**
-   * Creates a schema hook dispatcher that reads the authorization services from {@code
-   * GravitinoEnv}.
-   *
-   * @param dispatcher The schema dispatcher to delegate to.
-   * @param lockManager The lock manager that serializes schema creation on the catalog.
-   * @deprecated Use {@link #SchemaHookDispatcher(SchemaDispatcher, LockManager,
-   *     AuthorizationServices)}, which takes the authorization services explicitly.
-   */
-  @Deprecated
-  public SchemaHookDispatcher(SchemaDispatcher dispatcher, LockManager lockManager) {
-    this(dispatcher, () -> lockManager, EnvironmentAuthorizationServices.INSTANCE);
-  }
-
-  /**
-   * Creates a schema hook dispatcher.
-   *
-   * <p>The lock manager is read from {@code GravitinoEnv} each time a tree lock is taken, and so
-   * are the authorization services.
-   *
-   * @param dispatcher The schema dispatcher to delegate to.
-   * @deprecated Use {@link #SchemaHookDispatcher(SchemaDispatcher, LockManager,
-   *     AuthorizationServices)}, which takes the lock manager and the authorization services
-   *     explicitly.
-   */
-  @Deprecated
-  public SchemaHookDispatcher(SchemaDispatcher dispatcher) {
-    this(dispatcher, TreeLockUtils.legacyLockManager(), EnvironmentAuthorizationServices.INSTANCE);
   }
 
   private SchemaHookDispatcher(

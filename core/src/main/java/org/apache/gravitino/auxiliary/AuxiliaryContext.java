@@ -26,7 +26,6 @@ import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -128,20 +127,6 @@ public interface AuxiliaryContext {
    * @throws IllegalStateException if the service runs standalone
    */
   CatalogAccess catalogAccess();
-
-  /**
-   * Returns the catalog manager. Only available inside the Gravitino server.
-   *
-   * @return the catalog manager behind {@link #catalogAccess()}
-   * @throws IllegalStateException if the service runs standalone
-   * @throws ClassCastException if the catalog access is not a {@link CatalogManager}
-   * @deprecated Use {@link #catalogAccess()}. The manager can create, alter and drop catalogs
-   *     without the hooks and events of the catalog dispatcher chain.
-   */
-  @Deprecated
-  default CatalogManager catalogManager() {
-    return (CatalogManager) catalogAccess();
-  }
 
   /**
    * Returns the catalog dispatcher of the REST API. Only available inside the Gravitino server.

@@ -23,7 +23,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.catalog.CatalogAccess;
-import org.apache.gravitino.catalog.CatalogManager;
 
 /**
  * The host services a {@link GravitinoAuthorizer} may use.
@@ -57,19 +56,6 @@ public interface AuthorizerContext {
    * @return the catalog access
    */
   CatalogAccess catalogAccess();
-
-  /**
-   * Returns the catalog manager.
-   *
-   * @return the catalog manager behind {@link #catalogAccess()}
-   * @throws ClassCastException if the catalog access is not a {@link CatalogManager}
-   * @deprecated Use {@link #catalogAccess()}. The manager can create, alter and drop catalogs
-   *     without the hooks and events of the catalog dispatcher chain.
-   */
-  @Deprecated
-  default CatalogManager catalogManager() {
-    return (CatalogManager) catalogAccess();
-  }
 
   /**
    * Returns the internal access-control dispatcher: the access control manager, which runs no hooks
