@@ -28,12 +28,11 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.exceptions.GravitinoRuntimeException;
 import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link JdbcPartitionStatisticStorageFactory}. */
 public class TestJdbcPartitionStatisticStorageFactory {
-
-  private static final EntityStore ENTITY_STORE = mock(EntityStore.class);
 
   @Test
   public void testCreateWithoutEntityStoreIsUnsupported() {
@@ -53,19 +52,12 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcDriver", "com.mysql.cj.jdbc.Driver");
 
     // This test only validates that the properties pass validation
-    // Actual storage creation requires GravitinoEnv and is tested in integration tests
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      // Expected if GravitinoEnv is not initialized
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -81,16 +73,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     // This test only validates that the properties pass validation
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -105,7 +92,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     Exception exception =
         assertThrows(
-            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
+            IllegalArgumentException.class,
+            () -> factory.create(properties, mock(EntityStore.class)));
 
     assertTrue(exception.getMessage().contains("jdbcUrl"));
   }
@@ -121,7 +109,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     Exception exception =
         assertThrows(
-            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
+            IllegalArgumentException.class,
+            () -> factory.create(properties, mock(EntityStore.class)));
 
     assertTrue(exception.getMessage().contains("jdbcUser"));
   }
@@ -137,7 +126,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     Exception exception =
         assertThrows(
-            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
+            IllegalArgumentException.class,
+            () -> factory.create(properties, mock(EntityStore.class)));
 
     assertTrue(exception.getMessage().contains("jdbcPassword"));
   }
@@ -150,7 +140,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     Exception exception =
         assertThrows(
-            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
+            IllegalArgumentException.class,
+            () -> factory.create(properties, mock(EntityStore.class)));
 
     assertNotNull(exception.getMessage());
   }
@@ -159,7 +150,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
   public void testCreateWithNullProperties() {
     JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
 
-    assertThrows(NullPointerException.class, () -> factory.create(null, ENTITY_STORE));
+    assertThrows(NullPointerException.class, () -> factory.create(null, mock(EntityStore.class)));
   }
 
   @Test
@@ -174,16 +165,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("extra-property", "extra-value"); // Extra properties should be ignored
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -204,19 +190,14 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties2.put("jdbcPassword", "pass2");
 
     try {
-      PartitionStatisticStorage storage1 = factory1.create(properties1, ENTITY_STORE);
-      PartitionStatisticStorage storage2 = factory2.create(properties2, ENTITY_STORE);
+      PartitionStatisticStorage storage1 = factory1.create(properties1, mock(EntityStore.class));
+      PartitionStatisticStorage storage2 = factory2.create(properties2, mock(EntityStore.class));
       assertNotNull(storage1);
       assertNotNull(storage2);
       assertTrue(storage1 instanceof JdbcPartitionStatisticStorage);
       assertTrue(storage2 instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -232,16 +213,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "test_password");
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -255,16 +231,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "test_password");
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -293,16 +264,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "p@ssw0rd!#$%"); // Special characters
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
+      PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
-    } catch (Exception e) {
-      if (e.getMessage() == null || !e.getMessage().contains("GravitinoEnv")) {
-        Throwable cause = e.getCause();
-        if (cause == null || !cause.getMessage().contains("GravitinoEnv")) {
-          throw e;
-        }
-      }
+    } catch (GravitinoRuntimeException e) {
+      // No database is reachable here; the properties passed validation.
     }
   }
 
@@ -322,5 +288,11 @@ public class TestJdbcPartitionStatisticStorageFactory {
     } finally {
       storage.close();
     }
+  }
+
+  @Test
+  public void testCreateWithoutAnEntityStoreIsUnsupported() {
+    JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
+    assertThrows(UnsupportedOperationException.class, () -> factory.create(new HashMap<>()));
   }
 }

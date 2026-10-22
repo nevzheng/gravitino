@@ -265,7 +265,7 @@ public class TrinoTlsOAuthCredentialVendingIT extends BaseIT {
         catalogName);
     // No gravitino.iceberg-rest.gravitino-oauth2.* config here: with the Iceberg REST service
     // embedded as an auxiliary service (ignoreIcebergAuxRestService = false above),
-    // DynamicIcebergConfigProvider resolves catalogs through GravitinoEnv's in-process dispatcher
+    // DynamicIcebergConfigProvider resolves catalogs through the server's in-process dispatcher
     // (IcebergRESTServerContext#isAuxMode()), never through an HTTP+OAuth2 client. Configuring
     // that OAuth2 block here would be dead configuration this test can never actually exercise.
   }

@@ -42,7 +42,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.HasIdentifier;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
@@ -90,17 +89,11 @@ class TestPrincipalListQueryCount {
     Object previousExecutor =
         FieldUtils.readStaticField(MetadataAccessChecker.class, "executor", true);
     List<Executable> queryCountAssertions = new ArrayList<>();
-    try (MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class);
-        MockedStatic<GravitinoAuthorizerProvider> providerStatic =
+    try (MockedStatic<GravitinoAuthorizerProvider> providerStatic =
             mockStatic(GravitinoAuthorizerProvider.class);
         JDBCBackend backend = new JDBCBackend()) {
-      GravitinoEnv env = mock(GravitinoEnv.class);
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      when(env.config()).thenReturn(config);
-      when(env.cacheEnabled()).thenReturn(true);
       EntityStore store = mock(EntityStore.class);
       SupportsRelationOperations relations = mock(SupportsRelationOperations.class);
-      when(env.entityStore()).thenReturn(store);
       when(store.relationOperations()).thenReturn(relations);
       when(relations.batchListEntitiesByRelation(
               eq(SupportsRelationOperations.Type.OWNER_REL), anyList(), any()))
@@ -112,7 +105,7 @@ class TestPrincipalListQueryCount {
       providerStatic.when(GravitinoAuthorizerProvider::getInstance).thenReturn(provider);
       GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
       when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
-      // The mocked environment has no access control dispatcher, so the cache is not preloaded.
+      // The checker has no access control dispatcher, so the cache is not preloaded.
       MetadataAccessChecker accessChecker =
           new MetadataAccessChecker(
               () -> config.get(Configs.ENABLE_AUTHORIZATION),

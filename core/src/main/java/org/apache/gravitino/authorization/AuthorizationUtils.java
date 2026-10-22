@@ -35,7 +35,6 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -44,8 +43,6 @@ import org.apache.gravitino.Schema;
 import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.hive.HiveConstants;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
@@ -136,15 +133,6 @@ public class AuthorizationUtils {
   private static final Set<Privilege.Name> SKIP_APPLY_PRIVILEGES = SEMANTIC_MODEL_PRIVILEGES;
 
   private AuthorizationUtils() {}
-
-  public static void checkCurrentUser(String metalake, String user) {
-    checkCurrentUser(metalake, user, new AuthorizationRequestContext());
-  }
-
-  public static void checkCurrentUser(
-      String metalake, String user, AuthorizationRequestContext requestContext) {
-    checkCurrentUser(processServices().gravitinoAuthorizer(), metalake, user, requestContext);
-  }
 
   /**
    * Checks that the current user is a user of the metalake.
@@ -241,17 +229,6 @@ public class AuthorizationUtils {
         namespace);
   }
 
-  // Every catalog has one authorization plugin, we should avoid calling
-  // underlying authorization repeatedly. So we use a set to record which
-  // catalog has been called the authorization plugin.
-  public static void callAuthorizationPluginForSecurableObjects(
-      String metalake,
-      List<SecurableObject> securableObjects,
-      BiConsumer<AuthorizationPlugin, String> consumer) {
-    callAuthorizationPluginForSecurableObjects(
-        processServices().catalogAccess(), metalake, securableObjects, consumer);
-  }
-
   /**
    * Calls the authorization plugin of every catalog the securable objects reach, once per catalog.
    *
@@ -289,13 +266,6 @@ public class AuthorizationUtils {
       }
     }
   }
-
-  public static void callAuthorizationPluginForMetadataObject(
-      String metalake, MetadataObject metadataObject, Consumer<AuthorizationPlugin> consumer) {
-    callAuthorizationPluginForMetadataObject(
-        processServices().catalogAccess(), metalake, metadataObject, consumer);
-  }
-
   /**
    * Calls the authorization plugin of every catalog the metadata object reaches.
    *
@@ -370,12 +340,6 @@ public class AuthorizationUtils {
       return Privileges.deny(legacyPrivilegeName);
     }
   }
-
-  public static void checkPrivilege(
-      PrivilegeDTO privilegeDTO, MetadataObject object, String metalake) {
-    checkPrivilege(processServices().internalCatalogDispatcher(), privilegeDTO, object, metalake);
-  }
-
   /**
    * Checks that a privilege can bind to a metadata object, and that a catalog or schema privilege
    * suits the type of its catalog.
@@ -883,60 +847,5 @@ public class AuthorizationUtils {
     }
 
     return locations;
-  }
-
-  // The services of the process environment, read when they are asked for, for the static methods
-  // whose callers do not pass their services yet.
-  private static AuthorizationServices processServices() {
-    return new AuthorizationServices() {
-      @Override
-      public AccessControlDispatcher internalAccessControlDispatcher() {
-        return env().internalAccessControlDispatcher();
-      }
-
-      @Override
-      public OwnerDispatcher internalOwnerDispatcher() {
-        return env().internalOwnerDispatcher();
-      }
-
-      @Override
-      public FutureGrantManager futureGrantManager() {
-        return env().futureGrantManager();
-      }
-
-      @Override
-      public GravitinoAuthorizer gravitinoAuthorizer() {
-        return env().gravitinoAuthorizer();
-      }
-
-      @Override
-      public CatalogAccess catalogAccess() {
-        return env().catalogManager();
-      }
-
-      @Override
-      public CatalogDispatcher internalCatalogDispatcher() {
-        return env().internalCatalogDispatcher();
-      }
-
-      @Override
-      public SchemaDispatcher internalSchemaDispatcher() {
-        return env().internalSchemaDispatcher();
-      }
-
-      @Override
-      public TableDispatcher internalTableDispatcher() {
-        return env().internalTableDispatcher();
-      }
-
-      @Override
-      public FilesetDispatcher internalFilesetDispatcher() {
-        return env().internalFilesetDispatcher();
-      }
-    };
-  }
-
-  private static GravitinoEnv env() {
-    return GravitinoEnv.getInstance();
   }
 }

@@ -428,4 +428,11 @@ public class TestLancePartitionStatisticStorage {
         UnsupportedOperationException.class,
         () -> new LancePartitionStatisticStorageFactory().create(Maps.newHashMap()));
   }
+
+  @Test
+  public void testCreateWithoutAnEntityStoreIsUnsupported() {
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> new LancePartitionStatisticStorageFactory().create(Maps.newHashMap()));
+  }
 }

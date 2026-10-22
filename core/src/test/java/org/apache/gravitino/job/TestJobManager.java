@@ -55,13 +55,11 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.ArrayUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.connector.job.JobContext;
@@ -132,7 +130,6 @@ public class TestJobManager {
     config.set(Configs.JOB_STAGING_DIR_KEEP_TIME_IN_MS, 1000L);
 
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     entityStore = Mockito.mock(EntityStore.class);
     jobExecutor = Mockito.mock(JobExecutor.class);

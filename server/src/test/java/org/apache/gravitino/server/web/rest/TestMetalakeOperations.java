@@ -18,11 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.CACHE_ENABLED;
-import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
@@ -45,9 +40,6 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.dto.MetalakeDTO;
 import org.apache.gravitino.dto.requests.MetalakeCreateRequest;
@@ -60,7 +52,6 @@ import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.MetalakeListResponse;
 import org.apache.gravitino.dto.responses.MetalakeResponse;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.SchemaVersion;
@@ -76,7 +67,6 @@ import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -92,18 +82,6 @@ public class TestMetalakeOperations extends BaseOperationsTest {
   }
 
   private MetalakeManager metalakeManager = mock(MetalakeManager.class);
-
-  @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
-    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-  }
 
   @Override
   protected Application configure() {

@@ -45,10 +45,10 @@ import org.apache.gravitino.storage.IdGenerator;
  * initialized with. {@link AuthorizerModule} binds the authorizer.
  *
  * <p>The {@link Internal} access-control binding is the manager itself; the {@link Public} one is
- * event → hook → that manager. {@code GravitinoEnv} requests these objects only when authorization
- * is enabled and keeps {@code null} in their place otherwise, so that callers which test for a
- * disabled feature behave as before. The owner manager and its chains are in {@link
- * GovernanceModule}.
+ * event → hook → that manager. The {@link GravitinoProfiles profiles} request these objects only
+ * when authorization is enabled, and the contexts that hand them out return {@code null} in their
+ * place otherwise, so that callers which test for a disabled feature behave as before. The owner
+ * manager and its chains are in {@link GovernanceModule}.
  *
  * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
  * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.

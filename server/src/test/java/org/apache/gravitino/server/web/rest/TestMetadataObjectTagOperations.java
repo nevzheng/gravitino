@@ -570,7 +570,7 @@ public class TestMetadataObjectTagOperations extends BaseOperationsTest {
     // schemas are "a" and "a:b". A table under it must inherit tags from the schema itself, all
     // ancestor schemas, and the catalog. The REST operation resolves the separator via
     // MetadataObjectUtil.getParentMetadataObjects(MetadataObject), which falls back to the default
-    // ":" here because GravitinoEnv config is not booted in this unit test.
+    // ":" here because no server seeds the separator in this unit test.
     MetadataObject catalog = MetadataObjects.parse("hcat", MetadataObject.Type.CATALOG);
     MetadataObject schemaA = MetadataObjects.parse("hcat.a", MetadataObject.Type.SCHEMA);
     MetadataObject schemaB = MetadataObjects.parse("hcat.a:b", MetadataObject.Type.SCHEMA);
@@ -624,8 +624,7 @@ public class TestMetadataObjectTagOperations extends BaseOperationsTest {
   public void testGetTagForObjectUnderHierarchicalSchema() {
     // Hierarchical (multi-level) schema "a:b:c" using the default separator ":". The REST operation
     // resolves the separator via MetadataObjectUtil.getParentMetadataObjects(MetadataObject), which
-    // falls back to the default ":" here because GravitinoEnv config is not booted in this unit
-    // test.
+    // falls back to the default ":" here because no server seeds the separator in this unit test.
     MetadataObject schemaA = MetadataObjects.parse("hcat.a", MetadataObject.Type.SCHEMA);
     MetadataObject schemaB = MetadataObjects.parse("hcat.a:b", MetadataObject.Type.SCHEMA);
     MetadataObject table = MetadataObjects.parse("hcat.a:b:c.tbl", MetadataObject.Type.TABLE);

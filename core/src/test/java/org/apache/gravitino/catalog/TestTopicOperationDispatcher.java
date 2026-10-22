@@ -35,9 +35,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.TestCatalog;
@@ -73,9 +71,6 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
             () -> schemaOperationDispatcher,
             secretManager,
             lockManager);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
   }
 
   @Test
@@ -353,6 +348,7 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
     // Another in-flight create holds the WRITE lock on its own topic node.
     try (TreeLockTestSupport.HeldLock inFlightCreate =
         TreeLockTestSupport.HeldLock.acquire(
+            lockManager,
             NameIdentifier.of(metalake, catalog, "schema_topic_lock_1", "other_topic"),
             LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
@@ -370,7 +366,7 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
     NameIdentifier ident = NameIdentifier.of(metalake, catalog, "schema_topic_lock_2", "topic1");
 
     TreeLockTestSupport.HeldLock sameNameCreate =
-        TreeLockTestSupport.HeldLock.acquire(ident, LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(lockManager, ident, LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(sameNameCreate, () -> createTopicForLockTest(ident));
   }
 
@@ -380,7 +376,7 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
     createSchemaForLockTest(schemaIdent);
 
     TreeLockTestSupport.HeldLock schemaWriter =
-        TreeLockTestSupport.HeldLock.acquire(schemaIdent, LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(lockManager, schemaIdent, LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(
         schemaWriter,
         () ->
@@ -394,7 +390,8 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
     createSchemaForLockTest(schemaIdent);
 
     TreeLockTestSupport.HeldLock catalogWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(metalake, catalog), LockType.WRITE);
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(metalake, catalog), LockType.WRITE);
     TreeLockTestSupport.assertWaitsFor(
         catalogWriter,
         () ->

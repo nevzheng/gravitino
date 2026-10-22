@@ -30,9 +30,9 @@ import org.apache.gravitino.catalog.CatalogAccess;
 /**
  * The {@link AuthorizerContext} of the Gravitino server, backed by the component.
  *
- * <p>Every service is resolved when it is asked for, so building the context builds nothing. The
- * internal access-control dispatcher is {@code null} when authorization is disabled, as the
- * environment reports it.
+ * <p>Every service is resolved when it is asked for, so building the context builds nothing, and
+ * the access control manager, whose hooks reach the authorizer, can be built after it. The internal
+ * access-control dispatcher is {@code null} while authorization is disabled.
  */
 final class ComponentAuthorizerContext implements AuthorizerContext {
 

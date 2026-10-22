@@ -19,15 +19,12 @@
 package org.apache.gravitino.authorization.ranger.integration.test;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import java.util.List;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -40,7 +37,6 @@ import org.apache.gravitino.authorization.SecurableObjects;
 import org.apache.gravitino.authorization.common.PathBasedMetadataObject;
 import org.apache.gravitino.authorization.common.PathBasedSecurableObject;
 import org.apache.gravitino.authorization.ranger.RangerAuthorizationPlugin;
-import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -54,34 +50,16 @@ import org.mockito.Mockito;
 public class RangerAuthorizationHDFSPluginIT {
 
   private static RangerAuthorizationPlugin rangerAuthPlugin;
-  private static final CatalogDispatcher manager = mock(CatalogDispatcher.class);
-  private static CatalogDispatcher previousCatalogDispatcher;
-  private static CatalogDispatcher previousInternalCatalogDispatcher;
 
   @BeforeAll
   public static void setup() throws Exception {
     RangerITEnv.init(RangerITEnv.currentFunName(), true);
     rangerAuthPlugin = RangerITEnv.rangerAuthHDFSPlugin;
-    previousCatalogDispatcher =
-        (CatalogDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "catalogDispatcher", true);
-    previousInternalCatalogDispatcher =
-        (CatalogDispatcher)
-            FieldUtils.readField(GravitinoEnv.getInstance(), "internalCatalogDispatcher", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogDispatcher", manager, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "internalCatalogDispatcher", manager, true);
-    when(manager.listCatalogs(any())).thenReturn(new NameIdentifier[0]);
+    when(RangerITEnv.hdfsCatalogDispatcher.listCatalogs(any())).thenReturn(new NameIdentifier[0]);
   }
 
   @AfterAll
-  public static void cleanup() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "catalogDispatcher", previousCatalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalCatalogDispatcher",
-        previousInternalCatalogDispatcher,
-        true);
+  public static void cleanup() {
     RangerITEnv.cleanup();
   }
 

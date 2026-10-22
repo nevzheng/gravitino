@@ -20,11 +20,6 @@ package org.apache.gravitino.server.web.rest;
 
 import static javax.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
 import static org.apache.gravitino.Catalog.PROPERTY_IN_USE;
-import static org.apache.gravitino.Configs.CACHE_ENABLED;
-import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
@@ -45,11 +40,8 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogChange;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -71,7 +63,6 @@ import org.apache.gravitino.exceptions.CatalogNotInUseException;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.rest.RESTUtils;
@@ -81,7 +72,6 @@ import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -98,18 +88,6 @@ public class TestCatalogOperations extends BaseOperationsTest {
   }
 
   private CatalogManager manager = mock(CatalogManager.class);
-
-  @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
-    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-  }
 
   @Override
   protected Application configure() {

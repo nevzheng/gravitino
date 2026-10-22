@@ -265,7 +265,10 @@ public abstract class BaseMetadataAuthorizationMethodInterceptor {
           // active-role selection and can share cached authorization results.
           try {
             AuthorizationUtils.checkCurrentUser(
-                metalakeIdent.name(), currentUser, authorizationRequestContext);
+                GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
+                metalakeIdent.name(),
+                currentUser,
+                authorizationRequestContext);
           } catch (ForbiddenException exception) {
             LOG.info(
                 "User validation failed - User: '{}', Metalake: '{}', Reason: {}",

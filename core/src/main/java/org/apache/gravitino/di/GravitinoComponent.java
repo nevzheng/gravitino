@@ -69,24 +69,23 @@ import org.apache.gravitino.utils.MetadataObjectDispatchers;
 /**
  * The root object graph of the Gravitino server.
  *
- * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
- * this component. Its modules build every component {@code GravitinoEnv} holds: {@link
- * ConfigModule} the id generator and the metrics system, {@link StorageModule} the entity store and
- * the secret stores, {@link LockModule} the lock manager, {@link EventModule} the event listener
- * manager, the event bus and the audit log manager, {@link CatalogModule} the catalog and metalake
- * managers and chains, {@link SchemaTableModule} the schema, table, partition and view chains,
- * {@link FilesetTopicModelModule} the fileset, topic, model, function and semantic model chains,
- * {@link GovernanceModule} the tag, policy, owner and statistic chains, {@link AuthorizationModule}
- * the access-control components, {@link JobModule} the job manager and chains, {@link
- * AuxiliaryModule} the auxiliary service manager and the context it hands to the auxiliary
- * services, and {@link AuthorizerModule} the authorizer.
+ * <p>Its modules build every service of the server: {@link ConfigModule} the id generator and the
+ * metrics system, {@link StorageModule} the entity store and the secret stores, {@link LockModule}
+ * the lock manager, {@link EventModule} the event listener manager, the event bus and the audit log
+ * manager, {@link CatalogModule} the catalog and metalake managers and chains, {@link
+ * SchemaTableModule} the schema, table, partition and view chains, {@link FilesetTopicModelModule}
+ * the fileset, topic, model, function and semantic model chains, {@link GovernanceModule} the tag,
+ * policy, owner and statistic chains, {@link AuthorizationModule} the access-control components,
+ * {@link JobModule} the job manager and chains, {@link AuxiliaryModule} the auxiliary service
+ * manager and the context it hands to the auxiliary services, and {@link AuthorizerModule} the
+ * authorizer.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
  * bound with a package-private qualifier, {@link Undecorated}, and not exposed here, so no consumer
  * can bypass a chain's hooks and decorators by injecting the object under it. The component builds
- * nothing until it is asked: {@code GravitinoEnv} asks for each object at the point of its
- * initialization sequence where it used to build it.
+ * nothing until it is asked: the {@link GravitinoProfiles profiles} ask for each object in the
+ * order the objects must be built.
  *
  * <p>Singletons are per component: each component instance builds its own objects, each one the
  * first time it is requested.
@@ -96,8 +95,8 @@ import org.apache.gravitino.utils.MetadataObjectDispatchers;
  * change a chain by contributing a {@link DispatcherDecorator} at one of its {@link Layer layers},
  * and add a service by contributing a {@link ManagedService} to {@link #contributedServices()};
  * upstream contributes neither, so this component's chains and services are exactly what its
- * modules build. {@code GravitinoEnv} takes its objects from the component that the factory it is
- * initialized with creates.
+ * modules build. The server takes its objects from the component that the factory it is created
+ * with creates.
  */
 @Singleton
 @Component(modules = GravitinoModules.class)
@@ -139,22 +138,22 @@ public interface GravitinoComponent {
   EntityStore entityStore();
 
   /**
-   * Returns the KMS client registry. {@code GravitinoEnv} closes it.
+   * Returns the KMS client registry. The {@link #managedServices()} close it.
    *
    * @return the KMS client registry
    */
   KmsClientRegistry kmsClientRegistry();
 
   /**
-   * Returns the secret manager. {@code GravitinoEnv} closes it.
+   * Returns the secret manager. The {@link #managedServices()} close it.
    *
    * @return the secret manager
    */
   SecretManager secretManager();
 
   /**
-   * Returns the event listener manager, with the listeners named by the configuration loaded.
-   * {@code GravitinoEnv} starts and stops it.
+   * Returns the event listener manager, with the listeners named by the configuration loaded. The
+   * {@link #managedServices()} start and close it.
    *
    * @return the event listener manager
    */
@@ -187,8 +186,8 @@ public interface GravitinoComponent {
 
   /**
    * Returns the {@link ManagedService managed services} a downstream component contributes with
-   * {@code @IntoSet}, which nothing else in the graph requests. {@code GravitinoEnv.start()} builds
-   * them, which registers what they depend on first, and registers them with {@link
+   * {@code @IntoSet}, which nothing else in the graph requests. {@link GravitinoProfiles#start}
+   * builds them, which registers what they depend on first, and registers them with {@link
    * #managedServices()}, so they start in dependency order with the rest and close in reverse.
    * Upstream contributes none.
    *
@@ -470,7 +469,7 @@ public interface GravitinoComponent {
 
   /**
    * Returns the access control manager, the internal access-control chain. It can be built while
-   * authorization is disabled, but {@code GravitinoEnv} only requests it when it is enabled.
+   * authorization is disabled, but the profiles only request it when it is enabled.
    *
    * @return the internal access control dispatcher
    */
@@ -480,7 +479,7 @@ public interface GravitinoComponent {
   /**
    * Returns the public access-control chain: event, hook, then the {@link
    * #internalAccessControlDispatcher()} manager. It can be built while authorization is disabled,
-   * but {@code GravitinoEnv} only requests it when it is enabled.
+   * but the profiles only request it when it is enabled.
    *
    * @return the public access control dispatcher
    */
@@ -506,8 +505,8 @@ public interface GravitinoComponent {
   GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
-   * Returns the bulk manager. It can be built while authorization is disabled, but {@code
-   * GravitinoEnv} only requests it when it is enabled.
+   * Returns the bulk manager. It can be built while authorization is disabled, but the profiles
+   * only request it when it is enabled.
    *
    * @return the bulk manager
    */
@@ -515,8 +514,7 @@ public interface GravitinoComponent {
 
   /**
    * Returns the future grant manager, which uses the {@link #internalOwnerDispatcher()}. It can be
-   * built while authorization is disabled, but {@code GravitinoEnv} only requests it when it is
-   * enabled.
+   * built while authorization is disabled, but the profiles only request it when it is enabled.
    *
    * @return the future grant manager
    */
@@ -557,8 +555,8 @@ public interface GravitinoComponent {
   JobOperationDispatcher jobOperationDispatcher();
 
   /**
-   * Returns the listener that registers the built-in job templates of new metalakes. {@code
-   * GravitinoEnv} adds it to the {@link #eventListenerManager()}.
+   * Returns the listener that registers the built-in job templates of new metalakes. The {@link
+   * GravitinoProfiles#full full profile} adds it to the {@link #eventListenerManager()}.
    *
    * @return the built-in job template listener
    */

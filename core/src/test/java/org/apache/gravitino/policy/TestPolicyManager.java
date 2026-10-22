@@ -82,6 +82,7 @@ import org.apache.gravitino.exceptions.NotFoundException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
 import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.function.FunctionType;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -135,6 +136,7 @@ public class TestPolicyManager {
           MetadataObject.Type.CATALOG, MetadataObject.Type.SCHEMA, MetadataObject.Type.TABLE);
 
   private static EntityStore entityStore;
+  private static LockManager lockManager;
   private static PolicyManager policyManager;
   private static TagManager tagManager;
 
@@ -146,6 +148,7 @@ public class TestPolicyManager {
     entityStore.initialize(config);
     policyManager = new PolicyManager(idGenerator, entityStore, metadataObjects);
     tagManager = new TagManager(idGenerator, entityStore, metadataObjects);
+    lockManager = new LockManager(config);
 
     AuditInfo audit = AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
     BaseMetalake metalake =
@@ -744,7 +747,8 @@ public class TestPolicyManager {
     // A metalake WRITE lock covers every policy below it. Policy operations are fenced by the
     // entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock metalakeWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(METALAKE), LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(METALAKE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           metalakeWriter, () -> createCustomPolicy(METALAKE, policyName, content));
       TreeLockTestSupport.assertRunsConcurrentlyWith(

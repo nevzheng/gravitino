@@ -27,8 +27,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * The server services an {@link Authenticator} may use while it initializes.
  *
  * <p>The server builds authenticators reflectively from their no-argument constructors, so this
- * context is how it hands them what it has built, in place of the process-wide {@code
- * GravitinoEnv}. The interface is plain Java and carries no dependency-injection types.
+ * context is how it hands them what it has built. The interface is plain Java and carries no
+ * dependency-injection types.
  */
 @Evolving
 public interface AuthenticatorContext {

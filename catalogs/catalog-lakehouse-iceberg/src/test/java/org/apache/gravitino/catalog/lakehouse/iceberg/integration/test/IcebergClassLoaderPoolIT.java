@@ -28,9 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.apache.gravitino.Catalog;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.client.GravitinoMetalake;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.integration.test.container.MySQLContainer;
@@ -151,12 +149,13 @@ public class IcebergClassLoaderPoolIT extends BaseIT {
   }
 
   private Object classLoaderOf(String metalake, String catalog) {
-    CatalogManager catalogManager = GravitinoEnv.getInstance().catalogManager();
     // doWithCatalog installs the pooled loader as the TCCL; the catalog class itself may be shared
     // and therefore defined by the application ClassLoader.
-    return catalogManager.doWithCatalog(
-        NameIdentifier.of(metalake, catalog),
-        ignored -> Thread.currentThread().getContextClassLoader());
+    return serverComponent()
+        .catalogAccess()
+        .doWithCatalog(
+            NameIdentifier.of(metalake, catalog),
+            ignored -> Thread.currentThread().getContextClassLoader());
   }
 
   @Test

@@ -323,7 +323,7 @@ public class LanceNamespaceAuthorizationIT extends BaseIT {
       config.store(writer, "Standalone Lance REST integration test");
     }
     Path logFile = directory.resolve("standalone.log");
-    // Use the production bootstrap in its own JVM: deploy mode has no local GravitinoEnv,
+    // Use the production bootstrap in its own JVM: deploy mode has no local server component,
     // while embedded mode must not share its backend environment with the standalone service.
     ProcessBuilder builder =
         new ProcessBuilder(

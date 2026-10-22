@@ -38,12 +38,12 @@ import org.apache.gravitino.utils.HierarchicalSchemaUtil;
  * goes away once the meta services become instances.
  *
  * <pre>{@code
- * try (LegacyStoreEnvironment env = new LegacyStoreEnvironment().withConfig(config)) {
+ * try (StoreSeedsFixture env = new StoreSeedsFixture().withConfig(config)) {
  *   ...
  * }
  * }</pre>
  */
-public final class LegacyStoreEnvironment implements AutoCloseable {
+public final class StoreSeedsFixture implements AutoCloseable {
 
   private final MetricsSystem previousMetricsSystem = RelationalStoreSeeds.metricsSystem();
   private final boolean previousCacheEnabled = RelationalStoreSeeds.cacheEnabled();
@@ -51,7 +51,7 @@ public final class LegacyStoreEnvironment implements AutoCloseable {
   private final String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
 
   /** Creates a binding that has not changed anything yet. */
-  public LegacyStoreEnvironment() {}
+  public StoreSeedsFixture() {}
 
   /**
    * Seeds the cache flag and the schema separator a server configuration sets.
@@ -60,7 +60,7 @@ public final class LegacyStoreEnvironment implements AutoCloseable {
    *     default separator)
    * @return this binding
    */
-  public LegacyStoreEnvironment withConfig(@Nullable Config config) {
+  public StoreSeedsFixture withConfig(@Nullable Config config) {
     RelationalStoreSeeds.seed(
         RelationalStoreSeeds.metricsSystem(),
         config == null || config.get(Configs.CACHE_ENABLED),
@@ -75,7 +75,7 @@ public final class LegacyStoreEnvironment implements AutoCloseable {
    * @param idGenerator the ID generator, or null to seed none
    * @return this binding
    */
-  public LegacyStoreEnvironment withIdGenerator(@Nullable IdGenerator idGenerator) {
+  public StoreSeedsFixture withIdGenerator(@Nullable IdGenerator idGenerator) {
     RelationalStoreSeeds.seed(
         RelationalStoreSeeds.metricsSystem(), RelationalStoreSeeds.cacheEnabled(), idGenerator);
     return this;
@@ -87,7 +87,7 @@ public final class LegacyStoreEnvironment implements AutoCloseable {
    * @param metricsSystem the metrics system, or null to seed none
    * @return this binding
    */
-  public LegacyStoreEnvironment withMetricsSystem(@Nullable MetricsSystem metricsSystem) {
+  public StoreSeedsFixture withMetricsSystem(@Nullable MetricsSystem metricsSystem) {
     RelationalStoreSeeds.seed(
         metricsSystem, RelationalStoreSeeds.cacheEnabled(), RelationalStoreSeeds.idGenerator());
     return this;

@@ -515,7 +515,11 @@ public class BulkOperations {
       AuthorizationUtils.checkDuplicatedNamePrivilege(privileges);
       try {
         for (Privilege privilege : object.privileges()) {
-          AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilege, object, metalake);
+          AuthorizationUtils.checkPrivilege(
+              objectDispatchers.internalCatalogDispatcher(),
+              (PrivilegeDTO) privilege,
+              object,
+              metalake);
         }
         MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
       } catch (NoSuchMetadataObjectException nsm) {

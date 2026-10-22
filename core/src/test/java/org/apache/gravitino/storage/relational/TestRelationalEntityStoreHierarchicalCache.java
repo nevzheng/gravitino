@@ -69,7 +69,7 @@ public class TestRelationalEntityStoreHierarchicalCache {
 
   private RelationalEntityStore store;
   private String dbPath;
-  private final LegacyStoreEnvironment legacyEnvironment = new LegacyStoreEnvironment();
+  private final StoreSeedsFixture storeSeeds = new StoreSeedsFixture();
 
   @AfterEach
   void tearDown() throws Exception {
@@ -81,13 +81,13 @@ public class TestRelationalEntityStoreHierarchicalCache {
       FileUtils.deleteQuietly(new File(dbPath));
       dbPath = null;
     }
-    legacyEnvironment.close();
+    storeSeeds.close();
   }
 
   @Test
   void testChangeLogMetricsRegistrationAndUnregistration() throws Exception {
     MetricsSystem metricsSystem = new MetricsSystem();
-    legacyEnvironment.withMetricsSystem(metricsSystem);
+    storeSeeds.withMetricsSystem(metricsSystem);
     initStore(":");
 
     MetricsSource source = metricsSystem.getMetricsSource("entity-change-log");
@@ -104,7 +104,7 @@ public class TestRelationalEntityStoreHierarchicalCache {
 
   @Test
   void testChangeLogMetricsWithoutMetricsSystem() throws Exception {
-    legacyEnvironment.withMetricsSystem(null);
+    storeSeeds.withMetricsSystem(null);
     initStore(":");
 
     Assertions.assertNotNull(FieldUtils.readField(store, "changeLogMetrics", true));
@@ -214,7 +214,7 @@ public class TestRelationalEntityStoreHierarchicalCache {
     Mockito.when(config.get(Configs.CACHE_LOCK_SEGMENTS)).thenReturn(16);
     Mockito.when(config.get(Configs.SCHEMA_SEPARATOR)).thenReturn(separator);
 
-    legacyEnvironment.withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
+    storeSeeds.withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
     Assertions.assertEquals(separator, HierarchicalSchemaUtil.schemaSeparator());
 
     store = new RelationalEntityStore();

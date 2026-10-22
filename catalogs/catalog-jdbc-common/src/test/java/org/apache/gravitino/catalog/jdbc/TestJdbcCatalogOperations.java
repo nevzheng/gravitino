@@ -107,7 +107,7 @@ public class TestJdbcCatalogOperations {
     catalogOperations.initialize(Collections.emptyMap(), null, null, context);
     catalogOperations.close();
 
-    // close() unregisters from the context's metrics system, not GravitinoEnv's.
+    // close() unregisters from the context's metrics system.
     Assertions.assertEquals(List.of("initialize", "unregister"), calls);
   }
 

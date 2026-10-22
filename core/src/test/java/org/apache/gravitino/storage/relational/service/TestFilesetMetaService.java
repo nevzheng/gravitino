@@ -58,7 +58,7 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.SchemaEntity;
 import org.apache.gravitino.storage.RandomIdGenerator;
-import org.apache.gravitino.storage.relational.LegacyStoreEnvironment;
+import org.apache.gravitino.storage.relational.StoreSeedsFixture;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.storage.relational.mapper.FilesetMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.FilesetVersionMapper;
@@ -80,14 +80,14 @@ public class TestFilesetMetaService extends TestJDBCBackend {
   private final String catalogName = GravitinoITUtils.genRandomName("tst_fs_catalog");
   private final String schemaName = GravitinoITUtils.genRandomName("tst_fs_schema");
 
-  // The fileset meta service reads the cache flag through GravitinoEnv.
-  private final LegacyStoreEnvironment legacyEnvironment = new LegacyStoreEnvironment();
+  // The fileset meta service reads the cache flag from the store seeds.
+  private final StoreSeedsFixture storeSeeds = new StoreSeedsFixture();
 
   @BeforeEach
   public void prepare() throws IOException {
     Config config = Mockito.mock(Config.class);
     Mockito.when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
-    legacyEnvironment.withConfig(config);
+    storeSeeds.withConfig(config);
     createAndInsertMakeLake(metalakeName);
     createAndInsertCatalog(metalakeName, catalogName);
     createAndInsertSchema(metalakeName, catalogName, schemaName);
@@ -95,7 +95,7 @@ public class TestFilesetMetaService extends TestJDBCBackend {
 
   @AfterEach
   public void restoreEnvironment() {
-    legacyEnvironment.close();
+    storeSeeds.close();
   }
 
   @TestTemplate

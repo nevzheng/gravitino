@@ -38,7 +38,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.cache.NoOpsCache;
 import org.apache.gravitino.connector.job.JobExecutionInfo;
 import org.apache.gravitino.connector.job.JobExecutor;
@@ -102,7 +101,6 @@ public class TestJobManagerMultiNode extends TestJDBCBackend {
     // Both nodes share the same staging directory, like a deployment on shared storage.
     Config config = newConfig(new File(testDir, "staging"));
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     // Both nodes share the same metadata store, backed by the relational backend under test.
     RelationalEntityStore relationalEntityStore = new RelationalEntityStore();

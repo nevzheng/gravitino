@@ -65,7 +65,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -85,6 +84,7 @@ import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
 import org.apache.kafka.common.KafkaFuture;
@@ -223,7 +223,8 @@ public class TestKafkaCatalogOperations extends KafkaClusterEmbedded {
             .build();
     store.put(kafkaCatalogEntity, false);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    // The meta services route their reads by the cache flag the store was seeded with.
+    RelationalStoreSeeds.seed(config, null, null);
 
     kafkaCatalogOperations = new KafkaCatalogOperations(store, idGenerator);
     kafkaCatalogOperations.initialize(
@@ -232,6 +233,7 @@ public class TestKafkaCatalogOperations extends KafkaClusterEmbedded {
 
   @AfterAll
   public static void tearDown() throws IOException {
+    RelationalStoreSeeds.reset();
     if (store != null) {
       store.close();
       FileUtils.deleteQuietly(FileUtils.getFile(H2_FILE));

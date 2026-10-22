@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Optional;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -41,7 +40,7 @@ import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CapabilityHelpers;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.ModelDispatcher;
 import org.apache.gravitino.catalog.ModelNormalizeDispatcher;
 import org.apache.gravitino.connector.capability.Capability;
@@ -71,9 +70,9 @@ public class TestJcasbinModelCacheInvalidation {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void testModelMutationInvalidatesModel(boolean rename) throws Exception {
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    CatalogManager catalogManager = mock(CatalogManager.class);
-    when(env.catalogManager()).thenReturn(catalogManager);
+    AuthorizationServices services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
+    CatalogAccess catalogManager = mock(CatalogAccess.class);
+    when(services.catalogAccess()).thenReturn(catalogManager);
     ModelDispatcher delegate = mock(ModelDispatcher.class);
     NameIdentifier normalizedIdent = NameIdentifier.of(METALAKE, "cat1", "sch1", "model1");
     when(delegate.deleteModel(normalizedIdent)).thenReturn(true);
@@ -85,10 +84,8 @@ public class TestJcasbinModelCacheInvalidation {
             new CaffeineGravitinoCache<>(60_000L, 100L);
         CaffeineGravitinoCache<Long, Optional<OwnerInfo>> ownerRelCache =
             new CaffeineGravitinoCache<>(60_000L, 100L);
-        MockedStatic<GravitinoEnv> environment = mockStatic(GravitinoEnv.class);
         MockedStatic<CapabilityHelpers> capabilities =
             mockStatic(CapabilityHelpers.class, CALLS_REAL_METHODS)) {
-      environment.when(GravitinoEnv::getInstance).thenReturn(env);
       capabilities
           .when(() -> CapabilityHelpers.getCapability(any(), eq(catalogManager)))
           .thenReturn(Capability.DEFAULT);
@@ -100,9 +97,7 @@ public class TestJcasbinModelCacheInvalidation {
       // Use the real JCasbin hook and shared caches without starting its background poller.
       JcasbinAuthorizer authorizer = mock(JcasbinAuthorizer.class, CALLS_REAL_METHODS);
       FieldUtils.writeField(authorizer, "metadataIdCache", metadataIdCache, true);
-      AuthorizationServices services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
-      doReturn(catalogManager).when(services).catalogAccess();
-      doReturn(authorizer).when(services).gravitinoAuthorizer();
+      when(services.gravitinoAuthorizer()).thenReturn(authorizer);
       JcasbinAuthorizationLookups lookups =
           new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, resolver);
       Assertions.assertEquals(

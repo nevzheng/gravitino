@@ -79,7 +79,7 @@ public class TestRelationalEntityStoreLockWaitTimeout {
 
   private RelationalEntityStore store;
   private String dbPath;
-  private LegacyStoreEnvironment legacyEnvironment;
+  private StoreSeedsFixture storeSeeds;
 
   @AfterEach
   void tearDown() throws Exception {
@@ -88,7 +88,7 @@ public class TestRelationalEntityStoreLockWaitTimeout {
       try {
         store.close();
       } finally {
-        legacyEnvironment.close();
+        storeSeeds.close();
         FileUtils.deleteDirectory(new File(dbPath));
         dbPath = null;
       }
@@ -453,8 +453,8 @@ public class TestRelationalEntityStoreLockWaitTimeout {
     Mockito.when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
     Mockito.when(config.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
 
-    legacyEnvironment =
-        new LegacyStoreEnvironment().withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
+    storeSeeds =
+        new StoreSeedsFixture().withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
 
     store = new RelationalEntityStore();
     store.initialize(config);

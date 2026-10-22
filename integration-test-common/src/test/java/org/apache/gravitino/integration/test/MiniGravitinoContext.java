@@ -20,6 +20,8 @@
 package org.apache.gravitino.integration.test;
 
 import java.util.Map;
+import java.util.function.Consumer;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.server.GravitinoServer;
 
 public class MiniGravitinoContext {
@@ -37,16 +39,18 @@ public class MiniGravitinoContext {
   public interface ServerLauncher {
 
     /**
-     * Starts the server.
+     * Starts the server and serves requests until it stops.
      *
      * @param args The arguments to start the server with, the configuration file path.
+     * @param onStarted Receives the component of the server once it has started, which is how an
+     *     embedded test reaches the server's services.
      * @throws Exception If the server fails to start.
      */
-    void launch(String[] args) throws Exception;
+    void launch(String[] args, Consumer<GravitinoComponent> onStarted) throws Exception;
   }
 
   /** Starts the open source {@link GravitinoServer}, which is what most callers want. */
-  public static final ServerLauncher DEFAULT_SERVER_LAUNCHER = GravitinoServer::main;
+  public static final ServerLauncher DEFAULT_SERVER_LAUNCHER = GravitinoServer::run;
 
   Map<String, String> customConfig;
   final boolean ignoreIcebergAuxRestService;

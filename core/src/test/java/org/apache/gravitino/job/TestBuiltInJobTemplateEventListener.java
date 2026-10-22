@@ -42,11 +42,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.function.Consumer;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.exceptions.JobTemplateAlreadyExistsException;
 import org.apache.gravitino.listener.api.event.CreateMetalakeEvent;
@@ -90,7 +88,6 @@ public class TestBuiltInJobTemplateEventListener {
     entityStore.initialize(config);
 
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     idGenerator = new RandomIdGenerator();
 
     jobManager = mock(JobManager.class);

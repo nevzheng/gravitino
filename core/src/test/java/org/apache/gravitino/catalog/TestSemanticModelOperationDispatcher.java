@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.catalog;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.apache.gravitino.semantic.CustomExtension.GRAVITINO_PROPERTIES_VENDOR;
 import static org.apache.gravitino.semantic.OssieVersion.DEFAULT_VERSION;
 import static org.apache.gravitino.semantic.SemanticModel.PROPERTY_OSSIE_VERSION;
@@ -30,7 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,10 +34,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -50,7 +43,6 @@ import org.apache.gravitino.exceptions.IllegalSemanticModelException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
 import org.apache.gravitino.exceptions.NoSuchSemanticModelException;
 import org.apache.gravitino.exceptions.SemanticModelAlreadyExistsException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.semantic.CustomExtension;
 import org.apache.gravitino.semantic.Dataset;
@@ -62,7 +54,6 @@ import org.apache.gravitino.semantic.SemanticModelChange;
 import org.apache.gravitino.semantic.SemanticModelDefinition;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.memory.TestMemoryEntityStore.InMemoryEntityStore;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -82,15 +73,6 @@ public class TestSemanticModelOperationDispatcher {
   private SchemaDispatcher schemaDispatcher;
   private InMemoryEntityStore store;
   private SemanticModelOperationDispatcher dispatcher;
-
-  @BeforeAll
-  public static void initializeLockManager() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-  }
 
   @BeforeEach
   public void setUp() throws Exception {
