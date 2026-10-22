@@ -23,8 +23,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.util.Collections;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,9 +37,24 @@ public class TestGravitinoComponent {
   private Config config;
   private GravitinoComponent component;
 
+  /**
+   * Returns a configuration under which every object the component owns can be built against fake
+   * leaves.
+   *
+   * @return the configuration
+   */
+  static Config testConfig() {
+    Config config = new Config(false) {};
+    config.set(
+        Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS,
+        MemoryPartitionStatsStorageFactory.class.getCanonicalName());
+    config.set(Configs.SERVICE_ADMINS, Collections.singletonList("admin"));
+    return config;
+  }
+
   @BeforeEach
   public void setUp() {
-    config = new Config(false) {};
+    config = testConfig();
     component = DaggerGravitinoComponent.factory().create(config);
   }
 

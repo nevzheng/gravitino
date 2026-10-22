@@ -22,7 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
+import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +61,8 @@ public class TestGravitinoEnvComponent {
       assertSame(env.kmsClientRegistry(), component.kmsClientRegistry());
       assertSame(env.eventListenerManager(), component.eventListenerManager());
       assertSame(env.eventBus(), component.eventBus());
+      // Nor an entity store.
+      assertThrows(IllegalArgumentException.class, env::entityStore);
     } finally {
       env.shutdown();
     }
@@ -74,6 +81,47 @@ public class TestGravitinoEnvComponent {
       assertNotSame(first, env.component());
       assertNotSame(first.metricsSystem(), env.metricsSystem());
       assertSame(env.component().metricsSystem(), env.metricsSystem());
+    } finally {
+      env.shutdown();
+    }
+  }
+
+  @Test
+  public void testAuthorizerIsNeverNull() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    assertSame(NoopGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
+    try {
+      env.initializeBaseComponents(new Config(false) {});
+      assertSame(NoopGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
+
+      // The server installs its authorizer after the component is built.
+      GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
+      env.setGravitinoAuthorizer(installed);
+      assertSame(installed, env.gravitinoAuthorizer());
+
+      env.setGravitinoAuthorizer(null);
+      assertSame(NoopGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
+    } finally {
+      env.shutdown();
+    }
+  }
+
+  @Test
+  public void testAuthorizerFailsClosedWhenAuthorizationIsEnabledAndNoneIsInstalled() {
+    TestGravitinoEnv env = new TestGravitinoEnv();
+    Config config = new Config(false) {};
+    config.set(Configs.ENABLE_AUTHORIZATION, true);
+    try {
+      env.initializeBaseComponents(config);
+      assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
+
+      GravitinoAuthorizer installed = mock(GravitinoAuthorizer.class);
+      env.setGravitinoAuthorizer(installed);
+      assertSame(installed, env.gravitinoAuthorizer());
+
+      // The server takes its authorizer back while it shuts down.
+      env.setGravitinoAuthorizer(null);
+      assertSame(DenyAllGravitinoAuthorizer.INSTANCE, env.gravitinoAuthorizer());
     } finally {
       env.shutdown();
     }

@@ -215,12 +215,45 @@ class TestGravitinoEnvMetadataComponents {
 
       assertNotNull(env.internalAccessControlDispatcher());
       assertNotNull(env.internalOwnerDispatcher());
+      assertSame(env.component().internalOwnerDispatcher(), env.internalOwnerDispatcher());
+      assertSame(
+          env.component().internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
       assertNotNull(env.bulkManager());
+      assertSame(env.component().bulkManager(), env.bulkManager());
       assertNotNull(env.futureGrantManager());
+      assertSame(env.component().futureGrantManager(), env.futureGrantManager());
       assertNull(env.accessControlDispatcher());
       assertNull(env.ownerDispatcher());
     } finally {
       env.shutdown();
+    }
+
+    verify(entityStore).close();
+  }
+
+  @Test
+  void testFullProfileTakesAuthorizationComponentsFromTheComponent() throws Exception {
+    Config config = metadataConfig(true);
+    EntityStore entityStore = relationStore();
+
+    try (MockedStatic<EntityStoreFactory> entityStoreFactory =
+        mockStatic(EntityStoreFactory.class)) {
+      entityStoreFactory
+          .when(() -> EntityStoreFactory.createEntityStore(config))
+          .thenReturn(entityStore);
+
+      singleton.initializeFullComponents(config);
+      GravitinoComponent component = singleton.component();
+
+      assertSame(component.accessControlDispatcher(), singleton.accessControlDispatcher());
+      assertSame(
+          component.internalAccessControlDispatcher(), singleton.internalAccessControlDispatcher());
+      assertSame(component.ownerDispatcher(), singleton.ownerDispatcher());
+      assertSame(component.internalOwnerDispatcher(), singleton.internalOwnerDispatcher());
+      assertSame(component.bulkManager(), singleton.bulkManager());
+      assertSame(component.futureGrantManager(), singleton.futureGrantManager());
+    } finally {
+      singleton.shutdown();
     }
 
     verify(entityStore).close();
@@ -331,7 +364,13 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
+      assertSame(component.internalCatalogDispatcher(), singleton.internalCatalogDispatcher());
+      assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
+      assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
+      assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
       assertSame(entityStore, component.entityStore());
+      assertSame(singleton.catalogManager(), component.catalogManager());
       assertSame(singleton.secretManager(), component.secretManager());
     } finally {
       singleton.shutdown();
@@ -359,16 +398,39 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.tagDispatcher(), singleton.tagDispatcher());
+      assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
+      assertSame(component.policyDispatcher(), singleton.policyDispatcher());
+      assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
+      assertSame(component.statisticDispatcher(), singleton.statisticDispatcher());
+      assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
+      // Authorization is disabled, so the environment never asked for the owner chains.
+      assertNull(singleton.ownerDispatcher());
+      assertNull(singleton.internalOwnerDispatcher());
 
-      // Leaves built by the component, held by the environment.
       assertSame(entityStore, component.entityStore());
       assertSame(singleton.entityStore(), component.entityStore());
+      assertSame(singleton.kmsClientRegistry(), component.kmsClientRegistry());
       assertSame(singleton.secretManager(), component.secretManager());
+      assertSame(singleton.eventListenerManager(), component.eventListenerManager());
       assertSame(singleton.eventBus(), component.eventBus());
+      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(component.metalakeDispatcher(), singleton.metalakeDispatcher());
+      assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
+      assertSame(component.catalogDispatcher(), singleton.catalogDispatcher());
+      assertSame(component.internalCatalogDispatcher(), singleton.internalCatalogDispatcher());
+      assertSame(
+          component.credentialOperationDispatcher(), singleton.credentialOperationDispatcher());
+      assertSame(
+          component.secretPropertyOperationDispatcher(),
+          singleton.secretPropertyOperationDispatcher());
+      // The other chains and the auxiliary service manager are still built by the environment.
+      assertNotNull(singleton.auxServiceManager());
     } finally {
       singleton.shutdown();
     }
 
+    verify(entityStore).initialize(config);
     verify(entityStore).close();
   }
 

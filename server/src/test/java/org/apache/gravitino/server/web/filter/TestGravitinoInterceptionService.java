@@ -57,6 +57,7 @@ import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -402,6 +403,8 @@ public class TestGravitinoInterceptionService {
 
       // Mock GravitinoEnv and EntityStore
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
+      // No authorizer is installed on this environment.
+      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
       EntityStore mockStore = mock(EntityStore.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.entityStore()).thenReturn(mockStore);
@@ -493,6 +496,8 @@ public class TestGravitinoInterceptionService {
           .thenReturn(Collections.singleton("ghostRole"));
 
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
+      // No authorizer is installed on this environment.
+      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
       EntityStore mockStore = mock(EntityStore.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.entityStore()).thenReturn(mockStore);
@@ -726,6 +731,8 @@ public class TestGravitinoInterceptionService {
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(new MockGravitinoAuthorizer());
 
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
+      // No authorizer is installed on this environment.
+      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
       EntityStore mockStore = mock(EntityStore.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.entityStore()).thenReturn(mockStore);
@@ -856,6 +863,8 @@ public class TestGravitinoInterceptionService {
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(new MockGravitinoAuthorizer());
 
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
+      // No authorizer is installed on this environment.
+      when(mockEnv.gravitinoAuthorizer()).thenReturn(NoopGravitinoAuthorizer.INSTANCE);
       EntityStore mockStore = mock(EntityStore.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);

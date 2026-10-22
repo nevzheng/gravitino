@@ -21,17 +21,15 @@ package org.apache.gravitino;
 import com.google.common.base.Preconditions;
 import javax.annotation.Nullable;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
-import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.DenyAllGravitinoAuthorizer;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
-import org.apache.gravitino.authorization.OwnerEventManager;
-import org.apache.gravitino.authorization.OwnerManager;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
-import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
@@ -63,58 +61,43 @@ import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
-import org.apache.gravitino.hook.AccessControlHookDispatcher;
-import org.apache.gravitino.hook.CatalogHookDispatcher;
 import org.apache.gravitino.hook.FilesetHookDispatcher;
 import org.apache.gravitino.hook.FunctionHookDispatcher;
 import org.apache.gravitino.hook.JobHookDispatcher;
-import org.apache.gravitino.hook.MetalakeHookDispatcher;
 import org.apache.gravitino.hook.ModelHookDispatcher;
-import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.SchemaHookDispatcher;
 import org.apache.gravitino.hook.SemanticModelHookDispatcher;
 import org.apache.gravitino.hook.TableHookDispatcher;
-import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.hook.TopicHookDispatcher;
 import org.apache.gravitino.hook.ViewHookDispatcher;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
-import org.apache.gravitino.listener.AccessControlEventDispatcher;
-import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.listener.FilesetEventDispatcher;
 import org.apache.gravitino.listener.FunctionEventDispatcher;
 import org.apache.gravitino.listener.JobEventDispatcher;
-import org.apache.gravitino.listener.MetalakeEventDispatcher;
 import org.apache.gravitino.listener.ModelEventDispatcher;
 import org.apache.gravitino.listener.PartitionEventDispatcher;
-import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.SchemaEventDispatcher;
 import org.apache.gravitino.listener.SemanticModelEventDispatcher;
-import org.apache.gravitino.listener.StatisticEventDispatcher;
 import org.apache.gravitino.listener.TableEventDispatcher;
-import org.apache.gravitino.listener.TagEventDispatcher;
 import org.apache.gravitino.listener.TopicEventDispatcher;
 import org.apache.gravitino.listener.ViewEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metalake.MetalakeManager;
-import org.apache.gravitino.metalake.MetalakeNormalizeDispatcher;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretPropertyUtils;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.stats.StatisticDispatcher;
-import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
-import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.utils.FileFetcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -123,8 +106,9 @@ import org.slf4j.LoggerFactory;
  * This class manages the Apache Gravitino environment.
  *
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
- * every initialization and takes the objects the component owns from it; everything else is still
- * built here.
+ * every initialization and takes the objects the component owns from it: the leaves, the catalog
+ * and metalake managers and chains, the governance chains and the access-control components.
+ * Everything else is still built here.
  */
 public class GravitinoEnv {
 
@@ -292,8 +276,10 @@ public class GravitinoEnv {
   /**
    * Get the dependency-injection component built by the last initialization.
    *
-   * <p>The component owns the configuration, the id generator, the metrics system and the lock
-   * manager; this environment returns the same instances from its own getters.
+   * <p>The component owns the leaves (configuration, id generator, metrics system, lock manager,
+   * stores and event objects), the catalog and metalake managers and chains, the tag, policy, owner
+   * and statistic chains, and the access-control components; this environment returns the same
+   * instances from its own getters.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -764,21 +750,35 @@ public class GravitinoEnv {
   }
 
   /**
-   * Set GravitinoAuthorizer to GravitinoEnv
+   * Installs the GravitinoAuthorizer. The server installs its authorizer after the environment is
+   * initialized.
    *
-   * @param gravitinoAuthorizer the GravitinoAuthorizer instance
+   * @param gravitinoAuthorizer the GravitinoAuthorizer instance, or null to uninstall it
    */
-  public void setGravitinoAuthorizer(GravitinoAuthorizer gravitinoAuthorizer) {
+  public void setGravitinoAuthorizer(@Nullable GravitinoAuthorizer gravitinoAuthorizer) {
     this.gravitinoAuthorizer = gravitinoAuthorizer;
   }
 
   /**
-   * Get The GravitinoAuthorizer
+   * Get the GravitinoAuthorizer.
    *
-   * @return the GravitinoAuthorizer instance
+   * <p>When none is installed, it fails closed if authorization is enabled: the server installs its
+   * authorizer after the environment is initialized and takes it back while it shuts down, and a
+   * request that runs in between must not be allowed.
+   *
+   * @return the installed GravitinoAuthorizer; when none is installed, {@link
+   *     DenyAllGravitinoAuthorizer#INSTANCE} if authorization is enabled, and {@link
+   *     NoopGravitinoAuthorizer#INSTANCE} otherwise; never null
    */
   public GravitinoAuthorizer gravitinoAuthorizer() {
-    return gravitinoAuthorizer;
+    GravitinoAuthorizer installed = gravitinoAuthorizer;
+    if (installed != null) {
+      return installed;
+    }
+    Config current = config;
+    return current != null && current.get(Configs.ENABLE_AUTHORIZATION)
+        ? DenyAllGravitinoAuthorizer.INSTANCE
+        : NoopGravitinoAuthorizer.INSTANCE;
   }
 
   /**
@@ -925,16 +925,12 @@ public class GravitinoEnv {
   private MetadataOperations initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager =
-        new MetalakeManager(entityStore, idGenerator, catalogManager, lockManager);
-    this.internalMetalakeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
-    this.internalCatalogDispatcher = new CatalogNormalizeDispatcher(catalogManager);
+    this.metalakeManager = component.metalakeManager();
+    this.internalMetalakeDispatcher = component.internalMetalakeDispatcher();
+    this.internalCatalogDispatcher = component.internalCatalogDispatcher();
 
-    this.credentialOperationDispatcher =
-        new CredentialOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
-    this.secretPropertyOperationDispatcher =
-        new SecretPropertyOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager);
+    this.credentialOperationDispatcher = component.credentialOperationDispatcher();
+    this.secretPropertyOperationDispatcher = component.secretPropertyOperationDispatcher();
 
     // Fileset dispatcher is created before schema dispatcher so schema can take it directly.
     FilesetOperationDispatcher filesetOperationDispatcher = initInternalFilesetDispatcher();
@@ -948,12 +944,11 @@ public class GravitinoEnv {
     initInternalViewDispatcher();
     initSemanticModelDispatcher(schemaOperationDispatcher);
 
-    this.internalStatisticDispatcher =
-        new StatisticManager(entityStore, idGenerator, config, lockManager);
+    this.internalStatisticDispatcher = component.internalStatisticDispatcher();
     initInternalAuthorizationComponents();
 
-    this.internalTagDispatcher = new TagManager(idGenerator, entityStore);
-    this.internalPolicyDispatcher = new PolicyManager(idGenerator, entityStore);
+    this.internalTagDispatcher = component.internalTagDispatcher();
+    this.internalPolicyDispatcher = component.internalPolicyDispatcher();
 
     return new MetadataOperations(
         filesetOperationDispatcher,
@@ -1062,11 +1057,10 @@ public class GravitinoEnv {
 
   private void initInternalAuthorizationComponents() {
     if (config.get(Configs.ENABLE_AUTHORIZATION)) {
-      this.internalAccessControlDispatcher =
-          new AccessControlManager(entityStore, idGenerator, config, lockManager);
-      this.internalOwnerDispatcher = new OwnerManager(entityStore);
-      this.bulkManager = new BulkManager(config);
-      this.futureGrantManager = new FutureGrantManager(entityStore, internalOwnerDispatcher);
+      this.internalAccessControlDispatcher = component.internalAccessControlDispatcher();
+      this.internalOwnerDispatcher = component.internalOwnerDispatcher();
+      this.bulkManager = component.bulkManager();
+      this.futureGrantManager = component.futureGrantManager();
     } else {
       this.internalAccessControlDispatcher = null;
       this.internalOwnerDispatcher = null;
@@ -1085,9 +1079,7 @@ public class GravitinoEnv {
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
-    this.catalogManager =
-        new CatalogManager(
-            config, entityStore, idGenerator, secretManager, lockManager, metricsSystem);
+    this.catalogManager = component.catalogManager();
   }
 
   private void initGravitinoServerComponents() {
@@ -1112,20 +1104,8 @@ public class GravitinoEnv {
   }
 
   private void initPublicMetadataDispatchers(MetadataOperations metadataOperations) {
-    // Create and initialize metalake related modules, the operation chain is:
-    // MetalakeEventDispatcher -> MetalakeNormalizeDispatcher -> MetalakeHookDispatcher ->
-    // MetalakeManager
-    MetalakeHookDispatcher metalakeHookDispatcher = new MetalakeHookDispatcher(metalakeManager);
-    MetalakeNormalizeDispatcher metalakeNormalizeDispatcher =
-        new MetalakeNormalizeDispatcher(metalakeHookDispatcher);
-    this.metalakeDispatcher = new MetalakeEventDispatcher(eventBus, metalakeNormalizeDispatcher);
-
-    // CatalogEventDispatcher -> CatalogNormalizeDispatcher -> CatalogHookDispatcher ->
-    // CatalogManager
-    CatalogHookDispatcher catalogHookDispatcher = new CatalogHookDispatcher(catalogManager);
-    CatalogNormalizeDispatcher catalogNormalizeDispatcher =
-        new CatalogNormalizeDispatcher(catalogHookDispatcher);
-    this.catalogDispatcher = new CatalogEventDispatcher(eventBus, catalogNormalizeDispatcher);
+    this.metalakeDispatcher = component.metalakeDispatcher();
+    this.catalogDispatcher = component.catalogDispatcher();
 
     FilesetHookDispatcher filesetHookDispatcher =
         new FilesetHookDispatcher(metadataOperations.filesetOperationDispatcher);
@@ -1201,26 +1181,19 @@ public class GravitinoEnv {
     this.semanticModelDispatcher =
         new SemanticModelEventDispatcher(eventBus, semanticModelNormalizeDispatcher);
 
-    this.statisticDispatcher = new StatisticEventDispatcher(eventBus, internalStatisticDispatcher);
+    this.statisticDispatcher = component.statisticDispatcher();
 
     // Create and initialize access control related modules
     if (internalAccessControlDispatcher != null) {
-      AccessControlHookDispatcher accessControlHookDispatcher =
-          new AccessControlHookDispatcher(internalAccessControlDispatcher);
-      this.accessControlDispatcher =
-          new AccessControlEventDispatcher(eventBus, accessControlHookDispatcher);
-      this.ownerDispatcher = new OwnerEventManager(eventBus, internalOwnerDispatcher);
+      this.accessControlDispatcher = component.accessControlDispatcher();
+      this.ownerDispatcher = component.ownerDispatcher();
     } else {
       this.accessControlDispatcher = null;
       this.ownerDispatcher = null;
     }
 
-    // Create and initialize Tag related modules
-    TagHookDispatcher tagHookDispatcher = new TagHookDispatcher(internalTagDispatcher);
-    this.tagDispatcher = new TagEventDispatcher(eventBus, tagHookDispatcher);
-
-    PolicyHookDispatcher policyHookDispatcher = new PolicyHookDispatcher(internalPolicyDispatcher);
-    this.policyDispatcher = new PolicyEventDispatcher(eventBus, policyHookDispatcher);
+    this.tagDispatcher = component.tagDispatcher();
+    this.policyDispatcher = component.policyDispatcher();
   }
 
   private static final class MetadataOperations {
