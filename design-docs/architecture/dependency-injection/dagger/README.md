@@ -1461,7 +1461,7 @@ Appendix H compares the options. The reasons that decide it:
 - **Native images.** Because the graph needs no reflection, it needs no reflection configuration
   for GraalVM `native-image`. Gravitino does not build native images, and this was not tested.
 
-### K.5 Graph shape
+### K.5 Graph shape and proposed construction
 
 The dependency graph is a directed acyclic graph checked at compile time. A cycle is a build
 error unless one edge is a `Provider` (or `Lazy`); the three real cycles take a `Provider` and are
@@ -1520,25 +1520,93 @@ flowchart LR
   BUS --> PUB
 ```
 
-The principle: keep subgraphs as subgraphs. One component that every process and every lifetime
-shares rebuilds `GravitinoEnv` with a code generator. Split by lifetime (process, catalog with its
-own class loader, request) and by deployable (server, standalone REST servers), and share the trunk
-only through an explicit seam: a component dependency or a context seeded with `@BindsInstance`
-(C.9), or a subcomponent for a shorter lifetime inside the server.
+#### K.5.1 Rules of thumb
 
-Candidate splits, from the code at the tip. None is done:
+- **Split by lifetime.** Process-wide objects, objects that live as long as one loaded catalog
+  (each with its own class loader), and per-request objects belong to different graphs.
+- **Split by deployable.** The server, the standalone Iceberg REST server, the standalone Lance
+  REST server and each test build only what they run.
+- **Share the trunk only by explicit export.** A graph reaches another graph's objects through a
+  component dependency (only the provision methods it exports) or as a subcomponent (a shorter
+  lifetime inside the same deployable), never through a static.
+- **No god component.** One component that every process and every lifetime shares is
+  `GravitinoEnv` rebuilt with a code generator.
 
-- **Profile components** (D.5, row 7). The standalone Iceberg and Lance servers build only the base
-  profile, but compile against a graph that also holds the server's chains. A base component and a
-  full component built from shared module groups would let Dagger check each one.
-- **REST service components** (D.5, row 8). `RESTService` and `LanceRESTService` build their
-  dispatchers by hand from `AuxiliaryContext`. Each can become a component seeded with that
-  context, a separate graph from the server's.
-- **Per-catalog graph.** `CatalogManager` builds each catalog with its own class loader and
-  `CatalogContext` by hand. A per-catalog subcomponent on the host side could build the context
-  and wrapper; the plugin itself still sees only the plain context (Q2, item 3). Appendix I keeps
-  subcomponents until after plan PR 17.
-- **Per request.** Stays with HK2 (Q2, item 7).
+#### K.5.2 Proposed construction
+
+This is a proposal. Today there is one production component with three profiles (the diagram
+above); the rows marked "proposed" do not exist.
+
+```mermaid
+flowchart TB
+  CFG["Config"] --> BASE["BaseComponent, trunk"]
+  BASE -->|"component dependency"| SRV["ServerComponent"]
+  BASE -->|"component dependency"| ICE["IcebergRESTComponent"]
+  BASE -->|"component dependency"| LAN["LanceRESTComponent"]
+  SRV -->|"AuxiliaryContext, seeded"| ICE
+  SRV -->|"AuxiliaryContext, seeded"| LAN
+  SRV -->|subcomponent| CAT["CatalogSubcomponent, one per loaded catalog"]
+  CAT --> PLUG["plugin sees CatalogContext only"]
+  SRV --> HK["GravitinoComponentBinder"]
+  HK --> REQ["HK2, per request"]
+  SRV -.->|extends| DOWN["downstream component"]
+  TEST["test components"] -.->|"subset of modules or fakes"| SRV
+```
+
+| Component               | Lifetime                     | Entry point                                    | Depends on                                           | Status                                                                                   |
+| ----------------------- | ---------------------------- | ---------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `GravitinoComponent`    | Process                      | Server (full), Iceberg and Lance REST (base)   | `Config`                                             | Exists today; split into the rows below                                                  |
+| `BaseComponent` (trunk) | Process                      | Every process                                  | `Config`                                             | Proposed; today `ConfigModule`, `StorageModule`'s KMS and secret bindings, `EventModule` |
+| `ServerComponent`       | Process                      | `GravitinoServer`                              | `BaseComponent`                                      | Proposed; today the full profile                                                         |
+| `IcebergRESTComponent`  | Process or auxiliary service | `GravitinoIcebergRESTServer`, `RESTService`    | `BaseComponent`, or `AuxiliaryContext` in the server | Proposed (D.5, row 8); today wired by hand in `RESTService`                              |
+| `LanceRESTComponent`    | Process or auxiliary service | `GravitinoLanceRESTServer`, `LanceRESTService` | `BaseComponent`, or `AuxiliaryContext` in the server | Proposed (D.5, row 8); today wired by hand                                               |
+| `CatalogSubcomponent`   | One loaded catalog           | `CatalogManager` cache load                    | `ServerComponent`                                    | Proposed; today `CatalogManager` builds each wrapper by hand                             |
+| HK2 request scope       | Request                      | Jersey                                         | `GravitinoComponentBinder`                           | Exists today; stays (Q2, item 7)                                                         |
+| Test components         | Test                         | Each test                                      | A subset of the modules, or fakes                    | Exist today (six)                                                                        |
+| Downstream components   | Process                      | Downstream server                              | Extend the server component                          | Exist today, extending `GravitinoComponent`                                              |
+
+The trunk is what every entry point builds today: `Config`, `MetricsSystem`, `KmsClientRegistry`,
+`SecretManager`, `EventListenerManager`, `EventBus` and `AuditLogManager` (the base profile).
+`EntityStore`, `IdGenerator`, `LockManager`, `CatalogManager` and the chains are server bindings;
+the metadata profile becomes a module group of the server component, or its own component if a
+caller outside tests needs it.
+
+Notes on the rows that need care:
+
+- **REST service components** take the trunk through an interface, not a concrete component:
+  `AuxiliaryContext` already has a standalone form and a server form (C.8), so one component works
+  in both deployables.
+- **Per-catalog subcomponent.** `CatalogManager` keeps loaded catalogs in a Caffeine cache, builds
+  each `CatalogWrapper` with an `IsolatedClassLoader`, and hands every catalog the same
+  `CatalogContext`. A subcomponent created on cache load and closed on eviction fits that
+  lifetime. Two cautions from the code: class loaders can come from a shared `ClassLoaderPool`, so
+  the loader may outlive one catalog, and the plugin must still see only plain context types
+  (Q2, item 3). Appendix I keeps subcomponents until after plan PR 17.
+- **Component dependency, not inheritance, for the trunk.** A dependent component sees only the
+  trunk's provision methods, which is the explicit export the rules ask for. Downstream builds
+  keep extending the server component, as they do today.
+
+#### K.5.3 Ordering
+
+Construction order is never written by hand: Dagger builds every object after what it depends on.
+Start and stop order should follow the same graph. Today they do not:
+
+- `LifecycleModule` lists twelve entries by hand, in start order: the lock manager, secret
+  manager, KMS registry, statistics, jobs and metalake manager as stop-only entries, then the
+  metrics system and listeners, the auxiliary services, the catalog manager and the entity store,
+  then the managed services, then the authorizer. `BuiltServices` records which were built, so a
+  profile stops only what it built, but the order is the list.
+- `ManagedService` has an explicit `order()`, and two services with the same order fail at start.
+
+Proposed, not done: a service with a lifecycle registers with the lifecycle when its `@Provides`
+method builds it. Dagger builds dependencies first, so the registration order is a topological
+order of the graph. The lifecycle starts in that order and stops in reverse, and `ManagedService`
+contributions register the same way. Two orders in today's list are not edges yet and would have to
+become edges first: the lock manager stops last because other services may take tree locks while
+they stop, and the authorizer stops first because the server closed it first before. Explicit
+`order()` stays only where order is meaning rather than dependency: the layering of decorators on
+a dispatcher chain, where the reader decides, for example, that an authorization check wraps
+outside a hook and an event layer.
 
 ### K.6 Testing
 
