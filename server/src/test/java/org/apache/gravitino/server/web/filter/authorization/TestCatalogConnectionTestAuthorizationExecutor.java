@@ -30,6 +30,7 @@ import java.util.Optional;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.dto.requests.CatalogUpdateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdatesRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -101,7 +102,8 @@ public class TestCatalogConnectionTestAuthorizationExecutor {
             SECONDARY_EXPRESSION,
             ExpressionCondition.HAS_PROPOSED_CHANGES,
             "",
-            mock(TableDispatcher.class));
+            mock(TableDispatcher.class),
+            mock(ViewDispatcher.class));
 
     assertTrue(executor instanceof CatalogConnectionTestAuthorizationExecutor);
     assertEquals(

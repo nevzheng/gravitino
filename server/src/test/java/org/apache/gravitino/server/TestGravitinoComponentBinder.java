@@ -214,6 +214,7 @@ public class TestGravitinoComponentBinder {
       AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
       TableDispatcher tables = mock(TableDispatcher.class);
       TableDispatcher internalTables = mock(TableDispatcher.class);
+      ViewDispatcher internalViews = mock(ViewDispatcher.class);
       AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
       OwnerDispatcher owners = mock(OwnerDispatcher.class);
       OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
@@ -226,6 +227,7 @@ public class TestGravitinoComponentBinder {
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.tableDispatcher()).thenReturn(tables);
       when(component.internalTableDispatcher()).thenReturn(internalTables);
+      when(component.internalViewDispatcher()).thenReturn(internalViews);
       when(component.accessControlDispatcher()).thenReturn(accessControl);
       when(component.ownerDispatcher()).thenReturn(owners);
       when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
@@ -251,6 +253,8 @@ public class TestGravitinoComponentBinder {
         assertSame(tables, locator.getService(TableDispatcher.class));
         assertSame(
             internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
+        assertSame(
+            internalViews, locator.getService(ViewDispatcher.class, InternalQualifier.INSTANCE));
         if (enableAuthorization) {
           assertSame(accessControl, locator.getService(AccessControlDispatcher.class));
           assertSame(owners, locator.getService(OwnerDispatcher.class));
@@ -281,6 +285,7 @@ public class TestGravitinoComponentBinder {
       CatalogManager catalogManager = mock(CatalogManager.class);
       AuxiliaryServiceManager auxiliaryServiceManager = mock(AuxiliaryServiceManager.class);
       TableDispatcher internalTables = mock(TableDispatcher.class);
+      ViewDispatcher internalViews = mock(ViewDispatcher.class);
       AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
       OwnerDispatcher owners = mock(OwnerDispatcher.class);
       OwnerDispatcher internalOwners = mock(OwnerDispatcher.class);
@@ -292,6 +297,7 @@ public class TestGravitinoComponentBinder {
       when(component.catalogAccess()).thenReturn(catalogManager);
       when(component.auxiliaryServiceManager()).thenReturn(auxiliaryServiceManager);
       when(component.internalTableDispatcher()).thenReturn(internalTables);
+      when(component.internalViewDispatcher()).thenReturn(internalViews);
       when(component.accessControlDispatcher()).thenReturn(accessControl);
       when(component.ownerDispatcher()).thenReturn(owners);
       when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
@@ -347,6 +353,7 @@ public class TestGravitinoComponentBinder {
             locator.createAndInitialize(GravitinoInterceptionService.class);
         assertSame(eventBus, field(interception, "eventBus"));
         assertSame(internalTables, field(interception, "internalTableDispatcher"));
+        assertSame(internalViews, field(interception, "internalViewDispatcher"));
         assertNotNull(locator.getService(SemanticModelSourceValidator.class));
       } finally {
         locator.shutdown();

@@ -32,11 +32,9 @@ import java.util.Map;
 import java.util.Optional;
 import javax.ws.rs.core.Response;
 import org.aopalliance.intercept.MethodInvocation;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.ActiveRoles;
@@ -51,6 +49,7 @@ import org.apache.gravitino.iceberg.service.rest.IcebergTableOperations;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
+import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.apache.iceberg.catalog.Catalog;
@@ -207,21 +206,12 @@ public class TestIcebergMetadataAuthorizationMethodInterceptor {
             Namespace.of("A", "B", "C"), IcebergRESTUtils.NAMESPACE_SEPARATOR_URLENCODED_UTF_8);
     Object[] args = new Object[] {TEST_CATALOG + "/", encodedNamespace, "my_table"};
 
-    Config mockConfig = Mockito.mock(Config.class);
-    Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
-    Config previousConfig =
-        (Config) FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-    try {
-      Map<Entity.EntityType, NameIdentifier> nameIdentifierMap =
-          interceptor.extractNameIdentifierFromParameters(parameters, args);
+    Map<Entity.EntityType, NameIdentifier> nameIdentifierMap =
+        extractWithColonSeparator(interceptor, parameters, args);
 
-      NameIdentifier schemaId = nameIdentifierMap.get(Entity.EntityType.SCHEMA);
-      assertNotNull(schemaId);
-      assertEquals("A:B:C", schemaId.name());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-    }
+    NameIdentifier schemaId = nameIdentifierMap.get(Entity.EntityType.SCHEMA);
+    assertNotNull(schemaId);
+    assertEquals("A:B:C", schemaId.name());
   }
 
   @Test
@@ -239,21 +229,12 @@ public class TestIcebergMetadataAuthorizationMethodInterceptor {
             Namespace.of("my_schema"), IcebergRESTUtils.NAMESPACE_SEPARATOR_URLENCODED_UTF_8);
     Object[] args = new Object[] {TEST_CATALOG + "/", encodedNamespace, "my_table"};
 
-    Config mockConfig = Mockito.mock(Config.class);
-    Mockito.when(mockConfig.get(Configs.SCHEMA_SEPARATOR)).thenReturn(":");
-    Config previousConfig =
-        (Config) FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", mockConfig, true);
-    try {
-      Map<Entity.EntityType, NameIdentifier> nameIdentifierMap =
-          interceptor.extractNameIdentifierFromParameters(parameters, args);
+    Map<Entity.EntityType, NameIdentifier> nameIdentifierMap =
+        extractWithColonSeparator(interceptor, parameters, args);
 
-      NameIdentifier schemaId = nameIdentifierMap.get(Entity.EntityType.SCHEMA);
-      assertNotNull(schemaId);
-      assertEquals("my_schema", schemaId.name());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-    }
+    NameIdentifier schemaId = nameIdentifierMap.get(Entity.EntityType.SCHEMA);
+    assertNotNull(schemaId);
+    assertEquals("my_schema", schemaId.name());
   }
 
   @Test
@@ -392,6 +373,30 @@ public class TestIcebergMetadataAuthorizationMethodInterceptor {
         interceptor.shouldSkipAuthorization(
             Map.of(Entity.EntityType.CATALOG, NameIdentifier.of(TEST_METALAKE, TEST_CATALOG))));
     Mockito.verify(wrapperManager).getCatalogWrapper(TEST_CATALOG);
+  }
+
+  /**
+   * Extracts the identifiers with the schema separator {@code ":"}. The interceptor reads the
+   * separator through {@code HierarchicalSchemaUtil.schemaSeparator()}, which returns the one the
+   * server seeded, so the separator is seeded for the call and the previous one put back.
+   */
+  private static Map<Entity.EntityType, NameIdentifier> extractWithColonSeparator(
+      IcebergMetadataAuthorizationMethodInterceptor interceptor,
+      Parameter[] parameters,
+      Object[] args) {
+    String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
+    HierarchicalSchemaUtil.seedSchemaSeparator(separatorConfig(":"));
+    try {
+      return interceptor.extractNameIdentifierFromParameters(parameters, args);
+    } finally {
+      HierarchicalSchemaUtil.seedSchemaSeparator(separatorConfig(previousSeparator));
+    }
+  }
+
+  private static Config separatorConfig(String separator) {
+    Config config = new Config(false) {};
+    config.set(Configs.SCHEMA_SEPARATOR, separator);
+    return config;
   }
 
   private void resetContext(IcebergCatalogWrapperManager wrapperManager) {

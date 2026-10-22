@@ -20,9 +20,9 @@ package org.apache.gravitino.storage.relational.service;
 
 import java.util.List;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 
 /**
@@ -51,7 +51,7 @@ public final class POStorageReadRouting {
       NameIdentifier identifier,
       BasePOStorageOps<PO, Mapper> ops,
       Entity.EntityType entityType) {
-    return getPO(mapper, identifier, ops, entityType, GravitinoEnv.getInstance().cacheEnabled());
+    return getPO(mapper, identifier, ops, entityType, RelationalStoreSeeds.cacheEnabled());
   }
 
   /**
@@ -92,7 +92,7 @@ public final class POStorageReadRouting {
       Namespace namespace,
       BasePOStorageOps<PO, Mapper> ops,
       Entity.EntityType entityType) {
-    return listPOs(mapper, namespace, ops, entityType, GravitinoEnv.getInstance().cacheEnabled());
+    return listPOs(mapper, namespace, ops, entityType, RelationalStoreSeeds.cacheEnabled());
   }
 
   /**

@@ -27,7 +27,10 @@ import org.apache.gravitino.EntityStoreFactory;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.lifecycle.ManagedServices;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretManager;
+import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 
 /**
  * Binds the stores the server keeps its state in: the entity store, the KMS client registry and the
@@ -44,10 +47,19 @@ abstract class StorageModule {
   /**
    * Creates the entity store named by the configuration and initializes it, which connects to its
    * backend.
+   *
+   * <p>The static parts of the relational store (the MyBatis session factory and the meta services)
+   * are seeded with the metrics system, the cache flag and the ID generator first, because
+   * initializing the store reads them.
    */
   @Provides
   @Singleton
-  static EntityStore entityStore(Config config, ManagedServices services) {
+  static EntityStore entityStore(
+      Config config,
+      MetricsSystem metricsSystem,
+      IdGenerator idGenerator,
+      ManagedServices services) {
+    RelationalStoreSeeds.seed(config, metricsSystem, idGenerator);
     EntityStore entityStore = EntityStoreFactory.createEntityStore(config);
     try {
       entityStore.initialize(config);

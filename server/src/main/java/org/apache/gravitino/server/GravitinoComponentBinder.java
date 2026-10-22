@@ -135,6 +135,10 @@ class GravitinoComponentBinder extends AbstractBinder {
         .to(TableDispatcher.class)
         .qualifiedBy(InternalQualifier.INSTANCE)
         .ranked(InternalQualifier.RANK);
+    bind(component.internalViewDispatcher())
+        .to(ViewDispatcher.class)
+        .qualifiedBy(InternalQualifier.INSTANCE)
+        .ranked(InternalQualifier.RANK);
     bind(new MetadataAccessChecker(
             component.config(),
             component::gravitinoAuthorizer,
