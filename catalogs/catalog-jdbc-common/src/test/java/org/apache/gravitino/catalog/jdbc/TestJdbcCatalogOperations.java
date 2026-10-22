@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.sql.DataSource;
 import org.apache.commons.dbcp2.BasicDataSource;
@@ -39,8 +40,13 @@ import org.apache.gravitino.catalog.jdbc.converter.SqliteTypeConverter;
 import org.apache.gravitino.catalog.jdbc.operation.SqliteDatabaseOperations;
 import org.apache.gravitino.catalog.jdbc.operation.SqliteTableOperations;
 import org.apache.gravitino.catalog.jdbc.utils.DataSourceUtils;
+import org.apache.gravitino.connector.CatalogContext;
+import org.apache.gravitino.connector.CatalogInfo;
+import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
+import org.apache.gravitino.metrics.MetricsSystem;
+import org.apache.gravitino.metrics.source.MetricsSource;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +76,39 @@ public class TestJdbcCatalogOperations {
               () -> catalogOperations.testConnection(NameIdentifier.of("metalake", "catalog")));
       Assertions.assertSame(cause, exception.getCause());
     }
+  }
+
+  @Test
+  public void testInitializeWithContextKeepsSubclassOverridesAndItsMetrics() {
+    List<String> calls = new ArrayList<>();
+    MetricsSystem metricsSystem =
+        new MetricsSystem() {
+          @Override
+          public synchronized void unregister(MetricsSource metricsSource) {
+            calls.add("unregister");
+          }
+        };
+    CatalogContext context = CatalogContext.of(null, null, metricsSystem, null);
+    JdbcCatalogOperations catalogOperations =
+        new JdbcCatalogOperations(
+            new SqliteExceptionConverter(),
+            new SqliteTypeConverter(),
+            new SqliteDatabaseOperations("/unused"),
+            new SqliteTableOperations(),
+            new SqliteColumnDefaultValueConverter()) {
+          @Override
+          public void initialize(
+              Map<String, String> conf, CatalogInfo info, HasPropertyMetadata propertiesMetadata) {
+            // A subclass that overrides the three-argument method still runs.
+            calls.add("initialize");
+          }
+        };
+
+    catalogOperations.initialize(Collections.emptyMap(), null, null, context);
+    catalogOperations.close();
+
+    // close() unregisters from the context's metrics system, not GravitinoEnv's.
+    Assertions.assertEquals(List.of("initialize", "unregister"), calls);
   }
 
   @Test

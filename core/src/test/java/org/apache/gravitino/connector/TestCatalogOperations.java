@@ -132,6 +132,8 @@ public class TestCatalogOperations
 
   private final Map<String, String> config;
 
+  private volatile CatalogContext catalogContext;
+
   public static final String FAIL_CREATE = "fail-create";
 
   public static final String FAIL_TEST = "need-fail";
@@ -152,6 +154,26 @@ public class TestCatalogOperations
     modelAliasToVersion = Maps.newHashMap();
     views = Maps.newHashMap();
     this.config = config == null ? ImmutableMap.of() : ImmutableMap.copyOf(config);
+  }
+
+  @Override
+  public void initialize(
+      Map<String, String> config,
+      CatalogInfo info,
+      HasPropertyMetadata propertyMetadata,
+      CatalogContext context)
+      throws RuntimeException {
+    this.catalogContext = context;
+    initialize(config, info, propertyMetadata);
+  }
+
+  /**
+   * Returns the context these operations were initialized with.
+   *
+   * @return the context, or null if they were initialized without one
+   */
+  public CatalogContext catalogContext() {
+    return catalogContext;
   }
 
   @Override

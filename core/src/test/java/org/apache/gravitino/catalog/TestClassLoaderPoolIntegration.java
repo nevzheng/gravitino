@@ -93,7 +93,8 @@ public class TestClassLoaderPoolIntegration {
   @BeforeEach
   public void beforeEach() throws IOException {
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), null);
   }
 
   @AfterEach
@@ -250,7 +251,8 @@ public class TestClassLoaderPoolIntegration {
             noSharingConfig,
             entityStore,
             new RandomIdGenerator(),
-            new SecretManager(noSharingConfig));
+            new SecretManager(noSharingConfig),
+            null);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");
@@ -303,7 +305,8 @@ public class TestClassLoaderPoolIntegration {
             noSharingConfig,
             entityStore,
             new RandomIdGenerator(),
-            new SecretManager(noSharingConfig));
+            new SecretManager(noSharingConfig),
+            null);
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");

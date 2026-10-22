@@ -1050,7 +1050,8 @@ public class GravitinoEnv {
     // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
-    this.catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager);
+    this.catalogManager =
+        new CatalogManager(config, entityStore, idGenerator, secretManager, metricsSystem);
   }
 
   private void initGravitinoServerComponents() {

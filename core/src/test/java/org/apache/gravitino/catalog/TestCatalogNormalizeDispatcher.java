@@ -76,7 +76,8 @@ public class TestCatalogNormalizeDispatcher {
     entityStore.put(metalakeEntity, true);
 
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), null);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     catalogManager = Mockito.spy(catalogManager);
     catalogNormalizeDispatcher = new CatalogNormalizeDispatcher(catalogManager);

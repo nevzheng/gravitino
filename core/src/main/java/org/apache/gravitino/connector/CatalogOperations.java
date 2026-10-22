@@ -50,6 +50,29 @@ public interface CatalogOperations extends Closeable {
       throws RuntimeException;
 
   /**
+   * Initialize the CatalogOperation with specified configuration and the host services it may use.
+   *
+   * <p>A catalog loaded by the server is initialized through this method. The default ignores the
+   * context and calls {@link #initialize(Map, CatalogInfo, HasPropertyMetadata)}, so operations
+   * that need no host services implement only that method. Operations that need host services
+   * override this one and take them from the context instead of from a static.
+   *
+   * @param config The configuration of this Catalog.
+   * @param info The information of this Catalog.
+   * @param propertiesMetadata The properties metadata of this Catalog.
+   * @param context The host services this Catalog may use.
+   * @throws RuntimeException if the initialization failed.
+   */
+  default void initialize(
+      Map<String, String> config,
+      CatalogInfo info,
+      HasPropertyMetadata propertiesMetadata,
+      CatalogContext context)
+      throws RuntimeException {
+    initialize(config, info, propertiesMetadata);
+  }
+
+  /**
    * Test whether a catalog can be created with the specified parameters, without actually creating
    * it.
    *

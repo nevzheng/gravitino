@@ -21,32 +21,23 @@ package org.apache.gravitino.catalog.jdbc;
 import com.google.common.collect.Maps;
 import java.time.Instant;
 import java.util.Map;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.jdbc.config.JdbcConfig;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcColumnDefaultValueConverter;
 import org.apache.gravitino.catalog.jdbc.converter.JdbcTypeConverter;
 import org.apache.gravitino.catalog.jdbc.operation.JdbcDatabaseOperations;
 import org.apache.gravitino.catalog.jdbc.operation.JdbcTableOperations;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
 import org.apache.gravitino.credential.CredentialConstants;
 import org.apache.gravitino.credential.JdbcCredential;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.CatalogEntity;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /** Tests for JdbcCatalog credential provider functionality. */
 public class TestJdbcCatalogCredential {
-
-  @AfterEach
-  void resetGravitinoEnvConfig() throws IllegalAccessException {
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", null, true);
-  }
 
   /** A concrete implementation of JdbcCatalog for testing purposes. */
   private static class TestableJdbcCatalog extends JdbcCatalog {
@@ -226,9 +217,12 @@ public class TestJdbcCatalogCredential {
             .build();
 
     TestableJdbcCatalog jdbcCatalog = new TestableJdbcCatalog();
-    jdbcCatalog.withCatalogConf(jdbcProps).withCatalogEntity(jdbcEntity);
+    jdbcCatalog
+        .withCatalogConf(jdbcProps)
+        .withCatalogEntity(jdbcEntity)
+        .withCatalogContext(context(false));
 
-    // GravitinoEnv is not initialized in unit tests, so backfill is disabled by default.
+    // Backfill is disabled unless the host enables it.
     Map<String, String> publicProps = jdbcCatalog.properties();
     Assertions.assertEquals("test-user", publicProps.get(JdbcConfig.USERNAME.getKey()));
     Assertions.assertEquals(
@@ -246,7 +240,7 @@ public class TestJdbcCatalogCredential {
   }
 
   @Test
-  void testJdbcCatalogBackfillCredentialsToProperties() throws IllegalAccessException {
+  void testJdbcCatalogBackfillCredentialsToProperties() {
     AuditInfo auditInfo =
         AuditInfo.builder().withCreator("creator").withCreateTime(Instant.now()).build();
 
@@ -267,13 +261,12 @@ public class TestJdbcCatalogCredential {
             .withProperties(jdbcProps)
             .build();
 
-    // Inject server config with backfill enabled
-    Config serverConfig = new Config(false) {};
-    serverConfig.set(Configs.CATALOG_CREDENTIAL_BACKFILL_TO_PROPERTIES, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", serverConfig, true);
-
+    // The host enables backfill through the catalog context.
     TestableJdbcCatalog jdbcCatalog = new TestableJdbcCatalog();
-    jdbcCatalog.withCatalogConf(jdbcProps).withCatalogEntity(jdbcEntity);
+    jdbcCatalog
+        .withCatalogConf(jdbcProps)
+        .withCatalogEntity(jdbcEntity)
+        .withCatalogContext(context(true));
 
     Map<String, String> props = jdbcCatalog.properties();
     Assertions.assertEquals("test-user", props.get(JdbcConfig.USERNAME.getKey()));
@@ -310,5 +303,9 @@ public class TestJdbcCatalogCredential {
     String credentialProviders = properties.get(CredentialConstants.CREDENTIAL_PROVIDERS);
     Assertions.assertTrue(credentialProviders.contains("custom-provider"));
     Assertions.assertTrue(credentialProviders.contains(JdbcCredential.JDBC_CREDENTIAL_TYPE));
+  }
+
+  private static CatalogContext context(boolean credentialBackfillToProperties) {
+    return CatalogContext.of(null, null, null, null, credentialBackfillToProperties);
   }
 }
