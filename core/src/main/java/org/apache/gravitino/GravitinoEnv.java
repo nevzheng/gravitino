@@ -1067,7 +1067,8 @@ public class GravitinoEnv {
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
     this.catalogManager =
-        new CatalogManager(config, entityStore, idGenerator, secretManager, lockManager);
+        new CatalogManager(
+            config, entityStore, idGenerator, secretManager, lockManager, metricsSystem);
   }
 
   private void initGravitinoServerComponents() {

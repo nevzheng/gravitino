@@ -41,7 +41,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -106,14 +105,9 @@ public class KafkaCatalogOperations implements CatalogOperations, SupportsSchema
   private AdminClient adminClient;
   private HasPropertyMetadata propertiesMetadata;
 
-  @VisibleForTesting
   KafkaCatalogOperations(EntityStore store, IdGenerator idGenerator) {
     this.store = store;
     this.idGenerator = idGenerator;
-  }
-
-  public KafkaCatalogOperations() {
-    this(GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().idGenerator());
   }
 
   @Override

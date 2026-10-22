@@ -288,7 +288,8 @@ public class TestMetalakeManager {
             store,
             new RandomIdGenerator(),
             new SecretManager(catalogConfig),
-            lockManager);
+            lockManager,
+            null);
     MetalakeManager manager =
         new MetalakeManager(store, new RandomIdGenerator(), catalogManager, lockManager);
 

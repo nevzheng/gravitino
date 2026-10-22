@@ -108,6 +108,7 @@ import org.apache.gravitino.catalog.hadoop.fs.FileSystemProvider;
 import org.apache.gravitino.catalog.hadoop.fs.FileSystemUtils;
 import org.apache.gravitino.catalog.hadoop.fs.LocalFileSystemProvider;
 import org.apache.gravitino.catalog.hadoop.fs.SupportsCredentialVending;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogInfo;
 import org.apache.gravitino.connector.HasPropertyMetadata;
 import org.apache.gravitino.connector.PropertiesMetadata;
@@ -132,6 +133,7 @@ import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.FilesetEntity;
 import org.apache.gravitino.meta.SchemaVersion;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.secret.SecretConstants;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretMaterial;
@@ -431,7 +433,6 @@ public class TestFilesetCatalogOperations {
         InMemorySecretsProvider.class.getName());
     secretConfig.loadFromProperties(secretProps);
     secretManager = new SecretManager(secretConfig);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "secretManager", secretManager, true);
   }
 
   @AfterAll
@@ -439,7 +440,6 @@ public class TestFilesetCatalogOperations {
     store.close();
     if (secretManager != null) {
       secretManager.close();
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "secretManager", null, true);
     }
     new Path(TEST_ROOT_PATH)
         .getFileSystem(new Configuration())
@@ -447,6 +447,26 @@ public class TestFilesetCatalogOperations {
 
     File f = FileUtils.getFile(H2_file);
     f.delete();
+  }
+
+  @Test
+  public void testCatalogContextSuppliesTheHostServices() throws IOException {
+    MetricsSystem metricsSystem = Mockito.mock(MetricsSystem.class);
+    CatalogContext context = Mockito.mock(CatalogContext.class);
+    Mockito.when(context.entityStore()).thenReturn(store);
+    Mockito.when(context.secretManager()).thenReturn(secretManager);
+    Mockito.when(context.metricsSystem()).thenReturn(metricsSystem);
+
+    FilesetCatalogImpl catalog = new FilesetCatalogImpl().withCatalogContext(context);
+    try (FilesetCatalogOperations ops =
+        (FilesetCatalogOperations) catalog.newOps(Maps.newHashMap())) {
+      Assertions.assertSame(store, ops.store());
+      ops.initialize(Maps.newHashMap(), randomCatalogInfo(), FILESET_PROPERTIES_METADATA, context);
+    }
+
+    // Initialize and close read the metrics system from the context.
+    Mockito.verify(context, Mockito.times(2)).metricsSystem();
+    Mockito.verify(metricsSystem).unregister(Mockito.any());
   }
 
   @Test
@@ -1360,7 +1380,7 @@ public class TestFilesetCatalogOperations {
   }
 
   @Test
-  public void testFormalizePath() throws IOException, IllegalAccessException, InterruptedException {
+  public void testFormalizePath() throws IOException, InterruptedException {
 
     String[] paths =
         new String[] {"tmp/catalog", "/tmp/catalog", "file:/tmp/catalog", "file:///tmp/catalog"};
@@ -1420,19 +1440,14 @@ public class TestFilesetCatalogOperations {
           }
         };
 
-    try {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "entityStore", new RelationalEntityStore(), true);
-      try (FilesetCatalogOperations filesetCatalogOperations = new FilesetCatalogOperations()) {
-        Map<String, String> map = ImmutableMap.of("default-filesystem", "file:///");
-        filesetCatalogOperations.initialize(map, null, hasPropertyMetadata);
-        for (int i = 0; i < paths.length; i++) {
-          Path actual = filesetCatalogOperations.formalizePath(new Path(paths[i]), map);
-          Assertions.assertEquals(expected[i], actual.toString());
-        }
+    try (FilesetCatalogOperations filesetCatalogOperations =
+        new FilesetCatalogOperations(new RelationalEntityStore(), secretManager)) {
+      Map<String, String> map = ImmutableMap.of("default-filesystem", "file:///");
+      filesetCatalogOperations.initialize(map, null, hasPropertyMetadata);
+      for (int i = 0; i < paths.length; i++) {
+        Path actual = filesetCatalogOperations.formalizePath(new Path(paths[i]), map);
+        Assertions.assertEquals(expected[i], actual.toString());
       }
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", null, true);
     }
   }
 
@@ -2720,10 +2735,8 @@ public class TestFilesetCatalogOperations {
   @Test
   @Timeout(20)
   void testGetFileSystemTimeoutThrowsException() throws Exception {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "entityStore", new RelationalEntityStore(), true);
-
-    try (FilesetCatalogOperations filesetCatalogOperations = new FilesetCatalogOperations()) {
+    try (FilesetCatalogOperations filesetCatalogOperations =
+        new FilesetCatalogOperations(new RelationalEntityStore(), secretManager)) {
       LocalFileSystemProvider localFileSystemProvider = Mockito.mock(LocalFileSystemProvider.class);
       when(localFileSystemProvider.scheme()).thenReturn("file");
       when(localFileSystemProvider.getFileSystem(Mockito.any(Path.class), Mockito.anyMap()))

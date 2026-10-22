@@ -115,7 +115,12 @@ public class TestCatalogWrapperLease {
   public void beforeEach() {
     catalogManager =
         new CatalogManager(
-            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
+            config,
+            entityStore,
+            new RandomIdGenerator(),
+            new SecretManager(config),
+            lockManager,
+            null);
   }
 
   @AfterEach
@@ -188,7 +193,8 @@ public class TestCatalogWrapperLease {
             entityStore,
             new RandomIdGenerator(),
             new SecretManager(expiringConfig),
-            lockManager);
+            lockManager,
+            null);
     try {
       NameIdentifier ident = NameIdentifier.of(METALAKE, "expiring_catalog");
       expiringManager.createCatalog(ident, Catalog.Type.RELATIONAL, PROVIDER, "comment", PROPS);
