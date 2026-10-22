@@ -33,6 +33,13 @@ import org.apache.gravitino.di.GravitinoModules;
 @Component(modules = {GravitinoModules.class, DownstreamModule.class})
 interface DownstreamComponent extends GravitinoComponent {
 
+  /**
+   * Returns the service only this component has.
+   *
+   * @return the downstream service
+   */
+  DownstreamService downstreamService();
+
   /** Creates {@link DownstreamComponent} instances. */
   @Component.Factory
   interface Factory {

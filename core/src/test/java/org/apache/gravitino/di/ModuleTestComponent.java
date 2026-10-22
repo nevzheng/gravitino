@@ -39,6 +39,7 @@ import org.apache.gravitino.catalog.SchemaOperationDispatcher;
       GovernanceModule.class,
       AuthorizationModule.class,
       JobModule.class,
+      LifecycleModule.class,
       FakeLeavesModule.class
     })
 interface ModuleTestComponent extends GravitinoComponent {

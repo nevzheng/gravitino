@@ -18,9 +18,11 @@
  */
 package org.apache.gravitino.di.downstream;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.IntoMap;
+import dagger.multibindings.IntoSet;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogDispatcher;
@@ -39,6 +41,7 @@ import org.apache.gravitino.di.Layer;
 import org.apache.gravitino.di.LayerKey;
 import org.apache.gravitino.di.Public;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.stats.StatisticDispatcher;
@@ -47,7 +50,7 @@ import org.apache.gravitino.tag.TagDispatcher;
 /**
  * The module of {@link DownstreamComponent}: one tagging decorator at {@link Layer#EXTENSION} for
  * every chain, two more inside the public table chain and one at the hook position of the internal
- * schema chain, which has no hook layer, to show where each layer sits.
+ * schema chain, which has no hook layer, to show where each layer sits; and a managed service.
  */
 @Module
 abstract class DownstreamModule {
@@ -349,4 +352,8 @@ abstract class DownstreamModule {
   static DispatcherDecorator<SchemaDispatcher> hookPositionSchemaTag() {
     return Tagging.decorator(SchemaDispatcher.class, "hook position");
   }
+
+  @Binds
+  @IntoSet
+  abstract ManagedService downstreamServiceIsManaged(DownstreamService service);
 }
