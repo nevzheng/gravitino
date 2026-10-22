@@ -153,7 +153,7 @@ public class TestOwnerManager {
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
 
     lockManager = new LockManager(config);
-    services = new FakeAuthorizationServices().withCatalogManager(catalogManager);
+    services = new FakeAuthorizationServices().withCatalogAccess(catalogManager);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);

@@ -36,8 +36,8 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FunctionDispatcher;
 import org.apache.gravitino.catalog.ModelDispatcher;
@@ -57,7 +57,6 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
@@ -198,21 +197,17 @@ public interface GravitinoComponent {
   Set<ManagedService> contributedServices();
 
   /**
-   * Returns the catalog manager.
+   * Returns the lookups of the server's catalogs and leased access to them, served by the catalog
+   * manager. It has no mutation: catalogs are created, altered and dropped through the {@link
+   * #catalogDispatcher()} or the {@link #internalCatalogDispatcher()}. The catalog manager and the
+   * metalake manager themselves are bound {@link Undecorated} and not exposed.
    *
-   * @return the catalog manager
+   * @return the catalog access
    */
-  CatalogManager catalogManager();
+  CatalogAccess catalogAccess();
 
   /**
-   * Returns the metalake manager.
-   *
-   * @return the metalake manager
-   */
-  MetalakeManager metalakeManager();
-
-  /**
-   * Returns the internal metalake chain: normalize, then the {@link #metalakeManager()}.
+   * Returns the internal metalake chain: normalize, then the metalake manager.
    *
    * @return the internal metalake dispatcher
    */
@@ -220,7 +215,7 @@ public interface GravitinoComponent {
   MetalakeDispatcher internalMetalakeDispatcher();
 
   /**
-   * Returns the public metalake chain: event, normalize, hook, then the {@link #metalakeManager()}.
+   * Returns the public metalake chain: event, normalize, hook, then the metalake manager.
    *
    * @return the public metalake dispatcher
    */
@@ -228,7 +223,7 @@ public interface GravitinoComponent {
   MetalakeDispatcher metalakeDispatcher();
 
   /**
-   * Returns the internal catalog chain: normalize, then the {@link #catalogManager()}.
+   * Returns the internal catalog chain: normalize, then the catalog manager.
    *
    * @return the internal catalog dispatcher
    */
@@ -236,7 +231,7 @@ public interface GravitinoComponent {
   CatalogDispatcher internalCatalogDispatcher();
 
   /**
-   * Returns the public catalog chain: event, normalize, hook, then the {@link #catalogManager()}.
+   * Returns the public catalog chain: event, normalize, hook, then the catalog manager.
    *
    * @return the public catalog dispatcher
    */

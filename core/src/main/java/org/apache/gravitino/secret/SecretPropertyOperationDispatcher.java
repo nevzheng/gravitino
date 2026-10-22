@@ -21,8 +21,6 @@ package org.apache.gravitino.secret;
 import java.io.IOException;
 import java.util.Map;
 import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import javax.ws.rs.NotSupportedException;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
@@ -61,7 +59,6 @@ import org.apache.gravitino.utils.ThrowableFunction;
  * inline values). Declared {@code hidden} properties alone are not recovered; see {@link
  * SecretPropertyUtils#buildSecrets}.
  */
-@Singleton
 public class SecretPropertyOperationDispatcher extends OperationDispatcher {
 
   /**
@@ -72,7 +69,6 @@ public class SecretPropertyOperationDispatcher extends OperationDispatcher {
    * @param idGenerator The IdGenerator instance.
    * @param secretManager The SecretManager instance.
    */
-  @Inject
   public SecretPropertyOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore store,

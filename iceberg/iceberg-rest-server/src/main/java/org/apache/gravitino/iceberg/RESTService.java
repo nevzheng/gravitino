@@ -360,7 +360,7 @@ public class RESTService implements GravitinoAuxiliaryService {
   private static ToLongFunction<String> catalogIds(AuxiliaryContext context, String metalake) {
     return catalogName ->
         context
-            .catalogManager()
+            .catalogAccess()
             .doWithCatalog(
                 NameIdentifier.of(metalake, catalogName), catalog -> catalog.entity().id());
   }

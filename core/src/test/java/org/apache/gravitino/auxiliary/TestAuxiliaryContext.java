@@ -69,7 +69,7 @@ public class TestAuxiliaryContext {
             AuxiliaryContext::idGenerator,
             AuxiliaryContext::lockManager,
             AuxiliaryContext::entityStore,
-            AuxiliaryContext::catalogManager,
+            AuxiliaryContext::catalogAccess,
             AuxiliaryContext::catalogDispatcher,
             AuxiliaryContext::schemaDispatcher,
             AuxiliaryContext::tableDispatcher,

@@ -36,6 +36,8 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.OwnerManager;
+import org.apache.gravitino.catalog.CatalogAccess;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
 import org.apache.gravitino.catalog.FunctionOperationDispatcher;
 import org.apache.gravitino.catalog.ModelOperationDispatcher;
@@ -83,6 +85,20 @@ public class TestGravitinoComponent {
   public void setUp() {
     config = testConfig();
     component = DaggerGravitinoComponent.factory().create(config);
+  }
+
+  @Test
+  public void testExposesTheCatalogManagerOnlyAsCatalogAccess() throws Exception {
+    // testExposesNoUndecoratedImplementation covers both managers; outside the chains the catalog
+    // manager is reached only through CatalogAccess, which has no method that changes a catalog.
+    Method catalogAccess = GravitinoComponent.class.getMethod("catalogAccess");
+    assertSame(CatalogAccess.class, catalogAccess.getReturnType());
+    assertTrue(CatalogAccess.class.isInterface());
+    for (Method method : CatalogAccess.class.getMethods()) {
+      assertFalse(
+          method.getName().matches("(create|alter|drop|enable|disable|testConnection).*"),
+          "CatalogAccess exposes " + method.getName());
+    }
   }
 
   @Test
@@ -207,7 +223,9 @@ public class TestGravitinoComponent {
             FilesetOperationDispatcher.class,
             TopicOperationDispatcher.class,
             ModelOperationDispatcher.class,
-            FunctionOperationDispatcher.class);
+            FunctionOperationDispatcher.class,
+            CatalogManager.class,
+            MetalakeManager.class);
     for (Method method : GravitinoComponent.class.getMethods()) {
       for (Class<?> type : undecorated) {
         assertFalse(

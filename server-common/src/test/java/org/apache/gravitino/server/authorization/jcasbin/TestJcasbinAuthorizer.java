@@ -100,6 +100,7 @@ import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.cache.GravitinoCache;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
@@ -419,7 +420,7 @@ public class TestJcasbinAuthorizer {
           }
 
           @Override
-          public CatalogManager catalogManager() {
+          public CatalogAccess catalogAccess() {
             return gravitinoEnv.catalogManager();
           }
 

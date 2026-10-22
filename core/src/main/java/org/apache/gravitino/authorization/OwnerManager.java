@@ -113,7 +113,7 @@ public class OwnerManager implements OwnerDispatcher {
       }
 
       AuthorizationUtils.callAuthorizationPluginForMetadataObject(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           metadataObject,
           authorizationPlugin ->
@@ -196,7 +196,7 @@ public class OwnerManager implements OwnerDispatcher {
         Optional<Owner> originOwner = originOwners.get(i);
         try {
           AuthorizationUtils.callAuthorizationPluginForMetadataObject(
-              authorizationServices.catalogManager(),
+              authorizationServices.catalogAccess(),
               metalake,
               mo,
               authorizationPlugin ->

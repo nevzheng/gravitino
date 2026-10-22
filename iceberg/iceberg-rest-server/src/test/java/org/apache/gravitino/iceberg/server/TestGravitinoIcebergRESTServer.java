@@ -55,7 +55,7 @@ public class TestGravitinoIcebergRESTServer {
     Assertions.assertSame(metricsSystem, context.metricsSystem());
     Assertions.assertSame(secretManager, context.secretManager());
     Assertions.assertSame(kmsClientRegistry, context.kmsClientRegistry());
-    Assertions.assertThrows(IllegalStateException.class, context::catalogManager);
+    Assertions.assertThrows(IllegalStateException.class, context::catalogAccess);
     Assertions.assertThrows(IllegalStateException.class, context::idGenerator);
   }
 

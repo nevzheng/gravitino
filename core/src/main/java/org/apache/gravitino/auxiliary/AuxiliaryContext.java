@@ -24,8 +24,8 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -120,12 +120,13 @@ public interface AuxiliaryContext {
   EntityStore entityStore();
 
   /**
-   * Returns the catalog manager. Only available inside the Gravitino server.
+   * Returns the lookups of the server's catalogs and leased access to them. Only available inside
+   * the Gravitino server.
    *
-   * @return the catalog manager
+   * @return the catalog access
    * @throws IllegalStateException if the service runs standalone
    */
-  CatalogManager catalogManager();
+  CatalogAccess catalogAccess();
 
   /**
    * Returns the catalog dispatcher of the REST API. Only available inside the Gravitino server.

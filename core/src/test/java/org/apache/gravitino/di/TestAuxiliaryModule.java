@@ -104,7 +104,7 @@ public class TestAuxiliaryModule {
     assertSame(idGenerator, context.idGenerator());
     assertSame(lockManager, context.lockManager());
     assertSame(entityStore, context.entityStore());
-    assertSame(catalogManager, context.catalogManager());
+    assertSame(catalogManager, context.catalogAccess());
     assertSame(catalogDispatcher, context.catalogDispatcher());
     assertSame(schemaDispatcher, context.schemaDispatcher());
     assertSame(tableDispatcher, context.tableDispatcher());

@@ -286,7 +286,7 @@ class TestGravitinoEnvMetadataComponents {
       assertEquals(1, created.size());
       assertSame(created.get(0), env.component());
       assertSame(created.get(0).internalTableDispatcher(), env.internalTableDispatcher());
-      assertSame(created.get(0).catalogManager(), env.catalogManager());
+      assertSame(created.get(0).catalogAccess(), env.catalogManager());
     } finally {
       env.shutdown();
     }
@@ -423,7 +423,7 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.internalPolicyDispatcher(), singleton.internalPolicyDispatcher());
       assertSame(component.internalStatisticDispatcher(), singleton.internalStatisticDispatcher());
       assertSame(entityStore, component.entityStore());
-      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(singleton.catalogManager(), component.catalogAccess());
       assertSame(singleton.secretManager(), component.secretManager());
     } finally {
       singleton.shutdown();
@@ -475,7 +475,7 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(singleton.secretManager(), component.secretManager());
       assertSame(singleton.eventListenerManager(), component.eventListenerManager());
       assertSame(singleton.eventBus(), component.eventBus());
-      assertSame(singleton.catalogManager(), component.catalogManager());
+      assertSame(singleton.catalogManager(), component.catalogAccess());
       assertSame(component.metalakeDispatcher(), singleton.metalakeDispatcher());
       assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
       assertSame(component.catalogDispatcher(), singleton.catalogDispatcher());

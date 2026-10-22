@@ -49,7 +49,8 @@ public class TestMetalakeNormalizeDispatcher {
     entityStore.initialize(config);
 
     MetalakeManager metalakeManager =
-        new MetalakeManager(entityStore, new RandomIdGenerator(), null, new LockManager(config));
+        new MetalakeManager(
+            entityStore, new RandomIdGenerator(), null, null, new LockManager(config));
     metalakeNormalizeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
   }
 

@@ -22,7 +22,9 @@ import dagger.BindsInstance;
 import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.metalake.MetalakeManager;
 
 /**
  * A graph with the production modules and fake leaves: {@link FakeLeavesModule} replaces the
@@ -54,6 +56,24 @@ interface ModuleTestComponent extends GravitinoComponent {
    */
   @Undecorated
   SchemaOperationDispatcher schemaOperationDispatcher();
+
+  /**
+   * Returns the catalog manager under the catalog chains, which the production component exposes
+   * only as its {@link #catalogAccess()}.
+   *
+   * @return the catalog manager
+   */
+  @Undecorated
+  CatalogManager catalogManager();
+
+  /**
+   * Returns the metalake manager under the metalake chains, which the production component does not
+   * expose.
+   *
+   * @return the metalake manager
+   */
+  @Undecorated
+  MetalakeManager metalakeManager();
 
   /**
    * Builds a test graph.

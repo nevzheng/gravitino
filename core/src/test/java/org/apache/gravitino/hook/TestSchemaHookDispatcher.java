@@ -85,7 +85,7 @@ public class TestSchemaHookDispatcher {
             new LockManager(newLockConfig()),
             new FakeAuthorizationServices()
                 .withOwnerDispatcher(mockOwnerDispatcher)
-                .withCatalogManager(mockCatalogManager));
+                .withCatalogAccess(mockCatalogManager));
   }
 
   private static Config newLockConfig() {

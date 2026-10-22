@@ -71,7 +71,7 @@ public class TestSemanticModelHookDispatcher {
             dispatcher,
             new FakeAuthorizationServices()
                 .withOwnerDispatcher(ownerDispatcher)
-                .withCatalogManager(mockCatalogManager(Capability.DEFAULT)));
+                .withCatalogAccess(mockCatalogManager(Capability.DEFAULT)));
     SemanticModel result =
         hook.createSemanticModel(IDENT, "comment", definition, ImmutableMap.of());
 
@@ -138,7 +138,7 @@ public class TestSemanticModelHookDispatcher {
             dispatcher,
             new FakeAuthorizationServices()
                 .withOwnerDispatcher(ownerDispatcher)
-                .withCatalogManager(catalogManager));
+                .withCatalogAccess(catalogManager));
     new SemanticModelNormalizeDispatcher(hook, catalogManager)
         .createSemanticModel(ident, "comment", definition, ImmutableMap.of());
 
@@ -190,7 +190,7 @@ public class TestSemanticModelHookDispatcher {
             dispatcher,
             new FakeAuthorizationServices()
                 .withOwnerDispatcher(ownerDispatcher)
-                .withCatalogManager(mockCatalogManager(Capability.DEFAULT)));
+                .withCatalogAccess(mockCatalogManager(Capability.DEFAULT)));
     RuntimeException thrown =
         assertThrows(
             RuntimeException.class,

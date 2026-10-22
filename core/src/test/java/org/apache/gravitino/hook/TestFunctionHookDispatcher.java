@@ -203,7 +203,7 @@ public class TestFunctionHookDispatcher {
                 dispatcher,
                 new FakeAuthorizationServices()
                     .withAuthorizer(authorizer)
-                    .withCatalogManager(catalogManager)),
+                    .withCatalogAccess(catalogManager)),
             catalogManager);
 
     assertTrue(hookDispatcher.dropFunction(functionIdentifier));

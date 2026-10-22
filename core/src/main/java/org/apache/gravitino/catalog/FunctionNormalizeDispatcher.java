@@ -42,12 +42,12 @@ import org.apache.gravitino.function.FunctionType;
  * re-normalized here.
  */
 public class FunctionNormalizeDispatcher implements FunctionDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final FunctionDispatcher dispatcher;
 
-  public FunctionNormalizeDispatcher(FunctionDispatcher dispatcher, CatalogManager catalogManager) {
+  public FunctionNormalizeDispatcher(FunctionDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -95,16 +95,16 @@ public class FunctionNormalizeDispatcher implements FunctionDispatcher {
   }
 
   private Namespace normalizeCaseSensitive(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.FUNCTION, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier functionIdent) {
-    return applyCaseSensitive(functionIdent, Capability.Scope.FUNCTION, catalogManager);
+    return applyCaseSensitive(functionIdent, Capability.Scope.FUNCTION, catalogAccess);
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier functionIdent) {
-    Capability capability = getCapability(functionIdent, catalogManager);
+    Capability capability = getCapability(functionIdent, catalogAccess);
     return applyCapabilities(functionIdent, Capability.Scope.FUNCTION, capability);
   }
 }

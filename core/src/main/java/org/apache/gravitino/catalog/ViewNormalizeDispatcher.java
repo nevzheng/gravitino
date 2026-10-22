@@ -41,12 +41,12 @@ import org.apache.gravitino.rel.ViewChange;
  */
 public class ViewNormalizeDispatcher implements ViewDispatcher {
 
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final ViewDispatcher dispatcher;
 
-  public ViewNormalizeDispatcher(ViewDispatcher dispatcher, CatalogManager catalogManager) {
+  public ViewNormalizeDispatcher(ViewDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -90,7 +90,7 @@ public class ViewNormalizeDispatcher implements ViewDispatcher {
   @Override
   public View alterView(NameIdentifier ident, ViewChange... changes)
       throws NoSuchViewException, IllegalArgumentException {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     return dispatcher.alterView(
         normalizeCaseSensitive(ident), applyCapabilities(capability, changes));
   }
@@ -101,17 +101,17 @@ public class ViewNormalizeDispatcher implements ViewDispatcher {
   }
 
   private Namespace normalizeCaseSensitive(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.VIEW, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier ident) {
-    Capability capabilities = getCapability(ident, catalogManager);
+    Capability capabilities = getCapability(ident, catalogAccess);
     return applyCaseSensitive(ident, Capability.Scope.VIEW, capabilities);
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier ident) {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     return applyCapabilities(ident, Capability.Scope.VIEW, capability);
   }
 }

@@ -21,8 +21,8 @@ package org.apache.gravitino.auxiliary;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
@@ -101,8 +101,8 @@ final class StandaloneAuxiliaryContext implements AuxiliaryContext {
   }
 
   @Override
-  public CatalogManager catalogManager() {
-    throw serverOnly("catalog manager");
+  public CatalogAccess catalogAccess() {
+    throw serverOnly("catalog access");
   }
 
   @Override

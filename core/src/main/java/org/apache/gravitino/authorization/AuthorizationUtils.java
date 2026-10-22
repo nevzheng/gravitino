@@ -41,8 +41,8 @@ import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -249,19 +249,19 @@ public class AuthorizationUtils {
       List<SecurableObject> securableObjects,
       BiConsumer<AuthorizationPlugin, String> consumer) {
     callAuthorizationPluginForSecurableObjects(
-        processServices().catalogManager(), metalake, securableObjects, consumer);
+        processServices().catalogAccess(), metalake, securableObjects, consumer);
   }
 
   /**
    * Calls the authorization plugin of every catalog the securable objects reach, once per catalog.
    *
-   * @param catalogManager the catalog manager whose catalogs carry the plugins
+   * @param catalogAccess the catalog access whose catalogs carry the plugins
    * @param metalake the metalake name
    * @param securableObjects the securable objects
    * @param consumer called with each plugin and the name of its catalog
    */
   public static void callAuthorizationPluginForSecurableObjects(
-      CatalogManager catalogManager,
+      CatalogAccess catalogAccess,
       String metalake,
       List<SecurableObject> securableObjects,
       BiConsumer<AuthorizationPlugin, String> consumer) {
@@ -274,9 +274,9 @@ public class AuthorizationUtils {
       securableObject =
           SecurableObjects.parse(securableObject.fullName(), securableObject.type(), privileges);
       if (needApplyAuthorizationPluginAllCatalogs(securableObject)) {
-        NameIdentifier[] catalogs = catalogManager.listCatalogs(Namespace.of(metalake));
+        NameIdentifier[] catalogs = catalogAccess.listCatalogs(Namespace.of(metalake));
         for (NameIdentifier catalog : catalogs) {
-          callAuthorizationPluginImpl(consumer, catalogManager, catalog);
+          callAuthorizationPluginImpl(consumer, catalogAccess, catalog);
         }
 
       } else if (needApplyAuthorization(securableObject.type())) {
@@ -284,7 +284,7 @@ public class AuthorizationUtils {
             NameIdentifierUtil.getCatalogIdentifier(
                 MetadataObjectUtil.toEntityIdent(metalake, securableObject));
         if (catalogsAlreadySet.add(catalogIdent.name())) {
-          callAuthorizationPluginImpl(consumer, catalogManager, catalogIdent);
+          callAuthorizationPluginImpl(consumer, catalogAccess, catalogIdent);
         }
       }
     }
@@ -293,26 +293,26 @@ public class AuthorizationUtils {
   public static void callAuthorizationPluginForMetadataObject(
       String metalake, MetadataObject metadataObject, Consumer<AuthorizationPlugin> consumer) {
     callAuthorizationPluginForMetadataObject(
-        processServices().catalogManager(), metalake, metadataObject, consumer);
+        processServices().catalogAccess(), metalake, metadataObject, consumer);
   }
 
   /**
    * Calls the authorization plugin of every catalog the metadata object reaches.
    *
-   * @param catalogManager the catalog manager whose catalogs carry the plugins
+   * @param catalogAccess the catalog access whose catalogs carry the plugins
    * @param metalake the metalake name
    * @param metadataObject the metadata object
    * @param consumer called with each plugin
    */
   public static void callAuthorizationPluginForMetadataObject(
-      CatalogManager catalogManager,
+      CatalogAccess catalogAccess,
       String metalake,
       MetadataObject metadataObject,
       Consumer<AuthorizationPlugin> consumer) {
     List<NameIdentifier> catalogIdents =
-        getMetadataObjectCatalogs(catalogManager, metalake, metadataObject);
+        getMetadataObjectCatalogs(catalogAccess, metalake, metadataObject);
     for (NameIdentifier catalogIdent : catalogIdents) {
-      callAuthorizationPluginImpl(consumer, catalogManager, catalogIdent);
+      callAuthorizationPluginImpl(consumer, catalogAccess, catalogIdent);
     }
   }
 
@@ -459,7 +459,7 @@ public class AuthorizationUtils {
 
       MetadataObjectChange removeObject = MetadataObjectChange.remove(metadataObject, locations);
       callAuthorizationPluginForMetadataObject(
-          services.catalogManager(),
+          services.catalogAccess(),
           metalake,
           metadataObject,
           authorizationPlugin -> {
@@ -484,7 +484,7 @@ public class AuthorizationUtils {
           authorizationPlugin.onMetadataUpdated(
               MetadataObjectChange.remove(metadataObject, locations));
         },
-        services.catalogManager(),
+        services.catalogAccess(),
         catalogIdent);
   }
 
@@ -555,7 +555,7 @@ public class AuthorizationUtils {
       // For a renamed catalog, we should pass the new name catalog, otherwise we can't find the
       // catalog in the entity store
       callAuthorizationPluginForMetadataObject(
-          services.catalogManager(),
+          services.catalogAccess(),
           metalake,
           newMetadataObject,
           authorizationPlugin -> {
@@ -621,7 +621,7 @@ public class AuthorizationUtils {
   // Compare the connector-visible states before choosing the callback and its payload. A
   // Semantic Model-only change must neither contact a connector nor leak into its role snapshot.
   static void notifyRolePrivilegesUpdated(
-      CatalogManager catalogManager,
+      CatalogAccess catalogAccess,
       String metalake,
       RoleEntity role,
       @Nullable SecurableObject before,
@@ -650,7 +650,7 @@ public class AuthorizationUtils {
       affectedPrivileges.addAll(previous.privileges());
     }
     callAuthorizationPluginForSecurableObjects(
-        catalogManager,
+        catalogAccess,
         metalake,
         List.of(
             SecurableObjects.parse(
@@ -689,9 +689,9 @@ public class AuthorizationUtils {
 
   private static void callAuthorizationPluginImpl(
       BiConsumer<AuthorizationPlugin, String> consumer,
-      CatalogManager catalogManager,
+      CatalogAccess catalogAccess,
       NameIdentifier catalogIdent) {
-    catalogManager.doWithCatalog(
+    catalogAccess.doWithCatalog(
         catalogIdent,
         catalog -> {
           AuthorizationPlugin authorizationPlugin = catalog.getAuthorizationPlugin();
@@ -704,11 +704,11 @@ public class AuthorizationUtils {
 
   private static void callAuthorizationPluginImpl(
       Consumer<AuthorizationPlugin> consumer,
-      CatalogManager catalogManager,
+      CatalogAccess catalogAccess,
       NameIdentifier catalogIdent) {
     callAuthorizationPluginImpl(
         (authorizationPlugin, catalogName) -> consumer.accept(authorizationPlugin),
-        catalogManager,
+        catalogAccess,
         catalogIdent);
   }
 
@@ -726,9 +726,9 @@ public class AuthorizationUtils {
   }
 
   private static List<NameIdentifier> getMetadataObjectCatalogs(
-      CatalogManager catalogManager, String metalake, MetadataObject metadataObject) {
+      CatalogAccess catalogAccess, String metalake, MetadataObject metadataObject) {
     if (needApplyAuthorizationPluginAllCatalogs(metadataObject.type())) {
-      return Arrays.asList(catalogManager.listCatalogs(Namespace.of(metalake)));
+      return Arrays.asList(catalogAccess.listCatalogs(Namespace.of(metalake)));
     }
 
     if (needApplyAuthorization(metadataObject.type())) {
@@ -910,7 +910,7 @@ public class AuthorizationUtils {
       }
 
       @Override
-      public CatalogManager catalogManager() {
+      public CatalogAccess catalogAccess() {
         return env().catalogManager();
       }
 

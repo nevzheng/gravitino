@@ -68,7 +68,7 @@ public class TestAuthorizationServices {
         services, table, Entity.EntityType.TABLE, "renamed");
 
     verify(services, never()).gravitinoAuthorizer();
-    verify(services, never()).catalogManager();
+    verify(services, never()).catalogAccess();
   }
 
   @Test
@@ -79,7 +79,7 @@ public class TestAuthorizationServices {
     when(services.internalAccessControlDispatcher())
         .thenReturn(mock(AccessControlDispatcher.class));
     when(services.gravitinoAuthorizer()).thenReturn(authorizer);
-    when(services.catalogManager()).thenReturn(catalogManager);
+    when(services.catalogAccess()).thenReturn(catalogManager);
     NameIdentifier table = NameIdentifier.of("metalake", "catalog", "schema", "table");
 
     AuthorizationUtils.authorizationPluginRemovePrivileges(
