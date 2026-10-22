@@ -387,6 +387,29 @@ jobs:
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck=
 
+  lint-shell:
+    name: lint (shell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # ShellCheck ships on the GitHub runner image; .shellcheckrc holds the settings. Errors only
+      # for now: warnings and below have hundreds of existing findings.
+      - name: Lint shell scripts
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+
+  lint-docs:
+    name: lint (docs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the CI design docs have a rumdl config so far.
+      - name: Lint Markdown
+        run: pipx run rumdl==0.3.0 check -c design-docs/ci/.rumdl.toml design-docs/ci
+
   lint-python:
     name: lint (python)
     runs-on: ubuntu-latest
@@ -410,7 +433,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [ changes, lint, lint-workflows, lint-python ]
+    needs: [ changes, lint, lint-workflows, lint-python, lint-shell, lint-docs ]
     if: needs.changes.outputs.source_changes == 'true'
     outputs:
       medium-shards: ${{ steps.shards.outputs.medium-shards }}
