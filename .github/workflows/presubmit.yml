@@ -856,17 +856,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: core-*-test-evidence
-          path: core-test-evidence
+          # Each artifact keeps its workspace-relative paths, so merging into the workspace puts
+          # every lane's core/build/jacoco/<task>.exec back where jacocoTestReport reads it.
+          merge-multiple: true
 
       - name: Generate combined core coverage
         if: needs.changes.outputs.maintenance_module_only_changes != 'true'
         run: |
-          mkdir -p core/build/jacoco
-          for task in coreUnitTest coreH2Test coreMySQLTest corePostgreSQLTest; do
-            exec_file="$(find core-test-evidence -path "*/core/build/jacoco/${task}.exec" -print -quit)"
-            test -n "${exec_file}"
-            install -m 0644 "${exec_file}" "core/build/jacoco/${task}.exec"
-          done
           ./gradlew \
             :core:jacocoTestReport \
             -PcoreSuiteCoverage=true \
