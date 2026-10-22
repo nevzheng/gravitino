@@ -80,12 +80,13 @@ In CI, the `test` and `medium-test` stages skip core tests; their results appear
 
 ### Unit test stages in CI
 
-The `build` workflow runs in stages, cheapest first, and each stage starts only after the one before it passes:
+The `presubmit` workflow runs in stages, cheapest first. Each stage starts only after the one before it passes, and the jobs within a stage run in parallel:
 
 1. `lint`: `./gradlew ciLint`, which runs Spotless, the license header check and checkstyle.
 2. `build`: `./gradlew build testClasses -x test`, which compiles main and test sources but runs no tests.
 3. `test`: `./gradlew ciSmallTest -PskipITs -PskipDockerTests=false`, the `test` task of every module whose unit tests need no Docker.
 4. `medium-test (<shard>)`: `./gradlew ciMediumTest<Shard> -PskipITs -PskipDockerTests=false`, the modules whose unit tests are tagged `gravitino-docker-test`, and the `core-test` lanes.
+5. Integration tests: one job per area (`backend-it`, `spark-it`, `trino-it`, and so on), each when its paths change.
 
 `gradle/ci-stages.gradle.kts` lists the medium shards and their modules; `./gradlew ciShards` prints them. A module with Docker-tagged tests that is not listed there runs in `ciSmallTest` with Docker on.
 
