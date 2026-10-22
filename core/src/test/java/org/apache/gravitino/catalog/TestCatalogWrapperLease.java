@@ -43,6 +43,7 @@ import org.apache.gravitino.Namespace;
 import org.apache.gravitino.catalog.CatalogManager.CatalogWrapper;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.EnvironmentAuthorizationPluginContext;
+import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -463,6 +464,61 @@ public class TestCatalogWrapperLease {
       continueCallback.countDown();
       executor.shutdownNow();
     }
+  }
+
+  @Test
+  public void testCatalogAccessWrapperOperationHoldsALease() throws Exception {
+    NameIdentifier ident = createCatalog("access_wrapper_lease");
+    CatalogAccess catalogAccess = catalogManager;
+
+    CatalogWrapper[] seen = new CatalogWrapper[1];
+    boolean supportsSchemas =
+        catalogAccess.doWithCatalogWrapper(
+            ident,
+            wrapper -> {
+              seen[0] = wrapper;
+              Assertions.assertEquals(1, wrapper.activeOperations());
+              Assertions.assertNotNull(wrapper.capabilities());
+              return wrapper.doWithSchemaOps(ops -> ops != null);
+            });
+
+    Assertions.assertTrue(supportsSchemas);
+    Assertions.assertSame(catalogManager.getCatalogCache().getIfPresent(ident), seen[0]);
+    Assertions.assertEquals(0, seen[0].activeOperations());
+  }
+
+  @Test
+  public void testCatalogAccessWrapperOperationReleasesTheLeaseWhenItThrows() throws Exception {
+    NameIdentifier ident = createCatalog("access_wrapper_failure");
+    CatalogAccess catalogAccess = catalogManager;
+    IOException failure = new IOException("operation failed");
+
+    CatalogWrapper[] seen = new CatalogWrapper[1];
+    IOException thrown =
+        Assertions.assertThrows(
+            IOException.class,
+            () ->
+                catalogAccess.doWithCatalogWrapper(
+                    ident,
+                    wrapper -> {
+                      seen[0] = wrapper;
+                      throw failure;
+                    }));
+
+    Assertions.assertSame(failure, thrown);
+    Assertions.assertEquals(0, seen[0].activeOperations());
+  }
+
+  @Test
+  public void testCatalogAccessWrapperOperationOnAMissingCatalogThrows() {
+    CatalogAccess catalogAccess = catalogManager;
+    NameIdentifier missing = NameIdentifier.of(METALAKE, "no_such_catalog");
+
+    Assertions.assertThrows(
+        NoSuchCatalogException.class,
+        () ->
+            catalogAccess.doWithCatalogWrapper(
+                missing, wrapper -> Assertions.fail("the operation must not run")));
   }
 
   @Test

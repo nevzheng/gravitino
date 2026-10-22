@@ -35,8 +35,9 @@ import org.apache.gravitino.utils.ThrowableFunction;
  * those go through a {@link CatalogDispatcher} chain, so that the chain's hooks, events and
  * decorators run.
  *
- * <p>{@link #doWithCatalog} hands the operation the live {@link BaseCatalog}, whose operations can
- * write to the catalog's backend. The catalog must not escape the operation.
+ * <p>{@link #doWithCatalog} hands the operation the live {@link BaseCatalog}, and {@link
+ * #doWithCatalogWrapper} its wrapper; the catalog's operations can write to the catalog's backend.
+ * Neither must escape the operation.
  */
 public interface CatalogAccess {
 
@@ -98,6 +99,27 @@ public interface CatalogAccess {
    */
   <R> R doWithCatalog(NameIdentifier ident, ThrowableFunction<BaseCatalog, R> operation)
       throws NoSuchCatalogException;
+
+  /**
+   * Runs an operation against the wrapper of a live catalog while a lease keeps the catalog's
+   * instance and class loader alive.
+   *
+   * <p>For callers that need what the wrapper adds over {@link #doWithCatalog}: its {@code
+   * capabilities()} and its {@code doWith*Ops} methods, which install the catalog class loader for
+   * each connector call and reject a catalog that does not support the operations. The rest of the
+   * operation runs with the caller's class loader. The operation must not retain the wrapper or a
+   * connector object: the lease ends when it returns.
+   *
+   * @param ident the identifier of the catalog
+   * @param operation the operation to run against the wrapper
+   * @param <R> the result type of the operation
+   * @return the value the operation returns
+   * @throws NoSuchCatalogException if the catalog does not exist
+   * @throws Exception if the operation throws
+   */
+  <R> R doWithCatalogWrapper(
+      NameIdentifier ident, ThrowableFunction<CatalogManager.CatalogWrapper, R> operation)
+      throws Exception;
 
   /**
    * Adds a listener that is called with the identifier of each catalog removed from the catalog

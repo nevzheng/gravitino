@@ -921,12 +921,12 @@ public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeab
   }
 
   /**
-   * Runs a callback with one leased wrapper and the catalog ClassLoader installed as the thread
-   * context ClassLoader. The lease is deliberately kept inside CatalogManager so callers cannot
-   * release it before they have detached connector-backed results.
+   * Runs a callback with one leased wrapper. The lease is deliberately kept inside CatalogManager
+   * so callers cannot release it before they have detached connector-backed results.
    */
-  <R> R doWithCatalogWrapper(NameIdentifier ident, ThrowableFunction<CatalogWrapper, R> operation)
-      throws Exception {
+  @Override
+  public <R> R doWithCatalogWrapper(
+      NameIdentifier ident, ThrowableFunction<CatalogWrapper, R> operation) throws Exception {
     try (CatalogLease lease = acquireCatalogLease(ident)) {
       // Deliberately no ClassLoader swap around the whole callback. The wrapper's doWithXxxOps,
       // doWithPropertiesMeta and capabilities() already install the catalog ClassLoader for the
