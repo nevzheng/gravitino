@@ -102,7 +102,7 @@ public class TestSchemaTableModule {
     assertNotSame(internalOperations, publicOperations);
     for (Object operations : new Object[] {internalOperations, publicOperations}) {
       assertSame(component.internalSchemaDispatcher(), schemaDispatcherOf(operations));
-      assertSame(component.lockManager(), lockManagerOf(operations));
+      assertSame(component.lockManager(), field(operations, "lockManager"));
     }
   }
 
@@ -124,7 +124,7 @@ public class TestSchemaTableModule {
     assertNotSame(internalOperations, publicOperations);
     for (Object operations : new Object[] {internalOperations, publicOperations}) {
       assertSame(component.internalSchemaDispatcher(), schemaDispatcherOf(operations));
-      assertSame(component.lockManager(), lockManagerOf(operations));
+      assertSame(component.lockManager(), field(operations, "lockManager"));
     }
   }
 

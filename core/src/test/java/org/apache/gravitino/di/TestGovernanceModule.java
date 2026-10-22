@@ -19,7 +19,9 @@
 package org.apache.gravitino.di;
 
 import static org.apache.gravitino.di.DispatcherChains.assertChain;
+import static org.apache.gravitino.di.DispatcherChains.field;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -38,6 +40,7 @@ import org.apache.gravitino.listener.TagEventDispatcher;
 import org.apache.gravitino.policy.PolicyManager;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.tag.TagManager;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +59,33 @@ public class TestGovernanceModule {
   @AfterEach
   public void tearDown() throws Exception {
     component.internalStatisticDispatcher().close();
+  }
+
+  @Test
+  public void testMetadataObjectDispatchersAreTheInternalChains() throws Exception {
+    MetadataObjectDispatchers dispatchers = component.metadataObjectDispatchers();
+
+    assertSame(dispatchers, component.metadataObjectDispatchers());
+    assertSame(component.internalMetalakeDispatcher(), dispatchers.internalMetalakeDispatcher());
+    assertSame(component.internalCatalogDispatcher(), dispatchers.internalCatalogDispatcher());
+    assertSame(component.internalSchemaDispatcher(), dispatchers.internalSchemaDispatcher());
+    assertSame(component.internalTableDispatcher(), dispatchers.internalTableDispatcher());
+    assertSame(component.internalViewDispatcher(), dispatchers.internalViewDispatcher());
+    assertSame(component.internalFilesetDispatcher(), dispatchers.internalFilesetDispatcher());
+    assertSame(component.internalTopicDispatcher(), dispatchers.internalTopicDispatcher());
+    assertSame(component.internalModelDispatcher(), dispatchers.internalModelDispatcher());
+    assertSame(component.internalFunctionDispatcher(), dispatchers.internalFunctionDispatcher());
+    assertSame(
+        component.internalSemanticModelDispatcher(), dispatchers.internalSemanticModelDispatcher());
+    assertSame(component.internalTagDispatcher(), dispatchers.internalTagDispatcher());
+    assertSame(component.internalPolicyDispatcher(), dispatchers.internalPolicyDispatcher());
+    assertSame(
+        component.internalJobOperationDispatcher(), dispatchers.internalJobOperationDispatcher());
+    // Authorization is disabled in this component, so there is no access control dispatcher.
+    assertNull(dispatchers.internalAccessControlDispatcher());
+
+    assertSame(dispatchers, field(component.internalTagDispatcher(), "metadataObjects"));
+    assertSame(dispatchers, field(component.internalPolicyDispatcher(), "metadataObjects"));
   }
 
   @Test

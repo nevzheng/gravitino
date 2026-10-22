@@ -57,6 +57,7 @@ import org.apache.gravitino.meta.TagEntity;
 import org.apache.gravitino.policy.PolicyAssociationSelector;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.relational.service.MetadataObjectService;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
@@ -71,6 +72,7 @@ public class TagManager implements TagDispatcher {
   private final IdGenerator idGenerator;
 
   private final EntityStore entityStore;
+  private final MetadataObjectDispatchers metadataObjects;
 
   private static final Set<MetadataObject.Type> SUPPORTED_METADATA_OBJECT_TYPES_FOR_TAGS =
       Sets.newHashSet(
@@ -85,9 +87,18 @@ public class TagManager implements TagDispatcher {
           MetadataObject.Type.FUNCTION,
           MetadataObject.Type.SEMANTIC_MODEL);
 
-  public TagManager(IdGenerator idGenerator, EntityStore entityStore) {
+  /**
+   * Creates a tag manager.
+   *
+   * @param idGenerator the id generator for new tags
+   * @param entityStore the entity store that holds tags and their associations
+   * @param metadataObjects the internal dispatchers asked whether a metadata object exists
+   */
+  public TagManager(
+      IdGenerator idGenerator, EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
     this.idGenerator = idGenerator;
     this.entityStore = entityStore;
+    this.metadataObjects = metadataObjects;
   }
 
   public String[] listTags(String metalake) {
@@ -333,7 +344,7 @@ public class TagManager implements TagDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    MetadataObjectUtil.checkMetadataObject(metadataObjects, metalake, metadataObject);
 
     try {
       checkMetalake(NameIdentifier.of(metalake), entityStore);
@@ -358,7 +369,7 @@ public class TagManager implements TagDispatcher {
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
     NameIdentifier tagIdent = NameIdentifierUtil.ofTag(metalake, name);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    MetadataObjectUtil.checkMetadataObject(metadataObjects, metalake, metadataObject);
 
     try {
       checkMetalake(NameIdentifier.of(metalake), entityStore);
@@ -426,7 +437,7 @@ public class TagManager implements TagDispatcher {
     NameIdentifier entityIdent = MetadataObjectUtil.toEntityIdent(metalake, metadataObject);
     Entity.EntityType entityType = MetadataObjectUtil.toEntityType(metadataObject);
 
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    MetadataObjectUtil.checkMetadataObject(metadataObjects, metalake, metadataObject);
 
     Set<TagValue> tagsToAddSet =
         tagsToAdd == null ? new LinkedHashSet<>() : new LinkedHashSet<>(Arrays.asList(tagsToAdd));

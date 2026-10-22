@@ -31,6 +31,7 @@ import org.apache.gravitino.SupportsRelationOperations;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,14 +48,17 @@ public class EffectiveTagResolver {
   private static final Logger LOG = LoggerFactory.getLogger(EffectiveTagResolver.class);
 
   private final EntityStore entityStore;
+  private final MetadataObjectDispatchers metadataObjects;
 
   /**
    * Creates an effective tag resolver.
    *
    * @param entityStore The entity store used to read tag relations.
+   * @param metadataObjects The internal dispatchers asked whether a metadata object exists.
    */
-  public EffectiveTagResolver(EntityStore entityStore) {
+  public EffectiveTagResolver(EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
     this.entityStore = entityStore;
+    this.metadataObjects = metadataObjects;
   }
 
   /**
@@ -65,7 +69,7 @@ public class EffectiveTagResolver {
    * @return Effective tags in deterministic nearest-assignment order.
    */
   public TagEntity[] resolve(String metalake, MetadataObject metadataObject) {
-    MetadataObjectUtil.checkMetadataObject(metalake, metadataObject);
+    MetadataObjectUtil.checkMetadataObject(metadataObjects, metalake, metadataObject);
     List<MetadataObject> resolutionOrder = new ArrayList<>();
     resolutionOrder.add(metadataObject);
     resolutionOrder.addAll(MetadataObjectUtil.getParentMetadataObjects(metadataObject));

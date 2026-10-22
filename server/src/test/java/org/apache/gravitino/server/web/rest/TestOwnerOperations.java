@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -33,10 +30,7 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
@@ -55,10 +49,11 @@ import org.apache.gravitino.exceptions.MetalakeNotInUseException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchRoleException;
 import org.apache.gravitino.exceptions.NotFoundException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -74,6 +69,8 @@ class TestOwnerOperations extends BaseOperationsTest {
   private static final AccessControlDispatcher accessControlDispatcher =
       mock(AccessControlDispatcher.class);
   private static final EntityStore entityStore = mock(EntityStore.class);
+  private static final MetadataObjectDispatchers objectDispatchers =
+      mock(MetadataObjectDispatchers.class);
 
   private static class MockServletRequestFactory extends ServletRequestFactoryBase {
     @Override
@@ -85,22 +82,9 @@ class TestOwnerOperations extends BaseOperationsTest {
   }
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "metalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalAccessControlDispatcher",
-        accessControlDispatcher,
-        true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
+  public static void setup() {
+    when(objectDispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(objectDispatchers.internalAccessControlDispatcher()).thenReturn(accessControlDispatcher);
   }
 
   @Override
@@ -120,6 +104,8 @@ class TestOwnerOperations extends BaseOperationsTest {
           protected void configure() {
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
             bind(manager).to(OwnerDispatcher.class);
+            bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
+            bind(objectDispatchers).to(MetadataObjectDispatchers.class);
           }
         });
 
@@ -337,11 +323,12 @@ class TestOwnerOperations extends BaseOperationsTest {
   public void testRoleObject() {
     MetadataObject role = MetadataObjects.of(null, "role", MetadataObject.Type.ROLE);
     when(accessControlDispatcher.getRole(any(), any())).thenReturn(mock(Role.class));
-    Assertions.assertDoesNotThrow(() -> MetadataObjectUtil.checkMetadataObject("metalake", role));
+    Assertions.assertDoesNotThrow(
+        () -> MetadataObjectUtil.checkMetadataObject(objectDispatchers, "metalake", role));
 
     doThrow(new NoSuchRoleException("test")).when(accessControlDispatcher).getRole(any(), any());
     Assertions.assertThrows(
         NoSuchMetadataObjectException.class,
-        () -> MetadataObjectUtil.checkMetadataObject("metalake", role));
+        () -> MetadataObjectUtil.checkMetadataObject(objectDispatchers, "metalake", role));
   }
 }

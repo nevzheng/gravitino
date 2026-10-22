@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.di;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
@@ -46,6 +47,7 @@ import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
 import org.apache.gravitino.tag.TagManager;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 
 /**
  * Binds the governance managers and their dispatcher chains: tags, policies, owners and statistics.
@@ -72,6 +74,10 @@ import org.apache.gravitino.tag.TagManager;
 abstract class GovernanceModule {
 
   private GovernanceModule() {}
+
+  @Binds
+  abstract MetadataObjectDispatchers metadataObjectDispatchers(
+      ComponentMetadataObjectDispatchers dispatchers);
 
   @Multibinds
   @Internal
@@ -108,8 +114,9 @@ abstract class GovernanceModule {
   @Provides
   @Singleton
   @Undecorated
-  static TagManager tagManager(IdGenerator idGenerator, EntityStore entityStore) {
-    return new TagManager(idGenerator, entityStore);
+  static TagManager tagManager(
+      IdGenerator idGenerator, EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
+    return new TagManager(idGenerator, entityStore, metadataObjects);
   }
 
   @Provides
@@ -138,8 +145,9 @@ abstract class GovernanceModule {
   @Provides
   @Singleton
   @Undecorated
-  static PolicyManager policyManager(IdGenerator idGenerator, EntityStore entityStore) {
-    return new PolicyManager(idGenerator, entityStore);
+  static PolicyManager policyManager(
+      IdGenerator idGenerator, EntityStore entityStore, MetadataObjectDispatchers metadataObjects) {
+    return new PolicyManager(idGenerator, entityStore, metadataObjects);
   }
 
   @Provides

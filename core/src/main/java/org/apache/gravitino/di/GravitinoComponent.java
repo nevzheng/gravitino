@@ -65,6 +65,7 @@ import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 
 /**
  * The root object graph of the Gravitino server.
@@ -534,6 +535,14 @@ public interface GravitinoComponent {
    * @return the authorization services
    */
   AuthorizationServices authorizationServices();
+
+  /**
+   * Returns the internal dispatchers asked whether a metadata object exists. Building them builds
+   * nothing: each dispatcher is resolved when it is asked for.
+   *
+   * @return the metadata object dispatchers
+   */
+  MetadataObjectDispatchers metadataObjectDispatchers();
 
   /**
    * Returns the internal job chain: template validation, then the job manager.

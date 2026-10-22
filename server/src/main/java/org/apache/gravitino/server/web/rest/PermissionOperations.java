@@ -55,12 +55,13 @@ import org.apache.gravitino.dto.responses.GroupResponse;
 import org.apache.gravitino.dto.responses.RoleResponse;
 import org.apache.gravitino.dto.responses.UserResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.jvnet.hk2.annotations.Optional;
 
@@ -69,6 +70,8 @@ import org.jvnet.hk2.annotations.Optional;
 public class PermissionOperations {
 
   @Nullable private final AccessControlDispatcher accessControlManager;
+  private final MetadataObjectDispatchers objectDispatchers;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -76,10 +79,17 @@ public class PermissionOperations {
    * Creates a permission REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
+   * @param accessChecker checks the current user's access to metadata and that a metalake is in use
    */
   @Inject
-  public PermissionOperations(@Optional @Nullable AccessControlDispatcher accessControlManager) {
+  public PermissionOperations(
+      @Optional @Nullable AccessControlDispatcher accessControlManager,
+      MetadataObjectDispatchers objectDispatchers,
+      MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
+    this.objectDispatchers = objectDispatchers;
+    this.accessChecker = accessChecker;
   }
 
   @PUT
@@ -106,7 +116,7 @@ public class PermissionOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             request.validate();
             return Utils.ok(
                 new UserResponse(
@@ -144,7 +154,7 @@ public class PermissionOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             request.validate();
             return Utils.ok(
                 new GroupResponse(
@@ -183,7 +193,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new UserResponse(
                     DTOConverters.toDTO(
@@ -221,7 +231,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             return Utils.ok(
                 new GroupResponse(
                     DTOConverters.toDTO(
@@ -266,13 +276,13 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             privilegeGrantRequest.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeGrantRequest.getPrivileges()) {
               AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             return Utils.ok(
                 new RoleResponse(
                     DTOConverters.toDTO(
@@ -322,13 +332,13 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             privilegeRevokeRequest.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             for (PrivilegeDTO privilegeDTO : privilegeRevokeRequest.getPrivileges()) {
               AuthorizationUtils.checkPrivilege(privilegeDTO, object, metalake);
             }
 
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             return Utils.ok(
                 new RoleResponse(
                     DTOConverters.toDTO(
@@ -371,7 +381,7 @@ public class PermissionOperations {
           httpRequest,
           () -> {
             request.validate();
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             // Check update objects
             List<SecurableObject> updatedObjects = Lists.newArrayList();
 
@@ -380,7 +390,7 @@ public class PermissionOperations {
                 AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilegeDTO, dto, metalake);
               }
 
-              MetadataObjectUtil.checkMetadataObject(metalake, dto);
+              MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, dto);
               AuthorizationUtils.checkDuplicatedNamePrivilege(dto.privileges());
 
               updatedObjects.add(

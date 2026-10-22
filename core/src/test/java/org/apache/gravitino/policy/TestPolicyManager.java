@@ -60,14 +60,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -84,7 +82,6 @@ import org.apache.gravitino.exceptions.NotFoundException;
 import org.apache.gravitino.exceptions.PolicyAlreadyExistsException;
 import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.function.FunctionType;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -104,6 +101,7 @@ import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.tag.TagManager;
 import org.apache.gravitino.tag.TagValue;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.apache.gravitino.utils.RaceTestUtils;
@@ -128,6 +126,7 @@ public class TestPolicyManager {
   private static final TableDispatcher tableDispatcher = mock(TableDispatcher.class);
   private static final ViewDispatcher viewDispatcher = mock(ViewDispatcher.class);
   private static final FunctionDispatcher functionDispatcher = mock(FunctionDispatcher.class);
+  private static final MetadataObjectDispatchers metadataObjects = newMetadataObjectDispatchers();
   private static final String JDBC_STORE_PATH =
       "/tmp/gravitino_jdbc_entityStore_" + UUID.randomUUID().toString().replace("-", "");
   private static final String DB_DIR = JDBC_STORE_PATH + "/testdb";
@@ -145,22 +144,8 @@ public class TestPolicyManager {
     Config config = mockConfig();
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
-    policyManager = new PolicyManager(idGenerator, entityStore);
-    tagManager = new TagManager(idGenerator, entityStore);
-
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalCatalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalViewDispatcher", viewDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalFunctionDispatcher", functionDispatcher, true);
+    policyManager = new PolicyManager(idGenerator, entityStore, metadataObjects);
+    tagManager = new TagManager(idGenerator, entityStore, metadataObjects);
 
     AuditInfo audit = AuditInfo.builder().withCreator("test").withCreateTime(Instant.now()).build();
     BaseMetalake metalake =
@@ -798,7 +783,8 @@ public class TestPolicyManager {
             Mockito.eq(PolicyEntity.class),
             Mockito.eq(Entity.EntityType.POLICY),
             Mockito.any());
-    PolicyManager racingManager = new PolicyManager(new RandomIdGenerator(), racingStore);
+    PolicyManager racingManager =
+        new PolicyManager(new RandomIdGenerator(), racingStore, metadataObjects);
 
     NoSuchPolicyException e =
         Assertions.assertThrows(
@@ -834,5 +820,16 @@ public class TestPolicyManager {
     tagManager.addPolicyForTag(METALAKE, tagName, policy.name(), AllValuesSelector.get());
     tagManager.associateTagsForMetadataObject(
         METALAKE, metadataObject, new String[] {tagName}, null);
+  }
+
+  private static MetadataObjectDispatchers newMetadataObjectDispatchers() {
+    MetadataObjectDispatchers dispatchers = mock(MetadataObjectDispatchers.class);
+    when(dispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(dispatchers.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
+    when(dispatchers.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
+    when(dispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
+    when(dispatchers.internalViewDispatcher()).thenReturn(viewDispatcher);
+    when(dispatchers.internalFunctionDispatcher()).thenReturn(functionDispatcher);
+    return dispatchers;
   }
 }

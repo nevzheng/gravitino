@@ -41,9 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
@@ -121,7 +119,6 @@ public class TestJdbcPartitionStatisticStorageIT {
       TableEntity tableEntity = mock(TableEntity.class);
       when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
       when(tableEntity.id()).thenReturn(100L);
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
       setupStorage();
     }
@@ -614,7 +611,7 @@ public class TestJdbcPartitionStatisticStorageIT {
       properties.put("jdbcDriver", mySQLContainer.getDriverClassName(TEST_DB_NAME));
 
       JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
-      storage = (JdbcPartitionStatisticStorage) factory.create(properties);
+      storage = (JdbcPartitionStatisticStorage) factory.create(properties, entityStore);
 
       LOG.info("MySQL partition statistics storage initialized successfully");
     }
@@ -685,7 +682,7 @@ public class TestJdbcPartitionStatisticStorageIT {
       properties.put("jdbcDriver", postgreSQLContainer.getDriverClassName(TEST_DB_NAME));
 
       JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
-      storage = (JdbcPartitionStatisticStorage) factory.create(properties);
+      storage = (JdbcPartitionStatisticStorage) factory.create(properties, entityStore);
 
       LOG.info("PostgreSQL partition statistics storage initialized successfully");
     }
@@ -755,7 +752,7 @@ public class TestJdbcPartitionStatisticStorageIT {
       properties.put("jdbcDriver", "org.h2.Driver");
 
       JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
-      storage = (JdbcPartitionStatisticStorage) factory.create(properties);
+      storage = (JdbcPartitionStatisticStorage) factory.create(properties, entityStore);
 
       LOG.info("H2 partition statistics storage initialized successfully");
     }

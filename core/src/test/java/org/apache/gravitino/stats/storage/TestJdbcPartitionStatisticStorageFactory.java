@@ -19,15 +19,28 @@
 package org.apache.gravitino.stats.storage;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.EntityStore;
 import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link JdbcPartitionStatisticStorageFactory}. */
 public class TestJdbcPartitionStatisticStorageFactory {
+
+  private static final EntityStore ENTITY_STORE = mock(EntityStore.class);
+
+  @Test
+  public void testCreateWithoutEntityStoreIsUnsupported() {
+    JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
+
+    assertThrows(UnsupportedOperationException.class, () -> factory.create(new HashMap<>()));
+  }
 
   @Test
   public void testCreateWithValidConfiguration() {
@@ -42,7 +55,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     // This test only validates that the properties pass validation
     // Actual storage creation requires GravitinoEnv and is tested in integration tests
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -68,7 +81,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
 
     // This test only validates that the properties pass validation
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -91,7 +104,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
     // jdbcUrl is missing
 
     Exception exception =
-        assertThrows(IllegalArgumentException.class, () -> factory.create(properties));
+        assertThrows(
+            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
 
     assertTrue(exception.getMessage().contains("jdbcUrl"));
   }
@@ -106,7 +120,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
     // jdbcUser is missing
 
     Exception exception =
-        assertThrows(IllegalArgumentException.class, () -> factory.create(properties));
+        assertThrows(
+            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
 
     assertTrue(exception.getMessage().contains("jdbcUser"));
   }
@@ -121,7 +136,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
     // jdbcPassword is missing
 
     Exception exception =
-        assertThrows(IllegalArgumentException.class, () -> factory.create(properties));
+        assertThrows(
+            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
 
     assertTrue(exception.getMessage().contains("jdbcPassword"));
   }
@@ -133,7 +149,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
     Map<String, String> properties = new HashMap<>();
 
     Exception exception =
-        assertThrows(IllegalArgumentException.class, () -> factory.create(properties));
+        assertThrows(
+            IllegalArgumentException.class, () -> factory.create(properties, ENTITY_STORE));
 
     assertNotNull(exception.getMessage());
   }
@@ -142,7 +159,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
   public void testCreateWithNullProperties() {
     JdbcPartitionStatisticStorageFactory factory = new JdbcPartitionStatisticStorageFactory();
 
-    assertThrows(NullPointerException.class, () -> factory.create(null));
+    assertThrows(NullPointerException.class, () -> factory.create(null, ENTITY_STORE));
   }
 
   @Test
@@ -157,7 +174,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("extra-property", "extra-value"); // Extra properties should be ignored
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -187,8 +204,8 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties2.put("jdbcPassword", "pass2");
 
     try {
-      PartitionStatisticStorage storage1 = factory1.create(properties1);
-      PartitionStatisticStorage storage2 = factory2.create(properties2);
+      PartitionStatisticStorage storage1 = factory1.create(properties1, ENTITY_STORE);
+      PartitionStatisticStorage storage2 = factory2.create(properties2, ENTITY_STORE);
       assertNotNull(storage1);
       assertNotNull(storage2);
       assertTrue(storage1 instanceof JdbcPartitionStatisticStorage);
@@ -215,7 +232,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "test_password");
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -238,7 +255,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "test_password");
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -262,7 +279,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcDriver", "org.h2.Driver");
 
     // Empty passwords should be allowed (e.g., for H2 in-memory databases)
-    PartitionStatisticStorage storage = factory.create(properties);
+    PartitionStatisticStorage storage = factory.create(properties, mock(EntityStore.class));
     assertNotNull(storage);
   }
 
@@ -276,7 +293,7 @@ public class TestJdbcPartitionStatisticStorageFactory {
     properties.put("jdbcPassword", "p@ssw0rd!#$%"); // Special characters
 
     try {
-      PartitionStatisticStorage storage = factory.create(properties);
+      PartitionStatisticStorage storage = factory.create(properties, ENTITY_STORE);
       assertNotNull(storage);
       assertTrue(storage instanceof JdbcPartitionStatisticStorage);
     } catch (Exception e) {
@@ -286,6 +303,24 @@ public class TestJdbcPartitionStatisticStorageFactory {
           throw e;
         }
       }
+    }
+  }
+
+  @Test
+  public void testCreateWithEntityStoreHandsTheStoreToTheStorage() throws Exception {
+    Map<String, String> properties = new HashMap<>();
+    properties.put("jdbcUrl", "jdbc:h2:mem:stats_factory_store;DB_CLOSE_DELAY=-1");
+    properties.put("jdbcUser", "sa");
+    properties.put("jdbcPassword", "");
+    properties.put("jdbcDriver", "org.h2.Driver");
+    EntityStore entityStore = mock(EntityStore.class);
+
+    PartitionStatisticStorage storage =
+        new JdbcPartitionStatisticStorageFactory().create(properties, entityStore);
+    try {
+      assertSame(entityStore, FieldUtils.readField(storage, "entityStore", true));
+    } finally {
+      storage.close();
     }
   }
 }

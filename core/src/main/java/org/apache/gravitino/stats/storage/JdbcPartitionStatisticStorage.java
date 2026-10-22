@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.json.JsonUtils;
@@ -106,10 +105,11 @@ public class JdbcPartitionStatisticStorage implements PartitionStatisticStorage 
    * Constructs a new JdbcPartitionStatisticStorage.
    *
    * @param dataSource the JDBC DataSource for database connections
+   * @param entityStore the entity store that holds the tables whose statistics are stored
    */
-  public JdbcPartitionStatisticStorage(DataSource dataSource) {
+  public JdbcPartitionStatisticStorage(DataSource dataSource, EntityStore entityStore) {
     this.dataSource = dataSource;
-    this.entityStore = GravitinoEnv.getInstance().entityStore();
+    this.entityStore = entityStore;
     this.databaseType = detectDatabaseType();
   }
 

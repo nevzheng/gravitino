@@ -35,11 +35,11 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.dto.responses.NameListResponse;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.jvnet.hk2.annotations.Optional;
@@ -49,6 +49,7 @@ import org.jvnet.hk2.annotations.Optional;
 public class MetadataObjectRoleOperations {
 
   @Nullable private final AccessControlDispatcher accessControlDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -60,13 +61,16 @@ public class MetadataObjectRoleOperations {
    * disabled.
    *
    * @param accessControlDispatcher the access-control dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public MetadataObjectRoleOperations(
       @Optional @Nullable AccessControlDispatcher accessControlDispatcher,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.accessControlDispatcher = accessControlDispatcher;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -86,8 +90,8 @@ public class MetadataObjectRoleOperations {
       return Utils.doAs(
           httpRequest,
           () -> {
-            MetalakeManager.checkMetalakeInUse(metalake);
-            MetadataObjectUtil.checkMetadataObject(metalake, object);
+            accessChecker.checkMetalakeInUse(metalake);
+            MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
             String[] names = accessControlDispatcher.listRoleNamesByObject(metalake, object);
             names =
                 accessChecker.filterByExpression(
