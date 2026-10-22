@@ -86,6 +86,7 @@ jobs:
             -x :plugins:idp-basic:test \
             -x :authorizations:authorization-chain:test -x :authorizations:authorization-ranger:test \
             -x :clients:cli:test -x :maintenance:jobs:test -x :maintenance:optimizer:test \
+            -x :integration-test-common:test \
             $EXCLUDE_CONTRIB_TESTS
 
       - name: Upload integrate tests reports

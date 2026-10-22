@@ -165,7 +165,7 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here |
 | Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here |
 | Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision   |
-| Small       | `integration-test-common` ITs run in the small stage and in backend  | P2         |
+| Small       | `integration-test-common` unit tests also ran in backend-it          | Fixed here |
 | Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org   |
 | Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced   |
 | Integration | `clients/cli` `TableFormatOutputIT` ran in no job                    | Fixed here |
@@ -416,21 +416,21 @@ file scans. It is a snapshot; P2 turns the repeatable ones into `ciVerifyShards`
 **Tests.** Each module's test classes, counted by `@Test` inside and outside `integration/test/`,
 matched to the job that runs them:
 
-| Module                                                                 | Runs in                                          |
-| ---------------------------------------------------------------------- | ------------------------------------------------ |
-| `catalogs/*`, `client-java`, `filesystem-hadoop3`, `lance-rest-server` | `backend-it` (catch-all)                         |
-| `authorizations/*`                                                     | `access-control-it`                              |
-| `catalogs-contrib/*`                                                   | `contrib-catalog-test.yml`                       |
-| `flink-connector/*` (common sources compile into each version)         | `flink-it`                                       |
-| `spark-connector/v3.5`, `v4.0`                                         | `spark-it`                                       |
-| `trino-connector/integration-test`                                     | `trino-it`                                       |
-| `iceberg-rest-trino-it`                                                | `iceberg-rest-trino-it`                          |
-| `maintenance/optimizer`                                                | `maintenance-it`                                 |
-| `plugins/idp-basic`                                                    | `idp-basic-it`                                   |
-| `web-v2/integration-test`                                              | `frontend-integration-test.yml`                  |
-| `clients/cli` (1 IT class, 6 tests)                                    | `cli-it`; catalogs with `verify-on-create=false` |
-| `web/integration-test` (4 IT classes)                                  | None on PRs: frontend runs web-v2 only           |
-| `integration-test-common` (5 classes)                                  | Small stage and `backend-it`                     |
+| Module                                                                 | Runs in                                                             |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `catalogs/*`, `client-java`, `filesystem-hadoop3`, `lance-rest-server` | `backend-it` (catch-all)                                            |
+| `authorizations/*`                                                     | `access-control-it`                                                 |
+| `catalogs-contrib/*`                                                   | `contrib-catalog-test.yml`                                          |
+| `flink-connector/*` (common sources compile into each version)         | `flink-it`                                                          |
+| `spark-connector/v3.5`, `v4.0`                                         | `spark-it`                                                          |
+| `trino-connector/integration-test`                                     | `trino-it`                                                          |
+| `iceberg-rest-trino-it`                                                | `iceberg-rest-trino-it`                                             |
+| `maintenance/optimizer`                                                | `maintenance-it`                                                    |
+| `plugins/idp-basic`                                                    | `idp-basic-it`                                                      |
+| `web-v2/integration-test`                                              | `frontend-integration-test.yml`                                     |
+| `clients/cli` (1 IT class, 6 tests)                                    | `cli-it`; catalogs with `verify-on-create=false`                    |
+| `web/integration-test` (4 IT classes)                                  | None on PRs: frontend runs web-v2 only                              |
+| `integration-test-common` (5 classes)                                  | Small stage only: plain unit tests in an `integration.test` package |
 
 Off PRs by design: the Lance Spark bundle matrix (weekly), multi-instance consistency and Trino
 multi-version (manual), and Doris multi-version (`-PdorisMultiVersionTest`, local).
