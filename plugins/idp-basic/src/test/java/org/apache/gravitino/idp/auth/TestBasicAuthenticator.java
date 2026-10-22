@@ -75,6 +75,20 @@ class TestBasicAuthenticator {
   }
 
   @Test
+  @SuppressWarnings("deprecation")
+  void testDeprecatedInitializeWithoutAManagerNeedsTheContext() {
+    Config config = new Config(false) {};
+    config.set(
+        Configs.REST_API_EXTENSION_PACKAGES,
+        Lists.newArrayList(IdpRESTFeature.IDP_REST_EXTENSION_PACKAGE));
+    BasicAuthenticator authenticator = new BasicAuthenticator();
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> authenticator.initialize(config));
+    assertTrue(exception.getMessage().contains("initialize(Config, AuthenticatorContext)"));
+  }
+
+  @Test
   void testValidateExtensionPackageOk() {
     Config config = new Config(false) {};
     config.set(

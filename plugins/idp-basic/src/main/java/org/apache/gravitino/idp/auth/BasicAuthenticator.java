@@ -29,10 +29,8 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.UserGroup;
 import org.apache.gravitino.UserPrincipal;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.exceptions.UnauthorizedException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
@@ -76,7 +74,9 @@ public class BasicAuthenticator implements Authenticator {
   }
 
   /**
-   * Initializes the authenticator, taking the id generator from the process environment.
+   * Initializes the authenticator without the server services. It works only for an authenticator
+   * given a manager, or once the shared built-in IdP manager exists; otherwise it fails because it
+   * has no id generator to build the manager with.
    *
    * @param config The server configuration.
    * @deprecated Use {@link #initialize(Config, AuthenticatorContext)}; the server passes the id
@@ -86,7 +86,7 @@ public class BasicAuthenticator implements Authenticator {
   @Override
   @SuppressWarnings("InlineMeSuggester")
   public void initialize(Config config) {
-    initialize(config, AuthenticatorContext.of(BasicAuthenticator::processIdGenerator));
+    initialize(config, AuthenticatorContext.of(BasicAuthenticator::missingIdGenerator));
   }
 
   /**
@@ -207,10 +207,10 @@ public class BasicAuthenticator implements Authenticator {
     }
   }
 
-  // Only the deprecated initialize(Config) reads the process environment: a caller of it hands the
-  // authenticator nothing but the Config.
-  @LegacyEnvAccess
-  private static IdGenerator processIdGenerator() {
-    return GravitinoEnv.getInstance().idGenerator();
+  // A caller of the deprecated initialize(Config) hands the authenticator nothing but the Config.
+  private static IdGenerator missingIdGenerator() {
+    throw new IllegalStateException(
+        "The basic authenticator needs the server's id generator to build the built-in IdP manager;"
+            + " call initialize(Config, AuthenticatorContext)");
   }
 }

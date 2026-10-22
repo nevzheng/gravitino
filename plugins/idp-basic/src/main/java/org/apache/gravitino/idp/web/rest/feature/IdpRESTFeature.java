@@ -20,15 +20,12 @@ package org.apache.gravitino.idp.web.rest.feature;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.function.Supplier;
 import javax.inject.Inject;
 import javax.ws.rs.core.Feature;
 import javax.ws.rs.core.FeatureContext;
 import javax.ws.rs.ext.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.auth.AuthenticatorType;
 import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.auth.BasicAuthenticator;
@@ -62,18 +59,8 @@ public class IdpRESTFeature implements Feature {
   /** Environment variable for the initial password of configured service admins. */
   public static final String INITIAL_ADMIN_PASSWORD_ENV = "GRAVITINO_INITIAL_ADMIN_PASSWORD";
 
-  private final Supplier<Config> config;
-  private final Supplier<IdGenerator> idGenerator;
-
-  /**
-   * Creates the feature from the process environment, resolved when Jersey configures it.
-   *
-   * @deprecated Use {@link #IdpRESTFeature(Config, IdGenerator)}.
-   */
-  @Deprecated
-  public IdpRESTFeature() {
-    this(() -> processEnv().config(), () -> processEnv().idGenerator());
-  }
+  private final Config config;
+  private final IdGenerator idGenerator;
 
   /**
    * Creates the feature.
@@ -83,20 +70,15 @@ public class IdpRESTFeature implements Feature {
    */
   @Inject
   public IdpRESTFeature(Config config, IdGenerator idGenerator) {
-    this(() -> config, () -> idGenerator);
-  }
-
-  private IdpRESTFeature(Supplier<Config> config, Supplier<IdGenerator> idGenerator) {
     this.config = config;
     this.idGenerator = idGenerator;
   }
 
   @Override
   public boolean configure(FeatureContext context) {
-    Config config = this.config.get();
     validateConfiguration(config);
-    IdpUserGroupManager manager = IdpUserGroupManager.getInstance(config, idGenerator.get());
-    registerBasicAuthenticator(config, manager, AuthenticatorContext.of(idGenerator));
+    IdpUserGroupManager manager = IdpUserGroupManager.getInstance(config, idGenerator);
+    registerBasicAuthenticator(config, manager, AuthenticatorContext.of(() -> idGenerator));
 
     try {
       manager.initializeConfiguredServiceAdmins(config, System.getenv(INITIAL_ADMIN_PASSWORD_ENV));
@@ -161,10 +143,5 @@ public class IdpRESTFeature implements Feature {
     BasicAuthenticator basicAuthenticator = new BasicAuthenticator(manager);
     basicAuthenticator.initialize(config, context);
     authenticators.add(0, basicAuthenticator);
-  }
-
-  @LegacyEnvAccess
-  private static GravitinoEnv processEnv() {
-    return GravitinoEnv.getInstance();
   }
 }

@@ -26,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 
 import com.google.common.collect.Lists;
-import java.util.function.Supplier;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
@@ -56,9 +55,8 @@ class TestIdpRESTFeature {
             });
     try {
       IdpRESTFeature feature = locator.createAndInitialize(IdpRESTFeature.class);
-      assertSame(config, ((Supplier<?>) FieldUtils.readField(feature, "config", true)).get());
-      assertSame(
-          idGenerator, ((Supplier<?>) FieldUtils.readField(feature, "idGenerator", true)).get());
+      assertSame(config, FieldUtils.readField(feature, "config", true));
+      assertSame(idGenerator, FieldUtils.readField(feature, "idGenerator", true));
     } finally {
       locator.shutdown();
     }
