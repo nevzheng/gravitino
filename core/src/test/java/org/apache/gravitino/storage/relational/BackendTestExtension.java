@@ -193,7 +193,7 @@ public class BackendTestExtension
         store.put(CURRENT_BACKEND, current);
       }
       // Bound for this test only: the method store closes the binding once the test is done, so
-      // the next test, in this class or another, finds GravitinoEnv as it was before.
+      // the next test, in this class or another, finds the store seeds as they were before.
       LegacyStoreEnvironment binding = current.bindGravitinoEnv();
       context
           .getStore(NAMESPACE)
