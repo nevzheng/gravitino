@@ -782,6 +782,15 @@ jobs:
       java-version: '17'
       test-mode: ${{ matrix.test-mode }}
 
+  contrib-catalog-test:
+    needs: [ changes, test, medium-test, core-test ]
+    if: >-
+      !cancelled() &&
+      needs.test.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs['medium-test'].result) &&
+      contains(fromJSON('["success", "skipped"]'), needs['core-test'].result)
+    uses: ./.github/workflows/contrib-catalog-test.yml
+
   frontend-it:
     needs: [ changes, test, medium-test, core-test ]
     if: >-
