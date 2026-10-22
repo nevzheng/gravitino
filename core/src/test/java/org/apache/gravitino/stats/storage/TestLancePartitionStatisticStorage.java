@@ -20,7 +20,6 @@ package org.apache.gravitino.stats.storage;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.Lists;
@@ -32,7 +31,6 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.meta.TableEntity;
@@ -43,7 +41,6 @@ import org.apache.gravitino.stats.StatisticValue;
 import org.apache.gravitino.stats.StatisticValues;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 
 public class TestLancePartitionStatisticStorage {
 
@@ -426,22 +423,17 @@ public class TestLancePartitionStatisticStorage {
     }
   }
 
-  // Pins the factory method without a store, which reads the store from GravitinoEnv for callers
-  // outside the server. Every other test passes the store.
+  // The server passes the store to the factory; the deprecated factory method without a store reads
+  // it from GravitinoEnv and is deleted with it.
   @Test
-  public void testCreateWithoutStoreReadsTheEnvironmentStore() throws Exception {
+  public void testCreateWithStoreUsesTheGivenStore() throws Exception {
     EntityStore entityStore = mock(EntityStore.class);
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    when(env.entityStore()).thenReturn(entityStore);
-    String location = Files.createTempDirectory("lance_stats_env_store_test").toString();
+    String location = Files.createTempDirectory("lance_stats_given_store_test").toString();
     Map<String, String> properties = Maps.newHashMap();
     properties.put("location", location);
 
-    PartitionStatisticStorage storage;
-    try (MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      storage = new LancePartitionStatisticStorageFactory().create(properties);
-    }
+    PartitionStatisticStorage storage =
+        new LancePartitionStatisticStorageFactory().create(properties, entityStore);
     try {
       Assertions.assertSame(entityStore, FieldUtils.readField(storage, "entityStore", true));
     } finally {

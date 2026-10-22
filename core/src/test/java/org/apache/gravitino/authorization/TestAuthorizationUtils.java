@@ -51,7 +51,6 @@ import org.apache.gravitino.utils.ThrowableFunction;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 class TestAuthorizationUtils {
@@ -73,10 +72,11 @@ class TestAuthorizationUtils {
         exception.getMessage());
   }
 
-  // Pins the overloads without services, which read them from GravitinoEnv for their callers
-  // outside core. Every other test passes the services.
+  // Pins the services the overloads without services read for their callers outside core: those
+  // overloads pass EnvironmentAuthorizationServices, which reads each service from the environment.
+  // Every other test passes the services.
   @Test
-  void testOverloadsWithoutServicesReadTheEnvironment() {
+  void testEnvironmentServicesReadTheEnvironment() {
     GravitinoAuthorizer authorizer = Mockito.mock(GravitinoAuthorizer.class);
     CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, Mockito.mock(BaseCatalog.class));
@@ -85,21 +85,23 @@ class TestAuthorizationUtils {
     Mockito.when(env.internalAccessControlDispatcher())
         .thenReturn(Mockito.mock(AccessControlDispatcher.class));
     Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+    AuthorizationServices services = EnvironmentAuthorizationServices.of(env);
     NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
 
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-
-      ForbiddenException exception =
-          Assertions.assertThrows(
-              ForbiddenException.class,
-              () -> AuthorizationUtils.checkCurrentUser(metalake, "tester"));
-      Assertions.assertEquals(
-          AuthorizationUtils.metalakeMembershipFailureMessage(metalake, "tester"),
-          exception.getMessage());
-      AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.TABLE, "new_table");
-    }
+    ForbiddenException exception =
+        Assertions.assertThrows(
+            ForbiddenException.class,
+            () ->
+                AuthorizationUtils.checkCurrentUser(
+                    services.gravitinoAuthorizer(),
+                    metalake,
+                    "tester",
+                    new AuthorizationRequestContext()));
+    Assertions.assertEquals(
+        AuthorizationUtils.metalakeMembershipFailureMessage(metalake, "tester"),
+        exception.getMessage());
+    AuthorizationUtils.authorizationPluginRenamePrivileges(
+        services, ident, Entity.EntityType.TABLE, "new_table");
 
     Mockito.verify(authorizer).isMetalakeUser(Mockito.eq(metalake), Mockito.any());
     Mockito.verify(authorizer)
