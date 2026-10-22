@@ -26,6 +26,7 @@ import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerEventManager;
@@ -166,8 +167,9 @@ abstract class GovernanceModule {
   @Provides
   @Singleton
   @Undecorated
-  static OwnerManager ownerManager(EntityStore entityStore) {
-    return new OwnerManager(entityStore);
+  static OwnerManager ownerManager(
+      EntityStore entityStore, AuthorizationServices authorizationServices) {
+    return new OwnerManager(entityStore, authorizationServices);
   }
 
   @Provides

@@ -26,6 +26,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
@@ -524,6 +525,15 @@ public interface GravitinoComponent {
    * @return the future grant manager
    */
   FutureGrantManager futureGrantManager();
+
+  /**
+   * Returns the services that keep authorization in step with metadata changes. Building them
+   * builds nothing: each service is resolved when it is asked for, and the access control, owner
+   * and future grant services are null while authorization is disabled.
+   *
+   * @return the authorization services
+   */
+  AuthorizationServices authorizationServices();
 
   /**
    * Returns the internal job chain: template validation, then the job manager.

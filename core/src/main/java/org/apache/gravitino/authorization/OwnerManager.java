@@ -28,7 +28,6 @@ import javax.annotation.Nullable;
 import lombok.Getter;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.SupportsRelationOperations;
@@ -51,8 +50,17 @@ import org.slf4j.LoggerFactory;
 public class OwnerManager implements OwnerDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(OwnerManager.class);
   @Getter private final EntityStore store;
+  private final AuthorizationServices authorizationServices;
 
-  public OwnerManager(EntityStore store) {
+  /**
+   * Creates an owner manager.
+   *
+   * @param store the entity store, which must be a relational entity store
+   * @param authorizationServices the services whose authorizer and catalog authorization plugins
+   *     learn of owner changes
+   */
+  public OwnerManager(EntityStore store, AuthorizationServices authorizationServices) {
+    this.authorizationServices = authorizationServices;
     if (store instanceof SupportsRelationOperations) {
       this.store = store;
     } else {
@@ -105,6 +113,7 @@ public class OwnerManager implements OwnerDispatcher {
       }
 
       AuthorizationUtils.callAuthorizationPluginForMetadataObject(
+          authorizationServices.catalogManager(),
           metalake,
           metadataObject,
           authorizationPlugin ->
@@ -187,6 +196,7 @@ public class OwnerManager implements OwnerDispatcher {
         Optional<Owner> originOwner = originOwners.get(i);
         try {
           AuthorizationUtils.callAuthorizationPluginForMetadataObject(
+              authorizationServices.catalogManager(),
               metalake,
               mo,
               authorizationPlugin ->
@@ -214,7 +224,7 @@ public class OwnerManager implements OwnerDispatcher {
 
   private void notifyOwnerChange(
       @Nullable Owner oldOwner, String metalake, MetadataObject metadataObject) {
-    GravitinoAuthorizer gravitinoAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
+    GravitinoAuthorizer gravitinoAuthorizer = authorizationServices.gravitinoAuthorizer();
 
     Long oldOwnerId;
     try {

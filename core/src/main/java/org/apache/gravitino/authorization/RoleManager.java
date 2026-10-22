@@ -52,10 +52,13 @@ class RoleManager {
   private static final Logger LOG = LoggerFactory.getLogger(RoleManager.class);
   private final EntityStore store;
   private final IdGenerator idGenerator;
+  private final AuthorizationServices authorizationServices;
 
-  RoleManager(EntityStore store, IdGenerator idGenerator) {
+  RoleManager(
+      EntityStore store, IdGenerator idGenerator, AuthorizationServices authorizationServices) {
     this.store = store;
     this.idGenerator = idGenerator;
+    this.authorizationServices = authorizationServices;
   }
 
   RoleEntity createRole(
@@ -81,6 +84,7 @@ class RoleManager {
       store.put(roleEntity, false /* overwritten */);
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+          authorizationServices.catalogManager(),
           metalake,
           roleEntity.securableObjects(),
           (authorizationPlugin, catalogName) ->
@@ -115,6 +119,7 @@ class RoleManager {
       try {
         RoleEntity roleEntity = store.get(ident, Entity.EntityType.ROLE, RoleEntity.class);
         AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
+            authorizationServices.catalogManager(),
             metalake,
             roleEntity.securableObjects(),
             (authorizationPlugin, catalogName) ->
