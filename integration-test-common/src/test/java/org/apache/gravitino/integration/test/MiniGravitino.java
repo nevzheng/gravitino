@@ -25,6 +25,7 @@ import static org.apache.gravitino.lance.common.config.LanceConfig.NAMESPACE_BAC
 import static org.apache.gravitino.lance.common.config.LanceConfig.NAMESPACE_BACKEND_URI;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import java.io.File;
@@ -49,6 +50,7 @@ import org.apache.gravitino.auth.AuthenticatorType;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.client.HTTPClient;
 import org.apache.gravitino.client.RESTClient;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.integration.test.util.HttpUtils;
 import org.apache.gravitino.integration.test.util.ITUtils;
 import org.apache.gravitino.integration.test.util.KerberosProviderHelper;
@@ -79,6 +81,9 @@ public class MiniGravitino {
   private String host;
 
   private int port;
+
+  // Set by the server task once the embedded server has started; read by the test thread.
+  @Nullable private volatile GravitinoComponent component;
 
   public MiniGravitino(MiniGravitinoContext context) throws IOException {
     this(
@@ -203,7 +208,8 @@ public class MiniGravitino {
                     .launch(
                         new String[] {
                           ITUtils.joinPath(mockConfDir.getAbsolutePath(), "gravitino.conf")
-                        });
+                        },
+                        this::serverStarted);
               } catch (Exception e) {
                 LOG.error("Exception in startup MiniGravitino Server ", e);
                 throw new RuntimeException(e);
@@ -214,7 +220,8 @@ public class MiniGravitino {
 
     String url = URI + "/metrics";
     while (System.currentTimeMillis() - beginTime < 1000 * 60 * 3) {
-      started = HttpUtils.isHttpServerUp(url);
+      // The launcher reports the component right after the server starts listening.
+      started = component != null && HttpUtils.isHttpServerUp(url);
       if (started || future.isDone()) {
         break;
       }
@@ -251,6 +258,7 @@ public class MiniGravitino {
       failure = e;
       throw e;
     } finally {
+      component = null;
       cleanupResources(failure);
     }
 
@@ -259,6 +267,25 @@ public class MiniGravitino {
 
   public Config getServerConfig() {
     return serverConfig;
+  }
+
+  /**
+   * Returns the component of the running embedded server, through which a test reaches the server's
+   * own services, such as its entity store or catalogs.
+   *
+   * @return the component of the running server
+   * @throws IllegalStateException if the server has not started or has stopped
+   */
+  public GravitinoComponent component() {
+    GravitinoComponent started = component;
+    Preconditions.checkState(
+        started != null, "MiniGravitino has no running server; start it first");
+    return started;
+  }
+
+  @VisibleForTesting
+  void serverStarted(GravitinoComponent startedComponent) {
+    this.component = startedComponent;
   }
 
   Map<String, String> getIcebergRestServiceConfigs() throws IOException {

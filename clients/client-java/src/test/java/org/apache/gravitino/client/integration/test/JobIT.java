@@ -34,7 +34,6 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.client.GravitinoMetalake;
 import org.apache.gravitino.exceptions.JobTemplateAlreadyExistsException;
 import org.apache.gravitino.exceptions.NoSuchJobException;
@@ -659,7 +658,7 @@ public class JobIT extends BaseIT {
 
   private JobEntity insertOtherServerJob(
       String templateName, JobHandle.Status status, Instant createTime) throws IOException {
-    long jobId = GravitinoEnv.getInstance().idGenerator().nextId();
+    long jobId = serverComponent().idGenerator().nextId();
     JobEntity job =
         JobEntity.builder()
             .withId(jobId)
@@ -672,7 +671,7 @@ public class JobIT extends BaseIT {
             .withStartedAt(status == JobHandle.Status.QUEUED ? 0L : createTime.toEpochMilli())
             .withFinishedAt(0L)
             .build();
-    GravitinoEnv.getInstance().entityStore().put(job, false /* overwrite */);
+    serverComponent().entityStore().put(job, false /* overwrite */);
     return job;
   }
 

@@ -25,6 +25,7 @@ import static org.apache.gravitino.lance.common.config.LanceConfig.LANCE_CONFIG_
 import static org.apache.gravitino.lance.common.config.LanceConfig.METALAKE_NAME;
 import static org.apache.gravitino.server.GravitinoServer.WEBSERVER_CONF_PREFIX;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableMap;
 import java.io.File;
@@ -59,6 +60,7 @@ import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.client.GravitinoAdminClient;
 import org.apache.gravitino.client.KerberosTokenProvider;
 import org.apache.gravitino.config.ConfigConstants;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.integration.test.MiniGravitino;
 import org.apache.gravitino.integration.test.MiniGravitinoContext;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
@@ -496,6 +498,20 @@ public class BaseIT {
     customConfigs.clear();
 
     LOG.info("Tearing down Gravitino Server");
+  }
+
+  /**
+   * Returns the component of the server this test started in embedded mode, through which the test
+   * reaches the server's own services. A server in deploy mode runs in another process and has no
+   * component here.
+   *
+   * @return the component of the embedded server
+   * @throws IllegalStateException if the test does not run in embedded mode
+   */
+  protected GravitinoComponent serverComponent() {
+    Preconditions.checkState(
+        miniGravitino != null, "The server component is only reachable in embedded mode");
+    return miniGravitino.component();
   }
 
   public GravitinoAdminClient getGravitinoClient() {

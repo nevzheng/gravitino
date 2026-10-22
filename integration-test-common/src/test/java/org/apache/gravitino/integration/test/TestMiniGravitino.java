@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.gravitino.client.RESTClient;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,13 +57,50 @@ class TestMiniGravitino {
     // A distribution that ships its own entry point initializes components the open source server
     // knows nothing about, so embedded mode has to be able to start that server instead.
     List<String[]> launched = new ArrayList<>();
+    GravitinoComponent component = mock(GravitinoComponent.class);
     MiniGravitinoContext context =
-        new MiniGravitinoContext(Collections.emptyMap(), false, false, launched::add);
+        new MiniGravitinoContext(
+            Collections.emptyMap(),
+            false,
+            false,
+            (args, onStarted) -> {
+              launched.add(args);
+              onStarted.accept(component);
+            });
+    List<GravitinoComponent> started = new ArrayList<>();
 
-    context.serverLauncher().launch(new String[] {"gravitino.conf"});
+    context.serverLauncher().launch(new String[] {"gravitino.conf"}, started::add);
 
     assertEquals(1, launched.size());
     assertEquals("gravitino.conf", launched.get(0)[0]);
+    assertEquals(List.of(component), started);
+  }
+
+  @Test
+  void testComponentIsTheOneTheStartedServerReports() throws Exception {
+    MiniGravitino miniGravitino =
+        createMiniGravitino(mock(ExecutorService.class), mock(RESTClient.class));
+    GravitinoComponent component = mock(GravitinoComponent.class);
+
+    IllegalStateException beforeStart =
+        assertThrows(IllegalStateException.class, miniGravitino::component);
+    assertEquals("MiniGravitino has no running server; start it first", beforeStart.getMessage());
+
+    miniGravitino.serverStarted(component);
+
+    assertSame(component, miniGravitino.component());
+  }
+
+  @Test
+  void testStopForgetsTheComponent() throws Exception {
+    ExecutorService executor = mock(ExecutorService.class);
+    MiniGravitino miniGravitino = createMiniGravitino(executor, mock(RESTClient.class));
+    when(executor.awaitTermination(3, TimeUnit.MINUTES)).thenReturn(true);
+    miniGravitino.serverStarted(mock(GravitinoComponent.class));
+
+    miniGravitino.stop();
+
+    assertThrows(IllegalStateException.class, miniGravitino::component);
   }
 
   @Test

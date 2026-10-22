@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
@@ -349,7 +350,25 @@ public class GravitinoServer extends ResourceConfig {
     stop();
   }
 
+  /**
+   * Starts the Gravitino server and serves requests until it stops.
+   *
+   * @param args the configuration file path, read when {@code GRAVITINO_TEST} is set
+   */
   public static void main(String[] args) {
+    run(args, component -> {});
+  }
+
+  /**
+   * Starts the Gravitino server and serves requests until it stops, as {@link #main(String[])}
+   * does, and hands the running server's component to {@code onStarted} once the server has
+   * started. An integration test that embeds the server reads the server's services from that
+   * component.
+   *
+   * @param args the configuration file path, read when {@code GRAVITINO_TEST} is set
+   * @param onStarted receives the component of the started server
+   */
+  public static void run(String[] args, Consumer<GravitinoComponent> onStarted) {
     LOG.info("Starting Gravitino Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];
     ServerConfig serverConfig = loadConfig(confPath);
@@ -364,6 +383,7 @@ public class GravitinoServer extends ResourceConfig {
       System.exit(-1);
     }
     LOG.info("Done, Gravitino server started.");
+    onStarted.accept(server.component());
 
     Runtime.getRuntime()
         .addShutdownHook(
