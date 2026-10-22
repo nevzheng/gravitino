@@ -40,6 +40,7 @@ import org.apache.gravitino.lineage.LineageService;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.ConfigServlet;
@@ -180,7 +181,8 @@ public class GravitinoServer extends ResourceConfig {
     server.initialize(jettyServerConfig, SERVER_NAME);
     server.addMetricsServlets(component.metricsSystem());
 
-    ServerAuthenticator.getInstance().initialize(serverConfig);
+    ServerAuthenticator.getInstance()
+        .initialize(serverConfig, AuthenticatorContext.of(component::idGenerator));
 
     // The environment holds the authorizer for the code that still reads it from GravitinoEnv.
     authorizerProvider.initialize(serverConfig, component.authorizerContext());

@@ -27,6 +27,7 @@ import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lance.LanceRESTService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.server.ServerConfig;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,7 +68,8 @@ public class GravitinoLanceRESTServer {
         serverConfig.getConfigsWithPrefix(LanceConfig.LANCE_CONFIG_PREFIX),
         false,
         standaloneContext(gravitinoEnv.component()));
-    ServerAuthenticator.getInstance().initialize(serverConfig);
+    ServerAuthenticator.getInstance()
+        .initialize(serverConfig, AuthenticatorContext.of(gravitinoEnv.component()::idGenerator));
   }
 
   private void start() {

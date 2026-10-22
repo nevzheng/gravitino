@@ -35,7 +35,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.commons.lang.StringUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -51,6 +50,7 @@ import org.apache.gravitino.authorization.common.PathBasedMetadataObject;
 import org.apache.gravitino.authorization.common.PathBasedSecurableObject;
 import org.apache.gravitino.authorization.common.RangerAuthorizationProperties;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.utils.MetadataObjectUtil;
@@ -65,8 +65,19 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(RangerAuthorizationHDFSPlugin.class);
   private static final Pattern HDFS_PATTERN = Pattern.compile("^hdfs://[^/]*");
 
-  public RangerAuthorizationHDFSPlugin(String metalake, Map<String, String> config) {
+  private final AuthorizationPluginContext pluginContext;
+
+  /**
+   * Creates a plugin.
+   *
+   * @param metalake the metalake the catalog belongs to
+   * @param config the plugin configuration
+   * @param pluginContext the host services the plugin reads locations through
+   */
+  public RangerAuthorizationHDFSPlugin(
+      String metalake, Map<String, String> config, AuthorizationPluginContext pluginContext) {
     super(metalake, config);
+    this.pluginContext = Preconditions.checkNotNull(pluginContext, "pluginContext");
   }
 
   @Override
@@ -440,7 +451,9 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
                     case CATALOG:
                     case SCHEMA:
                       AuthorizationUtils.getMetadataObjectLocation(
-                              identifier, MetadataObjectUtil.toEntityType(securableObject))
+                              pluginContext,
+                              identifier,
+                              MetadataObjectUtil.toEntityType(securableObject))
                           .forEach(
                               locationPath -> {
                                 createPathBasedMetadataObject(
@@ -470,7 +483,9 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
                       break;
                     case CATALOG:
                       AuthorizationUtils.getMetadataObjectLocation(
-                              identifier, MetadataObjectUtil.toEntityType(securableObject))
+                              pluginContext,
+                              identifier,
+                              MetadataObjectUtil.toEntityType(securableObject))
                           .forEach(
                               locationPath ->
                                   createPathBasedMetadataObject(
@@ -549,15 +564,15 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
     List<String> locations = Lists.newArrayList();
     if (type == Entity.EntityType.METALAKE) {
       NameIdentifier[] catalogs =
-          GravitinoEnv.getInstance()
-              .internalCatalogDispatcher()
-              .listCatalogs(Namespace.of(identifier.name()));
+          pluginContext.internalCatalogDispatcher().listCatalogs(Namespace.of(identifier.name()));
       for (NameIdentifier catalog : catalogs) {
         locations.addAll(
-            AuthorizationUtils.getMetadataObjectLocation(catalog, Entity.EntityType.CATALOG));
+            AuthorizationUtils.getMetadataObjectLocation(
+                pluginContext, catalog, Entity.EntityType.CATALOG));
       }
     } else {
-      locations.addAll(AuthorizationUtils.getMetadataObjectLocation(identifier, type));
+      locations.addAll(
+          AuthorizationUtils.getMetadataObjectLocation(pluginContext, identifier, type));
     }
 
     locations.forEach(
@@ -591,11 +606,10 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
       Set<AuthorizationPrivilege> rangerPrivileges,
       boolean recursive) {
     NameIdentifier[] catalogs =
-        GravitinoEnv.getInstance()
-            .internalCatalogDispatcher()
-            .listCatalogs(Namespace.of(identifier.name()));
+        pluginContext.internalCatalogDispatcher().listCatalogs(Namespace.of(identifier.name()));
     for (NameIdentifier catalog : catalogs) {
-      AuthorizationUtils.getMetadataObjectLocation(catalog, Entity.EntityType.CATALOG)
+      AuthorizationUtils.getMetadataObjectLocation(
+              pluginContext, catalog, Entity.EntityType.CATALOG)
           .forEach(
               locationPath ->
                   createPathBasedMetadataObject(
@@ -667,15 +681,15 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
     List<String> locations = Lists.newArrayList();
     if (metadataObject.type() == MetadataObject.Type.METALAKE) {
       NameIdentifier[] catalogs =
-          GravitinoEnv.getInstance()
-              .internalCatalogDispatcher()
-              .listCatalogs(Namespace.of(identifier.name()));
+          pluginContext.internalCatalogDispatcher().listCatalogs(Namespace.of(identifier.name()));
       for (NameIdentifier catalog : catalogs) {
         locations.addAll(
-            AuthorizationUtils.getMetadataObjectLocation(catalog, Entity.EntityType.CATALOG));
+            AuthorizationUtils.getMetadataObjectLocation(
+                pluginContext, catalog, Entity.EntityType.CATALOG));
       }
     } else {
-      locations.addAll(AuthorizationUtils.getMetadataObjectLocation(identifier, entityType));
+      locations.addAll(
+          AuthorizationUtils.getMetadataObjectLocation(pluginContext, identifier, entityType));
     }
 
     locations.forEach(
@@ -722,12 +736,12 @@ public class RangerAuthorizationHDFSPlugin extends RangerAuthorizationPlugin {
         if (metadataObject.type() == MetadataObject.Type.TABLE) {
           NameIdentifier ident = MetadataObjectUtil.toEntityIdent(metalake, newMetadataObject);
           NameIdentifier catalogIdent = NameIdentifierUtil.getCatalogIdentifier(ident);
-          if (GravitinoEnv.getInstance()
+          if (pluginContext
               .internalCatalogDispatcher()
               .loadCatalog(catalogIdent)
               .provider()
               .equals("hive")) {
-            Table table = GravitinoEnv.getInstance().internalTableDispatcher().loadTable(ident);
+            Table table = pluginContext.internalTableDispatcher().loadTable(ident);
             if (table.properties().get("table-type").equals("EXTERNAL_TABLE")) {
               continue;
             }

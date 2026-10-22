@@ -29,7 +29,6 @@ import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.UserGroup;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.auth.AuthConstants;
@@ -38,7 +37,7 @@ import org.apache.gravitino.idp.IdpUserGroupManager;
 import org.apache.gravitino.idp.model.IdpUser;
 import org.apache.gravitino.idp.web.rest.feature.IdpRESTFeature;
 import org.apache.gravitino.server.authentication.Authenticator;
-import org.apache.gravitino.storage.IdGenerator;
+import org.apache.gravitino.server.authentication.AuthenticatorContext;
 
 /** Authenticates HTTP Basic credentials against built-in IdP user metadata. */
 public class BasicAuthenticator implements Authenticator {
@@ -73,11 +72,32 @@ public class BasicAuthenticator implements Authenticator {
     return authenticate(credentials, authData);
   }
 
+  /**
+   * Not supported: the authenticator builds its manager with the id generator of an {@link
+   * AuthenticatorContext}, which the server passes to {@link #initialize(Config,
+   * AuthenticatorContext)}.
+   *
+   * @param config The server configuration.
+   * @throws UnsupportedOperationException always
+   */
   @Override
   public void initialize(Config config) {
+    throw new UnsupportedOperationException(
+        "BasicAuthenticator is initialized with an AuthenticatorContext");
+  }
+
+  /**
+   * Initializes the authenticator. Unless a manager was given to the constructor, the shared
+   * built-in IdP manager is built with the context's id generator.
+   *
+   * @param config The server configuration.
+   * @param context The server services.
+   */
+  @Override
+  public void initialize(Config config, AuthenticatorContext context) {
     validateExtensionPackage(config);
     if (userGroupManager == null) {
-      this.userGroupManager = IdpUserGroupManager.getInstance(config, processIdGenerator());
+      this.userGroupManager = IdpUserGroupManager.getInstance(config, context.idGenerator());
     }
   }
 
@@ -182,11 +202,5 @@ public class BasicAuthenticator implements Authenticator {
     private String password() {
       return password;
     }
-  }
-
-  // AuthenticatorFactory builds authenticators reflectively and hands them only the Config, so an
-  // authenticator built that way has no other source for the id generator.
-  private static IdGenerator processIdGenerator() {
-    return GravitinoEnv.getInstance().idGenerator();
   }
 }

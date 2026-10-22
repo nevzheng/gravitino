@@ -35,6 +35,7 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogProvider;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.credential.AzureAccountKeyCredential;
@@ -316,8 +317,11 @@ public abstract class BaseCatalog<T extends BaseCatalog>
    *
    * @param classLoader the catalog isolated class loader
    * @param metalakeId the stable entity ID of the metalake containing this catalog
+   * @param pluginContext the host services handed to the plugin
    */
-  public void initAuthorizationPluginInstance(IsolatedClassLoader classLoader, long metalakeId) {
+  public void initAuthorizationPluginInstance(
+      IsolatedClassLoader classLoader, long metalakeId, AuthorizationPluginContext pluginContext) {
+    Preconditions.checkNotNull(pluginContext, "pluginContext");
     if (authorizationPlugin == null) {
       synchronized (this) {
         if (authorizationPlugin == null) {
@@ -339,7 +343,10 @@ public abstract class BaseCatalog<T extends BaseCatalog>
                 classLoader.withClassLoader(
                     cl ->
                         authorization.newPlugin(
-                            entity.namespace().level(0), provider(), authorizationConfig));
+                            entity.namespace().level(0),
+                            provider(),
+                            authorizationConfig,
+                            pluginContext));
 
           } catch (Exception e) {
             LOG.error("Failed to load authorization with class loader", e);
