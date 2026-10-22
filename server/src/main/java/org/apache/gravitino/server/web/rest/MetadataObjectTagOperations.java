@@ -54,7 +54,7 @@ import org.apache.gravitino.dto.tag.TagDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.exceptions.NoSuchTagException;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -76,12 +76,21 @@ public class MetadataObjectTagOperations {
   private static final String TAG_VALUES_MEDIA_TYPE = "application/vnd.gravitino.v2+json";
 
   private final TagDispatcher tagDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param tagDispatcher the {@link TagDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public MetadataObjectTagOperations(TagDispatcher tagDispatcher) {
+  public MetadataObjectTagOperations(
+      TagDispatcher tagDispatcher, MetadataAccessChecker accessChecker) {
     this.tagDispatcher = tagDispatcher;
+    this.accessChecker = accessChecker;
   }
 
   // TagOperations will reuse this class to be compatible with legacy interfaces.
@@ -210,7 +219,7 @@ public class MetadataObjectTagOperations {
             TagDTO[] tagDTOs = tags.values().toArray(new TagDTO[0]);
             int tagCount = tagDTOs.length;
             tagDTOs =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.TAG,

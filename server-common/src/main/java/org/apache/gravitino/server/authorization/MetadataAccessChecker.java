@@ -194,13 +194,15 @@ public class MetadataAccessChecker {
   /**
    * Creates a checker.
    *
-   * <p>The suppliers are read only when a check needs them, so a host that does not build a
-   * service, such as a standalone Iceberg REST server without authorization, can pass one that
-   * throws.
+   * <p>The entity store and schema dispatcher suppliers are read only when a check needs them, so a
+   * host that does not build them, such as a standalone Iceberg REST server without authorization,
+   * can pass ones that throw. The authorizer supplier is read on every check and may return null
+   * while authorization is disabled.
    *
    * @param config the server configuration, which says whether authorization and the entity cache
    *     are enabled and how many threads filter lists
-   * @param authorizer supplies the authorizer to check access with
+   * @param authorizer supplies the authorizer to check access with, or null while authorization is
+   *     disabled
    * @param entityStore supplies the entity store, used to preload the entity cache before a list is
    *     filtered
    * @param internalSchemaDispatcher supplies the internal schema dispatcher, used to check that a

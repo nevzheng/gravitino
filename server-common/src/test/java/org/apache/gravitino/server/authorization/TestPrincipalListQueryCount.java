@@ -112,6 +112,15 @@ class TestPrincipalListQueryCount {
       providerStatic.when(GravitinoAuthorizerProvider::getInstance).thenReturn(provider);
       GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
       when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
+      // The mocked environment has no access control dispatcher, so the cache is not preloaded.
+      MetadataAccessChecker accessChecker =
+          new MetadataAccessChecker(
+              () -> config.get(Configs.ENABLE_AUTHORIZATION),
+              () -> false,
+              () -> config.get(Configs.GRAVITINO_AUTHORIZATION_THREAD_POOL_SIZE),
+              () -> authorizer,
+              () -> store,
+              () -> null);
       // Isolate storage queries while exercising both parent grants and per-object self filtering.
       when(authorizer.authorize(any(), any(), any(), any(), any()))
           .thenAnswer(
@@ -157,7 +166,7 @@ class TestPrincipalListQueryCount {
                       new UserPrincipal("manager"),
                       () -> {
                         if (details) {
-                          return MetadataAuthzHelper.filterByExpression(
+                          return accessChecker.filterByExpression(
                                   metalake,
                                   expression,
                                   type,
@@ -169,7 +178,7 @@ class TestPrincipalListQueryCount {
                             entities.stream()
                                 .map(HasIdentifier::nameIdentifier)
                                 .toArray(NameIdentifier[]::new);
-                        return MetadataAuthzHelper.filterByExpression(
+                        return accessChecker.filterByExpression(
                                 metalake, expression, type, identifiers)
                             .length;
                       });

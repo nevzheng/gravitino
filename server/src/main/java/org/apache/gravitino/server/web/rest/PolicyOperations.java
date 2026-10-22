@@ -62,7 +62,7 @@ import org.apache.gravitino.policy.AllValuesSelector;
 import org.apache.gravitino.policy.Policy;
 import org.apache.gravitino.policy.PolicyChange;
 import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
@@ -77,12 +77,20 @@ public class PolicyOperations {
   private static final Logger LOG = LoggerFactory.getLogger(PolicyOperations.class);
 
   private final PolicyDispatcher policyDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param policyDispatcher the {@link PolicyDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public PolicyOperations(PolicyDispatcher policyDispatcher) {
+  public PolicyOperations(PolicyDispatcher policyDispatcher, MetadataAccessChecker accessChecker) {
     this.policyDispatcher = policyDispatcher;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -108,7 +116,7 @@ public class PolicyOperations {
                       .map(p -> toDTO(p, Optional.empty()))
                       .toArray(PolicyDTO[]::new);
               policyDTOs =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.POLICY,
@@ -121,7 +129,7 @@ public class PolicyOperations {
               String[] policyNames = policyDispatcher.listPolicies(metalake);
               policyNames = policyNames == null ? new String[0] : policyNames;
               policyNames =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.POLICY,
@@ -343,7 +351,7 @@ public class PolicyOperations {
             RelationalEntity<?>[] associations =
                 policyDispatcher.listTagAssociationsForPolicy(metalake, policyName);
             associations =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.TAG,

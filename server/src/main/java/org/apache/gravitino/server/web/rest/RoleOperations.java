@@ -55,7 +55,7 @@ import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -73,6 +73,7 @@ public class RoleOperations {
   private static final Logger LOG = LoggerFactory.getLogger(RoleOperations.class);
 
   @Nullable private final AccessControlDispatcher accessControlManager;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -80,10 +81,14 @@ public class RoleOperations {
    * Creates a role REST resource. The service is absent when authorization is disabled.
    *
    * @param accessControlManager the access-control dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
-  public RoleOperations(@Optional @Nullable AccessControlDispatcher accessControlManager) {
+  public RoleOperations(
+      @Optional @Nullable AccessControlDispatcher accessControlManager,
+      MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -101,7 +106,7 @@ public class RoleOperations {
             MetalakeManager.checkMetalakeInUse(metalake);
             String[] names = accessControlManager.listRoleNames(metalake);
             names =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.LOAD_ROLE_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.ROLE,

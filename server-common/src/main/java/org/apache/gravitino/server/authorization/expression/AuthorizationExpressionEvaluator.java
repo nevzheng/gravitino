@@ -49,7 +49,7 @@ public class AuthorizationExpressionEvaluator {
    * Caches the OGNL AST parsed from an authorization expression string, so a single parsed tree can
    * be reused across evaluators and threads instead of re-parsing on every {@link #evaluate} call.
    *
-   * <p>The shared tree is evaluated concurrently (see {@code MetadataAuthzHelper.doFilter}, which
+   * <p>The shared tree is evaluated concurrently (see {@code MetadataAccessChecker.doFilter}, which
    * evaluates on a thread pool). This is safe even though OGNL nodes lazily memoize constant
    * subexpressions during evaluation: only context-independent nodes are folded, every thread
    * writes the same immutable value, the write is published through a volatile flag, and each

@@ -53,7 +53,7 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergViewOperationDispatcher;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.IcebergAuthorizationMetadata;
@@ -80,12 +80,21 @@ public class IcebergViewOperations {
 
   private ObjectMapper icebergObjectMapper;
   private IcebergViewOperationDispatcher viewOperationDispatcher;
+  private MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the view resource.
+   *
+   * @param viewOperationDispatcher serves the view requests
+   * @param accessChecker filters the views a list returns to those the user may see
+   */
   @Inject
-  public IcebergViewOperations(IcebergViewOperationDispatcher viewOperationDispatcher) {
+  public IcebergViewOperations(
+      IcebergViewOperationDispatcher viewOperationDispatcher, MetadataAccessChecker accessChecker) {
     this.viewOperationDispatcher = viewOperationDispatcher;
+    this.accessChecker = accessChecker;
     this.icebergObjectMapper = IcebergObjectMapper.getInstance();
   }
 
@@ -366,7 +375,7 @@ public class IcebergViewOperations {
   private ListTablesResponse filterListViewsResponse(
       ListTablesResponse listTablesResponse, String metalake, String catalogName) {
     NameIdentifier[] idents =
-        MetadataAuthzHelper.filterByExpression(
+        accessChecker.filterByExpression(
             metalake,
             AuthorizationExpressionConstants.FILTER_VIEW_AUTHORIZATION_EXPRESSION,
             Entity.EntityType.VIEW,

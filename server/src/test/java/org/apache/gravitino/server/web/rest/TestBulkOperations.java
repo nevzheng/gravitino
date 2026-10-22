@@ -129,7 +129,9 @@ public class TestBulkOperations extends BaseOperationsTest {
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
-    bulkOperations = new BulkOperations(new BulkManager(config), manager, ownerDispatcher);
+    bulkOperations =
+        new BulkOperations(
+            new BulkManager(config), manager, ownerDispatcher, AccessCheckers.disabled());
   }
 
   @BeforeEach

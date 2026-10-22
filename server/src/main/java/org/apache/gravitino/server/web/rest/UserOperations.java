@@ -49,7 +49,7 @@ import org.apache.gravitino.dto.responses.UserResponse;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -71,6 +71,7 @@ public class UserOperations {
 
   private final AccessControlDispatcher accessControlManager;
   private final OwnerDispatcher ownerManager;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -79,13 +80,16 @@ public class UserOperations {
    *
    * @param accessControlManager the access-control dispatcher, or null.
    * @param ownerManager the internal owner dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public UserOperations(
       @Optional @Nullable AccessControlDispatcher accessControlManager,
-      @Optional @Internal @Nullable OwnerDispatcher ownerManager) {
+      @Optional @Internal @Nullable OwnerDispatcher ownerManager,
+      MetadataAccessChecker accessChecker) {
     this.accessControlManager = accessControlManager;
     this.ownerManager = ownerManager;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -129,7 +133,7 @@ public class UserOperations {
             if (verbose) {
               User[] users = accessControlManager.listUsers(metalake);
               users =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       LOAD_USER_PRIVILEGE,
                       Entity.EntityType.USER,
@@ -140,7 +144,7 @@ public class UserOperations {
             } else {
               String[] users = accessControlManager.listUserNames(metalake);
               users =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       LOAD_USER_PRIVILEGE,
                       Entity.EntityType.USER,

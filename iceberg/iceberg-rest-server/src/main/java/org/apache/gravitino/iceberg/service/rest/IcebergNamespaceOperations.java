@@ -54,7 +54,7 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.dispatcher.IcebergNamespaceOperationDispatcher;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.authorization.annotations.IcebergAuthorizationMetadata;
@@ -85,13 +85,22 @@ public class IcebergNamespaceOperations {
 
   private ObjectMapper icebergObjectMapper;
   private IcebergNamespaceOperationDispatcher namespaceOperationDispatcher;
+  private MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the namespace resource.
+   *
+   * @param namespaceOperationDispatcher serves the namespace requests
+   * @param accessChecker filters the namespaces a list returns to those the user may see
+   */
   @Inject
   public IcebergNamespaceOperations(
-      IcebergNamespaceOperationDispatcher namespaceOperationDispatcher) {
+      IcebergNamespaceOperationDispatcher namespaceOperationDispatcher,
+      MetadataAccessChecker accessChecker) {
     this.namespaceOperationDispatcher = namespaceOperationDispatcher;
+    this.accessChecker = accessChecker;
     this.icebergObjectMapper = IcebergObjectMapper.getInstance();
   }
 
@@ -405,7 +414,7 @@ public class IcebergNamespaceOperations {
       ListNamespacesResponse listNamespacesResponse, String metalake, String catalogName) {
     String separator = HierarchicalSchemaUtil.schemaSeparator();
     NameIdentifier[] idents =
-        MetadataAuthzHelper.filterByExpression(
+        accessChecker.filterByExpression(
             metalake,
             AuthorizationExpressionConstants.FILTER_SCHEMA_AUTHORIZATION_EXPRESSION,
             Entity.EntityType.SCHEMA,
