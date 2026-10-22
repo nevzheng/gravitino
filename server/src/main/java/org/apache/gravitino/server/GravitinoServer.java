@@ -149,6 +149,18 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   /**
+   * Creates a server over the process environment. {@link #initialize()} initializes it from the
+   * component that {@code componentFactory} creates; see {@link #GravitinoServer(ServerConfig,
+   * GravitinoEnv, GravitinoComponent.Factory)}.
+   *
+   * @param config the server configuration
+   * @param componentFactory creates the component the environment and the REST resources use
+   */
+  public GravitinoServer(ServerConfig config, GravitinoComponent.Factory componentFactory) {
+    this(config, processEnv(), componentFactory);
+  }
+
+  /**
    * Creates a server that initializes the environment with {@code
    * GravitinoEnv.initializeFullComponents(Config)} and binds the dispatchers the REST resources
    * inject from the environment's getters, so a {@code GravitinoEnv} subclass that overrides them
@@ -373,14 +385,11 @@ public class GravitinoServer extends ResourceConfig {
     stop();
   }
 
-  @LegacyEnvAccess
   public static void main(String[] args) {
     LOG.info("Starting Gravitino Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];
     ServerConfig serverConfig = loadConfig(confPath);
-    GravitinoServer server =
-        new GravitinoServer(
-            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    GravitinoServer server = new GravitinoServer(serverConfig, DaggerGravitinoComponent.factory());
 
     try {
       server.initialize();
@@ -472,6 +481,13 @@ public class GravitinoServer extends ResourceConfig {
       installedInEnv = false;
     }
     authorizerProvider.close();
+  }
+
+  // The server still holds the process environment, which its REST resources and the code it
+  // loads read; it is removed with the facade.
+  @LegacyEnvAccess
+  private static GravitinoEnv processEnv() {
+    return GravitinoEnv.getInstance();
   }
 
   private MetricsSystem metricsSystem() {

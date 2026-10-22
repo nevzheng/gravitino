@@ -44,6 +44,7 @@ import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.lifecycle.Lifecycle;
@@ -55,13 +56,10 @@ import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
-import org.apache.gravitino.secret.SecretPropertyUtils;
 import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
-import org.apache.gravitino.utils.FileFetcher;
-import org.apache.gravitino.utils.HierarchicalSchemaUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -206,6 +204,7 @@ public class GravitinoEnv {
   public void initializeBaseComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino base environment...");
     initializeConfig(config, componentFactory);
+    GravitinoProfiles.base(component);
     initBaseComponents();
     LOG.info("Gravitino base environment is initialized.");
   }
@@ -245,6 +244,7 @@ public class GravitinoEnv {
         "Metadata components must be initialized on GravitinoEnv.getInstance().");
     LOG.info("Initializing Gravitino metadata environment...");
     initializeConfig(config, componentFactory);
+    GravitinoProfiles.metadata(component);
     initCommonComponents();
     initMetadataComponents();
     LOG.info("Gravitino metadata environment is initialized.");
@@ -273,6 +273,7 @@ public class GravitinoEnv {
   public void initializeFullComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino full environment...");
     initializeConfig(config, componentFactory);
+    GravitinoProfiles.full(component);
     initBaseComponents();
     initGravitinoServerComponents();
     LOG.info("Gravitino full environment is initialized.");
@@ -925,6 +926,10 @@ public class GravitinoEnv {
     return new IllegalStateException(failure.getMessage(), failure);
   }
 
+  // The profile of each initialize*Components method has built the objects of the component in
+  // their order, and applied the static settings of the configuration; the methods below take the
+  // objects from the component into the fields of this environment.
+
   private void initBaseComponents() {
     initCommonComponents();
 
@@ -937,9 +942,6 @@ public class GravitinoEnv {
     this.config = config;
     // Building the component creates nothing yet: each object it owns is built on first request.
     this.component = componentFactory.create(config);
-    FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
-    SecretPropertyUtils.configureSensitiveKeyKeywords(config);
-    HierarchicalSchemaUtil.seedSchemaSeparator(config);
   }
 
   private void initCommonComponents() {
@@ -1022,11 +1024,6 @@ public class GravitinoEnv {
     // The job manager is built after the auxiliary services are initialized, as before.
     this.internalJobOperationDispatcher = component.internalJobOperationDispatcher();
     this.jobOperationDispatcher = component.jobOperationDispatcher();
-
-    // Register built-in job template event listener to automatically register templates
-    // when metalakes are created
-    eventListenerManager.addEventListener(
-        "builtin-job-template", component.builtInJobTemplateEventListener());
   }
 
   private void initPublicMetadataDispatchers() {

@@ -74,6 +74,13 @@ public class TestGravitinoServerEnvironment {
   }
 
   @Test
+  public void testTheProcessEnvironmentConstructorNeedsAFactory() {
+    assertThrows(
+        NullPointerException.class,
+        () -> new GravitinoServer(new ServerConfig(), (GravitinoComponent.Factory) null));
+  }
+
+  @Test
   public void testInstallsTheAuthorizerOfTheComponentInTheProvider() throws Exception {
     ServerConfig config = new ServerConfig();
     GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
