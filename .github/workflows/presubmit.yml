@@ -736,10 +736,6 @@ jobs:
     with:
       java-version: '17'
       test-mode: ${{ matrix.test-mode }}
-      # Known broken: TableFormatOutputIT creates a Postgres catalog with no database to connect
-      # to, and the CLI's System.exit then ends the test JVM. It runs and reports, but does not
-      # block, until the test is fixed.
-      expected-to-fail: true
 
   idp-basic-it:
     needs: [ changes, test, medium-test, core-test ]
