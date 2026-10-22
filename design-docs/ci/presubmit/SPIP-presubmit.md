@@ -215,7 +215,7 @@ and all of them run in parallel before `build`.
 | `lint (python)`    | `blackCheck`, `pylint` and the mcp-server format check | Inside the IT jobs       | P1    |
 | `lint (web)`       | `lintCheck` and `prettierCheck` for both web UIs       | Inside the web workflows | P1    |
 | `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                  | `chart-test.yaml`        | P2    |
-| `lint (workflows)` | `actionlint` (shellcheck of `run:` blocks off for now) | Not run                  | P1    |
+| `lint (workflows)` | `actionlint`, with shellcheck of `run:` at warning     | Not run                  | P1    |
 | `lint (docs)`      | `rumdl check design-docs/ci`                           | Not run                  | P1    |
 | `lint (shell)`     | `shellcheck --severity=error` on tracked `*.sh` files  | Not run                  | P1    |
 

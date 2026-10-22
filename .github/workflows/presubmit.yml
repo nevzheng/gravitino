@@ -381,9 +381,12 @@ jobs:
         with:
           go-version: stable
 
-      # Shell inside run: blocks is not checked yet (-shellcheck=); see the presubmit SPIP, P2.
+      # actionlint runs ShellCheck (on the runner image) on every run: block. Warnings and up only:
+      # the cherry-pick and docker-image workflows have about 70 info and style findings.
       - name: Lint workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck=
+        env:
+          SHELLCHECK_OPTS: --severity=warning
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 
   lint-shell:
     name: lint (shell)
