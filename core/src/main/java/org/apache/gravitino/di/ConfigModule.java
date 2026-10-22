@@ -23,6 +23,7 @@ import dagger.Provides;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.metrics.MethodMonitorAspect;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.storage.IdGenerator;
@@ -51,8 +52,9 @@ abstract class ConfigModule {
   }
 
   /**
-   * Builds the metrics system with the JVM metrics source registered. Dagger does not start or
-   * close it; the {@link LifecycleModule lifecycle} does.
+   * Builds the metrics system with the JVM metrics source registered, and hands it to the {@link
+   * MethodMonitorAspect}, which AspectJ instantiates. Dagger does not start or close it; the {@link
+   * LifecycleModule lifecycle} does.
    */
   @SuppressWarnings("CloseableProvides")
   @Provides
@@ -60,6 +62,7 @@ abstract class ConfigModule {
   static MetricsSystem metricsSystem(BuiltServices built) {
     MetricsSystem metricsSystem = new MetricsSystem();
     metricsSystem.register(new JVMMetricsSource());
+    MethodMonitorAspect.setMetricsSystem(metricsSystem);
     return built.add(BuiltServices.METRICS_SYSTEM, metricsSystem);
   }
 }
