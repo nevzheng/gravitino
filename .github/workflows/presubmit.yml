@@ -413,10 +413,30 @@ jobs:
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck=
 
+  lint-python:
+    name: lint (python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.source_changes == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-java-toolchains
+        with:
+          java-version: 17
+
+      # Gradle installs its own Python for both projects.
+      - name: Lint Python
+        run: >-
+          ./gradlew -PskipWeb=true
+          :clients:client-python:blackCheck :clients:client-python:pylint
+          :mcp-server:formatCheckPython :mcp-server:pylint
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: [ changes, lint, lint-workflows ]
+    needs: [ changes, lint, lint-workflows, lint-python ]
     if: needs.changes.outputs.source_changes == 'true'
     outputs:
       medium-shards: ${{ steps.shards.outputs.medium-shards }}
