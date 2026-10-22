@@ -1154,6 +1154,7 @@ tasks.rat {
 tasks.check.get().dependsOn(tasks.rat)
 
 apply(from = "dev/release/maven/test-legal-files.gradle")
+apply(from = "gradle/ci-stages.gradle.kts")
 
 tasks.cyclonedxBom {
   setIncludeConfigs(listOf("runtimeClasspath"))
