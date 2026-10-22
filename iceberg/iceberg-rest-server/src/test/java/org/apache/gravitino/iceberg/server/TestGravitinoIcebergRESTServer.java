@@ -19,6 +19,7 @@
 package org.apache.gravitino.iceberg.server;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.apache.gravitino.Config;
@@ -57,6 +58,17 @@ public class TestGravitinoIcebergRESTServer {
     Assertions.assertSame(kmsClientRegistry, context.kmsClientRegistry());
     Assertions.assertThrows(IllegalStateException.class, context::catalogAccess);
     Assertions.assertThrows(IllegalStateException.class, context::idGenerator);
+  }
+
+  @Test
+  public void testBuildsNoComponentUntilItIsInitialized() {
+    // The server builds its component from the factory, not from GravitinoEnv, and only when it
+    // initializes.
+    GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
+
+    new GravitinoIcebergRESTServer(new ServerConfig(), factory);
+
+    verifyNoInteractions(factory);
   }
 
   @Test
