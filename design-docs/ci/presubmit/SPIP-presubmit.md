@@ -160,7 +160,7 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | Stage       | Gap                                                                  | Plan                      |
 | ----------- | -------------------------------------------------------------------- | ------------------------- |
 | Lint        | Script plugins under `gradle/` are not formatted by Spotless         | Fixed here                |
-| Lint        | The Python client's `black` rewrites files and never fails CI        | P2                        |
+| Lint        | The Python client's `black` rewrites files and never fails CI        | Fixed here                |
 | Lint        | No linter for the workflows                                          | Fixed here                |
 | Lint        | No linter for 81 shell scripts or the Markdown docs                  | P2                        |
 | Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here                |
@@ -325,8 +325,8 @@ each module (`gravitinoTests { itShard = ... }`) instead of one list.
 
 | Step | Change                                                                | Revert    |
 | ---- | --------------------------------------------------------------------- | --------- |
-| P1   | `presubmit.yml` with the five stages, `ci-stages.gradle.kts`, IT fold | Revert PR |
-| P2   | Other lint jobs, P2 gaps (Q3), shell: `libssl`, toolchain `awk`       | Revert PR |
+| P1   | `presubmit.yml`, `ci-stages.gradle.kts`, IT fold, no inline shell     | Revert PR |
+| P2   | Other lint jobs, P2 gaps (Q3)                                         | Revert PR |
 | P3   | Run-scoped build cache, `setup-gradle`; ASF Develocity onboarding     | Revert PR |
 | P4   | Contrib catalog, frontend and web UI workflows join presubmit         | Revert PR |
 
