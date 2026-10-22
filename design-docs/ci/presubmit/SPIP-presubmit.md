@@ -172,7 +172,7 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | Integration | `clients/cli` `TableFormatOutputIT` ran in no job                    | Fixed here                |
 | Integration | The CLI (about 130 commands) has one end-to-end test class           | Follow-up                 |
 | Integration | `web/integration-test` (web UI v1) ran in no PR job                  | Own job; reviewers decide |
-| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | P2                        |
+| Integration | `backend-it` is "every module minus 28 `-x`", so it accumulates      | Fixed here                |
 
 **Decision** needs an owner's call (keep and test it, or
 retire it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
@@ -279,8 +279,13 @@ Left alone, every new module lands there and it becomes the slowest job. Three r
    job (for example three modules sharing one container), it moves to a new shard. That is one
    entry in the shard list; the matrix picks it up from `ciShards`.
 
-After test organization the same three rules apply to `backendITOthers`, with the shard declared in
-each module (`gravitinoTests { itShard = ... }`) instead of one list.
+`backend-it` follows the same rules now. `ciIntegrationTestJobs` lists the modules each named
+integration job owns; `ciBackendIntegrationTest` runs every other module's `test`, so a module
+without a named job still runs there. `ciVerifyShards` fails on an unknown module, a module in two
+jobs, or a `backend-it` past its baseline of 17 modules with integration tests.
+
+After test organization the same rules apply to `backendITOthers`, with the shard declared in each
+module (`gravitinoTests { itShard = ... }`) instead of one list.
 
 ### Guarantees
 
@@ -437,11 +442,11 @@ matched to the job that runs them:
 Off PRs by design: the Lance Spark bundle matrix (weekly), multi-instance consistency and Trino
 multi-version (manual), and Doris multi-version (`-PdorisMultiVersionTest`, local).
 
-The `backend-it` row is the integration catch-all: it runs `test -PskipTests` on every module and
-removes others with 28 `-x` flags. A new module's ITs land there without anyone choosing, and a
-module removed with `-x` but given no other job is lost, which is what happened to `clients/cli`.
-The [catch-all rules](#catch-all-shards) apply to it in P2: every module with ITs maps to exactly
-one job, checked in `lint`.
+The `backend-it` row is the integration catch-all. It used to run `test -PskipTests` on every
+module and remove others with 28 `-x` flags, so a new module's ITs landed there without anyone
+choosing, and a module removed with `-x` but given no other job was lost, which is what happened to
+`clients/cli`. It now runs `ciBackendIntegrationTest`, which derives the same task set (checked with
+a dry run) from `ciIntegrationTestJobs`, under the [catch-all rules](#catch-all-shards).
 
 ## Appendix D. Peer Apache projects
 
