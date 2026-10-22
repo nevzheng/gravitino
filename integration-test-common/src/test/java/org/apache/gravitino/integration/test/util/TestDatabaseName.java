@@ -77,19 +77,7 @@ public enum TestDatabaseName {
    */
   MYSQL_TEST_ICEBERG_CLASSLOADER_POOL_B,
 
-  /** Represents the MySQL database for cli.integration.test.TableFormatOutputIT. */
-  MYSQL_CLI_TABLE_FORMAT_IT,
-
   PG_JDBC_BACKEND,
-
-  /** Represents the PostgreSQL database for cli.integration.test.TableFormatOutputIT. */
-  PG_CLI_TABLE_FORMAT_IT {
-    /** PostgreSQL only accept lowercase database name */
-    @Override
-    public String toString() {
-      return this.name().toLowerCase();
-    }
-  },
 
   /** Represents the PostgreSQL database for CatalogPostgreSqlIT. */
   PG_CATALOG_POSTGRESQL_IT {

@@ -23,55 +23,40 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.sql.SQLException;
 import org.apache.gravitino.cli.GravitinoOptions;
 import org.apache.gravitino.cli.Main;
 import org.apache.gravitino.cli.commands.Command;
-import org.apache.gravitino.integration.test.container.ContainerSuite;
-import org.apache.gravitino.integration.test.container.MySQLContainer;
-import org.apache.gravitino.integration.test.container.PostgreSQLContainer;
 import org.apache.gravitino.integration.test.util.BaseIT;
-import org.apache.gravitino.integration.test.util.TestDatabaseName;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-@Tag("gravitino-docker-test")
+/**
+ * Checks the CLI's {@code --output table} text end to end: argument parsing, the REST round trip to
+ * a real server, and the printed table.
+ *
+ * <p>The JDBC catalogs are created with {@code verify-on-create=false} and no database behind them,
+ * on purpose. The table output reads only catalog metadata (name, type, provider, comment), so a
+ * real database adds cost without adding coverage, and the setting only skips the connection check
+ * at create time, which the list and details commands never reach. JDBC connectivity is tested by
+ * the JDBC catalog integration tests.
+ */
 public class TableFormatOutputIT extends BaseIT {
-  private static final TestDatabaseName PG_DB = TestDatabaseName.PG_CLI_TABLE_FORMAT_IT;
-  private static final TestDatabaseName MYSQL_DB = TestDatabaseName.MYSQL_CLI_TABLE_FORMAT_IT;
-
-  private final ContainerSuite containerSuite = ContainerSuite.getInstance();
   private String gravitinoUrl;
 
   @BeforeAll
-  public void startUp() throws SQLException {
+  public void startUp() {
     // Fail the test, rather than end the test JVM, when a command fails.
     Main.useExit = false;
     gravitinoUrl = String.format("http://127.0.0.1:%d", getGravitinoServerPort());
 
-    containerSuite.startPostgreSQLContainer(PG_DB);
-    PostgreSQLContainer postgres = containerSuite.getPostgreSQLContainer();
+    // No database behind these catalogs; see the class comment.
     String postgresProperties =
-        String.format(
-            "jdbc-url=%s,jdbc-user=%s,jdbc-password=%s,jdbc-database=%s,jdbc-driver=%s",
-            postgres.getJdbcUrl(PG_DB),
-            postgres.getUsername(),
-            postgres.getPassword(),
-            PG_DB,
-            postgres.getDriverClassName(PG_DB));
-
-    containerSuite.startMySQLContainer(MYSQL_DB);
-    MySQLContainer mysql = containerSuite.getMySQLContainer();
-    String mysqlJdbcUrl = mysql.getJdbcUrl(MYSQL_DB);
+        "jdbc-url=jdbc:postgresql://localhost:5432/mydb,jdbc-user=user,jdbc-password=password,"
+            + "jdbc-database=mydb,jdbc-driver=org.postgresql.Driver,verify-on-create=false";
     String mysqlProperties =
-        String.format(
-            "jdbc-url=%s,jdbc-user=%s,jdbc-password=%s,jdbc-driver=%s",
-            mysqlJdbcUrl.substring(0, mysqlJdbcUrl.lastIndexOf("/")),
-            mysql.getUsername(),
-            mysql.getPassword(),
-            mysql.getDriverClassName(MYSQL_DB));
+        "jdbc-url=jdbc:mysql://localhost:3306,jdbc-user=user,jdbc-password=password,"
+            + "jdbc-driver=com.mysql.cj.jdbc.Driver,verify-on-create=false";
     String[] create_metalake_args = {
       "metalake",
       "create",

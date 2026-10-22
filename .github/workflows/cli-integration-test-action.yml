@@ -27,15 +27,12 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Check required command
-        run: dev/ci/check_commands.sh
-
       - name: Package Gravitino
         run: ./gradlew compileDistribution -PskipWeb=true -x test
 
       - name: CLI Integration Test
         id: integrationTest
-        run: ./gradlew :clients:cli:test -PskipTests -PtestMode=${{ inputs.test-mode }} -PskipDockerTests=false -PskipWeb=true
+        run: ./gradlew :clients:cli:test -PskipTests -PtestMode=${{ inputs.test-mode }} -PskipWeb=true
 
       - name: Upload integrate tests reports
         uses: actions/upload-artifact@v7
