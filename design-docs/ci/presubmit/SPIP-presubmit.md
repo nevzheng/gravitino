@@ -167,6 +167,7 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here                |
 | Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Deprecated: no job        |
 | Small       | `integration-test-common` unit tests also ran in backend-it          | Fixed here                |
+| Small       | The 338 web-v2 unit tests (vitest) ran in no CI job                  | Fixed here                |
 | Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org                  |
 | Medium      | None: every module with Docker-tagged unit tests is in a shard       | Enforced                  |
 | Integration | `clients/cli` `TableFormatOutputIT` ran in no job                    | Fixed here                |
@@ -197,8 +198,10 @@ retire it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
 - The ten wrapper workflows (access control, backend, Flink, Iceberg REST + Trino, idp-basic,
   maintenance, MCP, Python, Spark, Trino) are folded into presubmit. Their path filters move into
   the `changes` job unchanged, and their matrices are kept.
-- `contrib-catalog-test`, `frontend-integration-test` and `web-ui-tests` run their own steps rather
-  than a reusable workflow, so they stay separate until they are split the same way.
+- `contrib-catalog-test` and `frontend-integration-test` are called workflows too, gated on the
+  unit test stages. Contrib runs one job per changed module, from one paths filter per module.
+- `web-ui-tests` is gone: its checks are `lint (web)`, and its tests, now for both UIs, are
+  `test (web)` in the small stage. `chart-test` stays separate (it needs a kind cluster).
 - `coverage` waits for every unit test stage and merges their reports, as today.
 
 ### Lint stage
@@ -333,7 +336,7 @@ module (`gravitinoTests { itShard = ... }`) instead of one list.
 | P1   | `presubmit.yml`, `ci-stages.gradle.kts`, IT fold, no inline shell     | Revert PR |
 | P2   | Other lint jobs, P2 gaps (Q3)                                         | Revert PR |
 | P3   | Run-scoped build cache, `setup-gradle`; ASF Develocity onboarding     | Revert PR |
-| P4   | Contrib catalog, frontend and web UI workflows join presubmit         | Revert PR |
+| P4   | Contrib, frontend and web UI join presubmit (done here); chart-test   | Revert PR |
 
 **After test organization** ([#14093][i14093]), the jobs stay and only their commands change:
 
