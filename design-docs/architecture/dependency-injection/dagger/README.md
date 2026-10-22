@@ -23,13 +23,14 @@
 | ------- | ----------------------------------------------------------------------------------------- |
 | Status  | Draft                                                                                     |
 | Author  | Nevin Zheng ([@nevzheng](https://github.com/nevzheng))                                    |
-| Updated | 2026-10-21                                                                                |
+| Updated | 2026-10-22                                                                                |
 | Module  | `core`, `server`, `server-common`, `iceberg/iceberg-rest-server`, `lance`, `dev/di`       |
 | Code    | Line references are against apache `main` at `026a6603` (2026-10-19)                      |
 | Proof   | Draft stack [#18] to [#43] on `nevzheng/gravitino` (stack PR 01 to 26), tip `8c9d4abae`   |
 
 The questions come first. The appendices hold the strategies with their proof PRs (Appendix A),
-the measured dimensions (Appendix B) and the detailed design and plan (Appendices C to J).
+the measured dimensions (Appendix B), the detailed design and plan (Appendices C to J), and the
+case for dependency injection and Dagger, with before and after code (Appendix K).
 
 Two numberings appear. "Plan PR" is a row of the plan in Appendix D.2 (1 to 17, with 12a, 12b,
 15b and 15e). "Stack PR" is a draft PR of the proof stack (01 to 26); stack PR N is
@@ -1135,6 +1136,530 @@ a lexical ratchet over the Java sources is enough to hold the line in CI.
 - Prior exploration (reading only, no code reused; Appendix H):
   `origin/codex/dagger-gradual-migration-poc` (`4c79d1bea..8ea476bfe`) and
   `origin/codex/dagger-iceberg-integration` (`..965b6126a`), Nevin Zheng, 2026-07-26
+
+---
+
+## Appendix K. Why dependency injection, and why Dagger
+
+Q1 to Q4 state the goals. This appendix makes the case with the code: the problems first, highest
+impact first, then every other reason, then the limits. "main" is `b748d734a`, the stack base, and
+counts on it come from `dev/di/di_ratchet.py report`. "Tip" is the head of this stack, where
+`GravitinoEnv` no longer exists. Excerpts are shortened; `// ...` marks a cut.
+
+### K.1 Problems in the code today, by impact
+
+| #   | Problem                                    | Evidence on main                                                                                                                            | Fixed by                                              |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 1   | A write path can skip a chain's layers     | Forced metalake drop calls `CatalogManager.dropCatalog` directly (Q3.3); the raw manager is handed to any caller                            | One chain per qualifier; hidden chain bottoms (K.1.1) |
+| 2   | One mutable global object holds everything | `GravitinoEnv`: 53 fields, 1207 lines; `getInstance()` 169 times in 76 `src/main` files                                                     | Constructor injection (K.1.2)                         |
+| 3   | Tests rewrite that global object           | 341 `FieldUtils` calls on it in 85 test files; 38 `mockStatic(GravitinoEnv)` in 17; `core` unit tests in one fork                           | Fakes through constructors (K.1.3)                    |
+| 4   | Wiring errors surface at run time          | `null` until set: `setGravitinoAuthorizer` (`GravitinoEnv.java:748`); `entityStore()` throws "GravitinoEnv is not initialized"              | Compile-time graph (K.1.4)                            |
+| 5   | Build order is the position of a line      | `initGravitinoServerComponents` (`:1056`); "Fileset dispatcher is created before schema dispatcher so schema can take it directly" (`:918`) | Order follows dependency edges (K.1.5)                |
+| 6   | Stop order and state after stop are ad hoc | `shutdown()` (`:814`) is a list of `if (x != null)` blocks; only one field is cleared (`:852`)                                              | `Lifecycle` (K.1.6)                                   |
+| 7   | Downstream builds extend by subclassing    | Appendix F: two `GravitinoEnv` subclasses, 47 overrides, 23 dispatcher subclasses                                                           | Decorator and service seams (K.1.7)                   |
+
+#### K.1.1 A write path can skip a chain's layers
+
+The public chain of each type is event, normalize, hook, then operation. On main each chain is
+assembled by hand in `initPublicMetadataDispatchers`, and the objects at its bottom are ordinary
+getters, so any caller can go around the chain. The forced metalake drop did: it called the raw
+manager and skipped the drop events, the decorators and the hook that tells authorization plugins
+to clean up (Q3.3).
+
+Before (main, `MetalakeManager.dropCatalogsUnderMetalake`):
+
+```java
+for (CatalogEntity catalog : catalogs) {
+  catalogManager.dropCatalog( // the raw manager: no event, no decorator, no hook
+      NameIdentifier.of(metalakeIdent.name(), catalog.name()), true /* force */);
+}
+```
+
+After (tip): the chain bottoms are bound with the package-private `@Undecorated`, so only modules
+in `org.apache.gravitino.di` can name them, and other code reads catalogs through `CatalogAccess`,
+which has no mutation. The manager is handed the public chain and drops through it:
+
+```java
+// CatalogModule
+@Provides @Singleton @Undecorated
+static MetalakeManager metalakeManager(EntityStore entityStore, IdGenerator idGenerator,
+    @Undecorated CatalogManager catalogManager,
+    @Public Provider<CatalogDispatcher> catalogDispatcher, LockManager lockManager,
+    BuiltServices built) { /* ... */ }
+
+// MetalakeManager.dropCatalogsUnderMetalake
+CatalogDispatcher childCatalogs = catalogDispatcher.get();
+for (CatalogEntity catalog : catalogs) {
+  childCatalogs.dropCatalog( // events, decorators and hook run
+      NameIdentifier.of(metalakeIdent.name(), catalog.name()), true /* force */);
+}
+```
+
+`TestGravitinoComponent` checks that no component method returns either manager.
+
+#### K.1.2 One mutable global object holds everything
+
+Before (main, `TreeLockUtils.java:46`): every one of 113 call sites depends on the lock manager
+without saying so.
+
+```java
+public static <R, E extends Exception> R doWithTreeLock(
+    NameIdentifier identifier, LockType lockType, Executable<R, E> executable) throws E {
+  TreeLock lock = GravitinoEnv.getInstance().lockManager().createTreeLock(identifier);
+  // ...
+}
+```
+
+Before (main, `TableOperationDispatcher`): the four-argument constructor, which the public table
+chain used, reaches into the singleton for another chain.
+
+```java
+public TableOperationDispatcher(
+    CatalogManager catalogManager, EntityStore store, IdGenerator idGenerator,
+    SecretManager secretManager) {
+  this(catalogManager, store, idGenerator,
+      () -> GravitinoEnv.getInstance().internalSchemaDispatcher(), secretManager);
+}
+```
+
+After (tip): the inputs are the constructor.
+
+```java
+public TableOperationDispatcher(
+    CatalogManager catalogManager, EntityStore store, IdGenerator idGenerator,
+    Supplier<SchemaDispatcher> schemaDispatcherSupplier, SecretManager secretManager,
+    LockManager lockManager) { /* ... */ }
+
+TreeLockUtils.doWithTreeLock(lockManagerSupplier.get(), ident, LockType.READ, () -> load(ident));
+```
+
+```mermaid
+flowchart LR
+  subgraph before["main: one hub"]
+    ENV["GravitinoEnv.INSTANCE<br/>53 fields"]
+    R1["REST resources"] -->|getInstance| ENV
+    R2["dispatchers and hooks"] -->|getInstance| ENV
+    R3["TreeLockUtils, 113 callers"] -->|getInstance| ENV
+    R4["catalog plugins"] -->|getInstance| ENV
+    R5["Iceberg and Lance REST"] -->|getInstance| ENV
+    R6["tests"] -->|"FieldUtils.writeField"| ENV
+  end
+```
+
+```mermaid
+flowchart LR
+  subgraph after["tip: one graph, edges are constructor arguments"]
+    CFG["Config"] --> F["GravitinoComponent.Factory"]
+    F --> LM["LockManager"]
+    F --> ES["EntityStore"]
+    LM --> OPS["TableOperationDispatcher"]
+    ES --> OPS
+    OPS --> HOOK["TableHookDispatcher"]
+    HOOK --> NORM["TableNormalizeDispatcher"]
+    NORM --> EV["TableEventDispatcher"]
+    EV --> PUB["@Public TableDispatcher"]
+    PUB --> HK2["GravitinoComponentBinder, HK2"]
+    HK2 --> REST["REST resources"]
+    F --> LC["Lifecycle"]
+    F --> CTX["CatalogContext, AuxiliaryContext"]
+    CTX --> PLUG["plugins and REST services"]
+  end
+```
+
+Arrows in the second diagram point from a dependency to the object built from it.
+
+#### K.1.3 Tests rewrite the global object
+
+A test could not hand a fake to code that called `getInstance()`, so it wrote the singleton.
+Writes that were not undone leaked into the next test, which is why `core` unit tests ran in one
+fork on main (`core/build.gradle.kts:161`, `maxParallelForks = 1`). Q3.3 lists the leaks found.
+
+Before (main, `TestMetalakeManager`):
+
+```java
+FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+metalakeManager = new MetalakeManager(entityStore, new RandomIdGenerator());
+```
+
+After (tip):
+
+```java
+lockManager = new LockManager(config);
+metalakeManager =
+    new MetalakeManager(entityStore, new RandomIdGenerator(), null, null, lockManager);
+```
+
+Before (main, `TestFunctionHookDispatcher`): the hook read the authorizer and catalog manager from
+the singleton, so the test mocked the static method.
+
+```java
+GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
+Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
+  envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
+  FunctionDispatcher hookDispatcher =
+      new FunctionNormalizeDispatcher(
+          new FunctionHookDispatcher(dispatcher, () -> null), catalogManager);
+  // assertions
+}
+```
+
+After (tip): the hook takes `AuthorizationServices`, and the test passes a plain fake.
+
+```java
+FunctionDispatcher hookDispatcher =
+    new FunctionNormalizeDispatcher(
+        new FunctionHookDispatcher(
+            dispatcher,
+            new FakeAuthorizationServices()
+                .withAuthorizer(authorizer)
+                .withCatalogAccess(catalogManager)),
+        catalogManager);
+```
+
+| Measure                                  | main       | tip                 |
+| ---------------------------------------- | ---------- | ------------------- |
+| `FieldUtils` read or write on the env    | 341 in 85  | 0                   |
+| `mockStatic(GravitinoEnv)`               | 38 in 17   | 0                   |
+| `GravitinoEnv.getInstance()`, `src/test` | 397 in 94  | 0                   |
+| `FieldUtils` on any target, `src/test`   | 471 in 107 | 96 in 41            |
+| `core` unit test forks                   | 1          | half the processors |
+
+#### K.1.4 Wiring errors surface at run time
+
+On main nothing checks that a getter is set before it is read. The authorizer is a field set later
+through `setGravitinoAuthorizer` (`GravitinoEnv.java:748`), callers test it for `null`, and a missed
+test is a `NullPointerException` on a request. In the graph every binding must exist when `javac`
+runs, and disabled features bind a no-op (C.4). A binding that nothing provides fails the build;
+Dagger's message names the missing type and the path that needs it, in this form (illustrative,
+abridged):
+
+```text
+error: [Dagger/MissingBinding] org.apache.gravitino.lock.LockManager cannot be provided without
+an @Inject constructor or an @Provides-annotated method.
+    org.apache.gravitino.lock.LockManager is injected at
+        SchemaTableModule.schemaOperationDispatcher(..., lockManager)
+```
+
+#### K.1.5 Build order is the position of a line
+
+On main, `initializeMetadataComponents` must run on the singleton because "some metadata components
+read their dependencies directly from that singleton" (`GravitinoEnv.java:249-257`), and
+`initMetadataComponents` builds the fileset chain first only so that the schema chain can take it
+(`:918`). Moving a line changes behaviour, and nothing says which lines may move.
+
+At the tip a dependency is a parameter, so Dagger builds it first wherever the line is:
+
+```java
+@Provides @Singleton @Undecorated
+static SchemaOperationDispatcher schemaOperationDispatcher(
+    @Undecorated CatalogManager catalogManager, EntityStore entityStore, IdGenerator idGenerator,
+    SecretManager secretManager, @Internal FilesetDispatcher filesetDispatcher,
+    LockManager lockManager) { /* ... */ }
+```
+
+The few orders that are not data dependencies (the store connects before the metalake manager loads
+metalakes, auxiliary services start after the host services) live in one place,
+`GravitinoProfiles`, with a comment each, and become edges or an initialize phase later (D.5).
+
+#### K.1.6 Stop order and state after stop
+
+On main, `start()` starts metrics, listeners and auxiliary services, and `shutdown()` closes the
+store, catalogs, auxiliary services, metrics, listeners and the rest, each behind `if (x != null)`.
+Stop is not the reverse of start, a failure in the middle of start rolls nothing back, and after
+`shutdown()` every field except the job dispatcher (`:852`) still points at a closed object, which
+the next `getInstance()` caller in the same JVM receives. A side fix for the stale references is
+in review separately; the structural cause is that the singleton outlives what it holds.
+
+At the tip each component owns its objects and its `Lifecycle`: start in a written order, stop in
+reverse, roll back on a failed start, aggregate stop errors, idempotent `close()` (C.5). A closed
+component is dropped; a new server or test builds a new one.
+
+#### K.1.7 Downstream builds extend by subclassing
+
+A downstream build that changes one dispatcher on main subclasses `GravitinoEnv`, overrides its
+getters and rebuilds the chain by hand, so every upstream change to a chain is a merge conflict or,
+worse, merges cleanly and is missing from the copy. K.7 shows the seams that replace this.
+
+### K.2 Standard reasons for dependency injection
+
+| Reason                      | What it means here                                                        |
+| --------------------------- | ------------------------------------------------------------------------- |
+| Explicit dependencies       | A class's inputs are its constructor; a reviewer sees them in one place   |
+| No global mutable state     | No `static` holder; two components in one JVM share nothing               |
+| One composition root        | `GravitinoComponent` and its modules are the only place objects are wired |
+| Order from the graph        | A dependency is built before its user, by construction                    |
+| Swap implementations        | Tests pass fakes; a test component replaces a module (K.6)                |
+| Readable constructors       | A long constructor is a visible design smell, not hidden in a getter call |
+| Narrow plugin boundaries    | Plugins get a context listing what they may use (C.7, C.8)                |
+| Lifecycle tied to ownership | Whoever builds an object closes it (`Lifecycle`)                          |
+
+### K.3 Why a generator and not hand wiring
+
+Dependency injection is the pattern: constructor injection plus one composition root. It is not a
+framework. C++ and Rust services usually wire their objects by hand in `main`, and that is still
+dependency injection.
+
+Dagger is that hand wiring, generated at compile time. The output is plain Java that calls
+constructors in dependency order and caches scoped instances; there is no reflection and no
+runtime container, unlike Spring or Guice, which resolve the graph when the application starts.
+
+A generator pays off when the graph is large, has several entry points and must be extended
+downstream, and Gravitino has all three:
+
+- **Size.** The root component has 56 provision methods, and its modules hold 105 `@Provides`,
+  `@Binds` and `@Multibinds` declarations.
+- **Entry points.** The server builds the full profile, the standalone Iceberg and Lance REST
+  servers build the base profile, and tests build six components of their own, each from a
+  subset of the modules or with a module replaced.
+- **Extension.** Downstream builds add decorators, services and bindings (K.7).
+
+Hand wiring at that size is how `GravitinoEnv` grew to 53 fields, 1207 lines and 89 `new` calls,
+with build order carried by line position (`:918`), a profile that works only on the singleton
+(`:249-257`), and each entry point calling a different subset of its init methods.
+
+What DI does not do: it does not shorten a dispatcher chain. The public table chain still has an
+event, normalize, hook and operation layer. What changes is that each layer is written once, in
+order, in one `@Provides` method; scoped instances are shared, so the internal and public chains
+share their undecorated layers; and Dagger generates only the bindings reachable from a
+component's entry points, so a test component that never asks for a chain does not build it.
+
+### K.4 Why Dagger
+
+Appendix H compares the options. The reasons that decide it:
+
+- **The graph is checked when `javac` runs.** A missing binding, a duplicate binding of one type
+  and a dependency cycle with no `Provider` edge fail the build, in the PR that introduces them.
+- **Generated plain Java, no runtime reflection.** The generated component is ordinary code that
+  can be read and stepped through. An excerpt of `DaggerGravitinoComponent` at the tip:
+
+  ```java
+  this.lockManagerProvider = DoubleCheck.provider(
+      LockModule_LockManagerFactory.create(configProvider, builtServicesProvider));
+  this.tableDispatcherProvider = DoubleCheck.provider(
+      SchemaTableModule_TableDispatcherFactory.create(eventBusProvider, catalogManagerProvider,
+          /* ... */, SetFactory.<DispatcherDecorator<TableDispatcher>>empty()));
+  ```
+
+  The empty `SetFactory` is upstream's decorator set: with no contributions the chain is exactly
+  what its module builds. Plugins are still loaded by class name from the configuration, as
+  before; Dagger adds no reflection of its own.
+- **Start-up cost** *(inferred, not measured)*. There is no classpath scanning or reflective
+  injection when the server starts, only the constructor calls the old code made by hand.
+  Appendix B lists start-up time as not measured.
+- **Multibindings for extension.** `@IntoSet` lets any module add to a set that upstream declares
+  with `@Multibinds`. Upstream contributes nothing, downstream contributes what it needs, and
+  neither edits the other's files.
+- **Scopes.** `@Singleton` means one instance per component, not per JVM. Two components in one
+  test JVM have two lock managers and two entity store objects. The relational meta services under
+  the store are still static (Q2, item 6).
+- **Qualifiers.** `@Public`, `@Internal` and the package-private `@Undecorated` are checked by the
+  compiler, so code outside `di` cannot name the layer under a chain.
+- **Fits the toolchain.** It runs beside Lombok and Error Prone in one `javac` (stack PR 04 to 06),
+  and reads both `javax.inject` and `jakarta.inject`.
+- **Native images.** Because the graph needs no reflection, it needs no reflection configuration
+  for GraalVM `native-image`. Gravitino does not build native images, and this was not tested.
+
+### K.5 Graph shape
+
+The dependency graph is a directed acyclic graph checked at compile time. A cycle is a build
+error unless one edge is a `Provider` (or `Lazy`); the three real cycles take a `Provider` and are
+listed in C.3. An object is built the first time it is requested, after everything it depends on,
+so construction follows a topological order of the graph that Dagger generates.
+
+The shape is a shared trunk with branches, and roots at the entry points. At the tip there is one
+production component, `GravitinoComponent`, and each entry point builds the part it needs through
+a profile in `GravitinoProfiles`:
+
+```mermaid
+flowchart TB
+  GS["GravitinoServer"] -->|"profile full"| GC["GravitinoComponent"]
+  IR["GravitinoIcebergRESTServer"] -->|"profile base"| GC
+  LR["GravitinoLanceRESTServer"] -->|"profile base"| GC
+  DC["DownstreamComponent, test"] -.->|extends| GC
+  MT["ModuleTestComponent, test"] -.->|extends| GC
+  DD["DecoratedComponent, test"] -.->|extends| GC
+  SE["StorageComponent, EventComponent, test"] -.->|"one or two of its modules"| GC
+  GC --> AUX["AuxiliaryServiceManager"]
+  AUX --> RS["Iceberg and Lance REST services, AuxiliaryContext, wired by hand inside"]
+  GC --> CM["CatalogManager"]
+  CM --> CAT["each catalog: own class loader, CatalogContext"]
+  GC --> HK["GravitinoComponentBinder"]
+  HK --> REQ["HK2, per request"]
+```
+
+Inside the component:
+
+```mermaid
+flowchart LR
+  subgraph base["trunk, base profile"]
+    CFG["Config"] --> MS["MetricsSystem"]
+    CFG --> KMS["KmsClientRegistry"]
+    CFG --> SM["SecretManager"]
+    CFG --> ELM["EventListenerManager"]
+    ELM --> AUD["AuditLogManager"]
+    AUD --> BUS["EventBus"]
+  end
+  subgraph meta["metadata profile adds"]
+    ES["EntityStore"]
+    IDG["IdGenerator"]
+    LM["LockManager"]
+    CMG["CatalogManager"] --> INT["@Internal chains"]
+  end
+  subgraph full["full profile adds"]
+    PUB["@Public chains"]
+    AZ["GravitinoAuthorizer"]
+    AXM["AuxiliaryServiceManager"]
+    JOB["job chains"]
+  end
+  CFG --> ES
+  ES --> CMG
+  LM --> CMG
+  INT --> PUB
+  BUS --> PUB
+```
+
+The principle: keep subgraphs as subgraphs. One component that every process and every lifetime
+shares rebuilds `GravitinoEnv` with a code generator. Split by lifetime (process, catalog with its
+own class loader, request) and by deployable (server, standalone REST servers), and share the trunk
+only through an explicit seam: a component dependency or a context seeded with `@BindsInstance`
+(C.9), or a subcomponent for a shorter lifetime inside the server.
+
+Candidate splits, from the code at the tip. None is done:
+
+- **Profile components** (D.5, row 7). The standalone Iceberg and Lance servers build only the base
+  profile, but compile against a graph that also holds the server's chains. A base component and a
+  full component built from shared module groups would let Dagger check each one.
+- **REST service components** (D.5, row 8). `RESTService` and `LanceRESTService` build their
+  dispatchers by hand from `AuxiliaryContext`. Each can become a component seeded with that
+  context, a separate graph from the server's.
+- **Per-catalog graph.** `CatalogManager` builds each catalog with its own class loader and
+  `CatalogContext` by hand. A per-catalog subcomponent on the host side could build the context
+  and wrapper; the plugin itself still sees only the plain context (Q2, item 3). Appendix I keeps
+  subcomponents until after plan PR 17.
+- **Per request.** Stays with HK2 (Q2, item 7).
+
+### K.6 Testing
+
+- **Ease.** A unit test calls the constructor with the objects it wants. An integration-style test
+  builds a real component from a test `Config`: `DaggerDownstreamComponent.factory()
+  .create(config())` in `TestDownstreamComponent`, closed with `component.lifecycle().close()`.
+- **Swapping a module.** `ModuleTestComponent` leaves out `StorageModule`, `EventModule` and
+  `AuthorizerModule` and binds their types in `FakeLeavesModule`, so the real chains run over a
+  fake store, event bus and authorizer.
+- **Mocking.** Fakes and Mockito mocks go in through constructors; no `mockStatic` of the env and
+  no `FieldUtils` on it remain (K.1.3). Static mocks of other classes remain and are not part of
+  this proposal: `PrincipalUtils` 48, `SessionUtils` 48, `GravitinoAuthorizerProvider` 42 and
+  `AuthorizationUtils` 37 `mockStatic` calls at the tip.
+- **Isolation and parallelism.** Nothing a test builds is process-wide, so tests do not restore
+  state for the next one, and `coreUnitTest` runs in half the processors' worth of forks. The
+  relational meta services are still static singletons (Q2, item 6); `StoreSeedsFixture` sets
+  their inputs, and each fork has its own copy.
+- **Speed.** No per-test speedup is claimed. One serial Gradle run of five migrated `core` test
+  classes on main and on the tip (JDK 17) is not comparable: on the tip the classes ran in two
+  forks at once, and the first test of each fork paid JVM and Mockito start-up (4.4 s for one
+  test whose whole class took 0.2 s on main). Class times were 7.8 s on main and 20.7 s on the
+  tip.
+  The gain that follows directly is parallel forks: `coreUnitTest` ran in 1 fork on main and runs
+  in half the processors' worth at the tip *(inferred: wall time with forks against one fork is
+  not measured, Appendix B)*. Removing `mockStatic` also removes Mockito's per-`try` class
+  retransformation, a small cost per test *(inferred, not measured)*.
+
+### K.7 Extending without editing upstream
+
+A downstream build creates its own component from `GravitinoModules` and its modules:
+
+```java
+@Singleton
+@Component(modules = {GravitinoModules.class, DownstreamModule.class})
+interface DownstreamComponent extends GravitinoComponent {
+  DownstreamService downstreamService();          // a new binding
+
+  @Component.Factory
+  interface Factory {
+    DownstreamComponent create(@BindsInstance Config config);
+  }
+}
+```
+
+**Add a step to a chain.** Contribute a decorator to the chain's set. The lowest order wraps first;
+the highest is outermost. A decorator must delegate to the dispatcher it is given.
+
+```java
+@Provides @IntoSet @Public
+static DispatcherDecorator<TableDispatcher> auditedTables(AuditTrail trail) {
+  return DispatcherDecorator.of(100, tables -> new AuditedTableDispatcher(tables, trail));
+}
+```
+
+```mermaid
+flowchart LR
+  REST["REST resource"] --> D200["decorator, order 200"]
+  D200 --> D100["decorator, order 100"]
+  D100 --> EV["TableEventDispatcher"]
+  EV --> NORM["TableNormalizeDispatcher"]
+  NORM --> HOOK["TableHookDispatcher"]
+  HOOK --> OPS["TableOperationDispatcher"]
+```
+
+The decorators wrap the outermost layer, so every upstream layer under them stays. When upstream
+adds a layer to the chain, the downstream build gets it with no change. Two decorators with the same
+order fail when the chain is built (`Decorators.apply`); making that a compile error with
+`@IntoMap` keys is a follow-up (D.5).
+
+**Add a service with a lifecycle.** Contribute a `ManagedService`; it starts after the component's
+services and stops before them, in `order()`.
+
+```java
+@Provides @IntoSet
+static ManagedService searchIndex(SearchIndex index) {
+  return index; // implements ManagedService: order(), name(), start(), stop()
+}
+```
+
+**Add a new object.** Bind it in the downstream module and add a provision method, as
+`downstreamService()` above. It can inject anything upstream binds, such as `CatalogAccess` or
+`@Public CatalogDispatcher`.
+
+**Swap a binding.** Dagger rejects a second binding of a type, so a downstream module cannot
+override an upstream one, and an upstream sync cannot silently change which one wins. There are
+three ways to change what a type resolves to:
+
+1. Configuration, as today, for pluggable implementations: the authorizer, entity store and event
+   listeners are chosen by configuration keys.
+2. A wrapping decorator, as above, for behaviour on a chain.
+3. A decorator that returns its own chain and ignores the one it is given. This breaks the
+   delegation contract and drops the upstream layers; it exists to carry a hand-built chain during
+   migration (K.8). A downstream chain built that way takes the catalog manager it needs as
+   `@ForDispatcherChains CatalogManager`.
+
+The server and the standalone Iceberg and Lance servers take the component factory, so a
+downstream entry point passes its own and its contributions are present in every profile.
+
+### K.8 Hand-built and Dagger-built chains coexist
+
+The migration did not need a flag day, and a downstream build does not need one either:
+
+- **During the stack**, the component built objects while `GravitinoEnv` delegated its getters to
+  the component (A.1, D.1). Callers moved one area at a time; the old and new entry points
+  returned the same instance.
+- **Inside the graph**, a hand-built chain becomes the chain's binding through a decorator that
+  replaces it (K.7, way 3). The rest of the graph, HK2 and the lifecycle use it like any other
+  chain.
+- **One chain at a time.** Converting a replaced chain to wrapping decorators is local to that
+  chain's module; the others keep working.
+
+The cost of a replaced chain is the one this proposal removes elsewhere: it does not get upstream
+layer changes. It is a bridge, not a target.
+
+### K.9 What does not change
+
+- Dispatcher chains keep their layers (K.3).
+- `*MetaService` and the other 40 `public static getInstance()` singletons stay (Q2, item 6).
+- HK2 stays at the REST edge (C.6).
+- Plugins are loaded by class name from configuration, as before.
+- The decorator delegation contract is documented, not enforced.
 
 [#18]: https://github.com/nevzheng/gravitino/pull/18
 [#19]: https://github.com/nevzheng/gravitino/pull/19
