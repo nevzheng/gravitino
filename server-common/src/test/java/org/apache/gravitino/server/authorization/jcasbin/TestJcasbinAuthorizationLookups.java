@@ -29,7 +29,6 @@ import static org.mockito.Mockito.when;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
@@ -39,6 +38,7 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.connector.capability.CapabilityResult;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.storage.relational.mapper.OwnerMetaMapper;
 import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.utils.SessionUtils;
@@ -56,7 +56,7 @@ public class TestJcasbinAuthorizationLookups {
     CountingCache<String, Long> metadataIdCache = new CountingCache<>(100L);
     CountingCache<Long, Optional<OwnerInfo>> ownerRelCache = new CountingCache<>();
     JcasbinAuthorizationLookups lookups =
-        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, unusedResolver());
     AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
 
     Assertions.assertEquals(
@@ -75,8 +75,6 @@ public class TestJcasbinAuthorizationLookups {
     MetadataObject canonical = MetadataObjects.parse("cat1.sch1.tbl1", MetadataObject.Type.TABLE);
     CountingCache<String, Long> metadataIdCache = new CountingCache<>(100L);
     CountingCache<Long, Optional<OwnerInfo>> ownerRelCache = new CountingCache<>();
-    JcasbinAuthorizationLookups lookups =
-        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
     AuthorizationRequestContext context = new AuthorizationRequestContext();
     Capability capability =
         new Capability() {
@@ -95,15 +93,13 @@ public class TestJcasbinAuthorizationLookups {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    GravitinoEnv env = mock(GravitinoEnv.class);
-    when(env.catalogManager()).thenReturn(catalogs);
-    try (MockedStatic<GravitinoEnv> envMock = mockStatic(GravitinoEnv.class)) {
-      envMock.when(GravitinoEnv::getInstance).thenReturn(env);
-      Assertions.assertEquals(Optional.of(100L), lookups.resolveMetadataId(alias, "ml1", context));
-      Assertions.assertEquals(Optional.of(100L), lookups.resolveMetadataId(alias, "ml1", context));
-      Assertions.assertEquals(
-          Optional.of(100L), lookups.resolveMetadataId(canonical, "ml1", context));
-    }
+    JcasbinAuthorizationLookups lookups =
+        new JcasbinAuthorizationLookups(
+            metadataIdCache, ownerRelCache, new MetadataIdResolver(() -> catalogs, () -> null));
+    Assertions.assertEquals(Optional.of(100L), lookups.resolveMetadataId(alias, "ml1", context));
+    Assertions.assertEquals(Optional.of(100L), lookups.resolveMetadataId(alias, "ml1", context));
+    Assertions.assertEquals(
+        Optional.of(100L), lookups.resolveMetadataId(canonical, "ml1", context));
     // Each distinct spelling resolves capabilities and the physical table name once.
     verify(catalogs, times(4)).doWithCatalog(any(), any());
     verify(catalog, times(2)).capability();
@@ -121,7 +117,7 @@ public class TestJcasbinAuthorizationLookups {
     CountingCache<String, Long> metadataIdCache = new CountingCache<>(100L);
     CountingCache<Long, Optional<OwnerInfo>> ownerRelCache = new CountingCache<>();
     JcasbinAuthorizationLookups lookups =
-        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, unusedResolver());
     OwnerMetaMapper ownerMetaMapper = mock(OwnerMetaMapper.class);
     OwnerInfo ownerInfo = new OwnerInfo(10L, "USER");
     when(ownerMetaMapper.selectOwnerByMetadataObjectIdAndType(
@@ -159,7 +155,7 @@ public class TestJcasbinAuthorizationLookups {
     CountingCache<String, Long> metadataIdCache = new CountingCache<>(100L);
     CountingCache<Long, Optional<OwnerInfo>> ownerRelCache = new CountingCache<>();
     JcasbinAuthorizationLookups lookups =
-        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+        new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, unusedResolver());
     AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
 
     try (MockedStatic<SessionUtils> sessionUtils = mockStatic(SessionUtils.class)) {
@@ -195,7 +191,7 @@ public class TestJcasbinAuthorizationLookups {
                 return func.apply(ownerMetaMapper);
               });
       JcasbinAuthorizationLookups lookups =
-          new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+          new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, unusedResolver());
 
       Assertions.assertFalse(
           lookups
@@ -208,6 +204,17 @@ public class TestJcasbinAuthorizationLookups {
     }
 
     verify(ownerMetaMapper, times(1)).selectOwnerByMetadataObjectIdAndType(100L, "TABLE");
+  }
+
+  // Resolves nothing: the caches in these tests never miss into the entity store.
+  private static MetadataIdResolver unusedResolver() {
+    return new MetadataIdResolver(
+        () -> {
+          throw new IllegalStateException("No catalog manager in this test");
+        },
+        () -> {
+          throw new IllegalStateException("No entity store in this test");
+        });
   }
 
   private static class CountingCache<K, V> implements GravitinoCache<K, V> {

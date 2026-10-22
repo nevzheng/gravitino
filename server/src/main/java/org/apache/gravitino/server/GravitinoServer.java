@@ -218,7 +218,12 @@ public class GravitinoServer extends ResourceConfig {
     packages(restApiPackagesSet.toArray(new String[0]));
 
     boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-    register(new GravitinoComponentBinder(component, enableAuthorization, lineageService));
+    register(
+        new GravitinoComponentBinder(
+            component,
+            enableAuthorization,
+            lineageService,
+            authorizerProvider::getGravitinoAuthorizer));
     register(JsonProcessingExceptionMapper.class);
     register(new OutOfMemoryErrorListener());
     register(ErrorExceptionMapper.class);

@@ -25,6 +25,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizerContext;
+import org.apache.gravitino.catalog.CatalogManager;
 
 /**
  * The {@link AuthorizerContext} of the Gravitino server, backed by the component.
@@ -37,6 +38,7 @@ final class ComponentAuthorizerContext implements AuthorizerContext {
 
   private final Config config;
   private final Provider<EntityStore> entityStore;
+  private final Provider<CatalogManager> catalogManager;
   private final boolean authorizationEnabled;
   private final Provider<AccessControlDispatcher> internalAccessControlDispatcher;
 
@@ -44,10 +46,12 @@ final class ComponentAuthorizerContext implements AuthorizerContext {
   ComponentAuthorizerContext(
       Config config,
       Provider<EntityStore> entityStore,
+      Provider<CatalogManager> catalogManager,
       @AuthorizationEnabled boolean authorizationEnabled,
       @Internal Provider<AccessControlDispatcher> internalAccessControlDispatcher) {
     this.config = config;
     this.entityStore = entityStore;
+    this.catalogManager = catalogManager;
     this.authorizationEnabled = authorizationEnabled;
     this.internalAccessControlDispatcher = internalAccessControlDispatcher;
   }
@@ -60,6 +64,11 @@ final class ComponentAuthorizerContext implements AuthorizerContext {
   @Override
   public EntityStore entityStore() {
     return entityStore.get();
+  }
+
+  @Override
+  public CatalogManager catalogManager() {
+    return catalogManager.get();
   }
 
   @Override

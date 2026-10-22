@@ -34,9 +34,13 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -113,8 +117,9 @@ import org.apache.gravitino.semantic.SemanticModelChange;
 import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.AuthorizationRequestScope;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
-import org.apache.gravitino.server.authorization.MetadataIdConverter;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 import org.apache.gravitino.storage.relational.mapper.EntityChangeLogMapper;
@@ -180,7 +185,7 @@ public class TestJcasbinAuthorizer {
 
   private static MockedStatic<GravitinoEnv> gravitinoEnvMockedStatic;
 
-  private static MockedStatic<MetadataIdConverter> metadataIdConverterMockedStatic;
+  private static MetadataIdResolver metadataIdResolver;
 
   private static MockedStatic<OwnerMetaService> ownerMetaServiceMockedStatic;
 
@@ -329,29 +334,24 @@ public class TestJcasbinAuthorizer {
     gravitinoEnvMockedStatic.when(GravitinoEnv::getInstance).thenReturn(gravitinoEnv);
     when(gravitinoEnv.config()).thenReturn(new ServerConfig());
     principalUtilsMockedStatic = mockStatic(PrincipalUtils.class);
-    metadataIdConverterMockedStatic =
-        mockStatic(
-            MetadataIdConverter.class,
-            invocation -> {
-              // Keep ID-loading fixtures, but execute all normalization helpers (including nested
-              // static calls) so capability rules are tested rather than stubbed away.
-              if (invocation.getMethod().getName().equals("getIdForNormalizedObject")) {
-                return MetadataIdConverter.getID(
-                    invocation.getArgument(0), invocation.getArgument(1));
-              }
-              if (invocation.getMethod().getName().equals("getID")) {
-                return Optional.empty();
-              }
-              return invocation.callRealMethod();
-            });
+    // Keep ID-loading fixtures, but execute all normalization helpers so capability rules are
+    // tested rather than stubbed away.
+    metadataIdResolver =
+        spy(
+            new MetadataIdResolver(
+                () -> gravitinoEnv.catalogManager(), () -> gravitinoEnv.entityStore()));
+    doReturn(Optional.empty()).when(metadataIdResolver).getID(any(), any());
+    doAnswer(
+            invocation ->
+                metadataIdResolver.getID(invocation.getArgument(0), invocation.getArgument(1)))
+        .when(metadataIdResolver)
+        .getIdForNormalizedObject(any(), any());
     principalUtilsMockedStatic
         .when(PrincipalUtils::getCurrentPrincipal)
         .thenReturn(new UserPrincipal(USERNAME));
     principalUtilsMockedStatic.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
     principalUtilsMockedStatic.when(PrincipalUtils::getCurrentUserName).thenCallRealMethod();
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenReturn(Optional.of(CATALOG_ID));
+    doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     when(gravitinoEnv.entityStore()).thenReturn(entityStore);
     when(entityStore.relationOperations()).thenReturn(supportsRelationOperations);
     when(entityStore.get(
@@ -379,9 +379,6 @@ public class TestJcasbinAuthorizer {
     if (principalUtilsMockedStatic != null) {
       principalUtilsMockedStatic.close();
     }
-    if (metadataIdConverterMockedStatic != null) {
-      metadataIdConverterMockedStatic.close();
-    }
     if (sessionUtilsMockedStatic != null) {
       sessionUtilsMockedStatic.close();
     }
@@ -408,7 +405,7 @@ public class TestJcasbinAuthorizer {
         .when(catalogs)
         .doWithCatalog(any(), any());
     when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
-    jcasbinAuthorizer = new JcasbinAuthorizer();
+    jcasbinAuthorizer = new JcasbinAuthorizer(metadataIdResolver);
     jcasbinAuthorizer.initialize(
         new AuthorizerContext() {
           @Override
@@ -419,6 +416,11 @@ public class TestJcasbinAuthorizer {
           @Override
           public EntityStore entityStore() {
             return gravitinoEnv.entityStore();
+          }
+
+          @Override
+          public CatalogManager catalogManager() {
+            return gravitinoEnv.catalogManager();
           }
 
           @Override
@@ -759,15 +761,9 @@ public class TestJcasbinAuthorizer {
     MetadataObject sibling =
         MetadataObjects.parse("broken.schema.sibling", MetadataObject.Type.TABLE);
     MetadataObject healthy = MetadataObjects.of(null, "healthy", MetadataObject.Type.CATALOG);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(denied, METALAKE))
-        .thenReturn(Optional.of(10L));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(sibling, METALAKE))
-        .thenReturn(Optional.of(11L));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(healthy, METALAKE))
-        .thenReturn(Optional.of(20L));
+    doReturn(Optional.of(10L)).when(metadataIdResolver).getID(denied, METALAKE);
+    doReturn(Optional.of(11L)).when(metadataIdResolver).getID(sibling, METALAKE);
+    doReturn(Optional.of(20L)).when(metadataIdResolver).getID(healthy, METALAKE);
     RoleEntity allowRole =
         mockRoleInStore(
             ALLOW_ROLE_ID,
@@ -849,15 +845,9 @@ public class TestJcasbinAuthorizer {
                   "SELECT_TABLE",
                   "allow"));
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(denied, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(sibling, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(healthy, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(denied, METALAKE);
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(sibling, METALAKE);
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(healthy, METALAKE);
     }
   }
 
@@ -869,15 +859,9 @@ public class TestJcasbinAuthorizer {
     MetadataObject sibling =
         MetadataObjects.parse("broken.schema.sibling", MetadataObject.Type.TABLE);
     MetadataObject healthy = MetadataObjects.of(null, "healthy", MetadataObject.Type.CATALOG);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(denied, METALAKE))
-        .thenReturn(Optional.of(10L));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(sibling, METALAKE))
-        .thenReturn(Optional.of(11L));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(healthy, METALAKE))
-        .thenReturn(Optional.of(20L));
+    doReturn(Optional.of(10L)).when(metadataIdResolver).getID(denied, METALAKE);
+    doReturn(Optional.of(11L)).when(metadataIdResolver).getID(sibling, METALAKE);
+    doReturn(Optional.of(20L)).when(metadataIdResolver).getID(healthy, METALAKE);
     RoleEntity role =
         mockRoleInStore(
             ALLOW_ROLE_ID,
@@ -921,15 +905,9 @@ public class TestJcasbinAuthorizer {
               tableMetadataNames("healthy", "table"), new AuthorizationRequestContext()));
       assertTrue(getLoadedRolesCache(jcasbinAuthorizer).getIfPresent(ALLOW_ROLE_ID).isPresent());
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(denied, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(sibling, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(healthy, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(denied, METALAKE);
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(sibling, METALAKE);
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(healthy, METALAKE);
     }
   }
 
@@ -950,18 +928,14 @@ public class TestJcasbinAuthorizer {
                     Privilege.Name.CREATE_TABLE,
                     "ALLOW")));
     mockDirectUserRoles(role);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(missing, METALAKE))
-        .thenReturn(Optional.empty());
+    doReturn(Optional.empty()).when(metadataIdResolver).getID(missing, METALAKE);
     try {
       assertTrue(
           new AuthorizationExpressionEvaluator("ANY_CREATE_TABLE", jcasbinAuthorizer)
               .evaluate(
                   tableMetadataNames("catalog", "newTable"), new AuthorizationRequestContext()));
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(missing, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(missing, METALAKE);
     }
   }
 
@@ -991,9 +965,7 @@ public class TestJcasbinAuthorizer {
                     Privilege.Name.SELECT_TABLE,
                     "DENY")));
     mockDirectUserRoles(role);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(catalogObject, METALAKE))
-        .thenReturn(Optional.empty());
+    doReturn(Optional.empty()).when(metadataIdResolver).getID(catalogObject, METALAKE);
     try {
       AuthorizationRequestContext context = new AuthorizationRequestContext();
       assertFalse(
@@ -1019,9 +991,7 @@ public class TestJcasbinAuthorizer {
           getDenyEnforcer(jcasbinAuthorizer)
               .getFilteredPolicy(0, String.valueOf(ALLOW_ROLE_ID))
               .isEmpty());
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(catalogObject, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(catalogObject, METALAKE);
       assertTrue(
           jcasbinAuthorizer.authorize(
               PrincipalUtils.getCurrentPrincipal(),
@@ -1030,9 +1000,7 @@ public class TestJcasbinAuthorizer {
               Privilege.Name.SELECT_TABLE,
               new AuthorizationRequestContext()));
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(catalogObject, METALAKE))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(catalogObject, METALAKE);
     }
   }
 
@@ -1051,9 +1019,7 @@ public class TestJcasbinAuthorizer {
     GravitinoCache<Long, Boolean> backoff = getPartialRoleLoadBackoffCache(jcasbinAuthorizer);
 
     // 1. The role's only securable object does not resolve, so nothing can be loaded.
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenReturn(Optional.empty());
+    doReturn(Optional.empty()).when(metadataIdResolver).getID(any(), eq(METALAKE));
     try {
       invokeVersionCheckAndLoadRoles(
           jcasbinAuthorizer,
@@ -1071,9 +1037,7 @@ public class TestJcasbinAuthorizer {
           backoff.getIfPresent(ALLOW_ROLE_ID).isPresent(),
           "the incomplete load must arm the retry backoff");
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     }
 
     // 2. While the backoff is armed the role is not re-read, so a request cannot turn into a DB
@@ -1547,14 +1511,11 @@ public class TestJcasbinAuthorizer {
                     "droppedCatalog",
                     USE_CATALOG,
                     "ALLOW")));
-    metadataIdConverterMockedStatic
-        .when(
-            () ->
-                MetadataIdConverter.getID(
-                    Mockito.argThat(
-                        object -> object != null && "droppedCatalog".equals(object.name())),
-                    eq(METALAKE)))
-        .thenReturn(Optional.empty());
+    doReturn(Optional.empty())
+        .when(metadataIdResolver)
+        .getID(
+            Mockito.argThat(object -> object != null && "droppedCatalog".equals(object.name())),
+            eq(METALAKE));
     try {
       mockDirectUserRoles(allowRole, partialRole);
       AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
@@ -1569,9 +1530,7 @@ public class TestJcasbinAuthorizer {
           jcasbinAuthorizer.authorize(
               currentPrincipal, METALAKE, catalogObject(), USE_CATALOG, requestContext));
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     }
   }
 
@@ -2289,7 +2248,7 @@ public class TestJcasbinAuthorizer {
 
   @Test
   public void testIsSelfRoleViaGroup() throws Exception {
-    // Use a role whose MetadataIdConverter.getID resolves to CATALOG_ID (catch-all mock)
+    // Use a role whose MetadataIdResolver.getID resolves to CATALOG_ID (catch-all mock)
     Long groupRoleId = CATALOG_ID;
     String groupRoleName = "groupSelfRole";
     NameIdentifier roleIdent = NameIdentifierUtil.ofRole(METALAKE, groupRoleName);
@@ -2359,7 +2318,7 @@ public class TestJcasbinAuthorizer {
     // The version-validated userRoleCache / groupRoleCache are process-wide, so the second call
     // hits cache even though each isSelf creates a fresh AuthorizationRequestContext.
     //
-    // Use CATALOG_ID so the role id matches the catch-all MetadataIdConverter.getID mock.
+    // Use CATALOG_ID so the role id matches the catch-all MetadataIdResolver.getID mock.
     Long directRoleId = CATALOG_ID;
     String directRoleName = "selfDedupRole";
     NameIdentifier roleIdent = NameIdentifierUtil.ofRole(METALAKE, directRoleName);
@@ -2892,7 +2851,7 @@ public class TestJcasbinAuthorizer {
     RoleEntity held = mockRoleInStore(ALLOW_ROLE_ID, "heldRole", ImmutableList.of());
     mockDirectUserRoles(held);
     Mockito.clearInvocations(userMetaMapper);
-    metadataIdConverterMockedStatic.clearInvocations();
+    clearInvocations(metadataIdResolver);
 
     AuthorizationRequestContext requestContext = new AuthorizationRequestContext();
     Set<String> unheld =
@@ -2900,8 +2859,7 @@ public class TestJcasbinAuthorizer {
             principal, METALAKE, ImmutableSet.of("heldRole"), requestContext);
 
     assertTrue(unheld.isEmpty());
-    metadataIdConverterMockedStatic.verify(
-        () -> MetadataIdConverter.getID(any(), eq(METALAKE)), Mockito.never());
+    verify(metadataIdResolver, Mockito.never()).getID(any(), eq(METALAKE));
     jcasbinAuthorizer.authorize(
         principal,
         METALAKE,
@@ -2960,7 +2918,7 @@ public class TestJcasbinAuthorizer {
     mockNoDirectUserRoles();
     mockGroupWithRoles(GROUP_NAME, ImmutableList.of(groupRoleId), ImmutableList.of("groupRole"));
     Mockito.clearInvocations(userMetaMapper);
-    metadataIdConverterMockedStatic.clearInvocations();
+    clearInvocations(metadataIdResolver);
 
     Set<String> unheld =
         jcasbinAuthorizer.findUnheldRoles(
@@ -2971,8 +2929,7 @@ public class TestJcasbinAuthorizer {
 
     assertTrue(unheld.isEmpty());
     verify(userMetaMapper).batchGetAuthSubjectsForUser(eq(METALAKE), eq(USERNAME), anyList());
-    metadataIdConverterMockedStatic.verify(
-        () -> MetadataIdConverter.getID(any(), eq(METALAKE)), Mockito.never());
+    verify(metadataIdResolver, Mockito.never()).getID(any(), eq(METALAKE));
     restoreDefaultPrincipal();
     getLoadedRolesCache(jcasbinAuthorizer).invalidateAll();
   }
@@ -2980,9 +2937,7 @@ public class TestJcasbinAuthorizer {
   /** Another request with different groups must not grant roles to this request. */
   @Test
   public void testInterleavedGroupRequestsMustNotInjectAllow() throws Exception {
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenReturn(Optional.of(CATALOG_ID));
+    doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     try {
       RoleEntity groupRole =
           mockRoleInStore(901L, "probeGroupAllow", ImmutableList.of(getAllowSecurableObject()));
@@ -3015,9 +2970,7 @@ public class TestJcasbinAuthorizer {
           "request without groups must not inherit another request's group ALLOW");
 
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
       restoreDefaultPrincipal();
     }
   }
@@ -3026,9 +2979,7 @@ public class TestJcasbinAuthorizer {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   public void testInterleavedGroupRequestsMustNotRemoveDeny(boolean narrow) throws Exception {
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenReturn(Optional.of(CATALOG_ID));
+    doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     try {
       RoleEntity allowRole =
           mockRoleInStore(
@@ -3083,9 +3034,7 @@ public class TestJcasbinAuthorizer {
               new AuthorizationRequestContext()));
 
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
       restoreDefaultPrincipal();
     }
   }
@@ -3379,10 +3328,8 @@ public class TestJcasbinAuthorizer {
   /** The real list filter must not expose a table denied by this request's group role. */
   @Test
   public void testInterleavedGroupRequestsMustNotExposeDeniedTable() throws Exception {
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenReturn(Optional.of(CATALOG_ID));
-    Field executorField = MetadataAuthzHelper.class.getDeclaredField("executor");
+    doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
+    Field executorField = MetadataAccessChecker.class.getDeclaredField("executor");
     executorField.setAccessible(true);
     Object previousExecutor = executorField.get(null);
     executorField.set(null, (Executor) Runnable::run);
@@ -3398,9 +3345,7 @@ public class TestJcasbinAuthorizer {
               "testCatalog.testSchema.hidden",
               SELECT_TABLE,
               "DENY");
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(eq(deniedObject), eq(METALAKE)))
-          .thenReturn(Optional.of(42L));
+      doReturn(Optional.of(42L)).when(metadataIdResolver).getID(eq(deniedObject), eq(METALAKE));
       RoleEntity allowRole =
           mockRoleInStore(
               ALLOW_ROLE_ID,
@@ -3475,9 +3420,7 @@ public class TestJcasbinAuthorizer {
     } finally {
       executorField.set(null, previousExecutor);
       when(gravitinoEnv.config()).thenReturn(previousConfig);
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
       restoreDefaultPrincipal();
     }
   }
@@ -3735,7 +3678,8 @@ public class TestJcasbinAuthorizer {
   public void testSemanticModelRenameDropAndNameReuseInvalidateLocalCache() throws Exception {
     GravitinoCache<String, Long> cache = getMetadataIdCache(jcasbinAuthorizer);
     JcasbinAuthorizationLookups lookups =
-        new JcasbinAuthorizationLookups(cache, getOwnerRelCache(jcasbinAuthorizer));
+        new JcasbinAuthorizationLookups(
+            cache, getOwnerRelCache(jcasbinAuthorizer), metadataIdResolver);
     CatalogManager catalogs = mock(CatalogManager.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability())
@@ -3760,18 +3704,8 @@ public class TestJcasbinAuthorizer {
         MetadataObjects.parse("catalog.SCHEMA.SalesModel", MetadataObject.Type.SEMANTIC_MODEL);
     MetadataObject newObject =
         MetadataObjects.parse("catalog.ScHeMa.RenamedModel", MetadataObject.Type.SEMANTIC_MODEL);
-    metadataIdConverterMockedStatic
-        .when(
-            () ->
-                MetadataIdConverter.getID(
-                    MetadataIdConverter.normalizeMetadataObject(oldObject, METALAKE), METALAKE))
-        .thenReturn(Optional.of(100L));
-    metadataIdConverterMockedStatic
-        .when(
-            () ->
-                MetadataIdConverter.getID(
-                    MetadataIdConverter.normalizeMetadataObject(newObject, METALAKE), METALAKE))
-        .thenReturn(Optional.of(200L));
+    stubMetadataId(normalized(oldObject), Optional.of(100L));
+    stubMetadataId(normalized(newObject), Optional.of(200L));
     assertEquals(
         Optional.of(100L),
         lookups.resolveMetadataId(oldObject, METALAKE, new AuthorizationRequestContext()));
@@ -3788,18 +3722,8 @@ public class TestJcasbinAuthorizer {
     SemanticModelHookDispatcher hook = new SemanticModelHookDispatcher(dispatcher, () -> null);
     try {
       hook.alterSemanticModel(oldIdent, rename);
-      metadataIdConverterMockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.getID(
-                      MetadataIdConverter.normalizeMetadataObject(oldObject, METALAKE), METALAKE))
-          .thenReturn(Optional.empty());
-      metadataIdConverterMockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.getID(
-                      MetadataIdConverter.normalizeMetadataObject(newObject, METALAKE), METALAKE))
-          .thenReturn(Optional.of(100L));
+      stubMetadataId(normalized(oldObject), Optional.empty());
+      stubMetadataId(normalized(newObject), Optional.of(100L));
       assertEquals(
           Optional.empty(),
           lookups.resolveMetadataId(oldObject, METALAKE, new AuthorizationRequestContext()));
@@ -3807,21 +3731,11 @@ public class TestJcasbinAuthorizer {
           Optional.of(100L),
           lookups.resolveMetadataId(newObject, METALAKE, new AuthorizationRequestContext()));
       hook.dropSemanticModel(newIdent);
-      metadataIdConverterMockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.getID(
-                      MetadataIdConverter.normalizeMetadataObject(newObject, METALAKE), METALAKE))
-          .thenReturn(Optional.of(300L));
+      stubMetadataId(normalized(newObject), Optional.of(300L));
       assertEquals(
           Optional.of(300L),
           lookups.resolveMetadataId(newObject, METALAKE, new AuthorizationRequestContext()));
-      metadataIdConverterMockedStatic
-          .when(
-              () ->
-                  MetadataIdConverter.getID(
-                      MetadataIdConverter.normalizeMetadataObject(oldObject, METALAKE), METALAKE))
-          .thenReturn(Optional.of(400L));
+      stubMetadataId(normalized(oldObject), Optional.of(400L));
       assertEquals(
           Optional.of(400L),
           lookups.resolveMetadataId(oldObject, METALAKE, new AuthorizationRequestContext()));
@@ -3846,17 +3760,15 @@ public class TestJcasbinAuthorizer {
     when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
     JcasbinAuthorizationLookups lookups =
         new JcasbinAuthorizationLookups(
-            getMetadataIdCache(jcasbinAuthorizer), getOwnerRelCache(jcasbinAuthorizer));
+            getMetadataIdCache(jcasbinAuthorizer),
+            getOwnerRelCache(jcasbinAuthorizer),
+            metadataIdResolver);
     MetadataObject lower =
         MetadataObjects.parse("catalog.schema.SalesModel", MetadataObject.Type.SEMANTIC_MODEL);
     MetadataObject upper =
         MetadataObjects.parse("catalog.SCHEMA.SalesModel", MetadataObject.Type.SEMANTIC_MODEL);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(lower, METALAKE))
-        .thenReturn(Optional.of(100L));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(upper, METALAKE))
-        .thenReturn(Optional.of(200L));
+    doReturn(Optional.of(100L)).when(metadataIdResolver).getID(lower, METALAKE);
+    doReturn(Optional.of(200L)).when(metadataIdResolver).getID(upper, METALAKE);
     try {
       assertEquals(
           Optional.of(100L),
@@ -3868,9 +3780,7 @@ public class TestJcasbinAuthorizer {
           METALAKE,
           NameIdentifier.of(METALAKE, "catalog", "SCHEMA", "SalesModel"),
           Entity.EntityType.SEMANTIC_MODEL);
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(upper, METALAKE))
-          .thenReturn(Optional.of(300L));
+      doReturn(Optional.of(300L)).when(metadataIdResolver).getID(upper, METALAKE);
       assertEquals(
           Optional.of(300L),
           lookups.resolveMetadataId(upper, METALAKE, new AuthorizationRequestContext()));
@@ -3915,9 +3825,9 @@ public class TestJcasbinAuthorizer {
 
     metadataIdCache.put(cacheKey, CATALOG_ID);
     ownerRelCache.put(CATALOG_ID, Optional.of(new OwnerInfo(USER_ID, "USER")));
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-        .thenThrow(new RuntimeException("lookup failed"));
+    doThrow(new RuntimeException("lookup failed"))
+        .when(metadataIdResolver)
+        .getID(any(), eq(METALAKE));
 
     try {
       Assertions.assertDoesNotThrow(
@@ -3928,9 +3838,7 @@ public class TestJcasbinAuthorizer {
       assertFalse(metadataIdCache.getIfPresent(cacheKey).isPresent());
       assertTrue(ownerRelCache.getIfPresent(CATALOG_ID).isPresent());
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(any(), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
     }
   }
 
@@ -4288,9 +4196,9 @@ public class TestJcasbinAuthorizer {
   public void testHasSetOwnerPermissionAllowsSchemaAndCatalogOwner() throws Exception {
     MetadataObject metalakeObject =
         MetadataObjects.of(ImmutableList.of(METALAKE), MetadataObject.Type.METALAKE);
-    metadataIdConverterMockedStatic
-        .when(() -> MetadataIdConverter.getID(eq(metalakeObject), eq(METALAKE)))
-        .thenReturn(Optional.of(USER_METALAKE_ID));
+    doReturn(Optional.of(USER_METALAKE_ID))
+        .when(metadataIdResolver)
+        .getID(eq(metalakeObject), eq(METALAKE));
     when(ownerMetaMapper.selectOwnerByMetadataObjectIdAndType(eq(CATALOG_ID), eq("SCHEMA")))
         .thenReturn(new OwnerInfo(USER_ID, "USER"));
     when(ownerMetaMapper.selectOwnerByMetadataObjectIdAndType(eq(CATALOG_ID), eq("CATALOG")))
@@ -4302,9 +4210,9 @@ public class TestJcasbinAuthorizer {
           jcasbinAuthorizer.hasSetOwnerPermission(
               METALAKE, "SCHEMA", "testCatalog.testSchema", new AuthorizationRequestContext()));
     } finally {
-      metadataIdConverterMockedStatic
-          .when(() -> MetadataIdConverter.getID(eq(metalakeObject), eq(METALAKE)))
-          .thenReturn(Optional.of(CATALOG_ID));
+      doReturn(Optional.of(CATALOG_ID))
+          .when(metadataIdResolver)
+          .getID(eq(metalakeObject), eq(METALAKE));
     }
   }
 
@@ -4550,5 +4458,13 @@ public class TestJcasbinAuthorizer {
     Field field = JcasbinAuthorizer.class.getDeclaredField("denyEnforcer");
     field.setAccessible(true);
     return (Enforcer) field.get(authorizer);
+  }
+
+  private static MetadataObject normalized(MetadataObject object) {
+    return metadataIdResolver.normalizeMetadataObject(object, METALAKE);
+  }
+
+  private static void stubMetadataId(MetadataObject object, Optional<Long> id) {
+    doReturn(id).when(metadataIdResolver).getID(object, METALAKE);
   }
 }

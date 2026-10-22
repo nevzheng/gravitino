@@ -21,6 +21,7 @@ import static org.apache.gravitino.server.authorization.PrincipalListTestUtils.p
 import static org.apache.gravitino.server.authorization.PrincipalListTestUtils.principalListExpression;
 import static org.apache.gravitino.server.authorization.PrincipalListTestUtils.principalManagementPrivilege;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,6 +39,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
@@ -65,11 +67,26 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockedStatic;
 
-/** Test of {@link MetadataAuthzHelper} */
-public class TestMetadataAuthzHelper {
+/** Test of {@link MetadataAccessChecker} */
+public class TestMetadataAccessChecker {
 
   private static MockedStatic<GravitinoEnv> mockedStaticGravitinoEnv;
   private static GravitinoEnv gravitinoEnv;
+
+  // Reads the mocked environment and authorizer provider on every check, so each test can change
+  // them.
+  private static final MetadataAccessChecker checker =
+      new MetadataAccessChecker(
+          () -> {
+            Config config = gravitinoEnv.config();
+            return config != null && config.get(Configs.ENABLE_AUTHORIZATION);
+          },
+          () ->
+              gravitinoEnv.cacheEnabled() && gravitinoEnv.internalAccessControlDispatcher() != null,
+          () -> 2,
+          () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
+          () -> gravitinoEnv.entityStore(),
+          () -> gravitinoEnv.internalSchemaDispatcher());
 
   @BeforeAll
   public static void setup() {
@@ -109,7 +126,7 @@ public class TestMetadataAuthzHelper {
       nameIdentifiers[2] =
           NameIdentifierUtil.ofSchema("testMetalake", "testCatalog2", "testSchema");
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               "CATALOG::USE_CATALOG && SCHEMA::USE_SCHEMA",
               Entity.EntityType.SCHEMA,
@@ -117,7 +134,7 @@ public class TestMetadataAuthzHelper {
       Assertions.assertEquals(1, filtered.length);
       Assertions.assertEquals("testMetalake.testCatalog.testSchema", filtered[0].toString());
       NameIdentifier[] filtered2 =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake", "CATALOG::USE_CATALOG", Entity.EntityType.SCHEMA, nameIdentifiers);
       Assertions.assertEquals(2, filtered2.length);
       Assertions.assertEquals("testMetalake.testCatalog.testSchema", filtered2[0].toString());
@@ -137,9 +154,7 @@ public class TestMetadataAuthzHelper {
     IllegalNameIdentifierException exception =
         Assertions.assertThrows(
             IllegalNameIdentifierException.class,
-            () ->
-                MetadataAuthzHelper.filterByExpression(
-                    "testMetalake", "", entityType, identifiers));
+            () -> checker.filterByExpression("testMetalake", "", entityType, identifiers));
 
     Assertions.assertEquals(
         "The "
@@ -159,8 +174,7 @@ public class TestMetadataAuthzHelper {
 
     try {
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
-              "testMetalake", "", Entity.EntityType.TABLE, identifiers);
+          checker.filterByExpression("testMetalake", "", Entity.EntityType.TABLE, identifiers);
 
       Assertions.assertSame(identifiers, filtered);
     } finally {
@@ -181,12 +195,12 @@ public class TestMetadataAuthzHelper {
     when(schemaDispatcher.schemaExists(schemaIdentifier)).thenReturn(false);
 
     Method preload =
-        MetadataAuthzHelper.class.getDeclaredMethod(
+        MetadataAccessChecker.class.getDeclaredMethod(
             "preloadToCache", Entity.EntityType.class, NameIdentifier[].class);
     preload.setAccessible(true);
     try {
       preload.invoke(
-          null, new Object[] {Entity.EntityType.TABLE, new NameIdentifier[] {tableIdentifier}});
+          checker, new Object[] {Entity.EntityType.TABLE, new NameIdentifier[] {tableIdentifier}});
       verify(schemaDispatcher).schemaExists(schemaIdentifier);
     } finally {
       when(gravitinoEnv.cacheEnabled()).thenReturn(false);
@@ -231,8 +245,7 @@ public class TestMetadataAuthzHelper {
               .withType(MetadataObject.Type.SCHEMA)
               .build();
 
-      MetadataObjectDTO[] filtered =
-          MetadataAuthzHelper.filterMetadataObject("testMetalake", metadataObjects);
+      MetadataObjectDTO[] filtered = checker.filterMetadataObject("testMetalake", metadataObjects);
 
       // Based on the MockGravitinoAuthorizer, 2 of the 3 schemas should be accessible
       Assertions.assertEquals(1, filtered.length);
@@ -276,8 +289,7 @@ public class TestMetadataAuthzHelper {
               .withType(MetadataObject.Type.SCHEMA)
               .build();
 
-      MetadataObjectDTO[] filtered =
-          MetadataAuthzHelper.filterMetadataObject("testMetalake", metadataObjects);
+      MetadataObjectDTO[] filtered = checker.filterMetadataObject("testMetalake", metadataObjects);
 
       // Based on the MockGravitinoAuthorizer, 2 of the 3 tables should be accessible
       Assertions.assertEquals(1, filtered.length);
@@ -302,7 +314,7 @@ public class TestMetadataAuthzHelper {
           authorizer,
           () -> {
             NameIdentifier[] filtered =
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake", principalListExpression(type), type, identifiers);
             Assertions.assertArrayEquals(new NameIdentifier[] {identifiers[1]}, filtered);
             verifyNoInteractions(store);
@@ -331,7 +343,7 @@ public class TestMetadataAuthzHelper {
           authorizer,
           () -> {
             NameIdentifier[] filtered =
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake", principalListExpression(type), type, identifiers);
             Assertions.assertSame(identifiers, filtered);
             verify(authorizer, times(1))
@@ -360,7 +372,7 @@ public class TestMetadataAuthzHelper {
         authorizer,
         () -> {
           NameIdentifier[] filtered =
-              MetadataAuthzHelper.filterByExpression(
+              checker.filterByExpression(
                   "testMetalake", principalListExpression(type), type, identifiers);
           // A deny elsewhere need not hide these principals, but it must disable the shortcut.
           Assertions.assertArrayEquals(identifiers, filtered);
@@ -386,7 +398,7 @@ public class TestMetadataAuthzHelper {
         () ->
             Assertions.assertArrayEquals(
                 new NameIdentifier[] {identifiers[1]},
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake", principalListExpression(type), type, identifiers)));
   }
 
@@ -406,7 +418,7 @@ public class TestMetadataAuthzHelper {
         authorizer,
         () -> {
           NameIdentifier[] filtered =
-              MetadataAuthzHelper.filterByExpression(
+              checker.filterByExpression(
                   "testMetalake",
                   principalListExpression(Entity.EntityType.ROLE),
                   Entity.EntityType.ROLE,
@@ -435,7 +447,7 @@ public class TestMetadataAuthzHelper {
           () ->
               Assertions.assertEquals(
                   0,
-                  MetadataAuthzHelper.filterByExpression(
+                  checker.filterByExpression(
                           "testMetalake",
                           principalListExpression(Entity.EntityType.ROLE),
                           Entity.EntityType.ROLE,
@@ -467,7 +479,7 @@ public class TestMetadataAuthzHelper {
           authorizer,
           () -> {
             NameIdentifier[] filtered =
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake",
                     AuthorizationExpressionConstants.FILTER_MODEL_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.MODEL,
@@ -506,7 +518,7 @@ public class TestMetadataAuthzHelper {
         authorizer,
         () -> {
           NameIdentifier[] filtered =
-              MetadataAuthzHelper.filterByExpression(
+              checker.filterByExpression(
                   "testMetalake",
                   AuthorizationExpressionConstants.FILTER_MODEL_AUTHORIZATION_EXPRESSION,
                   Entity.EntityType.MODEL,
@@ -533,7 +545,7 @@ public class TestMetadataAuthzHelper {
           () -> {
             Assertions.assertEquals(
                 0,
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                         "testMetalake",
                         AuthorizationExpressionConstants.FILTER_MODEL_AUTHORIZATION_EXPRESSION,
                         Entity.EntityType.MODEL,
@@ -565,7 +577,7 @@ public class TestMetadataAuthzHelper {
           authorizer,
           () -> {
             NameIdentifier[] filtered =
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake",
                     AuthorizationExpressionConstants.LOAD_JOB_TEMPLATE_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.JOB_TEMPLATE,
@@ -603,7 +615,7 @@ public class TestMetadataAuthzHelper {
         () ->
             Assertions.assertArrayEquals(
                 new NameIdentifier[] {templates[1]},
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake",
                     AuthorizationExpressionConstants.LOAD_JOB_TEMPLATE_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.JOB_TEMPLATE,
@@ -628,7 +640,7 @@ public class TestMetadataAuthzHelper {
         () ->
             Assertions.assertArrayEquals(
                 new NameIdentifier[] {identifiers[1]},
-                MetadataAuthzHelper.filterByExpression(
+                checker.filterByExpression(
                     "testMetalake",
                     "METALAKE::OWNER || ROLE::OWNER || ROLE::SELF",
                     Entity.EntityType.ROLE,
@@ -652,7 +664,7 @@ public class TestMetadataAuthzHelper {
         () -> {
           Assertions.assertSame(
               identifiers,
-              MetadataAuthzHelper.filterByExpression(
+              checker.filterByExpression(
                   "testMetalake", principalListExpression(type), type, identifiers));
           verify(authorizer, times(1)).isOwner(any(), eq("testMetalake"), any(), any());
           verify(authorizer, times(0)).hasDenyPolicy(any(), any(), anySet(), any());
@@ -797,7 +809,7 @@ public class TestMetadataAuthzHelper {
             NameIdentifierUtil.ofSchema("testMetalake", "testCatalog", "s2")
           };
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.FILTER_SCHEMA_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.SCHEMA,
@@ -829,7 +841,7 @@ public class TestMetadataAuthzHelper {
             NameIdentifierUtil.ofCatalog("testMetalake", "c2")
           };
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.LOAD_CATALOG_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.CATALOG,
@@ -875,7 +887,7 @@ public class TestMetadataAuthzHelper {
       String[] catalogNames = new String[] {"c1", "c2", "c3"};
 
       String[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.LOAD_CATALOG_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.CATALOG,
@@ -967,7 +979,7 @@ public class TestMetadataAuthzHelper {
             NameIdentifierUtil.ofTable("testMetalake", "testCatalog", "s2", "t2")
           };
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.TABLE,
@@ -996,7 +1008,7 @@ public class TestMetadataAuthzHelper {
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.TABLE,
@@ -1033,7 +1045,7 @@ public class TestMetadataAuthzHelper {
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.TABLE,
@@ -1061,7 +1073,7 @@ public class TestMetadataAuthzHelper {
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
       NameIdentifier[] filtered =
-          MetadataAuthzHelper.filterByExpression(
+          checker.filterByExpression(
               "testMetalake",
               AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
               Entity.EntityType.TABLE,
@@ -1171,7 +1183,7 @@ public class TestMetadataAuthzHelper {
         () -> {
           NameIdentifier[] tables = threeTables();
           NameIdentifier[] filtered =
-              MetadataAuthzHelper.filterByExpression(
+              checker.filterByExpression(
                   "testMetalake",
                   AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
                   Entity.EntityType.TABLE,
@@ -1186,17 +1198,76 @@ public class TestMetadataAuthzHelper {
   }
 
   private static NameIdentifier[] filterTableLike(NameIdentifier[] tables) {
-    return MetadataAuthzHelper.filterByExpression(
+    return checker.filterByExpression(
         "testMetalake",
         AuthorizationExpressionConstants.LIST_TABLE_LIKE_AUTHORIZATION_EXPRESSION,
         Entity.EntityType.TABLE,
         tables);
   }
 
+  @Test
+  public void testCheckerOverConfigWithoutAuthorizationPassesEverything() {
+    Config config = new Config(false) {};
+    @SuppressWarnings("unchecked")
+    Supplier<GravitinoAuthorizer> authorizer = mock(Supplier.class);
+    @SuppressWarnings("unchecked")
+    Supplier<EntityStore> entityStore = mock(Supplier.class);
+    @SuppressWarnings("unchecked")
+    Supplier<SchemaDispatcher> schemas = mock(Supplier.class);
+    MetadataAccessChecker disabled =
+        new MetadataAccessChecker(config, authorizer, entityStore, schemas);
+    NameIdentifier[] identifiers = {
+      NameIdentifierUtil.ofSchema("testMetalake", "testCatalog", "testSchema")
+    };
+
+    Assertions.assertSame(
+        identifiers,
+        disabled.filterByExpression(
+            "testMetalake", "CATALOG::USE_CATALOG", Entity.EntityType.SCHEMA, identifiers));
+    Assertions.assertTrue(
+        disabled.checkAccess(identifiers[0], Entity.EntityType.SCHEMA, "CATALOG::USE_CATALOG"));
+    verifyNoInteractions(authorizer, entityStore, schemas);
+  }
+
+  @Test
+  public void testCheckerOverConfigUsesTheSuppliedServices() throws Exception {
+    makeCompletableFutureUseCurrentThread();
+    Config config = new Config(false) {};
+    config.set(Configs.ENABLE_AUTHORIZATION, true);
+    config.set(Configs.CACHE_ENABLED, true);
+    EntityStore entityStore = mock(EntityStore.class);
+    SchemaDispatcher schemas = mock(SchemaDispatcher.class);
+    MetadataAccessChecker enabled =
+        new MetadataAccessChecker(
+            config, MockGravitinoAuthorizer::new, () -> entityStore, () -> schemas);
+    NameIdentifier[] identifiers = {
+      NameIdentifierUtil.ofSchema("testMetalake", "testCatalog", "testSchema"),
+      NameIdentifierUtil.ofSchema("testMetalake", "testCatalog", "testSchema2"),
+    };
+
+    try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class)) {
+      principalUtilsMocked
+          .when(PrincipalUtils::getCurrentPrincipal)
+          .thenReturn(new UserPrincipal("tester"));
+      principalUtilsMocked.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
+
+      NameIdentifier[] filtered =
+          enabled.filterByExpression(
+              "testMetalake",
+              "CATALOG::USE_CATALOG && SCHEMA::USE_SCHEMA",
+              Entity.EntityType.SCHEMA,
+              identifiers);
+
+      Assertions.assertEquals(1, filtered.length);
+      Assertions.assertEquals("testMetalake.testCatalog.testSchema", filtered[0].toString());
+      verify(entityStore).batchGet(anyList(), eq(Entity.EntityType.SCHEMA), any());
+    }
+  }
+
   private static void makeCompletableFutureUseCurrentThread() {
     try {
       Executor currentThread = Runnable::run;
-      Class<MetadataAuthzHelper> jcasbinAuthorizerClass = MetadataAuthzHelper.class;
+      Class<MetadataAccessChecker> jcasbinAuthorizerClass = MetadataAccessChecker.class;
       Field field = jcasbinAuthorizerClass.getDeclaredField("executor");
       field.setAccessible(true);
       field.set(null, currentThread);

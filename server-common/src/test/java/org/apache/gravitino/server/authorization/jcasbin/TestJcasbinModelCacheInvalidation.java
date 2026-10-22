@@ -21,14 +21,18 @@ package org.apache.gravitino.server.authorization.jcasbin;
 import static org.mockito.Answers.CALLS_REAL_METHODS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Optional;
 import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
@@ -43,7 +47,7 @@ import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.hook.ModelHookDispatcher;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
-import org.apache.gravitino.server.authorization.MetadataIdConverter;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.storage.relational.EntityChangeLogNameIdentifierCodec;
 import org.apache.gravitino.storage.relational.po.auth.OwnerInfo;
 import org.apache.gravitino.storage.relational.po.cache.EntityChangeRecord;
@@ -82,24 +86,22 @@ public class TestJcasbinModelCacheInvalidation {
             new CaffeineGravitinoCache<>(60_000L, 100L);
         MockedStatic<GravitinoEnv> environment = mockStatic(GravitinoEnv.class);
         MockedStatic<CapabilityHelpers> capabilities =
-            mockStatic(CapabilityHelpers.class, CALLS_REAL_METHODS);
-        MockedStatic<MetadataIdConverter> converter =
-            mockStatic(MetadataIdConverter.class, CALLS_REAL_METHODS)) {
+            mockStatic(CapabilityHelpers.class, CALLS_REAL_METHODS)) {
       environment.when(GravitinoEnv::getInstance).thenReturn(env);
       capabilities
           .when(() -> CapabilityHelpers.getCapability(any(), eq(catalogManager)))
           .thenReturn(Capability.DEFAULT);
-      converter
-          .when(() -> MetadataIdConverter.getIdForNormalizedObject(MODEL, METALAKE))
-          .thenReturn(Optional.of(10L), Optional.of(30L));
-      // With real methods enabled, the stubbing call above is recorded as an invocation.
-      converter.clearInvocations();
+      MetadataIdResolver resolver =
+          spy(new MetadataIdResolver(() -> catalogManager, () -> mock(EntityStore.class)));
+      doReturn(Optional.of(10L), Optional.of(30L))
+          .when(resolver)
+          .getIdForNormalizedObject(MODEL, METALAKE);
       // Use the real JCasbin hook and shared caches without starting its background poller.
       JcasbinAuthorizer authorizer = mock(JcasbinAuthorizer.class, CALLS_REAL_METHODS);
       FieldUtils.writeField(authorizer, "metadataIdCache", metadataIdCache, true);
       when(env.gravitinoAuthorizer()).thenReturn(authorizer);
       JcasbinAuthorizationLookups lookups =
-          new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+          new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, resolver);
       Assertions.assertEquals(
           Optional.of(10L),
           lookups.resolveMetadataId(MODEL, METALAKE, new AuthorizationRequestContext()));
@@ -124,8 +126,7 @@ public class TestJcasbinModelCacheInvalidation {
       Assertions.assertEquals(
           Optional.of(30L),
           lookups.resolveMetadataId(MODEL, METALAKE, new AuthorizationRequestContext()));
-      converter.verify(
-          () -> MetadataIdConverter.getIdForNormalizedObject(MODEL, METALAKE), times(2));
+      verify(resolver, times(2)).getIdForNormalizedObject(MODEL, METALAKE);
     }
   }
 
