@@ -201,7 +201,8 @@ retire it). **Enforced** means `ciVerifyShards` fails `lint` if it regresses.
 - `contrib-catalog-test` and `frontend-integration-test` are called workflows too, gated on the
   unit test stages. Contrib runs one job per changed module, from one paths filter per module.
 - `web-ui-tests` is gone: its checks are `lint (web)`, and its tests, now for both UIs, are
-  `test (web)` in the small stage. `chart-test` stays separate (it needs a kind cluster).
+  `test (web)` in the small stage. `chart-test` (lint, unit tests and kind installs) is a called
+  workflow too, on pull requests only.
 - `coverage` waits for every unit test stage and merges their reports, as today.
 
 ### Lint stage
@@ -214,7 +215,7 @@ and all of them run in parallel before `build`.
 | `lint (jvm)`       | `./gradlew ciLint`                                     | Inside `build (17)`      | P1    |
 | `lint (python)`    | `blackCheck`, `pylint` and the mcp-server format check | Inside the IT jobs       | P1    |
 | `lint (web)`       | `lintCheck` and `prettierCheck` for both web UIs       | Inside the web workflows | P1    |
-| `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                  | `chart-test.yaml`        | P2    |
+| `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                  | `chart-test.yaml`        | P4    |
 | `lint (workflows)` | `actionlint`, with shellcheck of `run:` at warning     | Not run                  | P1    |
 | `lint (docs)`      | `rumdl check design-docs/ci`                           | Not run                  | P1    |
 | `lint (shell)`     | `shellcheck --severity=error` on tracked `*.sh` files  | Not run                  | P1    |
@@ -335,8 +336,8 @@ module (`gravitinoTests { itShard = ... }`) instead of one list.
 | ---- | --------------------------------------------------------------------- | --------- |
 | P1   | `presubmit.yml`, `ci-stages.gradle.kts`, IT fold, no inline shell     | Revert PR |
 | P2   | Other lint jobs, P2 gaps (Q3)                                         | Revert PR |
-| P3   | Run-scoped build cache, `setup-gradle`; ASF Develocity onboarding     | Revert PR |
-| P4   | Contrib, frontend and web UI join presubmit (done here); chart-test   | Revert PR |
+| P3   | Run-scoped build cache, `setup-gradle` (done here); Develocity later  | Revert PR |
+| P4   | Contrib, frontend, web UI and chart-test join presubmit (done here)   | Revert PR |
 
 **After test organization** ([#14093][i14093]), the jobs stay and only their commands change:
 
