@@ -19,8 +19,9 @@
 
 # Dependency-injection ratchet
 
-Gravitino is moving from the `GravitinoEnv` service locator to dependency injection with Dagger.
-`di_ratchet.py` counts the code patterns that this migration removes. `baseline.json` stores the
+Gravitino moved from the `GravitinoEnv` service locator to dependency injection with Dagger, and
+`GravitinoEnv` is gone. `di_ratchet.py` counts the code patterns that the migration still has to
+remove. `baseline.json` stores the
 counts as limits, and `./gradlew check` fails when a count goes above its limit. Counts can go
 down, but not up.
 
@@ -62,25 +63,17 @@ production and test code separately.
 
 Hard metrics fail `check` when they rise:
 
-- `gravitino_env_get_instance`: calls to `\w*GravitinoEnv.getInstance(`. This includes subclass
-  locators such as `DatastratoGravitinoEnv.getInstance()`.
-- `tree_lock_legacy_overloads`: `TreeLockUtils.doWithTreeLock` calls with 3 arguments and
-  `doWithRootTreeLock` calls with 2. These overloads look up the lock manager through
-  `GravitinoEnv`. Nested calls, lambdas and array initializers do not change the argument count.
 - `singleton_get_instance`: declarations of `public static <Type> getInstance(`.
-- `mock_static_gravitino_env`: calls to `mockStatic(\w*GravitinoEnv.class`.
-- `field_utils_gravitino_env`: `FieldUtils` read and write calls, including the `Declared`
-  variants, whose first argument is `\w*GravitinoEnv.getInstance()`.
-- `legacy_env_access`: `@LegacyEnvAccess` annotations.
-- `gravitino_env.instance_fields`: non-static fields declared directly in `GravitinoEnv`.
+
+The metrics of `GravitinoEnv` itself (its `getInstance()` calls, `mockStatic` and `FieldUtils` on
+it, `@LegacyEnvAccess` and the `TreeLockUtils` overloads that read it) reached 0 and were removed
+with the class: code that uses it no longer compiles.
 
 Report-only metrics print a warning when they rise. `check --strict-informational` turns the
 warnings into failures.
 
 - `field_utils_read_write`: all `FieldUtils.readField` and `FieldUtils.writeField` calls.
 - `meta_service_get_instance`: calls to `\w*MetaService.getInstance(`.
-- `gravitino_env.lines` and `gravitino_env.new_calls`: the size of `GravitinoEnv.java` and the
-  number of `new` expressions in it.
 
 The tool matches text. It does not parse Java or resolve types, so it misses static imports,
 unqualified calls, helper methods that wrap a lookup, and generic type arguments that contain
@@ -148,7 +141,7 @@ Without `--overlay`, the base limits apply to every file.
 
 ## Migration pattern (strangler fig)
 
-`GravitinoEnv` stays in place as a facade while each area moves to Dagger:
+`GravitinoEnv` stayed in place as a facade while each area moved to Dagger:
 
 1. Build the area in a Dagger module of the single `GravitinoComponent`.
 2. Make the matching `GravitinoEnv` getter a one-line delegate to the component.
@@ -157,7 +150,8 @@ Without `--overlay`, the base limits apply to every file.
 4. Run `update` and commit the lower limits. When the package has no matches left, add it to
    `migrated_packages`.
 
-When every getter delegates and every hard metric is 0, the getters and the facade are removed.
-Section 6 of the [design doc][design] lists the PRs and the exit criteria.
+When every getter delegated and every `GravitinoEnv` metric was 0, the facade was removed. The
+same steps apply to the remaining `getInstance()` singletons. Section 6 of the [design doc][design]
+lists the PRs and the exit criteria.
 
 [design]: ../../design-docs/architecture/dependency-injection/dagger/README.md

@@ -37,7 +37,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = Path("dev/di/baseline.json")
-ENV_FILE = "core/src/main/java/org/apache/gravitino/GravitinoEnv.java"
 SKIPPED_DIRS = {".git", ".gradle", ".idea", ".venv", "build", "node_modules", "out", "target"}
 KINDS = ("production", "test")
 
@@ -49,65 +48,19 @@ NON_CODE = re.compile(
 TEST_PATH = re.compile(r"(?:^|/)src/(?:test|integrationTest|testFixtures)/")
 PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.MULTILINE)
 
-ENV_LOCATOR = re.compile(r"\b\w*GravitinoEnv\s*\.\s*getInstance\s*\(")
-ENV_LOCATOR_CALL = re.compile(r"\s*\w*GravitinoEnv\s*\.\s*getInstance\s*\(\s*\)\s*")
-TREE_LOCK = re.compile(r"\bTreeLockUtils\s*\.\s*(doWithTreeLock|doWithRootTreeLock)\s*\(")
-LEGACY_TREE_LOCK_ARITY = {"doWithTreeLock": 3, "doWithRootTreeLock": 2}
 SINGLETON = re.compile(
     r"\b((?:(?:public|static|final|synchronized)\s+)+)"  # modifiers
     r"(?:<[^;{}()]*?>\s*)?"  # method type parameters
     r"[\w$.]+(?:\s*<[^;{}()]*?>)?(?:\s*\[\s*\])*"  # return type
     r"\s+getInstance\s*\("
 )
-MOCK_STATIC_ENV = re.compile(r"\bmockStatic\s*\(\s*\w*GravitinoEnv\s*\.\s*class\b")
-FIELD_UTILS_ANY = re.compile(r"\bFieldUtils\s*\.\s*(?:read|write)\w*Field\s*\(")
 FIELD_UTILS_READ_WRITE = re.compile(r"\bFieldUtils\s*\.\s*(?:readField|writeField)\s*\(")
-LEGACY_ENV_ACCESS = re.compile(r"@\s*(?:\w+\s*\.\s*)*LegacyEnvAccess\b")
 META_SERVICE_LOCATOR = re.compile(r"\b\w*MetaService\s*\.\s*getInstance\s*\(")
-NEW_CALL = re.compile(r"\bnew\s+[\w$.]+\s*(?:<[^;{}()]*>)?\s*\(")
 
 
 def strip_code(source):
     """Blank out comments and literals, keeping line breaks so positions stay comparable."""
     return NON_CODE.sub(lambda match: re.sub(r"[^\n]", " ", match.group()), source)
-
-
-def call_arguments(code, open_paren):
-    """Split the call starting at code[open_paren] into top-level arguments.
-
-    Returns None when the brackets do not balance. Generic type arguments are not tracked, so
-    `new HashMap<A, B>()` inside a call reads as two arguments.
-    """
-    closers = {"(": ")", "[": "]", "{": "}"}
-    expected = []
-    arguments = []
-    start = open_paren + 1
-    for index in range(open_paren, len(code)):
-        char = code[index]
-        if char in closers:
-            expected.append(closers[char])
-        elif char in ")]}":
-            if not expected or expected.pop() != char:
-                return None
-            if not expected:
-                last = code[start:index]
-                if arguments or last.strip():
-                    arguments.append(last)
-                return arguments
-        elif char == "," and len(expected) == 1:
-            arguments.append(code[start:index])
-            start = index + 1
-    return None
-
-
-def count_legacy_tree_locks(code):
-    """Count TreeLockUtils calls that use the overloads which look up the lock manager."""
-    count = 0
-    for match in TREE_LOCK.finditer(code):
-        arguments = call_arguments(code, match.end() - 1)
-        if arguments is not None and len(arguments) == LEGACY_TREE_LOCK_ARITY[match.group(1)]:
-            count += 1
-    return count
 
 
 def count_singletons(code):
@@ -119,71 +72,20 @@ def count_singletons(code):
     )
 
 
-def count_field_utils_on_env(code):
-    """Count FieldUtils read/write calls whose first argument is `*GravitinoEnv.getInstance()`."""
-    count = 0
-    for match in FIELD_UTILS_ANY.finditer(code):
-        arguments = call_arguments(code, match.end() - 1)
-        if arguments and ENV_LOCATOR_CALL.fullmatch(arguments[0]):
-            count += 1
-    return count
-
-
-def count_instance_fields(code):
-    """Count non-static fields declared directly in the GravitinoEnv class body."""
-    match = re.search(r"\bclass\s+GravitinoEnv\b[^{]*\{", code)
-    if not match:
-        return 0
-    depth = 1
-    statement = []
-    count = 0
-    for char in code[match.end() :]:
-        if char == "{":
-            depth += 1
-            statement = []  # a method, initializer or nested type: its header is not a field
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                break
-        elif depth == 1:
-            if char == ";":
-                text = "".join(statement)
-                declaration = text.split("=", 1)[0]
-                if text.strip() and not re.search(r"\bstatic\b", text) and "(" not in declaration:
-                    count += 1
-                statement = []
-            else:
-                statement.append(char)
-    return count
-
-
 def pattern_counter(pattern):
     return lambda code: len(pattern.findall(code))
 
 
 # name -> (hard, counter). Hard metrics fail `check` when they rise; the others only warn.
 FILE_METRICS = {
-    "gravitino_env_get_instance": (True, pattern_counter(ENV_LOCATOR)),
-    "tree_lock_legacy_overloads": (True, count_legacy_tree_locks),
     "singleton_get_instance": (True, count_singletons),
-    "mock_static_gravitino_env": (True, pattern_counter(MOCK_STATIC_ENV)),
-    "field_utils_gravitino_env": (True, count_field_utils_on_env),
-    "legacy_env_access": (True, pattern_counter(LEGACY_ENV_ACCESS)),
     "field_utils_read_write": (False, pattern_counter(FIELD_UTILS_READ_WRITE)),
     "meta_service_get_instance": (False, pattern_counter(META_SERVICE_LOCATOR)),
-}
-# Metrics of GravitinoEnv.java itself, counted in the scope that owns that file.
-ENV_METRICS = {
-    "gravitino_env.instance_fields": True,
-    "gravitino_env.lines": False,
-    "gravitino_env.new_calls": False,
 }
 
 
 def is_hard(key):
     """Return whether a flat metric key such as `x.production.files` is a hard limit."""
-    if key in ENV_METRICS:
-        return ENV_METRICS[key]
     return FILE_METRICS[key.split(".")[0]][0]
 
 
@@ -220,10 +122,6 @@ class Scope:
                 found[name] = count
                 self.counts[f"{name}.{kind}.occurrences"] += count
                 self.counts[f"{name}.{kind}.files"] += 1
-        if path == ENV_FILE:
-            self.counts["gravitino_env.instance_fields"] = count_instance_fields(code)
-            self.counts["gravitino_env.lines"] = len(source.splitlines())
-            self.counts["gravitino_env.new_calls"] = len(NEW_CALL.findall(code))
 
         package = PACKAGE.search(code)
         legacy = {name: count for name, count in found.items() if FILE_METRICS[name][0]}
@@ -240,7 +138,7 @@ class Scope:
 
 
 def empty_counts():
-    counts = {key: 0 for key in ENV_METRICS}
+    counts = {}
     for name in FILE_METRICS:
         for kind in KINDS:
             counts[f"{name}.{kind}.occurrences"] = 0
@@ -296,9 +194,6 @@ def format_counts(counts):
         ]
         label = name if hard else f"{name} (report)"
         lines.append(f"{label:<34}{cells[0]:>16}{cells[1]:>16}")
-    for key, hard in ENV_METRICS.items():
-        label = key if hard else f"{key} (report)"
-        lines.append(f"{label:<34}{counts[key]:>16}")
     lines.append("(occurrences in files)")
     return "\n".join(lines)
 
