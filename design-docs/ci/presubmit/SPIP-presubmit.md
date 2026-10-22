@@ -19,15 +19,15 @@
 
 # SPIP: A Staged Presubmit for Apache Gravitino
 
-| Field      | Value                                                   |
-| ---------- | ------------------------------------------------------- |
-| Status     | Draft                                                   |
-| Author     | Nevin Zheng                                             |
-| Reviewers  | TBD                                                     |
-| Created    | 2026-10-22                                              |
-| Updated    | 2026-10-22                                              |
-| Related    | Test organization ([#14092][i14092], [#14093][i14093])  |
-| Decide by  | `<date, two weeks after posting>`                       |
+| Field     | Value                                                  |
+| --------- | ------------------------------------------------------ |
+| Status    | Draft                                                  |
+| Author    | Nevin Zheng                                            |
+| Reviewers | TBD                                                    |
+| Created   | 2026-10-22                                             |
+| Updated   | 2026-10-22                                             |
+| Related   | Test organization ([#14092][i14092], [#14093][i14093]) |
+| Decide by | `<date, two weeks after posting>`                      |
 
 [i14092]: https://github.com/apache/gravitino/issues/14092
 [i14093]: https://github.com/apache/gravitino/pull/14093
@@ -39,7 +39,8 @@
 **One presubmit workflow that runs the cheapest checks first and the most expensive last, with each
 stage gated on the one before and fanned out in parallel inside.**
 
-1. **Lint:** formatting and license headers.
+1. **Lint:** static checks that compile nothing, one parallel job per toolchain (JVM, Python, web,
+   Helm, workflows, docs).
 2. **Build:** compile everything and publish locally, no tests.
 3. **Small tests:** unit tests that need no container.
 4. **Medium tests:** unit tests that need one container, and the core database lanes.
@@ -54,7 +55,7 @@ can mean a lint error, a unit test or a slow container, because they share one G
 
 ```mermaid
 flowchart LR
-  lint[Lint] --> build[Build]
+  lint[Lint jobs] --> build[Build]
   build --> small[Small tests]
   small --> medium[Medium tests]
   small --> core[Core DB lanes]
@@ -69,15 +70,15 @@ Each box is a stage; each stage is one or more parallel jobs. A red stage stops 
 **Gradle owns what runs; GitHub Actions owns when, where and how wide.** A contributor can run any
 presubmit job locally by typing the same `./gradlew <task>` the job runs.
 
-| Concern                                      | Owner   | How                                     |
-| -------------------------------------------- | ------- | --------------------------------------- |
-| What a stage or shard is                     | Gradle  | One task per stage or shard             |
-| The shard list for a matrix                  | Gradle  | `ciShards` writes JSON to the job       |
-| Order between stages                         | Actions | `needs:`                                |
-| Fan-out within a stage                       | Actions | `strategy.matrix` from `fromJSON`       |
-| Which areas changed                          | Actions | `dorny/paths-filter`, as today          |
-| Reports, coverage files                      | Actions | `upload-artifact` / `download-artifact` |
-| Shell scripts                                | Nobody  | A Gradle task or an action instead      |
+| Concern                     | Owner   | How                                     |
+| --------------------------- | ------- | --------------------------------------- |
+| What a stage or shard is    | Gradle  | One task per stage or shard             |
+| The shard list for a matrix | Gradle  | `ciShards` writes JSON to the job       |
+| Order between stages        | Actions | `needs:`                                |
+| Fan-out within a stage      | Actions | `strategy.matrix` from `fromJSON`       |
+| Which areas changed         | Actions | `dorny/paths-filter`, as today          |
+| Reports, coverage files     | Actions | `upload-artifact` / `download-artifact` |
+| Shell scripts               | Nobody  | A Gradle task or an action instead      |
 
 ---
 
@@ -95,14 +96,14 @@ presubmit job locally by typing the same `./gradlew <task>` the job runs.
 
 ## Q3. Today and limits
 
-| What                    | Today                                                                   |
-| ----------------------- | ----------------------------------------------------------------------- |
-| PR workflows            | 16, all triggered by `pull_request`, none gated on another              |
-| Lint                    | Inside `build (17)`, in the same Gradle call as the tests               |
-| Unit tests              | `build -PskipITs -PskipDockerTests=false` plus `-x` exclusions          |
-| Docker-tagged unit tests| Same call; 9 modules, about 64% of the job's test time                  |
-| Integration tests       | 10 wrapper workflows, each a `paths-filter` plus a reusable workflow    |
-| Arguments               | Built in bash (`gradle_args` arrays, `printf`, loops)                   |
+| What                     | Today                                                                |
+| ------------------------ | -------------------------------------------------------------------- |
+| PR workflows             | 16, all triggered by `pull_request`, none gated on another           |
+| Lint                     | Inside `build (17)`, in the same Gradle call as the tests            |
+| Unit tests               | `build -PskipITs -PskipDockerTests=false` plus `-x` exclusions       |
+| Docker-tagged unit tests | Same call; 9 modules, about 64% of the job's test time               |
+| Integration tests        | 10 wrapper workflows, each a `paths-filter` plus a reusable workflow |
+| Arguments                | Built in bash (`gradle_args` arrays, `printf`, loops)                |
 
 **Limit:** Gradle has no task that means "small tests" or "this shard", so a stage cannot be one
 task name without some Gradle glue. The interim glue is one file, replaced by test organization.
@@ -115,14 +116,14 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 
 `build.yml` becomes `presubmit.yml`:
 
-| Stage | Job | Command |
-| ----- | ------------------------ | ----------------------------------------------------------- |
-| 0 | `lint` | `./gradlew spotlessCheck rat` |
-| 1 | `compile` | `./gradlew publishToMavenLocal -x test`, `build -x test` |
-| 2 | `test` | `./gradlew ciSmallTest -PskipITs -PskipDockerTests=false` |
-| 3 | `medium-test (<shard>)` | `./gradlew ciMediumTest<Shard> -PskipITs -PskipDockerTests=false` |
-| 3 | `core-test (<lane>)` | `./gradlew :core:core<Lane>Test`, as today |
-| 4 | `<area>-it` | The area's existing `*-action.yml`, unchanged |
+| Stage | Job                     | Command                                                           |
+| ----- | ----------------------- | ----------------------------------------------------------------- |
+| 0     | `lint`                  | `./gradlew ciLint`                                                |
+| 1     | `build`                 | `./gradlew publishToMavenLocal -x test`, `build -x test`          |
+| 2     | `test`                  | `./gradlew ciSmallTest -PskipITs -PskipDockerTests=false`         |
+| 3     | `medium-test (<shard>)` | `./gradlew ciMediumTest<Shard> -PskipITs -PskipDockerTests=false` |
+| 3     | `core-test (<lane>)`    | `./gradlew :core:core<Lane>Test`, as today                        |
+| 4     | `<area>-it`             | The area's existing `*-action.yml`, unchanged                     |
 
 - The ten wrapper workflows (access control, backend, Flink, Iceberg REST + Trino, idp-basic,
   maintenance, MCP, Python, Spark, Trino) are folded into presubmit. Their path filters move into
@@ -130,6 +131,24 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 - `contrib-catalog-test`, `frontend-integration-test` and `web-ui-tests` run their own steps rather
   than a reusable workflow, so they stay separate until they are split the same way.
 - `coverage` waits for every unit test stage and merges their reports, as today.
+
+### Lint stage
+
+Lint is a stage, not one check. Each linter needs a different toolchain, so each is its own job,
+and all of them run in parallel before `build`.
+
+| Job                | Command                                                      | Today                    | Joins |
+| ------------------ | ------------------------------------------------------------ | ------------------------ | ----- |
+| `lint (jvm)`       | `./gradlew ciLint`                                           | Inside `build (17)`      | P1    |
+| `lint (python)`    | `./gradlew :clients:client-python:pylint :mcp-server:pylint` | Inside `build`           | P2    |
+| `lint (web)`       | `./gradlew :web:web:lint :web-v2:web:lint`                   | Inside the web workflows | P2    |
+| `lint (helm)`      | `ct lint` with `dev/ci/lintconf.yaml`                        | `chart-test.yaml`        | P2    |
+| `lint (workflows)` | `actionlint`                                                 | Not run                  | P2    |
+| `lint (docs)`      | `rumdl check design-docs`                                    | Not run                  | P2    |
+
+`ciLint` is Spotless, RAT license headers, checkstyle (when a module applies it) and
+`ciVerifyShards` (below). `conflict-marker-check.yml` and `asf-allowlist-check.yml` stay separate:
+they guard the repository, not a build, and are already cheap.
 
 ### Gradle
 
@@ -140,13 +159,33 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 - `ciMediumTest<Shard>`: the `test` task of the modules with Docker-tagged unit tests, in three
   shards (`hive`, `jdbc`, `others`).
 - `ciShards`: writes the shard list as JSON to `$GITHUB_OUTPUT`; the matrix reads it.
+- `ciVerifyShards`: part of `ciLint`; fails when a shard list drifts from the code (below).
+
+### Catch-all shards
+
+**A catch-all is needed, so that nothing is ever dropped, but it must not accumulate.** `others`
+(medium tests today, `backendITOthers` after test organization) holds what no named shard owns.
+Left alone, every new module lands there and it becomes the slowest job. Three rules stop that:
+
+1. **Declared, never inferred.** Every module that needs a container is listed in a shard, `others`
+   included. An unlisted one still runs in the small stage with Docker on, so it is never lost,
+   but `ciVerifyShards` fails `lint` and names it.
+2. **A baseline for `others`.** `others` may shrink freely. Growing it past its baseline fails
+   `ciVerifyShards`, so a PR that adds to it raises the baseline in the same diff, where a
+   reviewer sees it.
+3. **Split by size, not by name.** When a named group in `others` is large enough to be its own
+   job (for example three modules sharing one container), it moves to a new shard. That is one
+   entry in the shard list; the matrix picks it up from `ciShards`.
+
+After test organization the same three rules apply to `backendITOthers`, with the shard declared in
+each module (`gravitinoTests { itShard = ... }`) instead of one list.
 
 ### Guarantees
 
 1. **No test lost.** Small, medium and skipped together are exactly today's set: a dry run lists
    the same 102 `test` tasks.
 2. **Misplaced, never dropped.** A module with Docker-tagged tests missing from the medium list
-   still runs in `ciSmallTest` with Docker on.
+   still runs in `ciSmallTest` with Docker on, and `lint` fails until it is listed.
 3. **Same command locally.** Every job is one `./gradlew` line.
 4. **No shell to choose what runs.** Task names and workflow expressions only.
 
@@ -154,24 +193,25 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 
 ## Q5. Who cares
 
-| Persona          | Difference                                                        |
-| ---------------- | ----------------------------------------------------------------- |
-| Contributor      | A lint error fails in minutes and stops the run                   |
-| Reviewer         | A red check names the stage that failed                           |
-| CI maintainers   | One workflow, task names in the matrix, no `gradle_args` bash     |
-| ASF runner pool  | A broken PR uses one lint job instead of 16 workflows             |
+| Persona         | Difference                                                    |
+| --------------- | ------------------------------------------------------------- |
+| Contributor     | A lint error fails in minutes and stops the run               |
+| Reviewer        | A red check names the stage that failed                       |
+| CI maintainers  | One workflow, task names in the matrix, no `gradle_args` bash |
+| ASF runner pool | A broken PR uses one lint job instead of 16 workflows         |
 
 ---
 
 ## Q6. Risks
 
-| Risk                                   | Impact                     | Mitigation                          |
-| -------------------------------------- | -------------------------- | ----------------------------------- |
-| Stages add wall time to green PRs      | Slower merge for green PRs | Lint and compile are short (1)      |
-| Each job recompiles                    | More runner minutes        | Remote build cache (Q7)             |
-| A Docker module is not listed          | Runs in the small stage    | Guarantee 2; list is 9 entries      |
-| Fewer workflows in the Checks list     | Unfamiliar check names     | Job names match the old areas       |
-| Pending changes to `build.yml`         | Rebase onto `presubmit.yml`| One-time move of the change         |
+| Risk                               | Impact                      | Mitigation                    |
+| ---------------------------------- | --------------------------- | ----------------------------- |
+| Stages add wall time to green PRs  | Slower merge for green PRs  | Lint and build are short (1)  |
+| Each job recompiles                | More runner minutes         | Remote build cache (Q7)       |
+| A Docker module is not listed      | Runs in the small stage     | `ciVerifyShards` fails `lint` |
+| `others` keeps growing             | One slow job                | Baseline in `ciVerifyShards`  |
+| Fewer workflows in the Checks list | Unfamiliar check names      | Job names match the old areas |
+| Pending changes to `build.yml`     | Rebase onto `presubmit.yml` | One-time move of the change   |
 
 1. To be measured on the first CI runs and filled in here.
 
@@ -179,19 +219,19 @@ task name without some Gradle glue. The interim glue is one file, replaced by te
 
 ## Q7. Timeline
 
-| Step | Change                                                                 | Revert      |
-| ---- | ---------------------------------------------------------------------- | ----------- |
-| P1   | `presubmit.yml` with the five stages, `ci-stages.gradle.kts`, IT fold  | Revert PR   |
-| P2   | Remaining shell: `libssl` step, toolchain `awk`, coverage loop         | Revert PR   |
-| P3   | `gradle/actions/setup-gradle` for caching; ASF Develocity onboarding   | Revert PR   |
-| P4   | Contrib catalog, frontend and web UI workflows join presubmit          | Revert PR   |
+| Step | Change                                                                | Revert    |
+| ---- | --------------------------------------------------------------------- | --------- |
+| P1   | `presubmit.yml` with the five stages, `ci-stages.gradle.kts`, IT fold | Revert PR |
+| P2   | Other lint jobs; remaining shell: `libssl`, toolchain `awk`, coverage | Revert PR |
+| P3   | `gradle/actions/setup-gradle` for caching; ASF Develocity onboarding  | Revert PR |
+| P4   | Contrib catalog, frontend and web UI workflows join presubmit         | Revert PR |
 
 **After test organization** ([#14093][i14093]), the jobs stay and only their commands change:
 
 | Job           | Interim command       | After test organization                                  |
 | ------------- | --------------------- | -------------------------------------------------------- |
-| `lint`        | `spotlessCheck rat`   | `spotlessCheck rat` (no compile)                         |
-| `compile`     | `build -x test`       | `build` (`check` runs no tests)                          |
+| `lint`        | `ciLint`              | `spotlessCheck rat` plus the shard check (no compile)    |
+| `build`       | `build -x test`       | `build` (`check` runs no tests)                          |
 | `test`        | `ciSmallTest`         | `test`                                                   |
 | `medium-test` | `ciMediumTest<Shard>` | `containerOnlyIT`, one job                               |
 | `core-test`   | `core<Lane>Test`      | Unchanged                                                |
@@ -209,6 +249,8 @@ tests become tagged integration tests that run once, in one job.
 
 - A PR with a Spotless violation fails `lint` and starts no other test job.
 - A PR that changes only `docs/` text starts no Gradle job.
+- A new module with Docker-tagged tests and no shard fails `lint`, naming the module.
+- A PR that adds a module to `others` without raising its baseline fails `lint`.
 - Every job's command runs unchanged on a laptop.
 - `grep -c 'gradle_args' .github/workflows/presubmit.yml` prints `0`.
 - The executed test classes per job, summed, match the old `build (17)` and wrapper workflows.
