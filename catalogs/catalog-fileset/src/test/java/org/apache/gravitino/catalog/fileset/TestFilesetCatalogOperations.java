@@ -93,7 +93,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityFieldLimits;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -143,6 +142,7 @@ import org.apache.gravitino.secret.memory.InMemorySecretsProvider;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.RelationalEntityStore;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.helper.CatalogIds;
 import org.apache.gravitino.storage.relational.helper.SchemaIds;
 import org.apache.gravitino.storage.relational.service.CatalogMetaService;
@@ -421,7 +421,8 @@ public class TestFilesetCatalogOperations {
         .when(SchemaMetaService::getInstance)
         .thenReturn(spySchemaMetaService);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    // The meta services route their reads by the cache flag the store was seeded with.
+    RelationalStoreSeeds.seed(config, null, null);
 
     Config secretConfig = new Config(false) {};
     Properties secretProps = new Properties();
@@ -437,6 +438,7 @@ public class TestFilesetCatalogOperations {
 
   @AfterAll
   public static void tearDown() throws IOException {
+    RelationalStoreSeeds.reset();
     store.close();
     if (secretManager != null) {
       secretManager.close();
