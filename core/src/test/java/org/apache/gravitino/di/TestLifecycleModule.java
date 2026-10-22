@@ -188,7 +188,7 @@ public class TestLifecycleModule {
 
     LifecycleModule.lifecycle(built, ImmutableSet::of).close();
 
-    // GravitinoEnv.shutdown() has always logged this failure and carried on.
+    // The server has always logged this failure and carried on.
     verifyStopOrder();
   }
 
@@ -338,7 +338,7 @@ public class TestLifecycleModule {
     verify(second, never()).start();
   }
 
-  /** The order GravitinoEnv.shutdown() has always used. */
+  /** The stop order the server has always used. */
   private void verifyStopOrder() throws Exception {
     InOrder stop =
         inOrder(

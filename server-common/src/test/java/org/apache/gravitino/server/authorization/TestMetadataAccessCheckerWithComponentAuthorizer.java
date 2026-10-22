@@ -30,13 +30,14 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.catalog.SchemaDispatcher;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.junit.jupiter.api.Test;
 
@@ -50,14 +51,13 @@ public class TestMetadataAccessCheckerWithComponentAuthorizer {
 
   @Test
   public void testCheckerUsesTheAuthorizerTheComponentBuilds() {
-    GravitinoEnv env = new GravitinoEnv() {};
     Config config = new Config(false) {};
     config.set(Configs.ENABLE_AUTHORIZATION, true);
     config.set(Configs.CACHE_ENABLED, false);
     config.set(Configs.AUTHORIZATION_IMPL, DenyingAuthorizer.class.getName());
+    GravitinoComponent component = DaggerGravitinoComponent.factory().create(config);
     try {
-      env.initializeBaseComponents(config);
-      GravitinoComponent component = env.component();
+      GravitinoProfiles.base(component);
       MetadataAccessChecker checker =
           new MetadataAccessChecker(
               config,
@@ -71,25 +71,21 @@ public class TestMetadataAccessCheckerWithComponentAuthorizer {
 
       assertDenied(checker, schemas);
       assertInstanceOf(DenyingAuthorizer.class, component.gravitinoAuthorizer());
-
-      // An authorizer installed in the environment does not change what the component hands out.
-      env.setGravitinoAuthorizer(new PassThroughAuthorizer());
-      assertDenied(checker, schemas);
     } finally {
-      env.shutdown();
+      closeLifecycle(component);
     }
   }
 
   @Test
   public void testCheckerAllowsEverythingWhenAuthorizationIsDisabled() {
-    GravitinoEnv env = new GravitinoEnv() {};
     Config config = new Config(false) {};
+    GravitinoComponent component = DaggerGravitinoComponent.factory().create(config);
     try {
-      env.initializeBaseComponents(config);
+      GravitinoProfiles.base(component);
       MetadataAccessChecker checker =
           new MetadataAccessChecker(
               config,
-              env.component().authorizationServices()::gravitinoAuthorizer,
+              component.authorizationServices()::gravitinoAuthorizer,
               () -> mock(EntityStore.class),
               () -> mock(SchemaDispatcher.class));
       NameIdentifier[] schemas = {NameIdentifierUtil.ofSchema("metalake", "catalog", "schema")};
@@ -99,7 +95,15 @@ public class TestMetadataAccessCheckerWithComponentAuthorizer {
           schemas,
           checker.filterByExpression("metalake", EXPRESSION, Entity.EntityType.SCHEMA, schemas));
     } finally {
-      env.shutdown();
+      closeLifecycle(component);
+    }
+  }
+
+  private static void closeLifecycle(GravitinoComponent component) {
+    try {
+      component.lifecycle().close();
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
     }
   }
 

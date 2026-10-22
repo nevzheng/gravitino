@@ -466,7 +466,7 @@ public class TestFilesetCatalogOperations {
       ops.initialize(Maps.newHashMap(), randomCatalogInfo(), FILESET_PROPERTIES_METADATA, context);
     }
 
-    // Initialize and close read the metrics system from the context, not from GravitinoEnv.
+    // Initialize and close read the metrics system from the context.
     Mockito.verify(context, Mockito.times(2)).metricsSystem();
     Mockito.verify(metricsSystem).unregister(Mockito.any());
   }

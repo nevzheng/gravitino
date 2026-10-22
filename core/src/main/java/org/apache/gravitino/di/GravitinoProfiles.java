@@ -33,8 +33,7 @@ import org.apache.gravitino.utils.HierarchicalSchemaUtil;
  * metalake manager, the fileset chain before the schema chain, every host service before the
  * auxiliary services. A profile requests them in that order. {@link #base} is what a standalone
  * REST server builds, {@link #metadata} what an embedded metadata client builds, and {@link #full}
- * what the Gravitino server builds. {@code GravitinoEnv} runs the same profiles and then takes the
- * objects from the component.
+ * what the Gravitino server builds.
  *
  * <p>Each profile first applies the {@link #seedStatics(Config) static settings} of the
  * configuration.

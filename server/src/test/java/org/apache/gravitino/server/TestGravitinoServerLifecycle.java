@@ -18,29 +18,37 @@
  */
 package org.apache.gravitino.server;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.di.DaggerGravitinoComponent;
+import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageService;
+import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.JettyServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 public class TestGravitinoServerLifecycle {
 
-  private GravitinoEnv env;
+  // The start and stop of the services the component's lifecycle runs.
+  private Lifecycle.Action componentStart;
+  private Lifecycle.Action componentStop;
   private JettyServer jetty;
   private LineageService lineage;
   private GravitinoAuthorizerProvider authorizer;
@@ -48,73 +56,97 @@ public class TestGravitinoServerLifecycle {
 
   @BeforeEach
   public void setUp() {
-    env = mock(GravitinoEnv.class);
+    componentStart = mock(Lifecycle.Action.class);
+    componentStop = mock(Lifecycle.Action.class);
     jetty = mock(JettyServer.class);
     lineage = mock(LineageService.class);
     authorizer = mock(GravitinoAuthorizerProvider.class);
-    server =
-        new GravitinoServer(
-            mock(ServerConfig.class),
-            env,
-            DaggerGravitinoComponent.factory(),
-            jetty,
-            lineage,
-            authorizer);
+
+    ServerConfig config = new ServerConfig();
+    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    when(component.config()).thenReturn(config);
+    when(component.metricsSystem()).thenReturn(mock(MetricsSystem.class));
+    when(component.eventBus()).thenReturn(mock(EventBus.class));
+    when(component.lifecycle())
+        .thenReturn(
+            Lifecycle.builder()
+                .alwaysStop()
+                .add("component services", componentStart, componentStop)
+                .build());
+    GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
+    when(factory.create(any())).thenReturn(component);
+
+    server = new GravitinoServer(config, factory, jetty, lineage, authorizer);
+    server.initialize();
+  }
+
+  @AfterEach
+  public void tearDown() throws IOException {
+    server.stop();
   }
 
   @Test
-  public void testJettyStopsBeforeAuthorizerAndEnvironment() throws Exception {
+  public void testJettyStopsBeforeAuthorizerAndComponent() throws Exception {
     server.start();
     server.stop();
 
-    InOrder order = inOrder(env, jetty, authorizer, lineage);
-    order.verify(env).start();
+    InOrder order = inOrder(componentStart, componentStop, jetty, authorizer, lineage);
+    order.verify(componentStart).run();
     order.verify(jetty).start();
     order.verify(jetty).stop();
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(componentStop).run();
     order.verify(lineage).close();
   }
 
   @Test
-  public void testStopTakesNoAuthorizerBackFromTheEnvironment() throws Exception {
-    server.start();
-    server.stop();
+  public void testStartNeedsAnInitializedServer() throws Exception {
+    GravitinoServer uninitialized =
+        new GravitinoServer(
+            new ServerConfig(),
+            mock(GravitinoComponent.Factory.class),
+            mock(JettyServer.class),
+            mock(LineageService.class),
+            mock(GravitinoAuthorizerProvider.class));
 
-    // The component owns the authorizer, so the server installs none in the environment.
-    verify(env, never()).setGravitinoAuthorizer(any());
+    IllegalStateException failure = assertThrows(IllegalStateException.class, uninitialized::start);
+
+    assertEquals(
+        "The server has no component: call initialize() before start()", failure.getMessage());
+    uninitialized.stop();
   }
 
   @Test
-  public void testJettyStartFailureShutsDownEnvironment() throws IOException {
+  public void testJettyStartFailureStopsTheComponent() throws Exception {
     IllegalStateException failure = new IllegalStateException("port in use");
     doThrow(failure).when(jetty).start();
 
     assertSame(failure, assertThrows(IllegalStateException.class, server::start));
 
-    InOrder order = inOrder(env, authorizer);
-    order.verify(env).start();
+    InOrder order = inOrder(componentStart, componentStop, authorizer);
+    order.verify(componentStart).run();
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(componentStop).run();
     verify(jetty, never()).stop();
   }
 
   @Test
-  public void testStopAfterEnvironmentStartFailureReleasesEverything() throws Exception {
+  public void testStopAfterComponentStartFailureReleasesEverything() throws Exception {
     IllegalStateException failure = new IllegalStateException("auxiliary service failed");
-    doThrow(failure).when(env).start();
+    doThrow(failure).when(componentStart).run();
     assertSame(failure, assertThrows(IllegalStateException.class, server::start));
 
     server.stop();
 
-    // Nothing had started, so the rollback stopped nothing; stop() still releases every service.
-    InOrder order = inOrder(jetty, env, authorizer, lineage);
+    // The component's lifecycle stopped its services when they failed to start; stop() still
+    // releases every other service, and stops none twice.
+    InOrder order = inOrder(componentStop, jetty, authorizer, lineage);
+    order.verify(componentStop).run();
     order.verify(jetty).stop();
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
     order.verify(lineage).close();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(componentStop, times(1)).run();
   }
 
   @Test
@@ -127,7 +159,7 @@ public class TestGravitinoServerLifecycle {
 
     verify(jetty, times(1)).stop();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(componentStop, times(1)).run();
   }
 
   @Test
@@ -139,7 +171,7 @@ public class TestGravitinoServerLifecycle {
 
     verify(jetty, times(1)).stop();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(componentStop, times(1)).run();
     verify(lineage, times(1)).close();
   }
 
@@ -153,18 +185,30 @@ public class TestGravitinoServerLifecycle {
 
     assertSame(jettyFailure, thrown.getCause().getCause());
     verify(authorizer).close();
-    verify(env).shutdown();
+    verify(componentStop).run();
     verify(lineage).close();
+  }
+
+  @Test
+  public void testComponentStopFailureIsTheOneTheComponentThrew() throws Exception {
+    server.start();
+    IllegalStateException stopFailure = new IllegalStateException("store");
+    doThrow(stopFailure).when(componentStop).run();
+
+    IOException thrown = assertThrows(IOException.class, server::stop);
+
+    // The server reports the component's own failure, not the lifecycle's wrapper around it.
+    assertSame(stopFailure, thrown.getCause().getCause());
   }
 
   @Test
   public void testStopWithoutStartReleasesResources() throws Exception {
     server.stop();
 
-    InOrder order = inOrder(jetty, authorizer, env, lineage);
+    InOrder order = inOrder(jetty, authorizer, componentStop, lineage);
     order.verify(jetty).stop();
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(componentStop).run();
     order.verify(lineage).close();
   }
 }

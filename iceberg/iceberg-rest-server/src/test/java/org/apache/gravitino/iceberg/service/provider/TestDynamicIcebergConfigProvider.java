@@ -391,7 +391,7 @@ public class TestDynamicIcebergConfigProvider {
     // Enable authorization to use internal fetcher
     createMockServerContext(true);
 
-    // The context has no catalog manager, as GravitinoEnv has none before it is initialized
+    // The context has no catalog manager, as a server has none before it is initialized
     Mockito.when(context.catalogAccess()).thenReturn(null);
 
     // Initialize provider with required properties

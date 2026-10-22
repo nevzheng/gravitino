@@ -40,10 +40,10 @@ import org.apache.gravitino.stats.StatisticDispatcher;
  * Records which of the services that {@link LifecycleModule} starts or stops one component has
  * built.
  *
- * <p>The component builds each object on first request, and {@code GravitinoEnv} requests a
- * different subset for each initialization profile; an initialization that fails part way requests
- * only the first part. The lifecycle must stop exactly what was built, and must not build anything
- * itself, so each module that builds one of these services records it here.
+ * <p>The component builds each object on first request, and each {@link GravitinoProfiles profile}
+ * requests a different subset; an initialization that fails part way requests only the first part.
+ * The lifecycle must stop exactly what was built, and must not build anything itself, so each
+ * module that builds one of these services records it here.
  */
 @Singleton
 final class BuiltServices {

@@ -83,8 +83,8 @@ public class BackendTestExtension
       ExtensionContext.Namespace.create(BackendTestExtension.class);
   // Root store: one slot serves every class, and JUnit closes a leftover when the run ends.
   private static final String CURRENT_BACKEND = "CURRENT_BACKEND";
-  // Method store: the GravitinoEnv binding of the running test.
-  private static final String ENVIRONMENT_BINDING = "ENVIRONMENT_BINDING";
+  // Method store: the store seeds of the running test.
+  private static final String STORE_SEEDS = "STORE_SEEDS";
 
   private final BackendFactory backendFactory;
 
@@ -194,10 +194,10 @@ public class BackendTestExtension
       }
       // Bound for this test only: the method store closes the binding once the test is done, so
       // the next test, in this class or another, finds the store seeds as they were before.
-      LegacyStoreEnvironment binding = current.bindGravitinoEnv();
+      StoreSeedsFixture binding = current.seedStore();
       context
           .getStore(NAMESPACE)
-          .put(ENVIRONMENT_BINDING, (ExtensionContext.Store.CloseableResource) binding::close);
+          .put(STORE_SEEDS, (ExtensionContext.Store.CloseableResource) binding::close);
       if (!fresh) {
         // Runs before the test's own @BeforeEach, so its setup always starts from empty tables.
         resetOrDiscard(store, current, resetStrategy);
@@ -270,12 +270,10 @@ public class BackendTestExtension
       this.h2Directory = h2Directory;
     }
 
-    /** Binds the values the store reads through GravitinoEnv; closing the result unbinds them. */
-    LegacyStoreEnvironment bindGravitinoEnv() {
+    /** Seeds the values the store reads statically; closing the result restores them. */
+    StoreSeedsFixture seedStore() {
       EntityIdService.initialize(new RelationalEntityStoreIdResolver());
-      return new LegacyStoreEnvironment()
-          .withConfig(config)
-          .withIdGenerator(RandomIdGenerator.INSTANCE);
+      return new StoreSeedsFixture().withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
     }
 
     void reset(ResetStrategy resetStrategy) throws SQLException {
@@ -342,7 +340,7 @@ public class BackendTestExtension
 
       RelationalBackend backend = new JDBCBackend();
       LiveBackend created = new LiveBackend(backendType, testClass, backend, config, h2Directory);
-      try (LegacyStoreEnvironment ignored = created.bindGravitinoEnv()) {
+      try (StoreSeedsFixture ignored = created.seedStore()) {
         // close() first: it drops the global SqlSessionFactoryHelper session another test (e.g.
         // TestEntityStorage) may have left open.
         backend.close();

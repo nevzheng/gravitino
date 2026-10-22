@@ -27,8 +27,7 @@ import org.apache.gravitino.utils.Executable;
  * Utility class for tree locks.
  *
  * <p>Callers pass the {@link LockManager} they hold, usually one they received through their
- * constructor. The overloads without a {@code LockManager} read it from {@code GravitinoEnv} on
- * every call and remain only for callers outside this repository.
+ * constructor.
  */
 public class TreeLockUtils {
 

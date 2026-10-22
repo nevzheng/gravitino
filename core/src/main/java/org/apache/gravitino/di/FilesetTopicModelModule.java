@@ -65,9 +65,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * <p>Each type has an {@link Internal} chain, normalize → operation, and a {@link Public} chain,
  * event → normalize → hook → operation, each wrapped in its {@link DispatcherDecorator decorators}.
  * The fileset, topic, model and function chains share one operation dispatcher per type; the public
- * semantic model chain builds its own, as {@code GravitinoEnv} did. Function and semantic model
- * operations work on schemas through the shared {@link SchemaOperationDispatcher} from {@link
- * SchemaTableModule}.
+ * semantic model chain builds its own. Function and semantic model operations work on schemas
+ * through the shared {@link SchemaOperationDispatcher} from {@link SchemaTableModule}.
  */
 @Module
 abstract class FilesetTopicModelModule {

@@ -148,7 +148,7 @@ public class TestGravitinoComponent {
   }
 
   @Test
-  public void testOwnedObjectsMatchWhatGravitinoEnvBuilt() {
+  public void testOwnedObjectsAreTheServerDefaults() {
     assertInstanceOf(RandomIdGenerator.class, component.idGenerator());
     assertNotNull(component.metricsSystem().getMetricsSource(MetricsSource.JVM_METRIC_NAME));
   }

@@ -60,7 +60,7 @@ import org.apache.gravitino.storage.IdGenerator;
  * partitions, whose public chain is event → the undecorated internal chain because partitions have
  * no hook. Each chain is wrapped in its {@link DispatcherDecorator decorators}. The schema chains
  * share one {@link SchemaOperationDispatcher}; the table and view chains each build their own
- * operation dispatcher, as {@code GravitinoEnv} did.
+ * operation dispatcher.
  *
  * <p>Table and view operation dispatchers import missing schemas through the internal schema chain.
  * They take it as a {@link Provider} and resolve it on first use (§5.3 of the design).

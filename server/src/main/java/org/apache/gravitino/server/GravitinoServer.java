@@ -32,10 +32,9 @@ import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.annotation.LegacyEnvAccess;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
 import org.apache.gravitino.lineage.LineageService;
@@ -100,11 +99,9 @@ public class GravitinoServer extends ResourceConfig {
 
   private final JettyServer server;
 
-  private final GravitinoEnv gravitinoEnv;
-
   private final GravitinoComponent.Factory componentFactory;
 
-  // The component the environment was initialized from; set by initialize().
+  // The component the factory created; set by initialize().
   @Nullable private GravitinoComponent component;
 
   private final LineageService lineageService;
@@ -120,74 +117,60 @@ public class GravitinoServer extends ResourceConfig {
   private final AtomicBoolean isStopped = new AtomicBoolean(false);
 
   /**
-   * Creates a server. {@link #initialize()} initializes the environment from the component that
-   * {@code componentFactory} creates and binds the dispatchers the REST resources inject from that
-   * component's provision methods.
+   * Creates a server. {@link #initialize()} builds the full profile of the component that {@code
+   * componentFactory} creates and binds the dispatchers the REST resources inject from that
+   * component's provision methods; {@link #start()} starts the component's lifecycle.
    *
    * <p>A downstream server passes the factory of its own root component, which extends {@link
    * GravitinoComponent}, so the chains its decorators change reach the REST resources, and reads
    * that component back through {@link #component()} to bind its own services.
    *
    * @param config the server configuration
-   * @param gravitinoEnv the environment to initialize
-   * @param componentFactory creates the component the environment and the REST resources use
+   * @param componentFactory creates the component the server and the REST resources use
    */
-  public GravitinoServer(
-      ServerConfig config, GravitinoEnv gravitinoEnv, GravitinoComponent.Factory componentFactory) {
+  public GravitinoServer(ServerConfig config, GravitinoComponent.Factory componentFactory) {
     this(
         config,
-        gravitinoEnv,
         Preconditions.checkNotNull(componentFactory, "componentFactory"),
         new JettyServer(),
         new LineageService(),
         GravitinoAuthorizerProvider.getInstance());
   }
 
-  /**
-   * Creates a server over the process environment. {@link #initialize()} initializes it from the
-   * component that {@code componentFactory} creates; see {@link #GravitinoServer(ServerConfig,
-   * GravitinoEnv, GravitinoComponent.Factory)}.
-   *
-   * @param config the server configuration
-   * @param componentFactory creates the component the environment and the REST resources use
-   */
-  public GravitinoServer(ServerConfig config, GravitinoComponent.Factory componentFactory) {
-    this(config, processEnv(), componentFactory);
-  }
-
   @VisibleForTesting
   GravitinoServer(
       ServerConfig config,
-      GravitinoEnv gravitinoEnv,
       GravitinoComponent.Factory componentFactory,
       JettyServer server,
       LineageService lineageService,
       GravitinoAuthorizerProvider authorizerProvider) {
     this.serverConfig = config;
     this.server = server;
-    this.gravitinoEnv = gravitinoEnv;
     this.componentFactory = componentFactory;
     this.lineageService = lineageService;
     this.authorizerProvider = authorizerProvider;
-    Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
+    Lifecycle.Action closeComponent = once(this::closeComponent);
     Lifecycle.Action closeAuthorizer = once(this::closeAuthorizer);
     Lifecycle.Action stopJetty = once(server::stop);
-    this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
-    // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
-    // requests before the authorizer closes and before the environment shuts down.
+    this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, closeComponent);
+    // Start order: component, then Jetty. Stop order is the reverse, so Jetty stops taking
+    // requests before the authorizer closes and before the component's services stop.
     this.lifecycle =
         Lifecycle.builder()
-            .add("Gravitino environment", gravitinoEnv::start, shutdownEnv)
+            .add("Gravitino component", this::startComponent, closeComponent)
             .addStopOnly("Gravitino authorizer", closeAuthorizer)
             .add("Jetty server", server::start, stopJetty)
             .build();
   }
 
   public void initialize() {
-    gravitinoEnv.initializeFullComponents(serverConfig, componentFactory);
+    LOG.info("Initializing Gravitino server components...");
+    // Building the component creates nothing yet: the full profile builds its objects in order.
     this.component =
         Preconditions.checkNotNull(
-            gravitinoEnv.component(), "The environment holds no component after initialization");
+            componentFactory.create(serverConfig), "The component factory created no component");
+    GravitinoProfiles.full(component);
+    LOG.info("Gravitino server components are initialized.");
 
     JettyServerConfig jettyServerConfig =
         JettyServerConfig.fromConfig(serverConfig, WEBSERVER_CONF_PREFIX);
@@ -213,9 +196,9 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   /**
-   * Returns the component {@link #initialize()} initialized the environment from: the one the
-   * factory given to the constructor created. A downstream server reads its own root component here
-   * to bind its own services into HK2.
+   * Returns the component {@link #initialize()} built: the one the factory given to the constructor
+   * created. A downstream server reads its own root component here to bind its own services into
+   * HK2.
    *
    * @return the component
    * @throws IllegalStateException before {@link #initialize()}
@@ -432,11 +415,54 @@ public class GravitinoServer extends ResourceConfig {
     authorizerProvider.close();
   }
 
-  // The server still holds the process environment, which the code it loads reads; it is removed
-  // with the facade.
-  @LegacyEnvAccess
-  private static GravitinoEnv processEnv() {
-    return GravitinoEnv.getInstance();
+  /**
+   * Starts the component's services: the metrics system, the event listeners, then the auxiliary
+   * services, in the order the component's lifecycle keeps. If one fails to start, the lifecycle
+   * stops those that started and the original failure is rethrown.
+   */
+  private void startComponent() {
+    Preconditions.checkState(
+        component != null, "The server has no component: call initialize() before start()");
+    try {
+      component.lifecycle().start();
+    } catch (Exception e) {
+      throw unchecked(e);
+    }
+  }
+
+  /** Stops every service the component built, whether or not it started. */
+  private void closeComponent() {
+    if (component == null) {
+      return;
+    }
+    LOG.info("Shutting down Gravitino server components...");
+    try {
+      component.lifecycle().close();
+    } catch (Exception e) {
+      throw unchecked(e);
+    }
+    LOG.info("Gravitino server components are shut down.");
+  }
+
+  /**
+   * Returns the original failure of a lifecycle exception, with the failures that followed it
+   * attached as suppressed, so callers see the exception the component threw.
+   */
+  private static RuntimeException unchecked(Exception e) {
+    Throwable failure = e;
+    if (e instanceof Lifecycle.LifecycleException && e.getCause() != null) {
+      failure = e.getCause();
+      for (Throwable suppressed : e.getSuppressed()) {
+        failure.addSuppressed(suppressed);
+      }
+    }
+    if (failure instanceof RuntimeException) {
+      return (RuntimeException) failure;
+    }
+    if (failure instanceof Error) {
+      throw (Error) failure;
+    }
+    return new IllegalStateException(failure.getMessage(), failure);
   }
 
   private MetricsSystem metricsSystem() {

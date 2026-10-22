@@ -28,8 +28,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lineage.LineageService;
@@ -40,39 +38,50 @@ import org.apache.gravitino.server.web.HttpServerMetricsSource;
 import org.apache.gravitino.server.web.JettyServer;
 import org.junit.jupiter.api.Test;
 
-/** Checks where the server takes the environment's component and the REST dispatchers from. */
+/** Checks where the server takes its component and the REST dispatchers from. */
 public class TestGravitinoServerEnvironment {
 
   @Test
   public void testBindsFromTheComponentTheFactoryCreates() throws Exception {
     ServerConfig config = new ServerConfig();
-    GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
-    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    GravitinoComponent component = component(config);
     MetricsSystem metricsSystem = mock(MetricsSystem.class);
     when(component.metricsSystem()).thenReturn(metricsSystem);
-    when(component.eventBus()).thenReturn(mock(EventBus.class));
-    when(env.component()).thenReturn(component);
-    GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
-    GravitinoServer server = server(config, env, factory);
+    GravitinoComponent.Factory factory = factory(component);
+    GravitinoServer server = server(config, factory);
     try {
       assertThrows(IllegalStateException.class, server::component);
 
       server.initialize();
 
-      verify(env).initializeFullComponents(config, factory);
-      verify(env, never()).initializeFullComponents(any(Config.class));
+      verify(factory).create(config);
       assertSame(component, server.component());
       assertTrue(hasInstance(server, GravitinoComponentBinder.class));
       verify(metricsSystem).register(any(HttpServerMetricsSource.class));
-      verify(env, never()).metricsSystem();
-      verify(env, never()).eventBus();
     } finally {
       server.stop();
     }
   }
 
   @Test
-  public void testTheProcessEnvironmentConstructorNeedsAFactory() {
+  public void testInitializeBuildsTheFullProfile() throws Exception {
+    ServerConfig config = new ServerConfig();
+    GravitinoComponent component = component(config);
+    GravitinoServer server = server(config, factory(component));
+    try {
+      server.initialize();
+
+      // The full profile builds the public chains, the auxiliary services and the job chains.
+      verify(component).catalogDispatcher();
+      verify(component).auxiliaryServiceManager();
+      verify(component).jobOperationDispatcher();
+    } finally {
+      server.stop();
+    }
+  }
+
+  @Test
+  public void testTheConstructorNeedsAFactory() {
     assertThrows(
         NullPointerException.class,
         () -> new GravitinoServer(new ServerConfig(), (GravitinoComponent.Factory) null));
@@ -81,19 +90,14 @@ public class TestGravitinoServerEnvironment {
   @Test
   public void testInstallsTheAuthorizerOfTheComponentInTheProvider() throws Exception {
     ServerConfig config = new ServerConfig();
-    GravitinoEnv env = mock(GravitinoEnv.class, RETURNS_MOCKS);
-    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    GravitinoComponent component = component(config);
     GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
     when(component.gravitinoAuthorizer()).thenReturn(authorizer);
-    when(component.metricsSystem()).thenReturn(mock(MetricsSystem.class));
-    when(component.eventBus()).thenReturn(mock(EventBus.class));
-    when(env.component()).thenReturn(component);
     GravitinoAuthorizerProvider provider = mock(GravitinoAuthorizerProvider.class);
     GravitinoServer server =
         new GravitinoServer(
             config,
-            env,
-            mock(GravitinoComponent.Factory.class),
+            factory(component),
             mock(JettyServer.class),
             mock(LineageService.class),
             provider);
@@ -102,7 +106,6 @@ public class TestGravitinoServerEnvironment {
 
       verify(provider).install(authorizer);
       verify(provider, never()).initialize(any(ServerConfig.class), any());
-      verify(env, never()).setGravitinoAuthorizer(any());
     } finally {
       server.stop();
     }
@@ -111,11 +114,23 @@ public class TestGravitinoServerEnvironment {
     verify(authorizer, never()).close();
   }
 
-  private static GravitinoServer server(
-      ServerConfig config, GravitinoEnv env, GravitinoComponent.Factory factory) {
+  private static GravitinoComponent component(ServerConfig config) {
+    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    when(component.config()).thenReturn(config);
+    when(component.metricsSystem()).thenReturn(mock(MetricsSystem.class));
+    when(component.eventBus()).thenReturn(mock(EventBus.class));
+    return component;
+  }
+
+  private static GravitinoComponent.Factory factory(GravitinoComponent component) {
+    GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
+    when(factory.create(any())).thenReturn(component);
+    return factory;
+  }
+
+  private static GravitinoServer server(ServerConfig config, GravitinoComponent.Factory factory) {
     return new GravitinoServer(
         config,
-        env,
         factory,
         mock(JettyServer.class),
         mock(LineageService.class),

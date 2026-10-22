@@ -48,20 +48,19 @@ import org.slf4j.LoggerFactory;
 /**
  * Binds the {@link Lifecycle} that starts and stops the services of the component.
  *
- * <p>It keeps the order {@code GravitinoEnv} has always used. Start: the metrics system, the event
- * listeners, then the auxiliary services. Stop: the entity store, the catalog manager, the
- * auxiliary services, the metrics system, the event listeners, the metalake manager, the job
- * dispatcher, the statistic dispatcher, the KMS client registry, the secret manager, then the lock
- * manager, so a component leaves none of its lock threads running. Stop is not the reverse of start
- * for the metrics system and the event listeners, so they are one entry that starts and stops them
- * in that order.
+ * <p>It keeps the order the server has always used. Start: the metrics system, the event listeners,
+ * then the auxiliary services. Stop: the entity store, the catalog manager, the auxiliary services,
+ * the metrics system, the event listeners, the metalake manager, the job dispatcher, the statistic
+ * dispatcher, the KMS client registry, the secret manager, then the lock manager, so a component
+ * leaves none of its lock threads running. Stop is not the reverse of start for the metrics system
+ * and the event listeners, so they are one entry that starts and stops them in that order.
  *
  * <p>The lifecycle only touches services the component has built (see {@link BuiltServices}), and
  * never builds one. It is built with {@link Lifecycle.Builder#alwaysStop()}: every service holds
- * resources from the moment it is built, so it is stopped even if the lifecycle never started, as
- * {@code GravitinoEnv.shutdown()} always did. The entity store, auxiliary services, job dispatcher
- * and statistic dispatcher log a failure to stop and carry on, as before; other failures are
- * collected and thrown after every service has been stopped.
+ * resources from the moment it is built, so it is stopped even if the lifecycle never started. The
+ * entity store, auxiliary services, job dispatcher and statistic dispatcher log a failure to stop
+ * and carry on, as before; other failures are collected and thrown after every service has been
+ * stopped.
  *
  * <p>The authorizer is stopped before every other service, as the server closed it before it shut
  * the environment down. The {@link ManagedService managed services} a downstream component

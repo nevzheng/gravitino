@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Loads and owns named {@link SecretProvider} instances from server configuration for the process
- * lifetime (owned by {@code GravitinoEnv}, analogous to the KMS client registry).
+ * lifetime (owned by the server's component, analogous to the KMS client registry).
  *
  * <p>Configuration shape:
  *

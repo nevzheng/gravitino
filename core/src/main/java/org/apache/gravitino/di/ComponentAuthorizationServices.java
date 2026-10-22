@@ -38,7 +38,7 @@ import org.apache.gravitino.catalog.TableDispatcher;
  *
  * <p>Every service is resolved when it is asked for, so the hooks and managers that take these
  * services can be built before the chains they reach. The access control, owner and future grant
- * services are null while authorization is disabled, as they are in {@code GravitinoEnv}.
+ * services are null while authorization is disabled.
  *
  * <p>Only the owner and access control dispatchers, and the catalog services the plugin context
  * hands out, are on a real cycle; the other providers resolve lazily as well. Taking the narrow

@@ -42,7 +42,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>TMS does not register public REST resources in this change; the feature only owns server
  * lifecycle for in-process scheduling. Pools stop on Jersey {@code DESTROY_FINISHED}, which runs
- * during Jetty shutdown before {@code GravitinoEnv} closes the entity-store {@code DataSource}.
+ * during Jetty shutdown before the server's component closes the entity-store {@code DataSource}.
  *
  * <p>After {@link #stopSchedulers()}, a later {@link #configure} may start pools again and
  * re-register the destroy listener (needed for tests / embedded restarts in the same JVM).

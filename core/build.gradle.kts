@@ -159,7 +159,7 @@ fun registerCoreTestTask(
 
   if (backend == null) {
     // The unit suite shares nothing across JVMs: store tests use their own temporary H2 files, and
-    // the process-wide state they touch (GravitinoEnv, SqlSessionFactoryHelper) is per fork.
+    // the process-wide state they touch (SqlSessionFactoryHelper, the static seeds) is per fork.
     maxParallelForks = coreTestForks
   }
 

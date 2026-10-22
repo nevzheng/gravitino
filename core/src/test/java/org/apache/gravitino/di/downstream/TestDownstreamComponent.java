@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerEventManager;
@@ -57,6 +56,7 @@ import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
 import org.apache.gravitino.catalog.ViewNormalizeDispatcher;
 import org.apache.gravitino.di.ForDispatcherChains;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
@@ -197,26 +197,21 @@ public class TestDownstreamComponent {
   }
 
   @Test
-  public void testGravitinoEnvBuiltOnTheDownstreamComponentReturnsItsChains() {
-    GravitinoEnv env = new GravitinoEnv() {};
+  public void testFullProfileOnTheDownstreamComponentBuildsItsChains() throws Exception {
+    DownstreamComponent built = DaggerDownstreamComponent.factory().create(config());
     try {
-      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+      GravitinoProfiles.full(built);
 
-      DownstreamComponent built = (DownstreamComponent) env.component();
       assertNotSame(component, built);
-      assertSame(built.tableDispatcher(), env.tableDispatcher());
-      assertSame(built.internalTableDispatcher(), env.internalTableDispatcher());
-      assertSame(built.catalogDispatcher(), env.catalogDispatcher());
-      assertSame(built.accessControlDispatcher(), env.accessControlDispatcher());
-      assertSame(built.internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
-      assertSame(built.jobOperationDispatcher(), env.jobOperationDispatcher());
-      assertEquals("outer", Tagging.tag(env.tableDispatcher()).label);
-      assertTrue(labels(env.schemaDispatcher()).contains("@Public SchemaDispatcher"));
+      assertNotNull(built.internalAccessControlDispatcher());
+      assertNotNull(built.jobOperationDispatcher());
+      assertEquals("outer", Tagging.tag(built.tableDispatcher()).label);
+      assertTrue(labels(built.schemaDispatcher()).contains("@Public SchemaDispatcher"));
 
-      env.start();
+      built.lifecycle().start();
       assertEquals(List.of("start"), built.downstreamService().calls);
     } finally {
-      env.shutdown();
+      built.lifecycle().close();
     }
   }
 

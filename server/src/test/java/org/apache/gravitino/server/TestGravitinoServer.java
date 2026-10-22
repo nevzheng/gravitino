@@ -43,7 +43,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.apache.commons.io.FileUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.rest.RESTUtils;
@@ -295,7 +294,7 @@ public class TestGravitinoServer {
   public void testSecretProvidersRequestIsAudited() throws Exception {
     // GH-12921 moved discovery under /api/metalakes/{metalake}/secrets/providers so it inherits
     // the /api/* HttpAuditFilter (and AuthenticationFilter) binding. Capturing live EventBus
-    // traffic here is flaky under the shared GravitinoEnv singleton used by this suite (CI saw
+    // traffic here is flaky under the shared server state used by this suite (CI saw
     // empty captures or create-metalake HttpRequestEvent noise even when GET returned 200).
     // Assert the concrete path is covered; HttpAuditFilter emission itself is covered by
     // TestHttpAuditFilter / HttpAuditFilterIT.
@@ -462,14 +461,9 @@ public class TestGravitinoServer {
     return metalake;
   }
 
-  /**
-   * Builds a full server on the process environment, as {@code GravitinoServer.main} does. The
-   * relational entity store and the other {@code @LegacyEnvAccess} paths of a full server still
-   * read {@code GravitinoEnv.getInstance()}, so the server cannot run on another environment yet.
-   */
+  /** Builds a full server, as {@code GravitinoServer.main} does. */
   private static GravitinoServer newServer(ServerConfig config) {
-    return new GravitinoServer(
-        config, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    return new GravitinoServer(config, DaggerGravitinoComponent.factory());
   }
 
   private static List<Map<String, Object>> fetchSecretProviders(

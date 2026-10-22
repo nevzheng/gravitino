@@ -31,9 +31,8 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>The MyBatis session factory and the {@code *MetaService} singletons are static, so they cannot
  * take these values by constructor. The component seeds them once, when it builds the entity store
- * ({@code StorageModule}); nothing reads them from {@code GravitinoEnv}. Until the store is seeded
- * the cache flag is on and the metrics system and ID generator are absent, which is what the store
- * read from an uninitialized environment before.
+ * ({@code StorageModule}). Until the store is seeded the cache flag is on and the metrics system
+ * and ID generator are absent.
  */
 public final class RelationalStoreSeeds {
 

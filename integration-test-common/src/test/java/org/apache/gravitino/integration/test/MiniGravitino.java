@@ -249,8 +249,8 @@ public class MiniGravitino {
       executor.shutdownNow();
 
       // The HTTP port may be closed before GravitinoServer.main() finishes shutting down the
-      // singleton GravitinoEnv. Wait for the server task to terminate so the next embedded server
-      // cannot initialize the same environment while this shutdown is still in progress.
+      // server's component. Wait for the server task to terminate so the next embedded server
+      // cannot reuse the process-wide state while this shutdown is still in progress.
       if (!executor.awaitTermination(3, TimeUnit.MINUTES)) {
         throw new RuntimeException("Can not terminate MiniGravitino server task");
       }
