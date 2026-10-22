@@ -163,7 +163,7 @@ A scan of the code base for each stage, against main at `b748d734` (method and e
 | Lint        | The Python client's `black` rewrites files and never fails CI        | P2         |
 | Lint        | No linter for 81 shell scripts, the workflows, or the Markdown docs  | P2         |
 | Build       | `build -x test` compiles no test sources (106 `compileTestJava` cut) | Fixed here |
-| Build       | `:plugins:k8s-job-executor:shadedJarTest` runs inside `build`        | P2         |
+| Build       | `:plugins:k8s-job-executor:shadedJarTest` ran inside `build`         | Fixed here |
 | Build       | `clients/filesystem-fuse` (Rust) is in no build and no workflow      | Decision   |
 | Small       | `integration-test-common` ITs run in the small stage and in backend  | P2         |
 | Small       | `skipITs` is copied into 34 build files; a module can forget it      | Test org   |
@@ -408,7 +408,8 @@ file scans. It is a snapshot; P2 turns the repeatable ones into `ciVerifyShards`
   own job. But all 106 `compileTestJava` tasks and `:common:compileTestFixturesJava` were missing
   too, because `-x test` removes the test task and everything only it needed. Adding
   `testClasses` brings all 106 back.
-- `shadedJarTest` is a `Test` task that `check` depends on, so `build` runs a test.
+- `shadedJarTest` is a `Test` task that `check` depends on, so `build` ran a test. The build job
+  now excludes it and `ciSmallTest` runs it.
 - `clients/filesystem-fuse` has a `build.gradle.kts` but is not in `settings.gradle.kts`, and no
   workflow mentions it. The nightly workflow lists `gvfs-fuse` as excluded.
 

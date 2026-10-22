@@ -124,7 +124,8 @@ subprojects {
   ciLint.configure { dependsOn(moduleLints) }
 
   if (path !in ciMediumTestModules && path !in ciSkippedTestModules) {
-    val moduleTests = tasks.matching { it.name == "test" }
+    // shadedJarTest tests the k8s plugin's shaded jar; it is a small test that `check` also runs.
+    val moduleTests = tasks.matching { it.name == "test" || it.name == "shadedJarTest" }
     ciSmallTest.configure { dependsOn(moduleTests) }
   }
 }

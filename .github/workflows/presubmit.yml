@@ -415,9 +415,11 @@ jobs:
         run: ./gradlew publishToMavenLocal -PskipWeb=true -x test
 
       # testClasses compiles the test sources too, so a test that does not compile fails here.
+      # shadedJarTest is a test that `check` runs; it runs in the test stage instead.
       - name: Build without tests
         run: >-
           ./gradlew build testClasses -x test
+          -x :plugins:k8s-job-executor:shadedJarTest
           -PskipWeb=true
           -x :clients:client-python:build
           ${{ needs.changes.outputs.mcp_server_changes != 'true' && '-x :mcp-server:build -x :mcp-server:pylint -x :web-v2:web:build' || '' }}
