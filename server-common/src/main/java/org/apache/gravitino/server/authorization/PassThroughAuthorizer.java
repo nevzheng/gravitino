@@ -17,14 +17,15 @@
 
 package org.apache.gravitino.server.authorization;
 
+import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.security.Principal;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.exceptions.NoSuchUserException;
@@ -36,8 +37,23 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class PassThroughAuthorizer implements GravitinoAuthorizer {
 
+  /** The host services, which {@link #initialize(AuthorizerContext)} sets. */
+  private AuthorizerContext context;
+
   @Override
   public void initialize() {}
+
+  /**
+   * Sets the host services and calls {@link #initialize()}, so a subclass that overrides it still
+   * runs its own initialization.
+   *
+   * @param context the host services.
+   */
+  @Override
+  public void initialize(AuthorizerContext context) {
+    this.context = context;
+    initialize();
+  }
 
   @Override
   public boolean authorize(
@@ -83,8 +99,11 @@ public class PassThroughAuthorizer implements GravitinoAuthorizer {
 
   @Override
   public boolean isMetalakeUser(String metalake, AuthorizationRequestContext requestContext) {
-    AccessControlDispatcher dispatcher =
-        GravitinoEnv.getInstance().internalAccessControlDispatcher();
+    Preconditions.checkState(
+        context != null,
+        "PassThroughAuthorizer needs the host services: initialize it with"
+            + " initialize(AuthorizerContext)");
+    AccessControlDispatcher dispatcher = context.internalAccessControlDispatcher();
     if (dispatcher != null) {
       try {
         dispatcher.getUser(metalake, PrincipalUtils.getCurrentUserName());

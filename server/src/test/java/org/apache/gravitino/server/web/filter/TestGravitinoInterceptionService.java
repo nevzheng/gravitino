@@ -154,8 +154,7 @@ public class TestGravitinoInterceptionService {
                       any(AuthorizationRequestContext.class)))
           .thenThrow(new ForbiddenException("User tester is not a member"));
 
-      MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
       Response response = (Response) interceptor.invoke(invocation);
 
       assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
@@ -168,8 +167,7 @@ public class TestGravitinoInterceptionService {
   public void testSemanticModelOperationsIsRegisteredForInterception() {
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(SemanticModelOperations.class.getName());
-    Assertions.assertTrue(
-        new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));
+    Assertions.assertTrue(newService().getDescriptorFilter().matches(descriptor));
   }
 
   @Test
@@ -189,7 +187,6 @@ public class TestGravitinoInterceptionService {
       when(provider.getGravitinoAuthorizer()).thenReturn(authorizer);
       GravitinoEnv env = mock(GravitinoEnv.class);
       environments.when(GravitinoEnv::getInstance).thenReturn(env);
-      when(env.eventBus()).thenReturn(mock(EventBus.class));
       Method create =
           SemanticModelOperations.class.getMethod(
               "createSemanticModel",
@@ -256,8 +253,7 @@ public class TestGravitinoInterceptionService {
               };
         }
         when(invocation.getArguments()).thenReturn(args);
-        MethodInterceptor interceptor =
-            new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+        MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
         Response denied = (Response) interceptor.invoke(invocation);
         assertEquals(403, denied.getStatus());
         verify(invocation, never()).proceed();
@@ -276,8 +272,7 @@ public class TestGravitinoInterceptionService {
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(ViewOperations.class.getName());
 
-    Assertions.assertTrue(
-        new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));
+    Assertions.assertTrue(newService().getDescriptorFilter().matches(descriptor));
   }
 
   @Test
@@ -285,8 +280,7 @@ public class TestGravitinoInterceptionService {
     Descriptor descriptor = mock(Descriptor.class);
     when(descriptor.getImplementation()).thenReturn(SecretsProviderOperations.class.getName());
 
-    Assertions.assertTrue(
-        new GravitinoInterceptionService().getDescriptorFilter().matches(descriptor));
+    Assertions.assertTrue(newService().getDescriptorFilter().matches(descriptor));
   }
 
   @Test
@@ -315,7 +309,6 @@ public class TestGravitinoInterceptionService {
       GravitinoEnv env = mock(GravitinoEnv.class);
       EventBus eventBus = mock(EventBus.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(env);
-      when(env.eventBus()).thenReturn(eventBus);
 
       ViewDispatcher dispatcher = mock(ViewDispatcher.class);
       ViewOperations operations = new ViewOperations(dispatcher);
@@ -329,8 +322,7 @@ public class TestGravitinoInterceptionService {
       when(invocation.proceed())
           .thenAnswer(ignored -> operations.listViews("testMetalake", "testCatalog", "testSchema"));
 
-      MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor interceptor = newService(eventBus).getMethodInterceptors(method).get(0);
       Response response = (Response) interceptor.invoke(invocation);
 
       assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
@@ -369,8 +361,7 @@ public class TestGravitinoInterceptionService {
       when(invocation.getArguments()).thenReturn(new Object[] {"metalake", "catalog", "schema"});
       when(invocation.proceed())
           .thenAnswer(unused -> AuthorizationRequestScope.getOrCreate("metalake"));
-      MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
       Object first = interceptor.invoke(invocation);
       Assertions.assertSame(entry.get(), first);
       Assertions.assertNotSame(first, AuthorizationRequestScope.getOrCreate("metalake"));
@@ -414,8 +405,7 @@ public class TestGravitinoInterceptionService {
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
-      GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+      GravitinoInterceptionService gravitinoInterceptionService = newService();
       Class<TestOperations> testOperationsClass = TestOperations.class;
       Method[] methods = testOperationsClass.getMethods();
       Method testMethod = methods[0];
@@ -440,9 +430,7 @@ public class TestGravitinoInterceptionService {
   @Test
   public void testNoAuthResponseUsesFullMetadataNameIdentifier() throws Exception {
     MethodInterceptor methodInterceptor =
-        new GravitinoInterceptionService()
-            .getMethodInterceptors(TestOperations.class.getMethods()[0])
-            .get(0);
+        newService().getMethodInterceptors(TestOperations.class.getMethods()[0]).get(0);
     Method buildNoAuthResponse =
         methodInterceptor
             .getClass()
@@ -505,7 +493,7 @@ public class TestGravitinoInterceptionService {
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = newService();
       Method testMethod = TestOperations.class.getMethod("testMethod", String.class);
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
       when(methodInvocation.getMethod()).thenReturn(testMethod);
@@ -534,8 +522,7 @@ public class TestGravitinoInterceptionService {
     when(invocation.getArguments())
         .thenReturn(new Object[] {"testMetalake", "bogusType", "a.b.c", null});
 
-    MethodInterceptor interceptor =
-        new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+    MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
     Response response = (Response) interceptor.invoke(invocation);
 
     assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
@@ -566,8 +553,7 @@ public class TestGravitinoInterceptionService {
       when(mockedProvider.getGravitinoAuthorizer())
           .thenThrow(new RuntimeException("Database connection failed"));
 
-      GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+      GravitinoInterceptionService gravitinoInterceptionService = newService();
       Class<TestOperations> testOperationsClass = TestOperations.class;
       Method[] methods = testOperationsClass.getMethods();
       Method testMethod = methods[0];
@@ -607,8 +593,7 @@ public class TestGravitinoInterceptionService {
       when(mockedProvider.getGravitinoAuthorizer())
           .thenThrow(new IllegalArgumentException("Invalid authorizer configuration"));
 
-      GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+      GravitinoInterceptionService gravitinoInterceptionService = newService();
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor methodInterceptor =
           gravitinoInterceptionService.getMethodInterceptors(testMethod).get(0);
@@ -657,8 +642,7 @@ public class TestGravitinoInterceptionService {
           .thenReturn(
               new Object[] {"testMetalake", "testCatalog", "testSchema", "sales.2024", null});
 
-      MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
       Response response = (Response) interceptor.invoke(invocation);
 
       assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
@@ -691,8 +675,7 @@ public class TestGravitinoInterceptionService {
       MethodInvocation invocation = mock(MethodInvocation.class);
       when(invocation.getMethod()).thenReturn(method);
       when(invocation.getArguments()).thenReturn(new Object[] {"target"});
-      MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor interceptor = newService().getMethodInterceptors(method).get(0);
 
       Response missingResponse = (Response) interceptor.invoke(invocation);
       Response inaccessibleResponse = (Response) interceptor.invoke(invocation);
@@ -742,8 +725,7 @@ public class TestGravitinoInterceptionService {
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
-      GravitinoInterceptionService gravitinoInterceptionService =
-          new GravitinoInterceptionService();
+      GravitinoInterceptionService gravitinoInterceptionService = newService();
       Class<TestOperationsWithEmptyExpression> testOperationsClass =
           TestOperationsWithEmptyExpression.class;
       Method[] methods = testOperationsClass.getMethods();
@@ -825,8 +807,7 @@ public class TestGravitinoInterceptionService {
       when(methodInvocation.getArguments()).thenReturn(args);
       when(methodInvocation.proceed()).thenReturn(invalidBodyResponse);
 
-      MethodInterceptor methodInterceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+      MethodInterceptor methodInterceptor = newService().getMethodInterceptors(method).get(0);
       Response response = (Response) methodInterceptor.invoke(methodInvocation);
 
       assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
@@ -869,13 +850,12 @@ public class TestGravitinoInterceptionService {
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.entityStore()).thenReturn(mockStore);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
       metalakeManagerMocked
           .when(() -> MetalakeManager.checkMetalake(ArgumentMatchers.any(), ArgumentMatchers.any()))
           .thenAnswer(invocation -> null);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = newService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 
@@ -949,9 +929,8 @@ public class TestGravitinoInterceptionService {
         GravitinoEnv mockEnv = mock(GravitinoEnv.class);
         EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
         envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-        when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
-        GravitinoInterceptionService service = new GravitinoInterceptionService();
+        GravitinoInterceptionService service = newService(mockEventBus);
         Method testMethod = TestOperations.class.getMethods()[0];
         MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 
@@ -1013,12 +992,10 @@ public class TestGravitinoInterceptionService {
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = mock(EventBus.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.internalTableDispatcher()).thenReturn(tableDispatcher);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
       when(tableDispatcher.loadTable(ArgumentMatchers.any()))
           .thenThrow(new NoSuchTableException("Table is absent"));
 
-      MethodInterceptor interceptor = tableLoadInterceptor();
+      MethodInterceptor interceptor = tableLoadInterceptor(mockEventBus, tableDispatcher);
       MethodInvocation invocation = tableLoadInvocation();
       Response notFound = Utils.notFound("NoSuchTableException", "Table does not exist");
       when(invocation.proceed()).thenReturn(notFound);
@@ -1064,11 +1041,9 @@ public class TestGravitinoInterceptionService {
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.internalTableDispatcher()).thenReturn(tableDispatcher);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
       when(tableDispatcher.loadTable(ArgumentMatchers.any())).thenReturn(mock(Table.class));
 
-      MethodInterceptor interceptor = tableLoadInterceptor();
+      MethodInterceptor interceptor = tableLoadInterceptor(mockEventBus, tableDispatcher);
       MethodInvocation invocation = tableLoadInvocation();
 
       Response response = (Response) interceptor.invoke(invocation);
@@ -1115,7 +1090,6 @@ public class TestGravitinoInterceptionService {
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.internalViewDispatcher()).thenReturn(viewDispatcher);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
       when(viewDispatcher.loadView(ArgumentMatchers.any()))
           .thenThrow(new UnsupportedOperationException("Catalog does not support view operations"));
 
@@ -1123,7 +1097,9 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+              .getMethodInterceptors(method)
+              .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
       when(invocation.getMethod()).thenReturn(method);
       when(invocation.getArguments())
@@ -1173,7 +1149,6 @@ public class TestGravitinoInterceptionService {
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
       when(mockEnv.internalViewDispatcher()).thenReturn(viewDispatcher);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
       AtomicReference<View> created = new AtomicReference<>();
       View view = mock(View.class);
       when(view.name()).thenReturn("missingView");
@@ -1212,7 +1187,9 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+              .getMethodInterceptors(method)
+              .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
       when(invocation.getMethod()).thenReturn(method);
       when(invocation.getArguments())
@@ -1270,8 +1247,6 @@ public class TestGravitinoInterceptionService {
       TableDispatcher tableDispatcher = mock(TableDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.internalTableDispatcher()).thenReturn(tableDispatcher);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
       AtomicReference<Table> created = new AtomicReference<>();
       Table table = mock(Table.class);
       when(table.name()).thenReturn("missingTable");
@@ -1306,7 +1281,9 @@ public class TestGravitinoInterceptionService {
           TableOperations.class.getMethod(
               "loadTable", String.class, String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+          new GravitinoInterceptionService(mockEventBus, tableDispatcher)
+              .getMethodInterceptors(method)
+              .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
       when(invocation.getMethod()).thenReturn(method);
       when(invocation.getArguments())
@@ -1366,9 +1343,8 @@ public class TestGravitinoInterceptionService {
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       EventBus mockEventBus = mock(EventBus.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.eventBus()).thenReturn(mockEventBus);
 
-      GravitinoInterceptionService service = new GravitinoInterceptionService();
+      GravitinoInterceptionService service = newService(mockEventBus);
       Method testMethod = TestOperations.class.getMethods()[0];
       MethodInterceptor interceptor = service.getMethodInterceptors(testMethod).get(0);
 
@@ -1489,11 +1465,14 @@ public class TestGravitinoInterceptionService {
     }
   }
 
-  private MethodInterceptor tableLoadInterceptor() throws NoSuchMethodException {
+  private MethodInterceptor tableLoadInterceptor(EventBus eventBus, TableDispatcher tableDispatcher)
+      throws NoSuchMethodException {
     Method method =
         TestTableLoadOperations.class.getMethod(
             "loadTable", String.class, String.class, String.class, String.class, String.class);
-    return new GravitinoInterceptionService().getMethodInterceptors(method).get(0);
+    return new GravitinoInterceptionService(eventBus, tableDispatcher)
+        .getMethodInterceptors(method)
+        .get(0);
   }
 
   private MethodInvocation tableLoadInvocation() throws NoSuchMethodException {
@@ -1569,11 +1548,10 @@ public class TestGravitinoInterceptionService {
 
       GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.eventBus()).thenReturn(eventBus);
 
       // Use the real resource method so its annotations drive the authorization executor.
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService().getMethodInterceptors(invocation.getMethod()).get(0);
+          newService(eventBus).getMethodInterceptors(invocation.getMethod()).get(0);
       return (Response) interceptor.invoke(invocation);
     }
   }
@@ -1713,5 +1691,13 @@ public class TestGravitinoInterceptionService {
     List<LogEvent> getEvents() {
       return events;
     }
+  }
+
+  private static GravitinoInterceptionService newService() {
+    return newService(mock(EventBus.class));
+  }
+
+  private static GravitinoInterceptionService newService(EventBus eventBus) {
+    return new GravitinoInterceptionService(eventBus, mock(TableDispatcher.class));
   }
 }

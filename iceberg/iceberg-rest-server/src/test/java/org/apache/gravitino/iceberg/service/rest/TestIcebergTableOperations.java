@@ -37,6 +37,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.credential.Credential;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.extension.DummyCredentialProvider;
@@ -143,7 +144,7 @@ public class TestIcebergTableOperations extends IcebergNamespaceTestBase {
         });
 
     GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
-    provider.initialize(new ServerConfig());
+    provider.initialize(new ServerConfig(), Mockito.mock(AuthorizerContext.class));
 
     return resourceConfig;
   }

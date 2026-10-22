@@ -70,6 +70,7 @@ public class TestGravitinoServerLifecycle {
     order.verify(env).start();
     order.verify(jetty).start();
     order.verify(jetty).stop();
+    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
     order.verify(env).shutdown();
     order.verify(lineage).close();
@@ -100,6 +101,7 @@ public class TestGravitinoServerLifecycle {
     // Nothing had started, so the rollback stopped nothing; stop() still releases every service.
     InOrder order = inOrder(jetty, env, authorizer, lineage);
     order.verify(jetty).stop();
+    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
     order.verify(env).shutdown();
     order.verify(lineage).close();

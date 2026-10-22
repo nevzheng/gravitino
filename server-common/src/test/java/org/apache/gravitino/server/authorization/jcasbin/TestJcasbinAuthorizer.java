@@ -91,6 +91,7 @@ import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.cache.GravitinoCache;
@@ -408,7 +409,23 @@ public class TestJcasbinAuthorizer {
         .doWithCatalog(any(), any());
     when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
     jcasbinAuthorizer = new JcasbinAuthorizer();
-    jcasbinAuthorizer.initialize();
+    jcasbinAuthorizer.initialize(
+        new AuthorizerContext() {
+          @Override
+          public Config config() {
+            return gravitinoEnv.config();
+          }
+
+          @Override
+          public EntityStore entityStore() {
+            return gravitinoEnv.entityStore();
+          }
+
+          @Override
+          public AccessControlDispatcher internalAccessControlDispatcher() {
+            return gravitinoEnv.internalAccessControlDispatcher();
+          }
+        });
     restoreDefaultPrincipal();
     // Reset role-user relation mock to return empty list (no roles) by default; individual tests
     // can override as needed.

@@ -26,6 +26,8 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -35,7 +37,6 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
@@ -61,20 +62,24 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationExpres
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.MetadataObjectUtil;
+import org.jvnet.hk2.annotations.Optional;
 
 @NameBindings.AccessControlInterfaces
 @Path("/metalakes/{metalake}/permissions")
 public class PermissionOperations {
 
-  private final AccessControlDispatcher accessControlManager;
+  @Nullable private final AccessControlDispatcher accessControlManager;
 
   @Context private HttpServletRequest httpRequest;
 
-  public PermissionOperations() {
-    // Because accessManager may be null when Gravitino doesn't enable authorization,
-    // and Jersey injection doesn't support null value. So PermissionOperations chooses to retrieve
-    // accessControlManager from GravitinoEnv instead of injection here.
-    this.accessControlManager = GravitinoEnv.getInstance().accessControlDispatcher();
+  /**
+   * Creates a permission REST resource. The service is absent when authorization is disabled.
+   *
+   * @param accessControlManager the access-control dispatcher, or null.
+   */
+  @Inject
+  public PermissionOperations(@Optional @Nullable AccessControlDispatcher accessControlManager) {
+    this.accessControlManager = accessControlManager;
   }
 
   @PUT

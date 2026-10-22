@@ -28,10 +28,10 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.inject.Inject;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.connector.CatalogOperations;
@@ -61,34 +61,20 @@ public class SemanticModelSourceValidator {
    *
    * @param tables table metadata dispatcher
    * @param views view metadata dispatcher
+   * @param catalogManager the catalog manager that tells which source types a catalog supports
    */
   @Inject
-  public SemanticModelSourceValidator(TableDispatcher tables, ViewDispatcher views) {
-    this(tables, views, () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
+  public SemanticModelSourceValidator(
+      TableDispatcher tables, ViewDispatcher views, CatalogManager catalogManager) {
+    this(tables, views, SemanticModelSourceValidator::serverAuthorizer, catalogManager);
   }
 
   SemanticModelSourceValidator(
-      TableDispatcher tables, ViewDispatcher views, Supplier<GravitinoAuthorizer> authorizer) {
-    this(
-        tables,
-        views,
-        authorizer,
-        ident ->
-            GravitinoEnv.getInstance()
-                .catalogManager()
-                .doWithCatalog(
-                    NameIdentifierUtil.getCatalogIdentifier(ident),
-                    catalog -> {
-                      CatalogOperations ops = catalog.ops();
-                      Set<Entity.EntityType> types = EnumSet.noneOf(Entity.EntityType.class);
-                      if (ops instanceof TableCatalog) {
-                        types.add(Entity.EntityType.TABLE);
-                      }
-                      if (ops instanceof ViewCatalog) {
-                        types.add(Entity.EntityType.VIEW);
-                      }
-                      return types;
-                    }));
+      TableDispatcher tables,
+      ViewDispatcher views,
+      Supplier<GravitinoAuthorizer> authorizer,
+      CatalogManager catalogManager) {
+    this(tables, views, authorizer, supportedSourceTypes(catalogManager));
   }
 
   SemanticModelSourceValidator(
@@ -224,5 +210,27 @@ public class SemanticModelSourceValidator {
         }
       }
     }
+  }
+
+  private static GravitinoAuthorizer serverAuthorizer() {
+    return GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer();
+  }
+
+  private static Function<NameIdentifier, Set<Entity.EntityType>> supportedSourceTypes(
+      CatalogManager catalogManager) {
+    return ident ->
+        catalogManager.doWithCatalog(
+            NameIdentifierUtil.getCatalogIdentifier(ident),
+            catalog -> {
+              CatalogOperations ops = catalog.ops();
+              Set<Entity.EntityType> types = EnumSet.noneOf(Entity.EntityType.class);
+              if (ops instanceof TableCatalog) {
+                types.add(Entity.EntityType.TABLE);
+              }
+              if (ops instanceof ViewCatalog) {
+                types.add(Entity.EntityType.VIEW);
+              }
+              return types;
+            });
   }
 }

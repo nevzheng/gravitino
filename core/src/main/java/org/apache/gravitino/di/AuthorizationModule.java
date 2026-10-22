@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.di;
 
+import dagger.Binds;
 import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
@@ -27,6 +28,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.bulk.BulkManager;
@@ -38,7 +40,8 @@ import org.apache.gravitino.storage.IdGenerator;
 
 /**
  * Binds the access-control components: the access control manager and its public chain, the bulk
- * manager and the future grant manager.
+ * manager, the future grant manager, and the {@link AuthorizerContext} the server initializes its
+ * authorizer with.
  *
  * <p>The {@link Internal} access-control binding is the manager itself; the {@link Public} one is
  * event → hook → that manager. {@code GravitinoEnv} requests these objects only when authorization
@@ -53,6 +56,10 @@ import org.apache.gravitino.storage.IdGenerator;
 abstract class AuthorizationModule {
 
   private AuthorizationModule() {}
+
+  @Binds
+  @Singleton
+  abstract AuthorizerContext authorizerContext(ComponentAuthorizerContext context);
 
   @Multibinds
   @Internal

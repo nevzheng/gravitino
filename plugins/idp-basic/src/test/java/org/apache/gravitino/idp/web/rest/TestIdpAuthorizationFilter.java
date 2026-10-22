@@ -18,6 +18,7 @@
  */
 package org.apache.gravitino.idp.web.rest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -25,9 +26,13 @@ import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.PathSegment;
 import javax.ws.rs.core.UriInfo;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.gravitino.Config;
+import org.apache.gravitino.Configs;
 import org.junit.jupiter.api.Test;
 
 class TestIdpAuthorizationFilter {
@@ -38,6 +43,17 @@ class TestIdpAuthorizationFilter {
     assertFalse(IdpAuthorizationFilter.isServiceAdmin(List.of("admin"), null));
     assertFalse(IdpAuthorizationFilter.isServiceAdmin(List.of("admin"), "other"));
     assertTrue(IdpAuthorizationFilter.isServiceAdmin(List.of("admin", "ops"), "admin"));
+  }
+
+  @Test
+  void testReadsTheServiceAdminsFromTheConfig() throws IllegalAccessException {
+    Config config = mock(Config.class);
+    when(config.get(Configs.SERVICE_ADMINS)).thenReturn(List.of("admin"));
+    IdpAuthorizationFilter filter = new IdpAuthorizationFilter(config);
+
+    Supplier<?> serviceAdmins =
+        (Supplier<?>) FieldUtils.readField(filter, "serviceAdminsSupplier", true);
+    assertEquals(List.of("admin"), serviceAdmins.get());
   }
 
   @Test

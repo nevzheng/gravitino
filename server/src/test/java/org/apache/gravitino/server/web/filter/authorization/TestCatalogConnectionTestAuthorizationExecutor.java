@@ -21,6 +21,7 @@ package org.apache.gravitino.server.web.filter.authorization;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import com.google.common.collect.ImmutableList;
 import java.lang.reflect.Method;
@@ -28,6 +29,7 @@ import java.util.Collections;
 import java.util.Optional;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.dto.requests.CatalogUpdateRequest;
 import org.apache.gravitino.dto.requests.CatalogUpdatesRequest;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
@@ -98,7 +100,8 @@ public class TestCatalogConnectionTestAuthorizationExecutor {
             new Object[] {proposedChanges()},
             SECONDARY_EXPRESSION,
             ExpressionCondition.HAS_PROPOSED_CHANGES,
-            "");
+            "",
+            mock(TableDispatcher.class));
 
     assertTrue(executor instanceof CatalogConnectionTestAuthorizationExecutor);
     assertEquals(

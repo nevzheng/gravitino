@@ -17,10 +17,11 @@
 
 package org.apache.gravitino.server.authorization;
 
+import com.google.common.base.Preconditions;
 import java.io.Closeable;
 import java.io.IOException;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.server.ServerConfig;
 
@@ -39,30 +40,20 @@ public class GravitinoAuthorizerProvider implements Closeable {
   private volatile GravitinoAuthorizer gravitinoAuthorizer;
 
   /**
-   * Instantiate the {@link GravitinoAuthorizer}, and then execute the initialize method in the
-   * GravitinoAuthorizer.
+   * Instantiates the {@link GravitinoAuthorizer} configured by {@code serverConfig}, or a {@link
+   * PassThroughAuthorizer} when authorization is disabled, and initializes it with {@code context}.
+   * Does nothing when the authorizer is already initialized.
    *
    * @param serverConfig Gravitino server config
+   * @param context the host services the authorizer may use
    */
-  public void initialize(ServerConfig serverConfig) {
+  public void initialize(ServerConfig serverConfig, AuthorizerContext context) {
+    Preconditions.checkNotNull(context, "context");
     if (gravitinoAuthorizer == null) {
       synchronized (this) {
         if (gravitinoAuthorizer == null) {
-          boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-          if (enableAuthorization) {
-            String authorizationImpl = serverConfig.get(Configs.AUTHORIZATION_IMPL);
-            try {
-              gravitinoAuthorizer =
-                  (GravitinoAuthorizer)
-                      Class.forName(authorizationImpl).getDeclaredConstructor().newInstance();
-            } catch (Exception e) {
-              throw new IllegalArgumentException("Cannot initialize GravitinoAuthorizer", e);
-            }
-          } else {
-            gravitinoAuthorizer = new PassThroughAuthorizer();
-          }
-          gravitinoAuthorizer.initialize();
-          GravitinoEnv.getInstance().setGravitinoAuthorizer(gravitinoAuthorizer);
+          gravitinoAuthorizer = newAuthorizer(serverConfig);
+          gravitinoAuthorizer.initialize(context);
         }
       }
     }
@@ -81,9 +72,22 @@ public class GravitinoAuthorizerProvider implements Closeable {
     return gravitinoAuthorizer;
   }
 
+  private static GravitinoAuthorizer newAuthorizer(ServerConfig serverConfig) {
+    if (!serverConfig.get(Configs.ENABLE_AUTHORIZATION)) {
+      return new PassThroughAuthorizer();
+    }
+    String authorizationImpl = serverConfig.get(Configs.AUTHORIZATION_IMPL);
+    try {
+      return (GravitinoAuthorizer)
+          Class.forName(authorizationImpl).getDeclaredConstructor().newInstance();
+    } catch (Exception e) {
+      throw new IllegalArgumentException("Cannot initialize GravitinoAuthorizer", e);
+    }
+  }
+
+  /** Closes the authorizer. */
   @Override
   public void close() throws IOException {
-    GravitinoEnv.getInstance().setGravitinoAuthorizer(null);
     if (gravitinoAuthorizer != null) {
       gravitinoAuthorizer.close();
     }

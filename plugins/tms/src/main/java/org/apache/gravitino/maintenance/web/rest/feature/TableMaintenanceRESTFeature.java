@@ -19,13 +19,13 @@
 package org.apache.gravitino.maintenance.web.rest.feature;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.inject.Inject;
 import javax.sql.DataSource;
 import javax.ws.rs.core.Feature;
 import javax.ws.rs.core.FeatureContext;
 import javax.ws.rs.ext.Provider;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.maintenance.TableMaintenanceConfig;
 import org.apache.gravitino.maintenance.scheduler.TableMaintenanceSchedulerPools;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
@@ -58,6 +58,18 @@ public class TableMaintenanceRESTFeature implements Feature {
   private static final AtomicReference<TableMaintenanceSchedulerPools> SCHEDULER_POOLS =
       new AtomicReference<>();
 
+  private final Config config;
+
+  /**
+   * Creates the feature.
+   *
+   * @param config the server configuration.
+   */
+  @Inject
+  public TableMaintenanceRESTFeature(Config config) {
+    this.config = config;
+  }
+
   @Override
   public boolean configure(FeatureContext context) {
     if (SCHEDULER_POOLS.get() != null) {
@@ -65,7 +77,6 @@ public class TableMaintenanceRESTFeature implements Feature {
       return true;
     }
 
-    Config config = GravitinoEnv.getInstance().config();
     if (!Configs.RELATIONAL_ENTITY_STORE.equals(config.get(Configs.ENTITY_STORE))) {
       throw new IllegalStateException(
           "Table maintenance requires gravitino.entity.store = relational");

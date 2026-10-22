@@ -34,8 +34,8 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.dto.responses.RemoveResponse;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.idp.IdpUserGroupManager;
@@ -55,12 +55,20 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class IdpUserOperations {
 
   private final IdpUserGroupManager userGroupManager;
+  private final Config config;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param userGroupManager the built-in IdP user and group manager.
+   * @param config the server configuration, which lists the service admins.
+   */
   @Inject
-  public IdpUserOperations(IdpUserGroupManager userGroupManager) {
+  public IdpUserOperations(IdpUserGroupManager userGroupManager, Config config) {
     this.userGroupManager = userGroupManager;
+    this.config = config;
   }
 
   @GET
@@ -116,8 +124,7 @@ public class IdpUserOperations {
         () -> {
           request.validate();
           String currentUser = PrincipalUtils.getCurrentUserName();
-          List<String> serviceAdmins =
-              GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS);
+          List<String> serviceAdmins = config.get(Configs.SERVICE_ADMINS);
           boolean isServiceAdmin =
               IdpAuthorizationFilter.isServiceAdmin(serviceAdmins, currentUser);
           if (!isServiceAdmin && !user.equals(currentUser)) {
@@ -161,8 +168,7 @@ public class IdpUserOperations {
         () -> {
           request.validate();
           String currentUser = PrincipalUtils.getCurrentUserName();
-          List<String> serviceAdmins =
-              GravitinoEnv.getInstance().config().get(Configs.SERVICE_ADMINS);
+          List<String> serviceAdmins = config.get(Configs.SERVICE_ADMINS);
           if (!IdpAuthorizationFilter.isServiceAdmin(serviceAdmins, currentUser)) {
             throw new ForbiddenException("Only service admins can update the enabled flag");
           }
