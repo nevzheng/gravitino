@@ -392,9 +392,10 @@ jobs:
       - name: Test publish to local
         run: ./gradlew publishToMavenLocal -PskipWeb=true -x test
 
+      # testClasses compiles the test sources too, so a test that does not compile fails here.
       - name: Build without tests
         run: >-
-          ./gradlew build -x test
+          ./gradlew build testClasses -x test
           -PskipWeb=true
           -x :clients:client-python:build
           ${{ needs.changes.outputs.mcp_server_changes != 'true' && '-x :mcp-server:build -x :mcp-server:pylint -x :web-v2:web:build' || '' }}

@@ -422,7 +422,8 @@ allprojects {
       }
 
       kotlinGradle {
-        target("*.gradle.kts")
+        // The root project also owns the script plugins under gradle/.
+        if (project == rootProject) target("*.gradle.kts", "gradle/*.gradle.kts") else target("*.gradle.kts")
         ktlint().editorConfigOverride(mapOf("indent_size" to 2))
       }
     }
