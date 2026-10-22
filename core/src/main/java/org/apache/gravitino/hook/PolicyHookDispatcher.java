@@ -19,9 +19,9 @@ package org.apache.gravitino.hook;
 
 import java.util.Arrays;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.RelationalEntity;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -38,9 +38,18 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class PolicyHookDispatcher implements PolicyDispatcher {
 
   private final PolicyDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public PolicyHookDispatcher(PolicyDispatcher dispatcher) {
+  /**
+   * Creates a policy hook dispatcher.
+   *
+   * @param dispatcher the underlying policy dispatcher
+   * @param authorizationServices the services that keep authorization in step with policy changes
+   */
+  public PolicyHookDispatcher(
+      PolicyDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -70,7 +79,7 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     PolicyEntity policy = dispatcher.createPolicy(metalake, name, type, comment, enabled, content);
 
     // Set the creator as the owner of the policy.
-    OwnerDispatcher ownerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerDispatcher = authorizationServices.internalOwnerDispatcher();
     if (ownerDispatcher != null) {
       ownerDispatcher.setOwner(
           metalake,
@@ -87,7 +96,9 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     PolicyEntity alteredPolicy = dispatcher.alterPolicy(metalake, policyName, changes);
     if (Arrays.stream(changes).anyMatch(change -> change instanceof PolicyChange.RenamePolicy)) {
       AuthorizationUtils.notifyEntityNameIdMappingChange(
-          NameIdentifierUtil.ofPolicy(metalake, policyName), Entity.EntityType.POLICY);
+          authorizationServices.gravitinoAuthorizer(),
+          NameIdentifierUtil.ofPolicy(metalake, policyName),
+          Entity.EntityType.POLICY);
     }
     return alteredPolicy;
   }
@@ -108,7 +119,9 @@ public class PolicyHookDispatcher implements PolicyDispatcher {
     if (deleted) {
       // A policy created later under the same name gets a new id, so drop the cached mapping.
       AuthorizationUtils.notifyEntityNameIdMappingChange(
-          NameIdentifierUtil.ofPolicy(metalake, policyName), Entity.EntityType.POLICY);
+          authorizationServices.gravitinoAuthorizer(),
+          NameIdentifierUtil.ofPolicy(metalake, policyName),
+          Entity.EntityType.POLICY);
     }
     return deleted;
   }

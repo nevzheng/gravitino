@@ -38,6 +38,7 @@ import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.catalog.CapabilityHelpers;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -99,7 +100,9 @@ public class TestJcasbinModelCacheInvalidation {
       // Use the real JCasbin hook and shared caches without starting its background poller.
       JcasbinAuthorizer authorizer = mock(JcasbinAuthorizer.class, CALLS_REAL_METHODS);
       FieldUtils.writeField(authorizer, "metadataIdCache", metadataIdCache, true);
-      when(env.gravitinoAuthorizer()).thenReturn(authorizer);
+      AuthorizationServices services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
+      doReturn(catalogManager).when(services).catalogManager();
+      doReturn(authorizer).when(services).gravitinoAuthorizer();
       JcasbinAuthorizationLookups lookups =
           new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, resolver);
       Assertions.assertEquals(
@@ -109,7 +112,7 @@ public class TestJcasbinModelCacheInvalidation {
       metadataIdCache.put(otherKey, 50L);
 
       ModelDispatcher dispatcher =
-          new ModelNormalizeDispatcher(new ModelHookDispatcher(delegate), catalogManager);
+          new ModelNormalizeDispatcher(new ModelHookDispatcher(delegate, services), catalogManager);
       if (rename) {
         Assertions.assertSame(
             renamedModel, dispatcher.alterModel(normalizedIdent, ModelChange.rename("renamed")));

@@ -36,6 +36,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
@@ -155,8 +156,8 @@ public class TestDownstreamComponent {
   public void testUpstreamConsumersOfAChainGetTheDecoratedChain() {
     Object hook =
         field(field(untag(component.tableDispatcher(), "tables"), "dispatcher"), "dispatcher");
-    Supplier<?> owners = (Supplier<?>) field(hook, "ownerDispatcher");
-    assertSame(component.internalOwnerDispatcher(), owners.get());
+    AuthorizationServices services = (AuthorizationServices) field(hook, "authorizationServices");
+    assertSame(component.internalOwnerDispatcher(), services.internalOwnerDispatcher());
     Object operations = untag(field(hook, "dispatcher"), "table operations");
     Supplier<?> schemas = (Supplier<?>) field(operations, "schemaDispatcherSupplier");
     assertSame(component.internalSchemaDispatcher(), schemas.get());

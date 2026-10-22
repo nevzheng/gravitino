@@ -48,6 +48,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.audit.AuditLog;
 import org.apache.gravitino.audit.v2.SimpleAuditLogV2;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -100,12 +101,12 @@ class TestSemanticModelImportExportEvent {
   private OwnerDispatcher owners;
   private DummyEventListener listener;
   private SemanticModel model;
-  private boolean authorizationEnabled;
+  private FakeAuthorizationServices services;
 
   @BeforeEach
   void setUp() {
-    authorizationEnabled = true;
     owners = mock(OwnerDispatcher.class);
+    services = new FakeAuthorizationServices().withOwnerDispatcher(owners);
     operation = mock(SemanticModelOperationDispatcher.class);
     doCallRealMethod().when(operation).importSemanticModel(any(), any(), any(), any());
     doCallRealMethod().when(operation).exportOssieDocument(any(), any());
@@ -119,8 +120,7 @@ class TestSemanticModelImportExportEvent {
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability()).thenReturn(new ParentNormalizingCapability());
     CatalogTestUtils.mockDoWithCatalog(catalogs, catalog);
-    hook =
-        spy(new SemanticModelHookDispatcher(operation, () -> authorizationEnabled ? owners : null));
+    hook = spy(new SemanticModelHookDispatcher(operation, services));
     normalizer = spy(new SemanticModelNormalizeDispatcher(hook, catalogs));
     listener = new DummyEventListener();
     dispatcher = new SemanticModelEventDispatcher(new EventBus(List.of(listener)), normalizer);
@@ -183,7 +183,7 @@ class TestSemanticModelImportExportEvent {
 
   @Test
   void testImportStillValidatesSourcesWhenOwnershipIsDisabled() {
-    authorizationEnabled = false;
+    services.withOwnerDispatcher(null);
     AtomicInteger validations = new AtomicInteger();
     dispatcher.importOssieDocument(
         NAMESPACE, document(), definition -> validations.incrementAndGet());
@@ -334,7 +334,7 @@ class TestSemanticModelImportExportEvent {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void testImportAndExportRetainInitiatingUser(boolean fail) {
-    authorizationEnabled = false;
+    services.withOwnerDispatcher(null);
     if (fail) {
       doThrow(new IllegalArgumentException("rejected"))
           .when(operation)

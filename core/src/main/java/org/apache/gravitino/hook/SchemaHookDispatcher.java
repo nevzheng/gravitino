@@ -22,14 +22,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
 import org.apache.gravitino.SchemaChange;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -54,22 +53,23 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class SchemaHookDispatcher implements SchemaDispatcher {
   private final SchemaDispatcher dispatcher;
-  private final Supplier<LockManager> lockManagerSupplier;
+  private final LockManager lockManager;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates a schema hook dispatcher.
    *
    * @param dispatcher The schema dispatcher to delegate to.
    * @param lockManager The lock manager that serializes schema creation on the catalog.
+   * @param authorizationServices The services that keep authorization in step with schema changes.
    */
-  public SchemaHookDispatcher(SchemaDispatcher dispatcher, LockManager lockManager) {
-    this(dispatcher, () -> lockManager);
-  }
-
-  private SchemaHookDispatcher(
-      SchemaDispatcher dispatcher, Supplier<LockManager> lockManagerSupplier) {
+  public SchemaHookDispatcher(
+      SchemaDispatcher dispatcher,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
-    this.lockManagerSupplier = lockManagerSupplier;
+    this.lockManager = lockManager;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -100,7 +100,7 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
     NameIdentifier catalogIdent =
         NameIdentifierUtil.ofCatalog(ident.namespace().level(0), ident.namespace().level(1));
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         catalogIdent,
         LockType.WRITE,
         () -> {
@@ -117,7 +117,7 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
           // mirrors IcebergNamespaceHookDispatcher.createNamespace so ownership-based
           // authorization -- which treats ownership of an ancestor schema as ownership of the
           // whole subtree -- behaves the same on the Gravitino and Iceberg REST surfaces.
-          OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+          OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
           if (ownerManager != null) {
             List<MetadataObject> ownedObjects = new ArrayList<>(newAncestors.size() + 1);
             for (NameIdentifier ancestor : newAncestors) {
@@ -190,13 +190,14 @@ public class SchemaHookDispatcher implements SchemaDispatcher {
   @Override
   public boolean dropSchema(NameIdentifier ident, boolean cascade) throws NonEmptySchemaException {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.SCHEMA);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.SCHEMA);
     boolean dropped = dispatcher.dropSchema(ident, cascade);
     // Only a schema that was really dropped loses its privileges; a false result means the
     // registration was kept.
     if (dropped) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.SCHEMA, locations);
+          authorizationServices, ident, Entity.EntityType.SCHEMA, locations);
     }
     return dropped;
   }

@@ -37,14 +37,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Schema;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
@@ -55,7 +55,6 @@ import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.connector.capability.CapabilityResult;
 import org.apache.gravitino.lock.LockManager;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,10 +69,6 @@ public class TestSchemaHookDispatcher {
   private OwnerDispatcher mockOwnerDispatcher;
   private CatalogManager mockCatalogManager;
   private BaseCatalog<?> mockCatalog;
-  // Save the originals before each test and restore them in tearDown so we do not leak null
-  // state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
-  private CatalogManager savedCatalogManager;
 
   @BeforeEach
   public void setUp() throws Exception {
@@ -83,25 +78,14 @@ public class TestSchemaHookDispatcher {
     mockCatalog = mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(mockCatalogManager, mockCatalog);
     when(mockCatalog.capability()).thenReturn(Capability.DEFAULT);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-    // Tests in this class that rely on the singleton catalogManager always go through
-    // GravitinoEnv.getInstance().catalogManager(), but we cannot call the public accessor here
-    // because it Preconditions-checks for non-null and would fail when GravitinoEnv has not been
-    // initialized. Read the field directly via reflection to capture the current value safely.
-    savedCatalogManager =
-        (CatalogManager) FieldUtils.readField(GravitinoEnv.getInstance(), "catalogManager", true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
     // createSchema acquires a catalog-level tree lock, so pass a real LockManager.
-    hookDispatcher = new SchemaHookDispatcher(mockDispatcher, new LockManager(newLockConfig()));
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", savedCatalogManager, true);
+    hookDispatcher =
+        new SchemaHookDispatcher(
+            mockDispatcher,
+            new LockManager(newLockConfig()),
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(mockOwnerDispatcher)
+                .withCatalogManager(mockCatalogManager));
   }
 
   private static Config newLockConfig() {
@@ -217,14 +201,18 @@ public class TestSchemaHookDispatcher {
           .when(
               () ->
                   AuthorizationUtils.getMetadataObjectLocation(
-                      any(NameIdentifier.class), any(Entity.EntityType.class)))
+                      Mockito.any(AuthorizationServices.class),
+                      any(NameIdentifier.class),
+                      any(Entity.EntityType.class)))
           .thenReturn(ImmutableList.of("/test"));
 
       Assertions.assertFalse(hookDispatcher.dropSchema(ident, false));
 
       // Nothing was dropped, so the schema that is still registered keeps its privileges.
       authz.verify(
-          () -> AuthorizationUtils.authorizationPluginRemovePrivileges(any(), any(), any()),
+          () ->
+              AuthorizationUtils.authorizationPluginRemovePrivileges(
+                  Mockito.any(AuthorizationServices.class), any(), any(), any()),
           never());
     }
   }
@@ -239,7 +227,9 @@ public class TestSchemaHookDispatcher {
           .when(
               () ->
                   AuthorizationUtils.getMetadataObjectLocation(
-                      any(NameIdentifier.class), any(Entity.EntityType.class)))
+                      Mockito.any(AuthorizationServices.class),
+                      any(NameIdentifier.class),
+                      any(Entity.EntityType.class)))
           .thenReturn(ImmutableList.of("/test"));
 
       boolean dropped = hookDispatcher.dropSchema(ident, false);
@@ -250,7 +240,10 @@ public class TestSchemaHookDispatcher {
       authz.verify(
           () ->
               AuthorizationUtils.authorizationPluginRemovePrivileges(
-                  eq(ident), eq(Entity.EntityType.SCHEMA), eq(ImmutableList.of("/test"))));
+                  Mockito.any(AuthorizationServices.class),
+                  eq(ident),
+                  eq(Entity.EntityType.SCHEMA),
+                  eq(ImmutableList.of("/test"))));
     }
   }
 
@@ -266,7 +259,10 @@ public class TestSchemaHookDispatcher {
       authz.verify(
           () ->
               AuthorizationUtils.authorizationPluginRemovePrivileges(
-                  ident, Entity.EntityType.SCHEMA, null),
+                  Mockito.any(AuthorizationServices.class),
+                  Mockito.eq(ident),
+                  Mockito.eq(Entity.EntityType.SCHEMA),
+                  Mockito.eq(null)),
           Mockito.never());
     }
   }

@@ -22,10 +22,9 @@ import dagger.Module;
 import dagger.Provides;
 import dagger.multibindings.Multibinds;
 import java.util.Map;
-import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
@@ -148,9 +147,10 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated FilesetOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<FilesetDispatcher>> decorators) {
     return Chain.<FilesetDispatcher>of("@Public FilesetDispatcher", operations, decorators)
-        .hook(FilesetHookDispatcher::new)
+        .hook(d -> new FilesetHookDispatcher(d, authorizationServices))
         .normalize(d -> new FilesetNormalizeDispatcher(d, catalogManager))
         .event(d -> new FilesetEventDispatcher(eventBus, d))
         .build();
@@ -188,9 +188,10 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated TopicOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<TopicDispatcher>> decorators) {
     return Chain.<TopicDispatcher>of("@Public TopicDispatcher", operations, decorators)
-        .hook(TopicHookDispatcher::new)
+        .hook(d -> new TopicHookDispatcher(d, authorizationServices))
         .normalize(d -> new TopicNormalizeDispatcher(d, catalogManager))
         .event(d -> new TopicEventDispatcher(eventBus, d))
         .build();
@@ -226,9 +227,10 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated ModelOperationDispatcher operations,
       CatalogManager catalogManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<ModelDispatcher>> decorators) {
     return Chain.<ModelDispatcher>of("@Public ModelDispatcher", operations, decorators)
-        .hook(ModelHookDispatcher::new)
+        .hook(d -> new ModelHookDispatcher(d, authorizationServices))
         .normalize(d -> new ModelNormalizeDispatcher(d, catalogManager))
         .event(d -> new ModelEventDispatcher(eventBus, d))
         .build();
@@ -267,14 +269,10 @@ abstract class FilesetTopicModelModule {
       EventBus eventBus,
       @Undecorated FunctionOperationDispatcher operations,
       CatalogManager catalogManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<FunctionDispatcher>> decorators) {
     return Chain.<FunctionDispatcher>of("@Public FunctionDispatcher", operations, decorators)
-        .hook(
-            d ->
-                new FunctionHookDispatcher(
-                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .hook(d -> new FunctionHookDispatcher(d, authorizationServices))
         .normalize(d -> new FunctionNormalizeDispatcher(d, catalogManager))
         .event(d -> new FunctionEventDispatcher(eventBus, d))
         .build();
@@ -309,18 +307,14 @@ abstract class FilesetTopicModelModule {
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<SemanticModelDispatcher>> decorators) {
     SemanticModelOperationDispatcher operations =
         new SemanticModelOperationDispatcher(
             catalogManager, schemaOperations, entityStore, idGenerator, secretManager);
     return Chain.<SemanticModelDispatcher>of(
             "@Public SemanticModelDispatcher", operations, decorators)
-        .hook(
-            d ->
-                new SemanticModelHookDispatcher(
-                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .hook(d -> new SemanticModelHookDispatcher(d, authorizationServices))
         .normalize(d -> new SemanticModelNormalizeDispatcher(d, catalogManager))
         .event(d -> new SemanticModelEventDispatcher(eventBus, d))
         .build();

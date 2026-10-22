@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Map;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
@@ -123,7 +124,10 @@ public class TestTableEvent {
         .setOwner(any(), any(), any(), any());
     TableEventDispatcher dispatcherWithHook =
         new TableEventDispatcher(
-            eventBus, new TableHookDispatcher(mockTableDispatcher(), () -> ownerDispatcher));
+            eventBus,
+            new TableHookDispatcher(
+                mockTableDispatcher(),
+                new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher)));
     NameIdentifier identifier = NameIdentifier.of("metalake", "catalog", "schema", table.name());
 
     RuntimeException thrown =

@@ -25,6 +25,7 @@ import java.util.Map;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.hook.JobHookDispatcher;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
@@ -102,10 +103,11 @@ abstract class JobModule {
   static JobOperationDispatcher jobOperationDispatcher(
       EventBus eventBus,
       @Undecorated JobTemplateValidationDispatcher validation,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<JobOperationDispatcher>> decorators) {
     return Chain.<JobOperationDispatcher>of(
             "@Public JobOperationDispatcher", validation, decorators)
-        .hook(JobHookDispatcher::new)
+        .hook(d -> new JobHookDispatcher(d, authorizationServices))
         .event(d -> new JobEventDispatcher(eventBus, d))
         .build();
   }

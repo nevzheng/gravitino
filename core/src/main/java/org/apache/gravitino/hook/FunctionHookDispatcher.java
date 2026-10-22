@@ -19,10 +19,10 @@
 
 package org.apache.gravitino.hook;
 
-import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -44,19 +44,18 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class FunctionHookDispatcher implements FunctionDispatcher {
   private final FunctionDispatcher dispatcher;
-  private final Supplier<OwnerDispatcher> ownerDispatcher;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates a function hook dispatcher.
    *
    * @param dispatcher the underlying function dispatcher
-   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
-   *     disabled
+   * @param authorizationServices the services that keep authorization in step with function changes
    */
   public FunctionHookDispatcher(
-      FunctionDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
+      FunctionDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
-    this.ownerDispatcher = ownerDispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -91,7 +90,7 @@ public class FunctionHookDispatcher implements FunctionDispatcher {
         dispatcher.registerFunction(ident, comment, functionType, deterministic, definitions);
 
     // Set the creator as the owner of the function.
-    OwnerDispatcher ownerManager = ownerDispatcher.get();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -115,7 +114,8 @@ public class FunctionHookDispatcher implements FunctionDispatcher {
       // Function privileges are managed by Gravitino. Catalog authorization plugins such as
       // Ranger HadoopSQL do not support FUNCTION metadata objects, so only invalidate the built-in
       // authorizer's name-to-ID mapping here.
-      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.FUNCTION);
+      AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.FUNCTION);
     }
     return dropped;
   }
