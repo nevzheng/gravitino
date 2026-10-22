@@ -17,7 +17,7 @@
  * under the License.
  */
 
-// CI test stages for .github/workflows/build.yml. Each stage is one task, so a CI job and a
+// CI test stages for .github/workflows/presubmit.yml. Each stage is one task, so a CI job and a
 // local run use the same command:
 //
 //   ./gradlew ciSmallTest -PskipITs -PskipDockerTests=false
@@ -46,7 +46,7 @@ val ciMediumShards: Map<String, List<String>> = mapOf(
 )
 
 // Tests these stages do not run: core runs as lanes in the core-test job, the Python client in
-// python-integration-test.yml, and the contrib catalogs below in contrib-catalog-test.yml.
+// the python-it job, and the contrib catalogs below in contrib-catalog-test.yml.
 val ciSkippedTestModules: Set<String> = setOf(
   ":core",
   ":clients:client-python",
