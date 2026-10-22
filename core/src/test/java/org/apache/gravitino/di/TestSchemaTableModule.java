@@ -127,7 +127,7 @@ public class TestSchemaTableModule {
   }
 
   @Test
-  public void testPartitionPublicChainWrapsTheInternalChain() throws Exception {
+  public void testPartitionChainsShareTheOperationDispatcher() throws Exception {
     assertChain(
         component.internalPartitionDispatcher(),
         PartitionNormalizeDispatcher.class,
@@ -137,9 +137,10 @@ public class TestSchemaTableModule {
         PartitionEventDispatcher.class,
         PartitionNormalizeDispatcher.class,
         PartitionOperationDispatcher.class);
+    // Each chain has its own normalize layer, so a decorator of one never reaches the other.
     assertSame(
-        component.internalPartitionDispatcher(),
-        field(component.partitionDispatcher(), "dispatcher"));
+        field(component.internalPartitionDispatcher(), "dispatcher"),
+        field(field(component.partitionDispatcher(), "dispatcher"), "dispatcher"));
   }
 
   @Test

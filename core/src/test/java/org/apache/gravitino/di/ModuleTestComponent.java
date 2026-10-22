@@ -22,6 +22,7 @@ import dagger.BindsInstance;
 import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.catalog.SchemaOperationDispatcher;
 
 /**
  * A graph with the production modules and fake leaves: {@link FakeLeavesModule} replaces the
@@ -41,6 +42,15 @@ import org.apache.gravitino.Config;
       FakeLeavesModule.class
     })
 interface ModuleTestComponent extends GravitinoComponent {
+
+  /**
+   * Returns the schema operation dispatcher the schema chains share, which the production component
+   * does not expose.
+   *
+   * @return the schema operation dispatcher
+   */
+  @Undecorated
+  SchemaOperationDispatcher schemaOperationDispatcher();
 
   /**
    * Builds a test graph.

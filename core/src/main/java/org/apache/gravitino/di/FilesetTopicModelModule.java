@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
@@ -64,14 +66,59 @@ import org.apache.gravitino.storage.IdGenerator;
  * operation dispatcher per type; the public semantic model chain builds its own, as {@code
  * GravitinoEnv} did. Function and semantic model operations work on schemas through the shared
  * {@link SchemaOperationDispatcher} from {@link SchemaTableModule}.
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 @Module
 abstract class FilesetTopicModelModule {
 
   private FilesetTopicModelModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<FilesetDispatcher>> internalFilesetDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<FilesetDispatcher>> filesetDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<TopicDispatcher>> internalTopicDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<TopicDispatcher>> topicDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<ModelDispatcher>> internalModelDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<ModelDispatcher>> modelDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<FunctionDispatcher>> internalFunctionDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<FunctionDispatcher>> functionDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<SemanticModelDispatcher>>
+      internalSemanticModelDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<SemanticModelDispatcher>> semanticModelDecorators();
+
   @Provides
   @Singleton
+  @Undecorated
   static FilesetOperationDispatcher filesetOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
@@ -86,22 +133,32 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static FilesetDispatcher internalFilesetDispatcher(
-      FilesetOperationDispatcher operations, CatalogManager catalogManager) {
-    return new FilesetNormalizeDispatcher(operations, catalogManager);
+      @Undecorated FilesetOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<FilesetDispatcher>> decorators) {
+    return Chain.<FilesetDispatcher>of("@Internal FilesetDispatcher", operations, decorators)
+        .normalize(d -> new FilesetNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
   static FilesetDispatcher filesetDispatcher(
-      EventBus eventBus, FilesetOperationDispatcher operations, CatalogManager catalogManager) {
-    FilesetHookDispatcher hook = new FilesetHookDispatcher(operations);
-    return new FilesetEventDispatcher(
-        eventBus, new FilesetNormalizeDispatcher(hook, catalogManager));
+      EventBus eventBus,
+      @Undecorated FilesetOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Public Map<Layer, DispatcherDecorator<FilesetDispatcher>> decorators) {
+    return Chain.<FilesetDispatcher>of("@Public FilesetDispatcher", operations, decorators)
+        .hook(FilesetHookDispatcher::new)
+        .normalize(d -> new FilesetNormalizeDispatcher(d, catalogManager))
+        .event(d -> new FilesetEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
   @Singleton
+  @Undecorated
   static TopicOperationDispatcher topicOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
@@ -116,21 +173,32 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static TopicDispatcher internalTopicDispatcher(
-      TopicOperationDispatcher operations, CatalogManager catalogManager) {
-    return new TopicNormalizeDispatcher(operations, catalogManager);
+      @Undecorated TopicOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<TopicDispatcher>> decorators) {
+    return Chain.<TopicDispatcher>of("@Internal TopicDispatcher", operations, decorators)
+        .normalize(d -> new TopicNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
   static TopicDispatcher topicDispatcher(
-      EventBus eventBus, TopicOperationDispatcher operations, CatalogManager catalogManager) {
-    TopicHookDispatcher hook = new TopicHookDispatcher(operations);
-    return new TopicEventDispatcher(eventBus, new TopicNormalizeDispatcher(hook, catalogManager));
+      EventBus eventBus,
+      @Undecorated TopicOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Public Map<Layer, DispatcherDecorator<TopicDispatcher>> decorators) {
+    return Chain.<TopicDispatcher>of("@Public TopicDispatcher", operations, decorators)
+        .hook(TopicHookDispatcher::new)
+        .normalize(d -> new TopicNormalizeDispatcher(d, catalogManager))
+        .event(d -> new TopicEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
   @Singleton
+  @Undecorated
   static ModelOperationDispatcher modelOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
@@ -143,24 +211,35 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static ModelDispatcher internalModelDispatcher(
-      ModelOperationDispatcher operations, CatalogManager catalogManager) {
-    return new ModelNormalizeDispatcher(operations, catalogManager);
+      @Undecorated ModelOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<ModelDispatcher>> decorators) {
+    return Chain.<ModelDispatcher>of("@Internal ModelDispatcher", operations, decorators)
+        .normalize(d -> new ModelNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
   static ModelDispatcher modelDispatcher(
-      EventBus eventBus, ModelOperationDispatcher operations, CatalogManager catalogManager) {
-    ModelHookDispatcher hook = new ModelHookDispatcher(operations);
-    return new ModelEventDispatcher(eventBus, new ModelNormalizeDispatcher(hook, catalogManager));
+      EventBus eventBus,
+      @Undecorated ModelOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Public Map<Layer, DispatcherDecorator<ModelDispatcher>> decorators) {
+    return Chain.<ModelDispatcher>of("@Public ModelDispatcher", operations, decorators)
+        .hook(ModelHookDispatcher::new)
+        .normalize(d -> new ModelNormalizeDispatcher(d, catalogManager))
+        .event(d -> new ModelEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
   @Singleton
+  @Undecorated
   static FunctionOperationDispatcher functionOperationDispatcher(
       CatalogManager catalogManager,
-      SchemaOperationDispatcher schemaOperations,
+      @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
@@ -173,8 +252,12 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static FunctionDispatcher internalFunctionDispatcher(
-      FunctionOperationDispatcher operations, CatalogManager catalogManager) {
-    return new FunctionNormalizeDispatcher(operations, catalogManager);
+      @Undecorated FunctionOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<FunctionDispatcher>> decorators) {
+    return Chain.<FunctionDispatcher>of("@Internal FunctionDispatcher", operations, decorators)
+        .normalize(d -> new FunctionNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
@@ -182,15 +265,19 @@ abstract class FilesetTopicModelModule {
   @Public
   static FunctionDispatcher functionDispatcher(
       EventBus eventBus,
-      FunctionOperationDispatcher operations,
+      @Undecorated FunctionOperationDispatcher operations,
       CatalogManager catalogManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
-    FunctionHookDispatcher hook =
-        new FunctionHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new FunctionEventDispatcher(
-        eventBus, new FunctionNormalizeDispatcher(hook, catalogManager));
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Map<Layer, DispatcherDecorator<FunctionDispatcher>> decorators) {
+    return Chain.<FunctionDispatcher>of("@Public FunctionDispatcher", operations, decorators)
+        .hook(
+            d ->
+                new FunctionHookDispatcher(
+                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .normalize(d -> new FunctionNormalizeDispatcher(d, catalogManager))
+        .event(d -> new FunctionEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
@@ -198,14 +285,18 @@ abstract class FilesetTopicModelModule {
   @Internal
   static SemanticModelDispatcher internalSemanticModelDispatcher(
       CatalogManager catalogManager,
-      SchemaOperationDispatcher schemaOperations,
+      @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
-      SecretManager secretManager) {
+      SecretManager secretManager,
+      @Internal Map<Layer, DispatcherDecorator<SemanticModelDispatcher>> decorators) {
     SemanticModelOperationDispatcher operations =
         new SemanticModelOperationDispatcher(
             catalogManager, schemaOperations, entityStore, idGenerator, secretManager);
-    return new SemanticModelNormalizeDispatcher(operations, catalogManager);
+    return Chain.<SemanticModelDispatcher>of(
+            "@Internal SemanticModelDispatcher", operations, decorators)
+        .normalize(d -> new SemanticModelNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
@@ -214,19 +305,24 @@ abstract class FilesetTopicModelModule {
   static SemanticModelDispatcher semanticModelDispatcher(
       EventBus eventBus,
       CatalogManager catalogManager,
-      SchemaOperationDispatcher schemaOperations,
+      @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Map<Layer, DispatcherDecorator<SemanticModelDispatcher>> decorators) {
     SemanticModelOperationDispatcher operations =
         new SemanticModelOperationDispatcher(
             catalogManager, schemaOperations, entityStore, idGenerator, secretManager);
-    SemanticModelHookDispatcher hook =
-        new SemanticModelHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new SemanticModelEventDispatcher(
-        eventBus, new SemanticModelNormalizeDispatcher(hook, catalogManager));
+    return Chain.<SemanticModelDispatcher>of(
+            "@Public SemanticModelDispatcher", operations, decorators)
+        .hook(
+            d ->
+                new SemanticModelHookDispatcher(
+                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .normalize(d -> new SemanticModelNormalizeDispatcher(d, catalogManager))
+        .event(d -> new SemanticModelEventDispatcher(eventBus, d))
+        .build();
   }
 }

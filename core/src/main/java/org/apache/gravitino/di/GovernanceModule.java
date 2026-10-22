@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
@@ -57,8 +59,11 @@ import org.apache.gravitino.tag.TagManager;
  *
  * <p>The public bindings need the event bus, so they are only requested by the full server profile.
  * The owner manager is only built when authorization is {@link AuthorizationEnabled enabled}; while
- * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, so they never yield {@code
- * null} and never need the relational store the owner manager requires.
+ * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, wrapped in their decorators,
+ * so they never yield {@code null} and never need the relational store the owner manager requires.
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 // The statistic manager registers with the ManagedServices registry, which closes it.
 @SuppressWarnings("CloseableProvides")
@@ -67,41 +72,114 @@ abstract class GovernanceModule {
 
   private GovernanceModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<TagDispatcher>> internalTagDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<TagDispatcher>> tagDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<PolicyDispatcher>> internalPolicyDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<PolicyDispatcher>> policyDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<OwnerDispatcher>> internalOwnerDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<OwnerDispatcher>> ownerDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<StatisticDispatcher>> internalStatisticDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<StatisticDispatcher>> statisticDecorators();
+
   @Provides
   @Singleton
-  @Internal
-  static TagDispatcher internalTagDispatcher(IdGenerator idGenerator, EntityStore entityStore) {
+  @Undecorated
+  static TagManager tagManager(IdGenerator idGenerator, EntityStore entityStore) {
     return new TagManager(idGenerator, entityStore);
   }
 
   @Provides
   @Singleton
+  @Internal
+  static TagDispatcher internalTagDispatcher(
+      @Undecorated TagManager tagManager,
+      @Internal Map<Layer, DispatcherDecorator<TagDispatcher>> decorators) {
+    return Chain.<TagDispatcher>of("@Internal TagDispatcher", tagManager, decorators).build();
+  }
+
+  @Provides
+  @Singleton
   @Public
-  static TagDispatcher tagDispatcher(EventBus eventBus, @Internal TagDispatcher internal) {
-    return new TagEventDispatcher(eventBus, new TagHookDispatcher(internal));
+  static TagDispatcher tagDispatcher(
+      EventBus eventBus,
+      @Undecorated TagManager tagManager,
+      @Public Map<Layer, DispatcherDecorator<TagDispatcher>> decorators) {
+    return Chain.<TagDispatcher>of("@Public TagDispatcher", tagManager, decorators)
+        .hook(TagHookDispatcher::new)
+        .event(d -> new TagEventDispatcher(eventBus, d))
+        .build();
+  }
+
+  @Provides
+  @Singleton
+  @Undecorated
+  static PolicyManager policyManager(IdGenerator idGenerator, EntityStore entityStore) {
+    return new PolicyManager(idGenerator, entityStore);
   }
 
   @Provides
   @Singleton
   @Internal
   static PolicyDispatcher internalPolicyDispatcher(
-      IdGenerator idGenerator, EntityStore entityStore) {
-    return new PolicyManager(idGenerator, entityStore);
+      @Undecorated PolicyManager policyManager,
+      @Internal Map<Layer, DispatcherDecorator<PolicyDispatcher>> decorators) {
+    return Chain.<PolicyDispatcher>of("@Internal PolicyDispatcher", policyManager, decorators)
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
-  static PolicyDispatcher policyDispatcher(EventBus eventBus, @Internal PolicyDispatcher internal) {
-    return new PolicyEventDispatcher(eventBus, new PolicyHookDispatcher(internal));
+  static PolicyDispatcher policyDispatcher(
+      EventBus eventBus,
+      @Undecorated PolicyManager policyManager,
+      @Public Map<Layer, DispatcherDecorator<PolicyDispatcher>> decorators) {
+    return Chain.<PolicyDispatcher>of("@Public PolicyDispatcher", policyManager, decorators)
+        .hook(PolicyHookDispatcher::new)
+        .event(d -> new PolicyEventDispatcher(eventBus, d))
+        .build();
+  }
+
+  @Provides
+  @Singleton
+  @Undecorated
+  static OwnerManager ownerManager(EntityStore entityStore) {
+    return new OwnerManager(entityStore);
   }
 
   @Provides
   @Singleton
   @Internal
   static OwnerDispatcher internalOwnerDispatcher(
-      @AuthorizationEnabled boolean authorizationEnabled, EntityStore entityStore) {
-    return authorizationEnabled ? new OwnerManager(entityStore) : NoopOwnerDispatcher.INSTANCE;
+      @AuthorizationEnabled boolean authorizationEnabled,
+      @Undecorated Provider<OwnerManager> ownerManager,
+      @Internal Map<Layer, DispatcherDecorator<OwnerDispatcher>> decorators) {
+    OwnerDispatcher owners =
+        authorizationEnabled ? ownerManager.get() : NoopOwnerDispatcher.INSTANCE;
+    return Chain.of("@Internal OwnerDispatcher", owners, decorators).build();
   }
 
   @Provides
@@ -110,10 +188,14 @@ abstract class GovernanceModule {
   static OwnerDispatcher ownerDispatcher(
       @AuthorizationEnabled boolean authorizationEnabled,
       Provider<EventBus> eventBus,
-      @Internal OwnerDispatcher internal) {
-    return authorizationEnabled
-        ? new OwnerEventManager(eventBus.get(), internal)
-        : NoopOwnerDispatcher.INSTANCE;
+      @Undecorated Provider<OwnerManager> ownerManager,
+      @Public Map<Layer, DispatcherDecorator<OwnerDispatcher>> decorators) {
+    if (!authorizationEnabled) {
+      return Chain.of("@Public OwnerDispatcher", NoopOwnerDispatcher.INSTANCE, decorators).build();
+    }
+    return Chain.<OwnerDispatcher>of("@Public OwnerDispatcher", ownerManager.get(), decorators)
+        .event(d -> new OwnerEventManager(eventBus.get(), d))
+        .build();
   }
 
   /**
@@ -122,8 +204,8 @@ abstract class GovernanceModule {
    */
   @Provides
   @Singleton
-  @Internal
-  static StatisticDispatcher internalStatisticDispatcher(
+  @Undecorated
+  static StatisticManager statisticManager(
       EntityStore entityStore,
       IdGenerator idGenerator,
       Config config,
@@ -134,9 +216,25 @@ abstract class GovernanceModule {
 
   @Provides
   @Singleton
+  @Internal
+  static StatisticDispatcher internalStatisticDispatcher(
+      @Undecorated StatisticManager statisticManager,
+      @Internal Map<Layer, DispatcherDecorator<StatisticDispatcher>> decorators) {
+    return Chain.<StatisticDispatcher>of(
+            "@Internal StatisticDispatcher", statisticManager, decorators)
+        .build();
+  }
+
+  @Provides
+  @Singleton
   @Public
   static StatisticDispatcher statisticDispatcher(
-      EventBus eventBus, @Internal StatisticDispatcher internal) {
-    return new StatisticEventDispatcher(eventBus, internal);
+      EventBus eventBus,
+      @Undecorated StatisticManager statisticManager,
+      @Public Map<Layer, DispatcherDecorator<StatisticDispatcher>> decorators) {
+    return Chain.<StatisticDispatcher>of(
+            "@Public StatisticDispatcher", statisticManager, decorators)
+        .event(d -> new StatisticEventDispatcher(eventBus, d))
+        .build();
   }
 }

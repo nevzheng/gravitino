@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
@@ -55,20 +57,57 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>Each type has two chains. The {@link Internal} chain is normalize → operation and is used by
  * infrastructure code. The {@link Public} chain is event → normalize → hook → operation, except for
- * partitions, whose public chain is event → the internal chain because partitions have no hook. The
- * schema chains share one {@link SchemaOperationDispatcher}; the table and view chains each build
- * their own operation dispatcher, as {@code GravitinoEnv} did.
+ * partitions, whose public chain is event → normalize → operation because partitions have no hook.
+ * The schema chains share one {@link SchemaOperationDispatcher} and the partition chains one
+ * partition operation dispatcher; the table and view chains each build their own operation
+ * dispatcher, as {@code GravitinoEnv} did.
  *
  * <p>Table and view operation dispatchers import missing schemas through the internal schema chain.
  * They take it as a {@link Provider} and resolve it on first use (§5.3 of the design).
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 @Module
 abstract class SchemaTableModule {
 
   private SchemaTableModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<SchemaDispatcher>> internalSchemaDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<SchemaDispatcher>> schemaDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<TableDispatcher>> internalTableDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<TableDispatcher>> tableDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<PartitionDispatcher>> internalPartitionDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<PartitionDispatcher>> partitionDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<ViewDispatcher>> internalViewDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<ViewDispatcher>> viewDecorators();
+
   @Provides
   @Singleton
+  @Undecorated
   static SchemaOperationDispatcher schemaOperationDispatcher(
       CatalogManager catalogManager,
       EntityStore entityStore,
@@ -84,8 +123,12 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static SchemaDispatcher internalSchemaDispatcher(
-      SchemaOperationDispatcher operations, CatalogManager catalogManager) {
-    return new SchemaNormalizeDispatcher(operations, catalogManager);
+      @Undecorated SchemaOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<SchemaDispatcher>> decorators) {
+    return Chain.<SchemaDispatcher>of("@Internal SchemaDispatcher", operations, decorators)
+        .normalize(d -> new SchemaNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
@@ -93,11 +136,15 @@ abstract class SchemaTableModule {
   @Public
   static SchemaDispatcher schemaDispatcher(
       EventBus eventBus,
-      SchemaOperationDispatcher operations,
+      @Undecorated SchemaOperationDispatcher operations,
       CatalogManager catalogManager,
-      LockManager lockManager) {
-    SchemaHookDispatcher hook = new SchemaHookDispatcher(operations, lockManager);
-    return new SchemaEventDispatcher(eventBus, new SchemaNormalizeDispatcher(hook, catalogManager));
+      LockManager lockManager,
+      @Public Map<Layer, DispatcherDecorator<SchemaDispatcher>> decorators) {
+    return Chain.<SchemaDispatcher>of("@Public SchemaDispatcher", operations, decorators)
+        .hook(d -> new SchemaHookDispatcher(d, lockManager))
+        .normalize(d -> new SchemaNormalizeDispatcher(d, catalogManager))
+        .event(d -> new SchemaEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
@@ -109,7 +156,8 @@ abstract class SchemaTableModule {
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
-      LockManager lockManager) {
+      LockManager lockManager,
+      @Internal Map<Layer, DispatcherDecorator<TableDispatcher>> decorators) {
     TableOperationDispatcher operations =
         new TableOperationDispatcher(
             catalogManager,
@@ -118,7 +166,9 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    return new TableNormalizeDispatcher(operations, catalogManager);
+    return Chain.<TableDispatcher>of("@Internal TableDispatcher", operations, decorators)
+        .normalize(d -> new TableNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
@@ -133,7 +183,8 @@ abstract class SchemaTableModule {
       SecretManager secretManager,
       LockManager lockManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Map<Layer, DispatcherDecorator<TableDispatcher>> decorators) {
     TableOperationDispatcher operations =
         new TableOperationDispatcher(
             catalogManager,
@@ -142,31 +193,54 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    TableHookDispatcher hook =
-        new TableHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new TableEventDispatcher(eventBus, new TableNormalizeDispatcher(hook, catalogManager));
+    return Chain.<TableDispatcher>of("@Public TableDispatcher", operations, decorators)
+        .hook(
+            d ->
+                new TableHookDispatcher(
+                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .normalize(d -> new TableNormalizeDispatcher(d, catalogManager))
+        .event(d -> new TableEventDispatcher(eventBus, d))
+        .build();
+  }
+
+  /** Builds the partition operation dispatcher at the bottom of both partition chains. */
+  @Provides
+  @Singleton
+  @Undecorated
+  static PartitionOperationDispatcher partitionOperationDispatcher(
+      CatalogManager catalogManager,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      SecretManager secretManager) {
+    return new PartitionOperationDispatcher(
+        catalogManager, entityStore, idGenerator, secretManager);
   }
 
   @Provides
   @Singleton
   @Internal
   static PartitionDispatcher internalPartitionDispatcher(
+      @Undecorated PartitionOperationDispatcher operations,
       CatalogManager catalogManager,
-      EntityStore entityStore,
-      IdGenerator idGenerator,
-      SecretManager secretManager) {
-    PartitionOperationDispatcher operations =
-        new PartitionOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
-    return new PartitionNormalizeDispatcher(operations, catalogManager);
+      @Internal Map<Layer, DispatcherDecorator<PartitionDispatcher>> decorators) {
+    return Chain.<PartitionDispatcher>of("@Internal PartitionDispatcher", operations, decorators)
+        .normalize(d -> new PartitionNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
   static PartitionDispatcher partitionDispatcher(
-      EventBus eventBus, @Internal PartitionDispatcher internal) {
-    return new PartitionEventDispatcher(eventBus, internal);
+      EventBus eventBus,
+      @Undecorated PartitionOperationDispatcher operations,
+      CatalogManager catalogManager,
+      @Public Map<Layer, DispatcherDecorator<PartitionDispatcher>> decorators) {
+    // Partitions have no ownership, so their public chain has no hook layer.
+    return Chain.<PartitionDispatcher>of("@Public PartitionDispatcher", operations, decorators)
+        .normalize(d -> new PartitionNormalizeDispatcher(d, catalogManager))
+        .event(d -> new PartitionEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
@@ -178,7 +252,8 @@ abstract class SchemaTableModule {
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
-      LockManager lockManager) {
+      LockManager lockManager,
+      @Internal Map<Layer, DispatcherDecorator<ViewDispatcher>> decorators) {
     ViewOperationDispatcher operations =
         new ViewOperationDispatcher(
             catalogManager,
@@ -187,7 +262,9 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    return new ViewNormalizeDispatcher(operations, catalogManager);
+    return Chain.<ViewDispatcher>of("@Internal ViewDispatcher", operations, decorators)
+        .normalize(d -> new ViewNormalizeDispatcher(d, catalogManager))
+        .build();
   }
 
   @Provides
@@ -202,7 +279,8 @@ abstract class SchemaTableModule {
       SecretManager secretManager,
       LockManager lockManager,
       @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher) {
+      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      @Public Map<Layer, DispatcherDecorator<ViewDispatcher>> decorators) {
     ViewOperationDispatcher operations =
         new ViewOperationDispatcher(
             catalogManager,
@@ -211,9 +289,13 @@ abstract class SchemaTableModule {
             schemaDispatcher::get,
             secretManager,
             lockManager);
-    ViewHookDispatcher hook =
-        new ViewHookDispatcher(
-            operations, () -> authorizationEnabled ? ownerDispatcher.get() : null);
-    return new ViewEventDispatcher(eventBus, new ViewNormalizeDispatcher(hook, catalogManager));
+    return Chain.<ViewDispatcher>of("@Public ViewDispatcher", operations, decorators)
+        .hook(
+            d ->
+                new ViewHookDispatcher(
+                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .normalize(d -> new ViewNormalizeDispatcher(d, catalogManager))
+        .event(d -> new ViewEventDispatcher(eventBus, d))
+        .build();
   }
 }
