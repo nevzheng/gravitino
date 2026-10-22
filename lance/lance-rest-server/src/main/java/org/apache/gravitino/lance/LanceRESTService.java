@@ -42,7 +42,6 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
-import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.HealthAliasServlet;
 import org.apache.gravitino.server.web.HttpAuditFilter;
@@ -127,7 +126,7 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
       MetadataAccessChecker accessChecker =
           new MetadataAccessChecker(
               context.config(),
-              () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
+              context::gravitinoAuthorizer,
               context::entityStore,
               context::internalSchemaDispatcher);
       lanceNamespace.setMetadataFilter(

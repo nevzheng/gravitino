@@ -28,6 +28,7 @@ import static org.mockito.Mockito.mock;
 import java.util.List;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
@@ -70,6 +71,7 @@ public class TestAuxiliaryModule {
     TableDispatcher internalTableDispatcher = mock(TableDispatcher.class);
     ViewDispatcher internalViewDispatcher = mock(ViewDispatcher.class);
     OwnerDispatcher internalOwnerDispatcher = mock(OwnerDispatcher.class);
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
 
     AuxiliaryContext context =
         new ComponentAuxiliaryContext(
@@ -91,7 +93,8 @@ public class TestAuxiliaryModule {
             () -> internalTableDispatcher,
             () -> internalViewDispatcher,
             /* authorizationEnabled= */ true,
-            () -> internalOwnerDispatcher);
+            () -> internalOwnerDispatcher,
+            () -> authorizer);
 
     assertSame(config, context.config());
     assertSame(eventBus, context.eventBus());
@@ -111,6 +114,7 @@ public class TestAuxiliaryModule {
     assertSame(internalTableDispatcher, context.internalTableDispatcher());
     assertSame(internalViewDispatcher, context.internalViewDispatcher());
     assertSame(internalOwnerDispatcher, context.internalOwnerDispatcher());
+    assertSame(authorizer, context.gravitinoAuthorizer());
   }
 
   @Test
@@ -127,6 +131,7 @@ public class TestAuxiliaryModule {
     assertSame(component.metricsSystem(), context.metricsSystem());
     // Authorization is disabled, so there is no owner to set, as for the server's hooks.
     assertNull(context.internalOwnerDispatcher());
+    assertSame(component.gravitinoAuthorizer(), context.gravitinoAuthorizer());
     component.managedServices().close();
   }
 

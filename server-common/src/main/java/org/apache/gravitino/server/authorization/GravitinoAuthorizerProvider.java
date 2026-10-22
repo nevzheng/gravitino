@@ -19,78 +19,58 @@ package org.apache.gravitino.server.authorization;
 
 import com.google.common.base.Preconditions;
 import java.io.Closeable;
-import java.io.IOException;
-import org.apache.gravitino.Configs;
-import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
-import org.apache.gravitino.server.ServerConfig;
 
 /**
- * Used to initialize and store {@link GravitinoAuthorizer}. When Gravitino Server starts up, it
- * initializes GravitinoAuthorizer by reading the ServerConfig through the init method and stores it
- * in the GravitinoAuthorizerProvider. The GravitinoAuthorizer instance can then be retrieved using
- * the getGravitinoAuthorizer method.
+ * Holds the {@link GravitinoAuthorizer} of the server for the code that reads it statically. When
+ * the Gravitino server starts up, it {@link #install installs} the authorizer its component built,
+ * and takes it back with {@link #close()} while it shuts down; the component closes it. The
+ * GravitinoAuthorizer instance can then be retrieved using the getGravitinoAuthorizer method.
  */
 public class GravitinoAuthorizerProvider implements Closeable {
 
   private static final GravitinoAuthorizerProvider INSTANCE = new GravitinoAuthorizerProvider();
 
-  private GravitinoAuthorizerProvider() {}
-
   private volatile GravitinoAuthorizer gravitinoAuthorizer;
 
-  /**
-   * Instantiates the {@link GravitinoAuthorizer} configured by {@code serverConfig}, or a {@link
-   * PassThroughAuthorizer} when authorization is disabled, and initializes it with {@code context}.
-   * Does nothing when the authorizer is already initialized.
-   *
-   * @param serverConfig Gravitino server config
-   * @param context the host services the authorizer may use
-   */
-  public void initialize(ServerConfig serverConfig, AuthorizerContext context) {
-    Preconditions.checkNotNull(context, "context");
-    if (gravitinoAuthorizer == null) {
-      synchronized (this) {
-        if (gravitinoAuthorizer == null) {
-          gravitinoAuthorizer = newAuthorizer(serverConfig);
-          gravitinoAuthorizer.initialize(context);
-        }
-      }
-    }
-  }
+  private GravitinoAuthorizerProvider() {}
 
+  /**
+   * Returns the provider of the process.
+   *
+   * @return the provider
+   */
   public static GravitinoAuthorizerProvider getInstance() {
     return INSTANCE;
   }
 
   /**
+   * Installs an authorizer that something else built and closes, such as the component of the
+   * server.
+   *
+   * @param authorizer the authorizer
+   * @throws IllegalStateException if another authorizer is installed
+   */
+  public synchronized void install(GravitinoAuthorizer authorizer) {
+    Preconditions.checkNotNull(authorizer, "authorizer");
+    Preconditions.checkState(
+        gravitinoAuthorizer == null || gravitinoAuthorizer == authorizer,
+        "Another authorizer is already installed");
+    gravitinoAuthorizer = authorizer;
+  }
+
+  /**
    * Retrieve GravitinoAuthorizer instance.
    *
-   * @return GravitinoAuthorizer instance
+   * @return the installed GravitinoAuthorizer, or null when none is installed
    */
   public GravitinoAuthorizer getGravitinoAuthorizer() {
     return gravitinoAuthorizer;
   }
 
-  private static GravitinoAuthorizer newAuthorizer(ServerConfig serverConfig) {
-    if (!serverConfig.get(Configs.ENABLE_AUTHORIZATION)) {
-      return new PassThroughAuthorizer();
-    }
-    String authorizationImpl = serverConfig.get(Configs.AUTHORIZATION_IMPL);
-    try {
-      return (GravitinoAuthorizer)
-          Class.forName(authorizationImpl).getDeclaredConstructor().newInstance();
-    } catch (Exception e) {
-      throw new IllegalArgumentException("Cannot initialize GravitinoAuthorizer", e);
-    }
-  }
-
-  /** Closes the authorizer. */
+  /** Takes the installed authorizer back without closing it; its owner closes it. */
   @Override
-  public void close() throws IOException {
-    if (gravitinoAuthorizer != null) {
-      gravitinoAuthorizer.close();
-    }
+  public synchronized void close() {
     gravitinoAuthorizer = null;
   }
 }

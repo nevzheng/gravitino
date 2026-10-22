@@ -28,6 +28,8 @@ import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.FutureGrantManager;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
@@ -67,17 +69,16 @@ import org.apache.gravitino.tag.TagDispatcher;
  * The root object graph of the Gravitino server.
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
- * this component. Its modules build every component {@code GravitinoEnv} holds except the
- * authorizer: {@link ConfigModule} the id generator and the metrics system, {@link StorageModule}
- * the entity store and the secret stores, {@link LockModule} the lock manager, {@link EventModule}
- * the event listener manager, the event bus and the audit log manager, {@link CatalogModule} the
- * catalog and metalake managers and chains, {@link SchemaTableModule} the schema, table, partition
- * and view chains, {@link FilesetTopicModelModule} the fileset, topic, model, function and semantic
- * model chains, {@link GovernanceModule} the tag, policy, owner and statistic chains, {@link
- * AuthorizationModule} the access-control components, {@link JobModule} the job manager and chains,
- * and {@link AuxiliaryModule} the auxiliary service manager and the context it hands to the
- * auxiliary services. The server still builds and installs the authorizer, so every object is built
- * by exactly one side.
+ * this component. Its modules build every component {@code GravitinoEnv} holds: {@link
+ * ConfigModule} the id generator and the metrics system, {@link StorageModule} the entity store and
+ * the secret stores, {@link LockModule} the lock manager, {@link EventModule} the event listener
+ * manager, the event bus and the audit log manager, {@link CatalogModule} the catalog and metalake
+ * managers and chains, {@link SchemaTableModule} the schema, table, partition and view chains,
+ * {@link FilesetTopicModelModule} the fileset, topic, model, function and semantic model chains,
+ * {@link GovernanceModule} the tag, policy, owner and statistic chains, {@link AuthorizationModule}
+ * the access-control components, {@link JobModule} the job manager and chains, {@link
+ * AuxiliaryModule} the auxiliary service manager and the context it hands to the auxiliary
+ * services, and {@link AuthorizerModule} the authorizer.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The managers and operation dispatchers at the bottom of the chains are
@@ -490,12 +491,22 @@ public interface GravitinoComponent {
   AccessControlDispatcher accessControlDispatcher();
 
   /**
-   * Returns the host services the server initializes its authorizer with. Building it builds
-   * nothing: each service is resolved when the authorizer asks for it.
+   * Returns the host services the authorizer is initialized with. Building it builds nothing: each
+   * service is resolved when the authorizer asks for it.
    *
    * @return the authorizer context
    */
   AuthorizerContext authorizerContext();
+
+  /**
+   * Returns the authorizer: the class {@code Configs.AUTHORIZATION_IMPL} names when authorization
+   * is enabled, and {@link NoopGravitinoAuthorizer#INSTANCE} otherwise. The first request builds it
+   * and initializes it with {@link #authorizerContext()}; the component's {@link ManagedServices}
+   * close it.
+   *
+   * @return the authorizer
+   */
+  GravitinoAuthorizer gravitinoAuthorizer();
 
   /**
    * Returns the bulk manager. It can be built while authorization is disabled, but {@code

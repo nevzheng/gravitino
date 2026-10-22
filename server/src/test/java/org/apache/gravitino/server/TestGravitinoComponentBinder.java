@@ -131,8 +131,7 @@ public class TestGravitinoComponentBinder {
     when(component.statisticDispatcher()).thenReturn(statistics);
 
     ServiceLocator locator =
-        ServiceLocatorUtilities.bind(
-            new GravitinoComponentBinder(component, false, lineage, () -> null));
+        ServiceLocatorUtilities.bind(new GravitinoComponentBinder(component, false, lineage));
     try {
       assertSame(metalakes, locator.getService(MetalakeDispatcher.class));
       assertSame(catalogs, locator.getService(CatalogDispatcher.class));
@@ -187,8 +186,7 @@ public class TestGravitinoComponentBinder {
               new GravitinoComponentBinder(
                   mock(GravitinoComponent.class, RETURNS_MOCKS),
                   enableAuthorization,
-                  mock(LineageDispatcher.class),
-                  () -> null));
+                  mock(LineageDispatcher.class)));
 
       assertEquals(
           enableAuthorization,
@@ -234,7 +232,7 @@ public class TestGravitinoComponentBinder {
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
               new GravitinoComponentBinder(
-                  component, enableAuthorization, mock(LineageDispatcher.class), () -> null));
+                  component, enableAuthorization, mock(LineageDispatcher.class)));
       try {
         assertSame(config, locator.getService(Config.class));
         assertSame(eventBus, locator.getService(EventBus.class));
@@ -296,7 +294,7 @@ public class TestGravitinoComponentBinder {
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
               new GravitinoComponentBinder(
-                  component, enableAuthorization, mock(LineageDispatcher.class), () -> null));
+                  component, enableAuthorization, mock(LineageDispatcher.class)));
       try {
         AccessControlDispatcher expectedAccessControl = enableAuthorization ? accessControl : null;
         OwnerDispatcher expectedOwners = enableAuthorization ? owners : null;

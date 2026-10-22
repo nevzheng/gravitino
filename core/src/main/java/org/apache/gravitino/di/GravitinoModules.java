@@ -50,6 +50,7 @@ import dagger.Module;
       FilesetTopicModelModule.class,
       GovernanceModule.class,
       AuthorizationModule.class,
+      AuthorizerModule.class,
       JobModule.class,
       AuxiliaryModule.class,
       LifecycleModule.class
