@@ -57,7 +57,9 @@ import org.apache.gravitino.storage.IdGenerator;
  *
  * <p>Both managers are bound {@link Undecorated}, so only this package can inject them: the
  * metalake manager is reached through its chains, and the catalog manager through its chains and
- * through {@link CatalogAccess}, which has no method that changes a catalog.
+ * through {@link CatalogAccess}, which has no method that changes a catalog. A downstream module
+ * that builds its own operation dispatchers injects the catalog manager {@link
+ * ForDispatcherChains}.
  *
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
  * chains are event → normalize → hook → manager, around the same manager instance. Dagger does not
@@ -137,6 +139,17 @@ abstract class CatalogModule {
    */
   @Binds
   abstract CatalogAccess catalogAccess(@Undecorated CatalogManager catalogManager);
+
+  /**
+   * Binds the catalog manager for downstream modules that build their own operation dispatchers,
+   * which take the manager itself. It is the same instance as the {@link CatalogAccess}.
+   *
+   * @param catalogManager the catalog manager
+   * @return the catalog manager, qualified {@link ForDispatcherChains}
+   */
+  @Binds
+  @ForDispatcherChains
+  abstract CatalogManager dispatcherChainCatalogManager(@Undecorated CatalogManager catalogManager);
 
   /**
    * Builds the metalake manager. A force drop removes each child catalog through the public catalog

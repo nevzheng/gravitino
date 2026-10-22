@@ -22,6 +22,8 @@ import dagger.BindsInstance;
 import dagger.Component;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.di.ForDispatcherChains;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.di.GravitinoModules;
 import org.apache.gravitino.di.LegacyBridge;
@@ -40,6 +42,14 @@ interface DownstreamComponent extends GravitinoComponent {
    * @return the downstream service
    */
   DownstreamService downstreamService();
+
+  /**
+   * Returns the catalog manager a downstream module builds its own operation dispatchers over.
+   *
+   * @return the catalog manager
+   */
+  @ForDispatcherChains
+  CatalogManager dispatcherChainCatalogManager();
 
   /** Creates {@link DownstreamComponent} instances. */
   @Component.Factory
