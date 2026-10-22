@@ -31,8 +31,20 @@ import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.bulk.BulkManager;
 import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.FilesetDispatcher;
+import org.apache.gravitino.catalog.FunctionDispatcher;
+import org.apache.gravitino.catalog.ModelDispatcher;
+import org.apache.gravitino.catalog.PartitionDispatcher;
+import org.apache.gravitino.catalog.SchemaDispatcher;
+import org.apache.gravitino.catalog.SchemaOperationDispatcher;
+import org.apache.gravitino.catalog.SemanticModelDispatcher;
+import org.apache.gravitino.catalog.TableDispatcher;
+import org.apache.gravitino.catalog.TopicDispatcher;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
+import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
+import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
@@ -50,13 +62,16 @@ import org.apache.gravitino.tag.TagDispatcher;
  * The root object graph of the Gravitino server.
  *
  * <p>The migration from {@code GravitinoEnv} to dependency injection moves one area at a time into
- * this component. {@link ConfigModule} builds the id generator and the metrics system, {@link
- * StorageModule} the entity store and the secret stores, {@link LockModule} the lock manager,
- * {@link EventModule} the event listener manager, the event bus and the audit log manager, {@link
- * CatalogModule} the catalog and metalake managers and chains, {@link GovernanceModule} the tag,
- * policy, owner and statistic chains, and {@link AuthorizationModule} the access-control
- * components. {@code GravitinoEnv} takes these from the component and still builds the other
- * chains, so every object is built by exactly one side.
+ * this component. Its modules build every component {@code GravitinoEnv} holds except the auxiliary
+ * service manager and the authorizer: {@link ConfigModule} the id generator and the metrics system,
+ * {@link StorageModule} the entity store and the secret stores, {@link LockModule} the lock
+ * manager, {@link EventModule} the event listener manager, the event bus and the audit log manager,
+ * {@link CatalogModule} the catalog and metalake managers and chains, {@link SchemaTableModule} the
+ * schema, table, partition and view chains, {@link FilesetTopicModelModule} the fileset, topic,
+ * model, function and semantic model chains, {@link GovernanceModule} the tag, policy, owner and
+ * statistic chains, {@link AuthorizationModule} the access-control components, and {@link
+ * JobModule} the job manager and chains. The server still builds and installs the authorizer, so
+ * every object is built by exactly one side.
  *
  * <p>Each entity type has an {@link Internal} chain for infrastructure code and a {@link Public}
  * chain for REST resources. The component builds nothing until it is asked: {@code GravitinoEnv}
@@ -73,8 +88,11 @@ import org.apache.gravitino.tag.TagDispatcher;
       LockModule.class,
       EventModule.class,
       CatalogModule.class,
+      SchemaTableModule.class,
+      FilesetTopicModelModule.class,
       GovernanceModule.class,
-      AuthorizationModule.class
+      AuthorizationModule.class,
+      JobModule.class
     })
 public interface GravitinoComponent {
 
@@ -212,6 +230,161 @@ public interface GravitinoComponent {
   SecretPropertyOperationDispatcher secretPropertyOperationDispatcher();
 
   /**
+   * Returns the schema operation dispatcher shared by the internal and public schema chains.
+   *
+   * <p>The function and semantic model operation dispatchers also work on schemas through it.
+   *
+   * @return the schema operation dispatcher
+   */
+  SchemaOperationDispatcher schemaOperationDispatcher();
+
+  /**
+   * Returns the internal schema chain: normalize, then {@link #schemaOperationDispatcher()}.
+   *
+   * @return the internal schema dispatcher
+   */
+  @Internal
+  SchemaDispatcher internalSchemaDispatcher();
+
+  /**
+   * Returns the public schema chain: event, normalize, hook, then {@link
+   * #schemaOperationDispatcher()}.
+   *
+   * @return the public schema dispatcher
+   */
+  @Public
+  SchemaDispatcher schemaDispatcher();
+
+  /**
+   * Returns the internal table chain: normalize, then its own operation dispatcher.
+   *
+   * @return the internal table dispatcher
+   */
+  @Internal
+  TableDispatcher internalTableDispatcher();
+
+  /**
+   * Returns the public table chain: event, normalize, hook, then its own operation dispatcher.
+   *
+   * @return the public table dispatcher
+   */
+  @Public
+  TableDispatcher tableDispatcher();
+
+  /**
+   * Returns the internal partition chain: normalize, then operation.
+   *
+   * @return the internal partition dispatcher
+   */
+  @Internal
+  PartitionDispatcher internalPartitionDispatcher();
+
+  /**
+   * Returns the public partition chain: event, then {@link #internalPartitionDispatcher()}.
+   *
+   * @return the public partition dispatcher
+   */
+  @Public
+  PartitionDispatcher partitionDispatcher();
+
+  /**
+   * Returns the internal view chain: normalize, then its own operation dispatcher.
+   *
+   * @return the internal view dispatcher
+   */
+  @Internal
+  ViewDispatcher internalViewDispatcher();
+
+  /**
+   * Returns the public view chain: event, normalize, hook, then its own operation dispatcher.
+   *
+   * @return the public view dispatcher
+   */
+  @Public
+  ViewDispatcher viewDispatcher();
+
+  /**
+   * Returns the internal fileset chain: normalize, then operation.
+   *
+   * @return the internal fileset dispatcher
+   */
+  @Internal
+  FilesetDispatcher internalFilesetDispatcher();
+
+  /**
+   * Returns the public fileset chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public fileset dispatcher
+   */
+  @Public
+  FilesetDispatcher filesetDispatcher();
+
+  /**
+   * Returns the internal topic chain: normalize, then operation.
+   *
+   * @return the internal topic dispatcher
+   */
+  @Internal
+  TopicDispatcher internalTopicDispatcher();
+
+  /**
+   * Returns the public topic chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public topic dispatcher
+   */
+  @Public
+  TopicDispatcher topicDispatcher();
+
+  /**
+   * Returns the internal model chain: normalize, then operation.
+   *
+   * @return the internal model dispatcher
+   */
+  @Internal
+  ModelDispatcher internalModelDispatcher();
+
+  /**
+   * Returns the public model chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public model dispatcher
+   */
+  @Public
+  ModelDispatcher modelDispatcher();
+
+  /**
+   * Returns the internal function chain: normalize, then operation.
+   *
+   * @return the internal function dispatcher
+   */
+  @Internal
+  FunctionDispatcher internalFunctionDispatcher();
+
+  /**
+   * Returns the public function chain: event, normalize, hook, then the same operation dispatcher.
+   *
+   * @return the public function dispatcher
+   */
+  @Public
+  FunctionDispatcher functionDispatcher();
+
+  /**
+   * Returns the internal semantic model chain: normalize, then operation.
+   *
+   * @return the internal semantic model dispatcher
+   */
+  @Internal
+  SemanticModelDispatcher internalSemanticModelDispatcher();
+
+  /**
+   * Returns the public semantic model chain: event, normalize, hook, then its own operation
+   * dispatcher.
+   *
+   * @return the public semantic model dispatcher
+   */
+  @Public
+  SemanticModelDispatcher semanticModelDispatcher();
+
+  /**
    * Returns the tag manager, the internal tag chain.
    *
    * @return the internal tag dispatcher
@@ -314,6 +487,31 @@ public interface GravitinoComponent {
    * @return the future grant manager
    */
   FutureGrantManager futureGrantManager();
+
+  /**
+   * Returns the internal job chain: template validation, then the job manager.
+   *
+   * @return the internal job dispatcher
+   */
+  @Internal
+  JobOperationDispatcher internalJobOperationDispatcher();
+
+  /**
+   * Returns the public job chain: event, hook, then the {@link #internalJobOperationDispatcher()}
+   * validation.
+   *
+   * @return the public job dispatcher
+   */
+  @Public
+  JobOperationDispatcher jobOperationDispatcher();
+
+  /**
+   * Returns the listener that registers the built-in job templates of new metalakes. {@code
+   * GravitinoEnv} adds it to the {@link #eventListenerManager()}.
+   *
+   * @return the built-in job template listener
+   */
+  BuiltInJobTemplateEventListener builtInJobTemplateEventListener();
 
   /** Creates {@link GravitinoComponent} instances. */
   @Component.Factory
