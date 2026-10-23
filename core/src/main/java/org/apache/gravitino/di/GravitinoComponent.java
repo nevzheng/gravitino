@@ -26,6 +26,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.audit.AuditLogManager;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.NoopOwnerDispatcher;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -487,6 +488,14 @@ public interface GravitinoComponent {
    */
   @Public
   AccessControlDispatcher accessControlDispatcher();
+
+  /**
+   * Returns the host services the server initializes its authorizer with. Building it builds
+   * nothing: each service is resolved when the authorizer asks for it.
+   *
+   * @return the authorizer context
+   */
+  AuthorizerContext authorizerContext();
 
   /**
    * Returns the bulk manager. It can be built while authorization is disabled, but {@code

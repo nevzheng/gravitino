@@ -110,16 +110,9 @@ class TestOutOfMemoryHealthHttp {
 
   /** Supplies a reachable store so an unrelated readiness failure cannot mask the result. */
   public static class TestHealthResource extends HealthOperations {
-    private final EntityStore store;
 
     TestHealthResource(ServerHealth health, EntityStore store) {
-      super(health);
-      this.store = store;
-    }
-
-    @Override
-    EntityStore getEntityStore() {
-      return store;
+      super(health, store, null);
     }
 
     @Override

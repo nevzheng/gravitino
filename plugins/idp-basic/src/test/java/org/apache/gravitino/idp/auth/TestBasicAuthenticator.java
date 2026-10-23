@@ -28,7 +28,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.google.common.collect.Lists;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
@@ -43,6 +42,23 @@ import org.apache.gravitino.idp.web.rest.feature.IdpRESTFeature;
 import org.junit.jupiter.api.Test;
 
 class TestBasicAuthenticator {
+
+  @Test
+  void testInitializeKeepsTheGivenManager() throws Exception {
+    Config config = new Config(false) {};
+    config.set(
+        Configs.REST_API_EXTENSION_PACKAGES,
+        Lists.newArrayList(IdpRESTFeature.IDP_REST_EXTENSION_PACKAGE));
+    IdpUserGroupManager userGroupManager = mock(IdpUserGroupManager.class);
+    when(userGroupManager.authenticate("alice", "Passw0rd-For-Alice"))
+        .thenReturn(new IdpUser("alice", Arrays.asList("group-a")));
+
+    BasicAuthenticator authenticator = new BasicAuthenticator(userGroupManager);
+    authenticator.initialize(config);
+
+    String authHeader = basicAuthHeader("alice", "Passw0rd-For-Alice");
+    assertEquals("alice", authenticator.authenticateToken(basicAuthBytes(authHeader)).getName());
+  }
 
   @Test
   void testValidateExtensionPackageOk() {
@@ -261,12 +277,7 @@ class TestBasicAuthenticator {
     return authenticator(mock(IdpUserGroupManager.class));
   }
 
-  private static BasicAuthenticator authenticator(IdpUserGroupManager userGroupManager)
-      throws Exception {
-    BasicAuthenticator authenticator = new BasicAuthenticator();
-    Field field = BasicAuthenticator.class.getDeclaredField("userGroupManager");
-    field.setAccessible(true);
-    field.set(authenticator, userGroupManager);
-    return authenticator;
+  private static BasicAuthenticator authenticator(IdpUserGroupManager userGroupManager) {
+    return new BasicAuthenticator(userGroupManager);
   }
 }

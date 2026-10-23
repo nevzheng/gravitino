@@ -41,6 +41,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.Group;
 import org.apache.gravitino.authorization.Owner;
@@ -63,6 +64,7 @@ import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.meta.GroupEntity;
 import org.apache.gravitino.rest.RESTUtils;
+import org.apache.gravitino.server.InternalQualifier;
 import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -95,9 +97,6 @@ public class TestGroupOperations extends BaseOperationsTest {
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "accessControlDispatcher", manager, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", ownerDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
   }
 
@@ -117,6 +116,8 @@ public class TestGroupOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
+            bind(manager).to(AccessControlDispatcher.class);
+            bind(ownerDispatcher).to(OwnerDispatcher.class).qualifiedBy(InternalQualifier.INSTANCE);
           }
         });
 
@@ -399,7 +400,7 @@ public class TestGroupOperations extends BaseOperationsTest {
                       Mockito.any()))
           .thenReturn(new String[] {"group"});
 
-      GroupOperations groupOperations = new GroupOperations();
+      GroupOperations groupOperations = new GroupOperations(manager, ownerDispatcher);
       HttpServletRequest request = mock(HttpServletRequest.class);
       FieldUtils.writeField(groupOperations, "httpRequest", request, true);
 
@@ -503,7 +504,7 @@ public class TestGroupOperations extends BaseOperationsTest {
                       Mockito.any()))
           .thenReturn(new Group[] {group});
 
-      GroupOperations groupOperations = new GroupOperations();
+      GroupOperations groupOperations = new GroupOperations(manager, ownerDispatcher);
       HttpServletRequest request = mock(HttpServletRequest.class);
       FieldUtils.writeField(groupOperations, "httpRequest", request, true);
 

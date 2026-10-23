@@ -23,16 +23,17 @@ import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.security.Principal;
-import org.apache.commons.lang3.reflect.FieldUtils;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.UserPrincipal;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.User;
+import org.apache.gravitino.exceptions.NoSuchUserException;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -41,8 +42,25 @@ import org.junit.jupiter.api.Test;
 public class TestPassThroughAuthorizer {
 
   @Test
+  public void testInitializeWithContextRunsTheOverridableInitialize() {
+    AtomicBoolean initialized = new AtomicBoolean();
+    PassThroughAuthorizer authorizer =
+        new PassThroughAuthorizer() {
+          @Override
+          public void initialize() {
+            initialized.set(true);
+          }
+        };
+
+    authorizer.initialize(mock(AuthorizerContext.class));
+
+    Assertions.assertTrue(initialized.get());
+  }
+
+  @Test
   public void testPassThroughAuthorizerDefaults() throws IOException {
     try (PassThroughAuthorizer passThroughAuthorizer = new PassThroughAuthorizer()) {
+      passThroughAuthorizer.initialize(mock(AuthorizerContext.class));
       Principal principal = mock(Principal.class);
       when(principal.getName()).thenReturn("testUser");
       MetadataObject metadataObject =
@@ -82,18 +100,27 @@ public class TestPassThroughAuthorizer {
   }
 
   @Test
+  public void testIsMetalakeUserNeedsAContext() throws IOException {
+    try (PassThroughAuthorizer passThroughAuthorizer = new PassThroughAuthorizer()) {
+      passThroughAuthorizer.initialize();
+
+      Assertions.assertThrows(
+          IllegalStateException.class,
+          () ->
+              passThroughAuthorizer.isMetalakeUser("metalake", new AuthorizationRequestContext()));
+    }
+  }
+
+  @Test
   public void testIsMetalakeUserUsesInternalAccessControlDispatcher() throws Exception {
     AccessControlDispatcher dispatcher = mock(AccessControlDispatcher.class);
     User user = mock(User.class);
     when(dispatcher.getUser("metalake", "testUser")).thenReturn(user);
+    AuthorizerContext context = mock(AuthorizerContext.class);
+    when(context.internalAccessControlDispatcher()).thenReturn(dispatcher);
 
-    AccessControlDispatcher previousDispatcher =
-        (AccessControlDispatcher)
-            FieldUtils.readField(
-                GravitinoEnv.getInstance(), "internalAccessControlDispatcher", true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalAccessControlDispatcher", dispatcher, true);
     try (PassThroughAuthorizer passThroughAuthorizer = new PassThroughAuthorizer()) {
+      passThroughAuthorizer.initialize(context);
       PrincipalUtils.doAs(
           new UserPrincipal("testUser"),
           () -> {
@@ -103,9 +130,24 @@ public class TestPassThroughAuthorizer {
             return null;
           });
       verify(dispatcher).getUser("metalake", "testUser");
-    } finally {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "internalAccessControlDispatcher", previousDispatcher, true);
+    }
+  }
+
+  @Test
+  public void testIsMetalakeUserAddsAMissingUser() throws Exception {
+    AccessControlDispatcher dispatcher = mock(AccessControlDispatcher.class);
+    when(dispatcher.getUser("metalake", "testUser"))
+        .thenThrow(new NoSuchUserException("User %s does not exist", "testUser"));
+    AuthorizerContext context = mock(AuthorizerContext.class);
+    when(context.internalAccessControlDispatcher()).thenReturn(dispatcher);
+
+    try (PassThroughAuthorizer passThroughAuthorizer = new PassThroughAuthorizer()) {
+      passThroughAuthorizer.initialize(context);
+      PrincipalUtils.doAs(
+          new UserPrincipal("testUser"),
+          () ->
+              passThroughAuthorizer.isMetalakeUser("metalake", new AuthorizationRequestContext()));
+      verify(dispatcher).addUser("metalake", "testUser");
     }
   }
 }

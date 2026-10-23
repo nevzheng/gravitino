@@ -33,6 +33,7 @@ import java.util.Map;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
@@ -66,7 +67,8 @@ public class TestLoadTableAuthzHandler {
 
   @BeforeAll
   public static void initAuthorizer() {
-    GravitinoAuthorizerProvider.getInstance().initialize(new ServerConfig());
+    GravitinoAuthorizerProvider.getInstance()
+        .initialize(new ServerConfig(), Mockito.mock(AuthorizerContext.class));
   }
 
   @Test

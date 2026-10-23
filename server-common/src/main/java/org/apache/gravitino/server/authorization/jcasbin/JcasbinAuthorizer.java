@@ -43,10 +43,10 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -56,6 +56,7 @@ import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
 import org.apache.gravitino.authorization.AuthorizationUtils;
+import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
@@ -257,24 +258,38 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   /** Background HA invalidator for {@link #metadataIdCache} and {@link #ownerRelCache}. */
   private JcasbinChangeListener changePoller;
 
+  /** The host services, which {@link #initialize(AuthorizerContext)} sets. */
+  private AuthorizerContext context;
+
+  /**
+   * Sets the host services and initializes the authorizer through {@link #initialize()}, so a
+   * subclass that overrides {@link #initialize()} still runs its own initialization.
+   *
+   * @param context the host services.
+   */
+  @Override
+  public void initialize(AuthorizerContext context) {
+    this.context = context;
+    initialize();
+  }
+
+  /**
+   * Initializes the authorizer with the host services set by {@link
+   * #initialize(AuthorizerContext)}, which calls it.
+   *
+   * @throws IllegalStateException if no host services were set
+   */
   @Override
   public void initialize() {
-    long cacheExpirationSecs =
-        GravitinoEnv.getInstance()
-            .config()
-            .get(Configs.GRAVITINO_AUTHORIZATION_CACHE_EXPIRATION_SECS);
-    long roleCacheSize =
-        GravitinoEnv.getInstance().config().get(Configs.GRAVITINO_AUTHORIZATION_ROLE_CACHE_SIZE);
-    long ownerCacheSize =
-        GravitinoEnv.getInstance().config().get(Configs.GRAVITINO_AUTHORIZATION_OWNER_CACHE_SIZE);
-    long metadataIdCacheSize =
-        GravitinoEnv.getInstance()
-            .config()
-            .get(Configs.GRAVITINO_AUTHORIZATION_METADATA_ID_CACHE_SIZE);
-    long pollIntervalSecs =
-        GravitinoEnv.getInstance()
-            .config()
-            .get(Configs.GRAVITINO_AUTHORIZATION_CHANGE_POLL_INTERVAL_SECS);
+    Preconditions.checkState(
+        context != null,
+        "JcasbinAuthorizer needs the host services: initialize it with initialize(AuthorizerContext)");
+    Config config = context.config();
+    long cacheExpirationSecs = config.get(Configs.GRAVITINO_AUTHORIZATION_CACHE_EXPIRATION_SECS);
+    long roleCacheSize = config.get(Configs.GRAVITINO_AUTHORIZATION_ROLE_CACHE_SIZE);
+    long ownerCacheSize = config.get(Configs.GRAVITINO_AUTHORIZATION_OWNER_CACHE_SIZE);
+    long metadataIdCacheSize = config.get(Configs.GRAVITINO_AUTHORIZATION_METADATA_ID_CACHE_SIZE);
+    long pollIntervalSecs = config.get(Configs.GRAVITINO_AUTHORIZATION_CHANGE_POLL_INTERVAL_SECS);
 
     long ttlMs = TimeUnit.SECONDS.toMillis(cacheExpirationSecs);
     maxRoleClearGenerations = roleCacheSize;
@@ -301,7 +316,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     ownerRelCache = new CaffeineGravitinoCache<>(ttlMs, ownerCacheSize);
     lookups = new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
     changePoller = new JcasbinChangeListener(metadataIdCache, ownerRelCache, pollIntervalSecs);
-    EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+    EntityStore entityStore = context.entityStore();
     if (entityStore instanceof SupportsEntityChangeLog) {
       ((SupportsEntityChangeLog) entityStore).registerEntityChangeLogListener(changePoller);
     }
@@ -447,7 +462,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
 
   @Override
   public boolean isServiceAdmin() {
-    return GravitinoEnv.getInstance()
+    return context
         .internalAccessControlDispatcher()
         .isServiceAdmin(PrincipalUtils.getCurrentUserName());
   }
@@ -805,7 +820,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   @Override
   public void close() throws IOException {
     if (changePoller != null) {
-      EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+      EntityStore entityStore = context.entityStore();
       if (entityStore instanceof SupportsEntityChangeLog) {
         ((SupportsEntityChangeLog) entityStore).unregisterEntityChangeLogListener(changePoller);
       }
@@ -1435,7 +1450,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     }
 
     Set<Long> unreadableRoleIds = new HashSet<>();
-    EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+    EntityStore entityStore = context.entityStore();
     List<NameIdentifier> roleIdents =
         staleRoleVersions.stream()
             .map(rv -> NameIdentifierUtil.ofRole(metalake, rv.getRoleName()))

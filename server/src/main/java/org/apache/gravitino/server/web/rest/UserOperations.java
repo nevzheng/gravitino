@@ -20,6 +20,8 @@ package org.apache.gravitino.server.web.rest;
 
 import com.codahale.metrics.annotation.ResponseMetered;
 import com.codahale.metrics.annotation.Timed;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
@@ -32,13 +34,13 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.authorization.User;
+import org.apache.gravitino.di.Internal;
 import org.apache.gravitino.dto.requests.UserAddRequest;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.dto.responses.RemoveResponse;
@@ -54,6 +56,7 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationMetada
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.web.Utils;
 import org.apache.gravitino.utils.NameIdentifierUtil;
+import org.jvnet.hk2.annotations.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,12 +74,18 @@ public class UserOperations {
 
   @Context private HttpServletRequest httpRequest;
 
-  public UserOperations() {
-    // Because accessManager may be null when Gravitino doesn't enable authorization,
-    // and Jersey injection doesn't support null value. So UserOperations chooses to retrieve
-    // accessControlManager from GravitinoEnv instead of injection here.
-    this.accessControlManager = GravitinoEnv.getInstance().accessControlDispatcher();
-    this.ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+  /**
+   * Creates a user REST resource. Both services are absent when authorization is disabled.
+   *
+   * @param accessControlManager the access-control dispatcher, or null.
+   * @param ownerManager the internal owner dispatcher, or null.
+   */
+  @Inject
+  public UserOperations(
+      @Optional @Nullable AccessControlDispatcher accessControlManager,
+      @Optional @Internal @Nullable OwnerDispatcher ownerManager) {
+    this.accessControlManager = accessControlManager;
+    this.ownerManager = ownerManager;
   }
 
   @GET

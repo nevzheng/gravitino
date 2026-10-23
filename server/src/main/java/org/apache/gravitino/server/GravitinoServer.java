@@ -154,7 +154,7 @@ public class GravitinoServer extends ResourceConfig {
     this.lineageService = lineageService;
     this.authorizerProvider = authorizerProvider;
     Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
-    Lifecycle.Action closeAuthorizer = once(authorizerProvider::close);
+    Lifecycle.Action closeAuthorizer = once(this::closeAuthorizer);
     Lifecycle.Action stopJetty = once(server::stop);
     this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
     // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
@@ -182,7 +182,9 @@ public class GravitinoServer extends ResourceConfig {
 
     ServerAuthenticator.getInstance().initialize(serverConfig);
 
-    authorizerProvider.initialize(serverConfig);
+    // The environment holds the authorizer for the code that still reads it from GravitinoEnv.
+    authorizerProvider.initialize(serverConfig, component.authorizerContext());
+    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -390,6 +392,12 @@ public class GravitinoServer extends ResourceConfig {
       throw new IllegalArgumentException("Failed to load conf from file " + confPath, exception);
     }
     return serverConfig;
+  }
+
+  /** Takes the authorizer back from the environment, then closes it. */
+  private void closeAuthorizer() throws IOException {
+    gravitinoEnv.setGravitinoAuthorizer(null);
+    authorizerProvider.close();
   }
 
   /** Returns an action that runs {@code action} the first time it is run, and then does nothing. */

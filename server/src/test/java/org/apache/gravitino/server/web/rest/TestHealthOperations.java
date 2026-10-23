@@ -44,7 +44,7 @@ public class TestHealthOperations {
   }
 
   private HealthOperations newOps(EntityStore store, long probeTimeoutMs, ServerHealth health) {
-    return new HealthOperations(health) {
+    return new HealthOperations(health, store, null) {
       @Override
       EntityStore getEntityStore() {
         return store;

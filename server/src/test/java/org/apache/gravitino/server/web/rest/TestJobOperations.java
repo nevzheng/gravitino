@@ -133,6 +133,7 @@ public class TestJobOperations extends JerseyTest {
           @Override
           protected void configure() {
             bind(jobOperationDispatcher).to(JobOperationDispatcher.class).ranked(2);
+            bind(new RandomIdGenerator()).to(IdGenerator.class);
             bindFactory(TestJobOperations.MockServletRequestFactory.class)
                 .to(HttpServletRequest.class);
           }
@@ -147,9 +148,6 @@ public class TestJobOperations extends JerseyTest {
     doReturn(false).when(config).get(CACHE_ENABLED);
     doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-
-    IdGenerator idGenerator = new RandomIdGenerator();
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "idGenerator", idGenerator, true);
   }
 
   @Test
