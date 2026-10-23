@@ -330,9 +330,13 @@ class TestGravitinoEnvMetadataComponents {
           PartitionEventDispatcher.class,
           PartitionNormalizeDispatcher.class,
           PartitionOperationDispatcher.class);
+      // Each partition chain has its own normalize layer over the one operation dispatcher.
       assertSame(
-          env.internalPartitionDispatcher(),
-          FieldUtils.readField(env.partitionDispatcher(), "dispatcher", true));
+          FieldUtils.readField(env.internalPartitionDispatcher(), "dispatcher", true),
+          FieldUtils.readField(
+              FieldUtils.readField(env.partitionDispatcher(), "dispatcher", true),
+              "dispatcher",
+              true));
       assertDispatcherChain(
           env.statisticDispatcher(), StatisticEventDispatcher.class, StatisticManager.class);
       assertSame(

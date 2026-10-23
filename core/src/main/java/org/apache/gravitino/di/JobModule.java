@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -41,6 +43,9 @@ import org.apache.gravitino.storage.IdGenerator;
  * <p>The {@link Internal} chain is validation → manager; the {@link Public} chain is event → hook →
  * that same validation dispatcher. The manager registers with the {@link ManagedServices registry},
  * which closes it.
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
@@ -48,11 +53,20 @@ abstract class JobModule {
 
   private JobModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<JobOperationDispatcher>> internalJobDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<JobOperationDispatcher>> jobDecorators();
+
   /**
    * Builds the job manager. Its constructor creates the job executor named by the configuration.
    */
   @Provides
   @Singleton
+  @Undecorated
   static JobManager jobManager(
       Config config,
       EntityStore entityStore,
@@ -62,25 +76,44 @@ abstract class JobModule {
     return services.register(new JobManager(config, entityStore, idGenerator, lockManager));
   }
 
+  /** Builds the template validation at the bottom of both job chains. */
+  @Provides
+  @Singleton
+  @Undecorated
+  static JobTemplateValidationDispatcher jobTemplateValidationDispatcher(
+      @Undecorated JobManager jobManager) {
+    return new JobTemplateValidationDispatcher(jobManager);
+  }
+
   @Provides
   @Singleton
   @Internal
-  static JobOperationDispatcher internalJobOperationDispatcher(JobManager jobManager) {
-    return new JobTemplateValidationDispatcher(jobManager);
+  static JobOperationDispatcher internalJobOperationDispatcher(
+      @Undecorated JobTemplateValidationDispatcher validation,
+      @Internal Map<Layer, DispatcherDecorator<JobOperationDispatcher>> decorators) {
+    return Chain.<JobOperationDispatcher>of(
+            "@Internal JobOperationDispatcher", validation, decorators)
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
   static JobOperationDispatcher jobOperationDispatcher(
-      EventBus eventBus, @Internal JobOperationDispatcher validation) {
-    return new JobEventDispatcher(eventBus, new JobHookDispatcher(validation));
+      EventBus eventBus,
+      @Undecorated JobTemplateValidationDispatcher validation,
+      @Public Map<Layer, DispatcherDecorator<JobOperationDispatcher>> decorators) {
+    return Chain.<JobOperationDispatcher>of(
+            "@Public JobOperationDispatcher", validation, decorators)
+        .hook(JobHookDispatcher::new)
+        .event(d -> new JobEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
   @Singleton
   static BuiltInJobTemplateEventListener builtInJobTemplateEventListener(
-      JobManager jobManager,
+      @Undecorated JobManager jobManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       LockManager lockManager) {

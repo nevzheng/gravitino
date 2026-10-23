@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -43,26 +45,55 @@ import org.apache.gravitino.storage.IdGenerator;
  * is enabled and keeps {@code null} in their place otherwise, so that callers which test for a
  * disabled feature behave as before. The owner manager and its chains are in {@link
  * GovernanceModule}.
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 @Module
 abstract class AuthorizationModule {
 
   private AuthorizationModule() {}
 
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<AccessControlDispatcher>>
+      internalAccessControlDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<AccessControlDispatcher>> accessControlDecorators();
+
   @Provides
   @Singleton
-  @Internal
-  static AccessControlDispatcher internalAccessControlDispatcher(
+  @Undecorated
+  static AccessControlManager accessControlManager(
       EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
     return new AccessControlManager(entityStore, idGenerator, config, lockManager);
   }
 
   @Provides
   @Singleton
+  @Internal
+  static AccessControlDispatcher internalAccessControlDispatcher(
+      @Undecorated AccessControlManager accessControlManager,
+      @Internal Map<Layer, DispatcherDecorator<AccessControlDispatcher>> decorators) {
+    return Chain.<AccessControlDispatcher>of(
+            "@Internal AccessControlDispatcher", accessControlManager, decorators)
+        .build();
+  }
+
+  @Provides
+  @Singleton
   @Public
   static AccessControlDispatcher accessControlDispatcher(
-      EventBus eventBus, @Internal AccessControlDispatcher internal) {
-    return new AccessControlEventDispatcher(eventBus, new AccessControlHookDispatcher(internal));
+      EventBus eventBus,
+      @Undecorated AccessControlManager accessControlManager,
+      @Public Map<Layer, DispatcherDecorator<AccessControlDispatcher>> decorators) {
+    return Chain.<AccessControlDispatcher>of(
+            "@Public AccessControlDispatcher", accessControlManager, decorators)
+        .hook(AccessControlHookDispatcher::new)
+        .event(d -> new AccessControlEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides

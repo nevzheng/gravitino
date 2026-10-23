@@ -20,6 +20,8 @@ package org.apache.gravitino.di;
 
 import dagger.Module;
 import dagger.Provides;
+import dagger.multibindings.Multibinds;
+import java.util.Map;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -48,12 +50,31 @@ import org.apache.gravitino.storage.IdGenerator;
  * <p>The {@link Internal} metalake and catalog chains are normalize → manager. The {@link Public}
  * chains are event → normalize → hook → manager, around the same manager instance. Both managers
  * register with the {@link ManagedServices registry}, which closes them.
+ *
+ * <p>{@link Chain} assembles each chain from its layers and the {@link DispatcherDecorator
+ * decorators} contributed for it, keyed by {@link Layer}; upstream contributes none.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class CatalogModule {
 
   private CatalogModule() {}
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<MetalakeDispatcher>> internalMetalakeDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<MetalakeDispatcher>> metalakeDecorators();
+
+  @Multibinds
+  @Internal
+  abstract Map<Layer, DispatcherDecorator<CatalogDispatcher>> internalCatalogDecorators();
+
+  @Multibinds
+  @Public
+  abstract Map<Layer, DispatcherDecorator<CatalogDispatcher>> catalogDecorators();
 
   /**
    * Builds the catalog manager. It starts its catalog cache cleaner and registers a change-log
@@ -93,30 +114,50 @@ abstract class CatalogModule {
   @Provides
   @Singleton
   @Internal
-  static MetalakeDispatcher internalMetalakeDispatcher(MetalakeManager metalakeManager) {
-    return new MetalakeNormalizeDispatcher(metalakeManager);
+  static MetalakeDispatcher internalMetalakeDispatcher(
+      MetalakeManager metalakeManager,
+      @Internal Map<Layer, DispatcherDecorator<MetalakeDispatcher>> decorators) {
+    return Chain.<MetalakeDispatcher>of("@Internal MetalakeDispatcher", metalakeManager, decorators)
+        .normalize(MetalakeNormalizeDispatcher::new)
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
-  static MetalakeDispatcher metalakeDispatcher(EventBus eventBus, MetalakeManager metalakeManager) {
-    MetalakeHookDispatcher hook = new MetalakeHookDispatcher(metalakeManager);
-    return new MetalakeEventDispatcher(eventBus, new MetalakeNormalizeDispatcher(hook));
+  static MetalakeDispatcher metalakeDispatcher(
+      EventBus eventBus,
+      MetalakeManager metalakeManager,
+      @Public Map<Layer, DispatcherDecorator<MetalakeDispatcher>> decorators) {
+    return Chain.<MetalakeDispatcher>of("@Public MetalakeDispatcher", metalakeManager, decorators)
+        .hook(MetalakeHookDispatcher::new)
+        .normalize(MetalakeNormalizeDispatcher::new)
+        .event(d -> new MetalakeEventDispatcher(eventBus, d))
+        .build();
   }
 
   @Provides
   @Singleton
   @Internal
-  static CatalogDispatcher internalCatalogDispatcher(CatalogManager catalogManager) {
-    return new CatalogNormalizeDispatcher(catalogManager);
+  static CatalogDispatcher internalCatalogDispatcher(
+      CatalogManager catalogManager,
+      @Internal Map<Layer, DispatcherDecorator<CatalogDispatcher>> decorators) {
+    return Chain.<CatalogDispatcher>of("@Internal CatalogDispatcher", catalogManager, decorators)
+        .normalize(CatalogNormalizeDispatcher::new)
+        .build();
   }
 
   @Provides
   @Singleton
   @Public
-  static CatalogDispatcher catalogDispatcher(EventBus eventBus, CatalogManager catalogManager) {
-    CatalogHookDispatcher hook = new CatalogHookDispatcher(catalogManager);
-    return new CatalogEventDispatcher(eventBus, new CatalogNormalizeDispatcher(hook));
+  static CatalogDispatcher catalogDispatcher(
+      EventBus eventBus,
+      CatalogManager catalogManager,
+      @Public Map<Layer, DispatcherDecorator<CatalogDispatcher>> decorators) {
+    return Chain.<CatalogDispatcher>of("@Public CatalogDispatcher", catalogManager, decorators)
+        .hook(CatalogHookDispatcher::new)
+        .normalize(CatalogNormalizeDispatcher::new)
+        .event(d -> new CatalogEventDispatcher(eventBus, d))
+        .build();
   }
 }
