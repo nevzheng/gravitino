@@ -20,10 +20,10 @@ package org.apache.gravitino.iceberg.server;
 
 import com.google.common.base.Preconditions;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.iceberg.RESTService;
 import org.apache.gravitino.iceberg.common.IcebergConfig;
 import org.apache.gravitino.server.ServerConfig;
@@ -41,39 +41,40 @@ public class GravitinoIcebergRESTServer {
   private final ServerConfig serverConfig;
 
   private RESTService icebergRESTService;
-  private GravitinoEnv gravitinoEnv;
+  // Built by initialize() from the factory.
+  private GravitinoComponent component;
 
   private final GravitinoComponent.Factory componentFactory;
 
   /**
-   * Creates a standalone server whose environment is built from the component a factory creates.
+   * Creates a standalone server built from the component a factory creates.
    *
    * <p>A downstream distribution passes the factory of its own root component, so the standalone
    * server gets the decorators and managed services of that component.
    *
    * @param config the server configuration
-   * @param componentFactory creates the component the environment takes its objects from
+   * @param componentFactory creates the component the server takes its services from
    */
   public GravitinoIcebergRESTServer(
       ServerConfig config, GravitinoComponent.Factory componentFactory) {
     this.serverConfig = config;
     this.componentFactory = Preconditions.checkNotNull(componentFactory, "componentFactory");
-    this.gravitinoEnv = GravitinoEnv.getInstance();
     this.icebergRESTService = new RESTService();
   }
 
   private void initialize() {
-    gravitinoEnv.initializeBaseComponents(serverConfig, componentFactory);
+    this.component = componentFactory.create(serverConfig);
+    GravitinoProfiles.base(component);
     icebergRESTService.serviceInit(
         serverConfig.getConfigsWithPrefix(IcebergConfig.ICEBERG_CONFIG_PREFIX),
         false,
-        standaloneContext(gravitinoEnv.component()));
+        standaloneContext(component));
     ServerAuthenticator.getInstance()
-        .initialize(serverConfig, AuthenticatorContext.of(gravitinoEnv.component()::idGenerator));
+        .initialize(serverConfig, AuthenticatorContext.of(component::idGenerator));
   }
 
-  private void start() {
-    gravitinoEnv.start();
+  private void start() throws Exception {
+    GravitinoProfiles.start(component);
     icebergRESTService.serviceStart();
   }
 
@@ -89,7 +90,7 @@ public class GravitinoIcebergRESTServer {
   /**
    * Returns the host services of the base profile, which is all a standalone server builds.
    *
-   * @param component the component the environment was initialized from
+   * @param component the component the server was initialized from
    * @return the context of the standalone service
    */
   static AuxiliaryContext standaloneContext(GravitinoComponent component) {
@@ -102,7 +103,7 @@ public class GravitinoIcebergRESTServer {
   }
 
   /**
-   * Runs the standalone server with an environment built from {@link GravitinoComponent}.
+   * Runs the standalone server built from {@link GravitinoComponent}.
    *
    * @param args the command line arguments
    */
@@ -111,12 +112,11 @@ public class GravitinoIcebergRESTServer {
   }
 
   /**
-   * Runs the standalone server with an environment built from the component a factory creates. A
-   * downstream distribution calls this from its own entry point with the factory of its root
-   * component.
+   * Runs the standalone server built from the component a factory creates. A downstream
+   * distribution calls this from its own entry point with the factory of its root component.
    *
    * @param args the command line arguments
-   * @param componentFactory creates the component the environment takes its objects from
+   * @param componentFactory creates the component the server takes its services from
    */
   public static void run(String[] args, GravitinoComponent.Factory componentFactory) {
     LOG.info("Starting Gravitino Iceberg REST Server");
