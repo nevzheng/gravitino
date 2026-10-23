@@ -364,6 +364,17 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.internalSchemaDispatcher(), singleton.internalSchemaDispatcher());
+      assertSame(component.internalTableDispatcher(), singleton.internalTableDispatcher());
+      assertSame(component.internalPartitionDispatcher(), singleton.internalPartitionDispatcher());
+      assertSame(component.internalViewDispatcher(), singleton.internalViewDispatcher());
+      assertSame(component.internalFilesetDispatcher(), singleton.internalFilesetDispatcher());
+      assertSame(component.internalTopicDispatcher(), singleton.internalTopicDispatcher());
+      assertSame(component.internalModelDispatcher(), singleton.internalModelDispatcher());
+      assertSame(component.internalFunctionDispatcher(), singleton.internalFunctionDispatcher());
+      assertSame(
+          component.internalSemanticModelDispatcher(), singleton.internalSemanticModelDispatcher());
+      assertSame(component.internalSemanticModelDispatcher(), singleton.semanticModelDispatcher());
       assertSame(component.internalMetalakeDispatcher(), singleton.internalMetalakeDispatcher());
       assertSame(component.internalCatalogDispatcher(), singleton.internalCatalogDispatcher());
       assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
@@ -398,6 +409,14 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(component.lockManager(), singleton.lockManager());
       assertSame(component.idGenerator(), singleton.idGenerator());
       assertSame(component.metricsSystem(), singleton.metricsSystem());
+      assertSame(component.schemaDispatcher(), singleton.schemaDispatcher());
+      assertSame(component.internalSchemaDispatcher(), singleton.internalSchemaDispatcher());
+      assertSame(component.tableDispatcher(), singleton.tableDispatcher());
+      assertSame(component.internalTableDispatcher(), singleton.internalTableDispatcher());
+      assertSame(component.partitionDispatcher(), singleton.partitionDispatcher());
+      assertSame(component.internalPartitionDispatcher(), singleton.internalPartitionDispatcher());
+      assertSame(component.viewDispatcher(), singleton.viewDispatcher());
+      assertSame(component.internalViewDispatcher(), singleton.internalViewDispatcher());
       assertSame(component.tagDispatcher(), singleton.tagDispatcher());
       assertSame(component.internalTagDispatcher(), singleton.internalTagDispatcher());
       assertSame(component.policyDispatcher(), singleton.policyDispatcher());
@@ -424,7 +443,21 @@ class TestGravitinoEnvMetadataComponents {
       assertSame(
           component.secretPropertyOperationDispatcher(),
           singleton.secretPropertyOperationDispatcher());
-      // The other chains and the auxiliary service manager are still built by the environment.
+      assertSame(component.filesetDispatcher(), singleton.filesetDispatcher());
+      assertSame(component.internalFilesetDispatcher(), singleton.internalFilesetDispatcher());
+      assertSame(component.topicDispatcher(), singleton.topicDispatcher());
+      assertSame(component.internalTopicDispatcher(), singleton.internalTopicDispatcher());
+      assertSame(component.modelDispatcher(), singleton.modelDispatcher());
+      assertSame(component.internalModelDispatcher(), singleton.internalModelDispatcher());
+      assertSame(component.functionDispatcher(), singleton.functionDispatcher());
+      assertSame(component.internalFunctionDispatcher(), singleton.internalFunctionDispatcher());
+      assertSame(component.semanticModelDispatcher(), singleton.semanticModelDispatcher());
+      assertSame(
+          component.internalSemanticModelDispatcher(), singleton.internalSemanticModelDispatcher());
+      assertSame(component.jobOperationDispatcher(), singleton.jobOperationDispatcher());
+      assertSame(
+          component.internalJobOperationDispatcher(), singleton.internalJobOperationDispatcher());
+      // Only the auxiliary service manager is still built by the environment.
       assertNotNull(singleton.auxServiceManager());
     } finally {
       singleton.shutdown();

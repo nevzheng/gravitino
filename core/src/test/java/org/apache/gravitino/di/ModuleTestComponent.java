@@ -33,8 +33,11 @@ import org.apache.gravitino.Config;
       ConfigModule.class,
       LockModule.class,
       CatalogModule.class,
+      SchemaTableModule.class,
+      FilesetTopicModelModule.class,
       GovernanceModule.class,
       AuthorizationModule.class,
+      JobModule.class,
       FakeLeavesModule.class
     })
 interface ModuleTestComponent extends GravitinoComponent {

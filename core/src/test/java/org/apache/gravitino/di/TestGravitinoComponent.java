@@ -23,7 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
+import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.metrics.source.MetricsSource;
@@ -31,8 +34,11 @@ import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TestGravitinoComponent {
+
+  @TempDir Path stagingDir;
 
   private Config config;
   private GravitinoComponent component;
@@ -91,5 +97,47 @@ public class TestGravitinoComponent {
     assertNotSame(component.metricsSystem(), other.metricsSystem());
     assertNotSame(component.secretManager(), other.secretManager());
     assertNotSame(component.eventBus(), other.eventBus());
+  }
+
+  @Test
+  public void testDispatcherChainsAreSingletonsAndPublicIsNotInternal() throws Exception {
+    Config graphConfig = testConfig();
+    graphConfig.set(Configs.JOB_STAGING_DIR, stagingDir.toString());
+    // While authorization is disabled both owner chains are the one no-op dispatcher.
+    graphConfig.set(Configs.ENABLE_AUTHORIZATION, true);
+    ModuleTestComponent graph = ModuleTestComponent.create(graphConfig, new FakeLeaves());
+    List<List<Supplier<Object>>> chains =
+        List.of(
+            List.of(graph::metalakeDispatcher, graph::internalMetalakeDispatcher),
+            List.of(graph::catalogDispatcher, graph::internalCatalogDispatcher),
+            List.of(graph::schemaDispatcher, graph::internalSchemaDispatcher),
+            List.of(graph::tableDispatcher, graph::internalTableDispatcher),
+            List.of(graph::partitionDispatcher, graph::internalPartitionDispatcher),
+            List.of(graph::viewDispatcher, graph::internalViewDispatcher),
+            List.of(graph::filesetDispatcher, graph::internalFilesetDispatcher),
+            List.of(graph::topicDispatcher, graph::internalTopicDispatcher),
+            List.of(graph::modelDispatcher, graph::internalModelDispatcher),
+            List.of(graph::functionDispatcher, graph::internalFunctionDispatcher),
+            List.of(graph::semanticModelDispatcher, graph::internalSemanticModelDispatcher),
+            List.of(graph::tagDispatcher, graph::internalTagDispatcher),
+            List.of(graph::policyDispatcher, graph::internalPolicyDispatcher),
+            List.of(graph::ownerDispatcher, graph::internalOwnerDispatcher),
+            List.of(graph::statisticDispatcher, graph::internalStatisticDispatcher),
+            List.of(graph::accessControlDispatcher, graph::internalAccessControlDispatcher),
+            List.of(graph::jobOperationDispatcher, graph::internalJobOperationDispatcher));
+    try {
+      for (List<Supplier<Object>> chain : chains) {
+        Object publicChain = chain.get(0).get();
+        Object internalChain = chain.get(1).get();
+        assertSame(publicChain, chain.get(0).get());
+        assertSame(internalChain, chain.get(1).get());
+        assertNotSame(publicChain, internalChain);
+      }
+    } finally {
+      graph.jobOperationDispatcher().close();
+      graph.internalStatisticDispatcher().close();
+      graph.metalakeManager().close();
+      graph.catalogManager().close();
+    }
   }
 }
