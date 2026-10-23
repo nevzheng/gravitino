@@ -18,10 +18,12 @@
  */
 package org.apache.gravitino.di;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -29,6 +31,9 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.lifecycle.ManagedService;
+import org.apache.gravitino.lifecycle.ManagedServices;
+import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.source.MetricsSource;
 import org.apache.gravitino.stats.storage.MemoryPartitionStatsStorageFactory;
 import org.apache.gravitino.storage.RandomIdGenerator;
@@ -139,5 +144,31 @@ public class TestGravitinoComponent {
       graph.metalakeManager().close();
       graph.catalogManager().close();
     }
+  }
+
+  @Test
+  public void testManagedServicesRegisterInDependencyOrder() throws Exception {
+    Config graphConfig = testConfig();
+    graphConfig.set(Configs.JOB_STAGING_DIR, stagingDir.toString());
+    ModuleTestComponent graph = ModuleTestComponent.create(graphConfig, new FakeLeaves());
+    ManagedServices services = graph.managedServices();
+    try {
+      // Asking for the metalake manager builds what it depends on first.
+      MetalakeManager metalakeManager = graph.metalakeManager();
+
+      List<ManagedService> registered = services.services();
+      int lockManager = registered.indexOf(graph.lockManager());
+      int catalogManager = registered.indexOf(graph.catalogManager());
+      int metalakes = registered.indexOf(metalakeManager);
+      assertTrue(lockManager >= 0, registered.toString());
+      assertTrue(lockManager < catalogManager, registered.toString());
+      assertTrue(registered.indexOf(graph.metricsSystem()) < catalogManager, registered.toString());
+      assertTrue(catalogManager < metalakes, registered.toString());
+      // Only what was asked for is built: the job manager is not.
+      assertEquals(metalakes, registered.size() - 1, registered.toString());
+    } finally {
+      services.close();
+    }
+    assertEquals(ManagedServices.State.CLOSED, services.state());
   }
 }

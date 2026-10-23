@@ -36,6 +36,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +44,7 @@ import org.slf4j.LoggerFactory;
  * SecretManager owns write-through / external-reference secret lifecycle against configured
  * providers, and rolls back write-through secrets when entity create fails.
  */
-public class SecretManager implements Closeable {
+public class SecretManager implements Closeable, ManagedService {
 
   private static final Logger LOG = LoggerFactory.getLogger(SecretManager.class);
 

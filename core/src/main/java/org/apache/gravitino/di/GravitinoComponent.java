@@ -45,6 +45,8 @@ import org.apache.gravitino.credential.CredentialOperationDispatcher;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.lifecycle.ManagedService;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 import org.apache.gravitino.lock.LockManager;
@@ -168,6 +170,15 @@ public interface GravitinoComponent {
    * @return the audit log manager
    */
   AuditLogManager auditLogManager();
+
+  /**
+   * Returns the registry of the {@link ManagedService managed services} this component has built.
+   * Each module registers the services it builds as Dagger builds them, so the registry starts them
+   * in dependency order and closes them in reverse. It never builds a service itself.
+   *
+   * @return the managed service registry of this component
+   */
+  ManagedServices managedServices();
 
   /**
    * Returns the catalog manager.

@@ -22,6 +22,7 @@ import dagger.Module;
 import dagger.Provides;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.lock.LockManager;
 
 /** Binds the tree lock manager. */
@@ -36,7 +37,7 @@ abstract class LockModule {
    */
   @Provides
   @Singleton
-  static LockManager lockManager(Config config) {
-    return new LockManager(config);
+  static LockManager lockManager(Config config, ManagedServices services) {
+    return services.register(new LockManager(config));
   }
 }

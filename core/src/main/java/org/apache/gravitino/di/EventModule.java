@@ -23,6 +23,7 @@ import dagger.Provides;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.audit.AuditLogManager;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.EventListenerManager;
 
@@ -30,7 +31,8 @@ import org.apache.gravitino.listener.EventListenerManager;
  * Binds the event listener manager, the event bus it creates, and the audit log manager that
  * listens to it.
  *
- * <p>Dagger does not start or stop the listener manager; {@code GravitinoEnv} does.
+ * <p>The listener manager registers with the {@link ManagedServices registry}, which starts and
+ * stops it.
  */
 @Module
 abstract class EventModule {
@@ -40,11 +42,11 @@ abstract class EventModule {
   /** Builds the listener manager and loads the listeners named by the configuration. */
   @Provides
   @Singleton
-  static EventListenerManager eventListenerManager(Config config) {
+  static EventListenerManager eventListenerManager(Config config, ManagedServices services) {
     EventListenerManager eventListenerManager = new EventListenerManager();
     eventListenerManager.init(
         config.getConfigsWithPrefix(EventListenerManager.GRAVITINO_EVENT_LISTENER_PREFIX));
-    return eventListenerManager;
+    return services.register(eventListenerManager);
   }
 
   /**

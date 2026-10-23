@@ -30,6 +30,7 @@ import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
 import org.apache.gravitino.hook.PolicyHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.PolicyEventDispatcher;
 import org.apache.gravitino.listener.StatisticEventDispatcher;
@@ -59,7 +60,7 @@ import org.apache.gravitino.tag.TagManager;
  * it is disabled, both owner bindings are {@link NoopOwnerDispatcher}, so they never yield {@code
  * null} and never need the relational store the owner manager requires.
  */
-// The statistic manager is closed by GravitinoEnv.shutdown(), not by the graph.
+// The statistic manager registers with the ManagedServices registry, which closes it.
 @SuppressWarnings("CloseableProvides")
 @Module
 abstract class GovernanceModule {
@@ -123,8 +124,12 @@ abstract class GovernanceModule {
   @Singleton
   @Internal
   static StatisticDispatcher internalStatisticDispatcher(
-      EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    return new StatisticManager(entityStore, idGenerator, config, lockManager);
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      Config config,
+      LockManager lockManager,
+      ManagedServices services) {
+    return services.register(new StatisticManager(entityStore, idGenerator, config, lockManager));
   }
 
   @Provides

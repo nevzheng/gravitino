@@ -28,6 +28,7 @@ import org.apache.gravitino.job.BuiltInJobTemplateEventListener;
 import org.apache.gravitino.job.JobManager;
 import org.apache.gravitino.job.JobOperationDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.JobEventDispatcher;
 import org.apache.gravitino.lock.LockManager;
@@ -38,8 +39,8 @@ import org.apache.gravitino.storage.IdGenerator;
  * templates of new metalakes.
  *
  * <p>The {@link Internal} chain is validation → manager; the {@link Public} chain is event → hook →
- * that same validation dispatcher. Dagger does not close the manager; {@code
- * GravitinoEnv.shutdown()} closes the public chain, which closes it.
+ * that same validation dispatcher. The manager registers with the {@link ManagedServices registry},
+ * which closes it.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
@@ -53,8 +54,12 @@ abstract class JobModule {
   @Provides
   @Singleton
   static JobManager jobManager(
-      Config config, EntityStore entityStore, IdGenerator idGenerator, LockManager lockManager) {
-    return new JobManager(config, entityStore, idGenerator, lockManager);
+      Config config,
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      LockManager lockManager,
+      ManagedServices services) {
+    return services.register(new JobManager(config, entityStore, idGenerator, lockManager));
   }
 
   @Provides

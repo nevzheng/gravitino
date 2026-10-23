@@ -18,7 +18,6 @@
  */
 package org.apache.gravitino;
 
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
 import org.apache.gravitino.encryption.kms.KmsReference;
 import org.junit.jupiter.api.Assertions;
@@ -27,14 +26,15 @@ import org.junit.jupiter.api.Test;
 public class TestGravitinoEnvKmsClientRegistry {
 
   @Test
-  void testEmptyRegistryIsOptionalAndClosedWithEnvironment() throws IllegalAccessException {
+  void testEmptyRegistryIsOptionalAndClosedWithEnvironment() {
     TestGravitinoEnv env = new TestGravitinoEnv();
     Assertions.assertThrows(IllegalStateException.class, env::kmsClientRegistry);
 
-    KmsClientRegistry registry = new KmsClientRegistry(new Config(false) {});
-    FieldUtils.writeField(env, "kmsClientRegistry", registry, true);
+    // The environment closes what its component built, so the registry comes from the component.
+    env.initializeBaseComponents(new Config(false) {});
+    KmsClientRegistry registry = env.kmsClientRegistry();
 
-    Assertions.assertSame(registry, env.kmsClientRegistry());
+    Assertions.assertSame(registry, env.component().kmsClientRegistry());
     KmsReference reference = new KmsReference("missing", "key");
     Assertions.assertThrows(IllegalArgumentException.class, () -> registry.getClient(reference));
 

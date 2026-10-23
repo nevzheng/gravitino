@@ -25,13 +25,15 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
 import org.apache.gravitino.encryption.kms.KmsClientRegistry;
+import org.apache.gravitino.lifecycle.ManagedService;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.secret.SecretManager;
 
 /**
  * Binds the stores the server keeps its state in: the entity store, the KMS client registry and the
  * secret manager.
  *
- * <p>Dagger does not close them; {@code GravitinoEnv.shutdown()} does.
+ * <p>Each registers with the {@link ManagedServices registry}, which closes it.
  */
 @SuppressWarnings("CloseableProvides")
 @Module
@@ -45,21 +47,33 @@ abstract class StorageModule {
    */
   @Provides
   @Singleton
-  static EntityStore entityStore(Config config) {
+  static EntityStore entityStore(Config config, ManagedServices services) {
     EntityStore entityStore = EntityStoreFactory.createEntityStore(config);
-    entityStore.initialize(config);
+    try {
+      entityStore.initialize(config);
+    } catch (RuntimeException e) {
+      // The registry only closes what was registered, so a store that fails part way is closed
+      // here.
+      try {
+        entityStore.close();
+      } catch (Exception closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
+      throw e;
+    }
+    services.register(ManagedService.closing("EntityStore", entityStore));
     return entityStore;
   }
 
   @Provides
   @Singleton
-  static KmsClientRegistry kmsClientRegistry(Config config) {
-    return new KmsClientRegistry(config);
+  static KmsClientRegistry kmsClientRegistry(Config config, ManagedServices services) {
+    return services.register(new KmsClientRegistry(config));
   }
 
   @Provides
   @Singleton
-  static SecretManager secretManager(Config config) {
-    return new SecretManager(config);
+  static SecretManager secretManager(Config config, ManagedServices services) {
+    return services.register(new SecretManager(config));
   }
 }

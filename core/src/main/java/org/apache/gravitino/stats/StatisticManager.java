@@ -39,6 +39,7 @@ import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
@@ -57,7 +58,7 @@ import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class StatisticManager implements Closeable, StatisticDispatcher {
+public class StatisticManager implements Closeable, StatisticDispatcher, ManagedService {
 
   private static final String OPTIONS_PREFIX = "gravitino.stats.partition.storageOption.";
   private static final Logger LOG = LoggerFactory.getLogger(StatisticManager.class);
