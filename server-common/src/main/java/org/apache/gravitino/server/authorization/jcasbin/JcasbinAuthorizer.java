@@ -344,7 +344,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     metadataIdResolver =
         givenMetadataIdResolver != null
             ? givenMetadataIdResolver
-            : new MetadataIdResolver(hostServices::catalogManager, hostServices::entityStore);
+            : new MetadataIdResolver(hostServices::catalogAccess, hostServices::entityStore);
     lookups = new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, metadataIdResolver);
     changePoller = new JcasbinChangeListener(metadataIdCache, ownerRelCache, pollIntervalSecs);
     EntityStore entityStore = context.entityStore();

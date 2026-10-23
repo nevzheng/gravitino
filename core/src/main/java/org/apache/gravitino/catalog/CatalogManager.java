@@ -138,7 +138,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Manages the catalog instances and operations. */
-public class CatalogManager implements CatalogDispatcher, Closeable, ManagedService {
+public class CatalogManager implements CatalogDispatcher, CatalogAccess, Closeable, ManagedService {
 
   private static final String CATALOG_DOES_NOT_EXIST_MSG = "Catalog %s does not exist";
 
@@ -696,6 +696,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable, ManagedServ
    *
    * @param listener The consumer to be called with the NameIdentifier of the removed catalog.
    */
+  @Override
   public void addCatalogCacheRemoveListener(Consumer<NameIdentifier> listener) {
     removalListeners.add(listener);
   }
@@ -777,6 +778,16 @@ public class CatalogManager implements CatalogDispatcher, Closeable, ManagedServ
         });
   }
 
+  @Override
+  public boolean catalogExists(NameIdentifier ident) {
+    try {
+      loadCatalog(ident);
+      return true;
+    } catch (NoSuchCatalogException e) {
+      return false;
+    }
+  }
+
   /**
    * Runs an operation against a catalog while keeping its catalog instance and ClassLoader alive.
    *
@@ -793,6 +804,7 @@ public class CatalogManager implements CatalogDispatcher, Closeable, ManagedServ
    * @param <R> The result type of the operation.
    * @throws NoSuchCatalogException If the specified catalog does not exist.
    */
+  @Override
   public <R> R doWithCatalog(NameIdentifier ident, ThrowableFunction<BaseCatalog, R> operation)
       throws NoSuchCatalogException {
     try {
@@ -807,12 +819,12 @@ public class CatalogManager implements CatalogDispatcher, Closeable, ManagedServ
   }
 
   /**
-   * Runs a callback with one leased wrapper and the catalog ClassLoader installed as the thread
-   * context ClassLoader. The lease is deliberately kept inside CatalogManager so callers cannot
-   * release it before they have detached connector-backed results.
+   * Runs a callback with one leased wrapper. The lease is deliberately kept inside CatalogManager
+   * so callers cannot release it before they have detached connector-backed results.
    */
-  <R> R doWithCatalogWrapper(NameIdentifier ident, ThrowableFunction<CatalogWrapper, R> operation)
-      throws Exception {
+  @Override
+  public <R> R doWithCatalogWrapper(
+      NameIdentifier ident, ThrowableFunction<CatalogWrapper, R> operation) throws Exception {
     try (CatalogLease lease = acquireCatalogLease(ident)) {
       // Deliberately no ClassLoader swap around the whole callback. The wrapper's doWithXxxOps,
       // doWithPropertiesMeta and capabilities() already install the catalog ClassLoader for the

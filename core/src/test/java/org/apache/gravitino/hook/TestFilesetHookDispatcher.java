@@ -77,7 +77,7 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
             TestFilesetOperationDispatcher.getSchemaOperationDispatcher(), lockManager, services);
 
     catalogManager = Mockito.mock(CatalogManager.class);
-    services.withCatalogManager(catalogManager);
+    services.withCatalogAccess(catalogManager);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(catalog.capability()).thenReturn(Capability.DEFAULT);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
@@ -107,7 +107,7 @@ public class TestFilesetHookDispatcher extends TestOperationDispatcher {
                 mockFilesetDispatcher,
                 new FakeAuthorizationServices()
                     .withAccessControlDispatcher(accessControlManager)
-                    .withCatalogManager(mockCatalogManager)
+                    .withCatalogAccess(mockCatalogManager)
                     .withOwnerDispatcher(mockOwnerDispatcher)),
             mockCatalogManager);
     NameIdentifier ident = NameIdentifier.of(metalake, catalog, "SCHEMA_NORM", "MY_FILESET");

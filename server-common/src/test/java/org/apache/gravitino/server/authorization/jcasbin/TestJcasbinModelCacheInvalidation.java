@@ -101,7 +101,7 @@ public class TestJcasbinModelCacheInvalidation {
       JcasbinAuthorizer authorizer = mock(JcasbinAuthorizer.class, CALLS_REAL_METHODS);
       FieldUtils.writeField(authorizer, "metadataIdCache", metadataIdCache, true);
       AuthorizationServices services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
-      doReturn(catalogManager).when(services).catalogManager();
+      doReturn(catalogManager).when(services).catalogAccess();
       doReturn(authorizer).when(services).gravitinoAuthorizer();
       JcasbinAuthorizationLookups lookups =
           new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, resolver);

@@ -32,7 +32,7 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auth.AuthProperties;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
-import org.apache.gravitino.catalog.CatalogManager;
+import org.apache.gravitino.catalog.CatalogAccess;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.client.DefaultOAuth2TokenProvider;
 import org.apache.gravitino.client.GravitinoClient;
@@ -333,8 +333,8 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
   }
 
   /**
-   * Internal catalog fetcher that uses the lease-aware CatalogManager API. This bypasses the HTTP
-   * layer and is used when running in auxiliary mode (embedded in Gravitino server).
+   * Internal catalog fetcher that uses the lease-aware catalog access of the server. This bypasses
+   * the HTTP layer and is used when running in auxiliary mode (embedded in Gravitino server).
    *
    * <p>Note: When authorization is enabled (which requires auxiliary mode),
    * IcebergCatalogWrapperManager bypasses its cache to avoid consistency issues between the
@@ -342,37 +342,37 @@ public class DynamicIcebergConfigProvider implements IcebergConfigProvider {
    */
   private static class InternalCatalogFetcher implements CatalogFetcher {
     private final String metalake;
-    private final CatalogManager catalogManager;
+    private final CatalogAccess catalogAccess;
 
     InternalCatalogFetcher(String metalake, AuxiliaryContext context) {
       this.metalake = metalake;
-      CatalogManager manager;
+      CatalogAccess access;
       try {
-        manager = context.catalogManager();
+        access = context.catalogAccess();
       } catch (IllegalArgumentException | IllegalStateException e) {
         throw new IllegalStateException(
-            "Internal CatalogManager is not available. "
+            "Internal catalog access is not available. "
                 + "Internal catalog fetcher requires running within Gravitino server.",
             e);
       }
       Preconditions.checkState(
-          manager != null,
-          "Internal CatalogManager is not available. "
+          access != null,
+          "Internal catalog access is not available. "
               + "Internal catalog fetcher requires running within Gravitino server.");
-      this.catalogManager = manager;
+      this.catalogAccess = access;
     }
 
     @Override
     public Catalog loadCatalog(String catalogName) throws NoSuchCatalogException {
       NameIdentifier catalogIdent = NameIdentifierUtil.ofCatalog(metalake, catalogName);
-      return catalogManager.loadCatalog(catalogIdent);
+      return catalogAccess.loadCatalog(catalogIdent);
     }
 
     @Override
     public Map<String, String> loadCatalogProperties(
         String catalogName, Supplier<SecretManager> secretManager) throws NoSuchCatalogException {
       NameIdentifier catalogIdent = NameIdentifierUtil.ofCatalog(metalake, catalogName);
-      return catalogManager.doWithCatalog(
+      return catalogAccess.doWithCatalog(
           catalogIdent,
           catalog -> {
             // Auxiliary mode needs raw properties, including hidden credentials. Copy them while

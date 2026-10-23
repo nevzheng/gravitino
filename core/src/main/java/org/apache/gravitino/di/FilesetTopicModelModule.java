@@ -121,7 +121,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static FilesetOperationDispatcher filesetOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
@@ -135,7 +135,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static FilesetDispatcher internalFilesetDispatcher(
       @Undecorated FilesetOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<FilesetDispatcher>> decorators) {
     return Chain.<FilesetDispatcher>of("@Internal FilesetDispatcher", operations, decorators)
         .normalize(d -> new FilesetNormalizeDispatcher(d, catalogManager))
@@ -148,7 +148,7 @@ abstract class FilesetTopicModelModule {
   static FilesetDispatcher filesetDispatcher(
       EventBus eventBus,
       @Undecorated FilesetOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<FilesetDispatcher>> decorators) {
     return Chain.<FilesetDispatcher>of("@Public FilesetDispatcher", operations, decorators)
@@ -162,7 +162,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static TopicOperationDispatcher topicOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -182,7 +182,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static TopicDispatcher internalTopicDispatcher(
       @Undecorated TopicOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<TopicDispatcher>> decorators) {
     return Chain.<TopicDispatcher>of("@Internal TopicDispatcher", operations, decorators)
         .normalize(d -> new TopicNormalizeDispatcher(d, catalogManager))
@@ -195,7 +195,7 @@ abstract class FilesetTopicModelModule {
   static TopicDispatcher topicDispatcher(
       EventBus eventBus,
       @Undecorated TopicOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<TopicDispatcher>> decorators) {
     return Chain.<TopicDispatcher>of("@Public TopicDispatcher", operations, decorators)
@@ -209,7 +209,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static ModelOperationDispatcher modelOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager) {
@@ -221,7 +221,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static ModelDispatcher internalModelDispatcher(
       @Undecorated ModelOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<ModelDispatcher>> decorators) {
     return Chain.<ModelDispatcher>of("@Internal ModelDispatcher", operations, decorators)
         .normalize(d -> new ModelNormalizeDispatcher(d, catalogManager))
@@ -234,7 +234,7 @@ abstract class FilesetTopicModelModule {
   static ModelDispatcher modelDispatcher(
       EventBus eventBus,
       @Undecorated ModelOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<ModelDispatcher>> decorators) {
     return Chain.<ModelDispatcher>of("@Public ModelDispatcher", operations, decorators)
@@ -248,7 +248,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Undecorated
   static FunctionOperationDispatcher functionOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
@@ -263,7 +263,7 @@ abstract class FilesetTopicModelModule {
   @Internal
   static FunctionDispatcher internalFunctionDispatcher(
       @Undecorated FunctionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<FunctionDispatcher>> decorators) {
     return Chain.<FunctionDispatcher>of("@Internal FunctionDispatcher", operations, decorators)
         .normalize(d -> new FunctionNormalizeDispatcher(d, catalogManager))
@@ -276,7 +276,7 @@ abstract class FilesetTopicModelModule {
   static FunctionDispatcher functionDispatcher(
       EventBus eventBus,
       @Undecorated FunctionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<FunctionDispatcher>> decorators) {
     return Chain.<FunctionDispatcher>of("@Public FunctionDispatcher", operations, decorators)
@@ -290,7 +290,7 @@ abstract class FilesetTopicModelModule {
   @Singleton
   @Internal
   static SemanticModelDispatcher internalSemanticModelDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,
@@ -310,7 +310,7 @@ abstract class FilesetTopicModelModule {
   @Public
   static SemanticModelDispatcher semanticModelDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Undecorated SchemaOperationDispatcher schemaOperations,
       EntityStore entityStore,
       IdGenerator idGenerator,

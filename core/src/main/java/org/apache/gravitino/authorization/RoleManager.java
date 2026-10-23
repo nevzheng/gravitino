@@ -84,7 +84,7 @@ class RoleManager {
       store.put(roleEntity, false /* overwritten */);
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           roleEntity.securableObjects(),
           (authorizationPlugin, catalogName) ->
@@ -119,7 +119,7 @@ class RoleManager {
       try {
         RoleEntity roleEntity = store.get(ident, Entity.EntityType.ROLE, RoleEntity.class);
         AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-            authorizationServices.catalogManager(),
+            authorizationServices.catalogAccess(),
             metalake,
             roleEntity.securableObjects(),
             (authorizationPlugin, catalogName) ->

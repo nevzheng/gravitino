@@ -410,7 +410,7 @@ class TestAuthorizationUtils {
         new FakeAuthorizationServices()
             .withAuthorizer(authorizer)
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
     AuthorizationUtils.authorizationPluginRenamePrivileges(
         services, ident, Entity.EntityType.TABLE, "new_table");
@@ -431,7 +431,7 @@ class TestAuthorizationUtils {
         new FakeAuthorizationServices()
             .withAuthorizer(authorizer)
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     NameIdentifier ident = NameIdentifier.of("metalake", "catalog", "schema", "table");
     AuthorizationUtils.authorizationPluginRemovePrivileges(
         services, ident, Entity.EntityType.TABLE, Collections.emptyList());
@@ -455,7 +455,7 @@ class TestAuthorizationUtils {
     AuthorizationServices services =
         new FakeAuthorizationServices()
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     AuthorizationUtils.authorizationPluginRenamePrivileges(
         services, ident, Entity.EntityType.TABLE, "renamed_table", locations);
 
@@ -491,7 +491,7 @@ class TestAuthorizationUtils {
     AuthorizationServices services =
         new FakeAuthorizationServices()
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     AuthorizationUtils.authorizationPluginRenamePrivileges(
         services, ident, Entity.EntityType.TABLE, newIdent, locations);
 
@@ -522,7 +522,7 @@ class TestAuthorizationUtils {
     AuthorizationServices services =
         new FakeAuthorizationServices()
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     AuthorizationUtils.authorizationPluginRemovePrivileges(
         services, ident, Entity.EntityType.TABLE, locations);
 
@@ -618,7 +618,7 @@ class TestAuthorizationUtils {
     AuthorizationServices services =
         new FakeAuthorizationServices()
             .withAccessControlDispatcher(accessControlDispatcher)
-            .withCatalogManager(catalogManager);
+            .withCatalogAccess(catalogManager);
     AuthorizationUtils.authorizationPluginRenamePrivileges(
         services, ident, Entity.EntityType.SEMANTIC_MODEL, "renamed_model");
     AuthorizationUtils.authorizationPluginRemovePrivileges(
@@ -639,7 +639,7 @@ class TestAuthorizationUtils {
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
 
     AuthorizationServices services =
-        new FakeAuthorizationServices().withCatalogManager(catalogManager);
+        new FakeAuthorizationServices().withCatalogAccess(catalogManager);
     AuthorizationUtils.removeCatalogPrivileges(services, requestedIdent, locations);
 
     Mockito.verify(catalogManager).doWithCatalog(Mockito.eq(requestedIdent), Mockito.any());

@@ -44,18 +44,18 @@ import org.apache.gravitino.semantic.SemanticModelDefinition;
 public class SemanticModelNormalizeDispatcher implements SemanticModelDispatcher {
 
   private final SemanticModelDispatcher dispatcher;
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
 
   /**
    * Creates a Semantic Model normalization dispatcher.
    *
    * @param dispatcher The underlying dispatcher.
-   * @param catalogManager The catalog manager used to load parent naming capabilities.
+   * @param catalogAccess The catalog access used to load parent naming capabilities.
    */
   public SemanticModelNormalizeDispatcher(
-      SemanticModelDispatcher dispatcher, CatalogManager catalogManager) {
+      SemanticModelDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -117,7 +117,7 @@ public class SemanticModelNormalizeDispatcher implements SemanticModelDispatcher
   }
 
   private Namespace normalizeParentForLookup(Namespace namespace) {
-    Capability capability = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capability = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.SEMANTIC_MODEL, capability);
   }
 
@@ -126,7 +126,7 @@ public class SemanticModelNormalizeDispatcher implements SemanticModelDispatcher
   }
 
   private NameIdentifier normalizeForCreate(NameIdentifier ident) {
-    Capability capability = getCapability(ident, catalogManager);
+    Capability capability = getCapability(ident, catalogAccess);
     Namespace namespace =
         applyCapabilities(ident.namespace(), Capability.Scope.SEMANTIC_MODEL, capability);
     return NameIdentifier.of(namespace, normalizeSemanticModelName(ident.name()));

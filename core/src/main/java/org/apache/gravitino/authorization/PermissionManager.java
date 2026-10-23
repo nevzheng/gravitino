@@ -137,7 +137,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -223,7 +223,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -309,7 +309,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -396,7 +396,7 @@ class PermissionManager {
       }
 
       AuthorizationUtils.callAuthorizationPluginForSecurableObjects(
-          authorizationServices.catalogManager(),
+          authorizationServices.catalogAccess(),
           metalake,
           securableObjects,
           (authorizationPlugin, catalogName) ->
@@ -513,7 +513,7 @@ class PermissionManager {
       authorizationPluginCallbackWrapper.setCallback(
           () ->
               AuthorizationUtils.notifyRolePrivilegesUpdated(
-                  authorizationServices.catalogManager(),
+                  authorizationServices.catalogAccess(),
                   metalake,
                   roleEntity,
                   targetObject,
@@ -644,7 +644,7 @@ class PermissionManager {
                       authzPluginCreatedObjects.forEach(
                           object -> {
                             AuthorizationUtils.notifyRolePrivilegesUpdated(
-                                authorizationServices.catalogManager(),
+                                authorizationServices.catalogAccess(),
                                 metalake,
                                 roleEntity,
                                 null,
@@ -662,7 +662,7 @@ class PermissionManager {
                                     .privileges()
                                     .equals(newSecurableObject.privileges())) {
                               AuthorizationUtils.notifyRolePrivilegesUpdated(
-                                  authorizationServices.catalogManager(),
+                                  authorizationServices.catalogAccess(),
                                   metalake,
                                   roleEntity,
                                   existingObject,
@@ -672,7 +672,7 @@ class PermissionManager {
                       authzPluginDeletedObjects.forEach(
                           object -> {
                             AuthorizationUtils.notifyRolePrivilegesUpdated(
-                                authorizationServices.catalogManager(),
+                                authorizationServices.catalogAccess(),
                                 metalake,
                                 roleEntity,
                                 originObjectMap.get(object),
@@ -728,7 +728,7 @@ class PermissionManager {
     authorizationPluginCallbackWrapper.setCallback(
         () ->
             AuthorizationUtils.notifyRolePrivilegesUpdated(
-                authorizationServices.catalogManager(),
+                authorizationServices.catalogAccess(),
                 metalake,
                 roleEntity,
                 null,
@@ -785,7 +785,7 @@ class PermissionManager {
       authorizationCallbackWrapper.setCallback(
           () ->
               AuthorizationUtils.notifyRolePrivilegesUpdated(
-                  authorizationServices.catalogManager(),
+                  authorizationServices.catalogAccess(),
                   metalake,
                   roleEntity,
                   targetObject,
@@ -799,11 +799,7 @@ class PermissionManager {
       authorizationCallbackWrapper.setCallback(
           () ->
               AuthorizationUtils.notifyRolePrivilegesUpdated(
-                  authorizationServices.catalogManager(),
-                  metalake,
-                  roleEntity,
-                  targetObject,
-                  null));
+                  authorizationServices.catalogAccess(), metalake, roleEntity, targetObject, null));
       // If we return null, the newly generated objects won't contain this object, the storage will
       // delete this object.
       return null;

@@ -109,7 +109,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Undecorated
   static SchemaOperationDispatcher schemaOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager,
@@ -124,7 +124,7 @@ abstract class SchemaTableModule {
   @Internal
   static SchemaDispatcher internalSchemaDispatcher(
       @Undecorated SchemaOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<SchemaDispatcher>> decorators) {
     return Chain.<SchemaDispatcher>of("@Internal SchemaDispatcher", operations, decorators)
         .normalize(d -> new SchemaNormalizeDispatcher(d, catalogManager))
@@ -137,7 +137,7 @@ abstract class SchemaTableModule {
   static SchemaDispatcher schemaDispatcher(
       EventBus eventBus,
       @Undecorated SchemaOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       LockManager lockManager,
       AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<SchemaDispatcher>> decorators) {
@@ -152,7 +152,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static TableDispatcher internalTableDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -177,7 +177,7 @@ abstract class SchemaTableModule {
   @Public
   static TableDispatcher tableDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -205,7 +205,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Undecorated
   static PartitionOperationDispatcher partitionOperationDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       SecretManager secretManager) {
@@ -218,7 +218,7 @@ abstract class SchemaTableModule {
   @Internal
   static PartitionDispatcher internalPartitionDispatcher(
       @Undecorated PartitionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Internal Map<Layer, DispatcherDecorator<PartitionDispatcher>> decorators) {
     return Chain.<PartitionDispatcher>of("@Internal PartitionDispatcher", operations, decorators)
         .normalize(d -> new PartitionNormalizeDispatcher(d, catalogManager))
@@ -231,7 +231,7 @@ abstract class SchemaTableModule {
   static PartitionDispatcher partitionDispatcher(
       EventBus eventBus,
       @Undecorated PartitionOperationDispatcher operations,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       @Public Map<Layer, DispatcherDecorator<PartitionDispatcher>> decorators) {
     // Partitions have no ownership, so their public chain has no hook layer.
     return Chain.<PartitionDispatcher>of("@Public PartitionDispatcher", operations, decorators)
@@ -244,7 +244,7 @@ abstract class SchemaTableModule {
   @Singleton
   @Internal
   static ViewDispatcher internalViewDispatcher(
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
@@ -269,7 +269,7 @@ abstract class SchemaTableModule {
   @Public
   static ViewDispatcher viewDispatcher(
       EventBus eventBus,
-      CatalogManager catalogManager,
+      @Undecorated CatalogManager catalogManager,
       EntityStore entityStore,
       IdGenerator idGenerator,
       @Internal Provider<SchemaDispatcher> schemaDispatcher,

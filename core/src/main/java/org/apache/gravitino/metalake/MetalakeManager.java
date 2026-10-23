@@ -30,13 +30,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
 import org.apache.gravitino.exceptions.AlreadyExistsException;
@@ -72,7 +75,9 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
 
   private final IdGenerator idGenerator;
 
-  private final CatalogManager catalogManager;
+  @Nullable private final CatalogManager catalogManager;
+
+  @Nullable private final Supplier<? extends CatalogDispatcher> catalogDispatcher;
 
   private final LockManager lockManager;
 
@@ -89,7 +94,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
    * @param lockManager The LockManager that guards metalake operations with tree locks.
    */
   public MetalakeManager(EntityStore store, IdGenerator idGenerator, LockManager lockManager) {
-    this(store, idGenerator, null, lockManager);
+    this(store, idGenerator, null, null, lockManager);
   }
 
   /**
@@ -97,21 +102,26 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
    *
    * @param store The EntityStore to use for managing Metalakes.
    * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
-   * @param catalogManager Used on force-drop to drop child catalogs via {@link
-   *     CatalogManager#dropCatalog} (schema/fileset secrets cleaned on that path, including {@code
-   *     FilesetCatalogOperations.dropSchema}); may be null in tests that do not exercise force-drop
-   *     with catalogs. It also marks the catalogs of an enabled or disabled metalake; when it is
-   *     null, those catalogs are left unmarked.
+   * @param catalogManager Marks the catalogs of an enabled or disabled metalake; when it is null,
+   *     those catalogs are left unmarked.
+   * @param catalogDispatcher Supplies the catalog dispatcher that a force drop drops each child
+   *     catalog through, read on each force drop. The server passes the public catalog chain, so
+   *     each child drop fires the catalog drop events and runs the catalog hook, as when a user
+   *     force-drops the catalog; the catalog manager at the bottom of the chain cleans the
+   *     write-through secrets of the catalog and its schemas and filesets. When it is null, a force
+   *     drop drops no child catalog and the entity store removes them with the metalake.
    * @param lockManager The LockManager that guards metalake operations with tree locks.
    */
   public MetalakeManager(
       EntityStore store,
       IdGenerator idGenerator,
-      CatalogManager catalogManager,
+      @Nullable CatalogManager catalogManager,
+      @Nullable Supplier<? extends CatalogDispatcher> catalogDispatcher,
       LockManager lockManager) {
     this.store = store;
     this.idGenerator = idGenerator;
     this.catalogManager = catalogManager;
+    this.catalogDispatcher = catalogDispatcher;
     this.lockManager = lockManager;
 
     // preload all metalakes and put them into cache, this is useful when user load schema/table
@@ -368,9 +378,10 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
   @Override
   public boolean dropMetalake(NameIdentifier ident, boolean force)
       throws NonEmptyEntityException, MetalakeInUseException {
-    // Mirror CatalogManager.dropCatalog → ops.dropSchema: force-drop children through the real
-    // drop path so FilesetCatalogOperations / CatalogManager clean write-through secrets (and
-    // managed storage). Do this before the metalake root lock to avoid nesting tree locks.
+    // Force-drop each child catalog through the catalog dispatcher, as a user force-dropping it
+    // would: the public chain fires its events and runs its hook, and CatalogManager.dropCatalog
+    // at the bottom cleans write-through secrets and managed storage. Do this before the metalake
+    // root lock to avoid nesting tree locks.
     boolean temporarilyEnabled = false;
     if (force) {
       temporarilyEnabled = dropCatalogsUnderMetalake(ident);
@@ -415,9 +426,11 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
   }
 
   /**
-   * Force-drop child catalogs via {@link CatalogManager#dropCatalog} so schema/fileset secrets are
-   * cleaned on the same path as a normal catalog force-drop ({@code ops.dropSchema} →
-   * FilesetCatalogOperations, then catalog secrets in CatalogManager).
+   * Force-drops each child catalog through the catalog dispatcher. In the server that is the public
+   * catalog chain, so each drop is the same as a user's catalog force drop: the drop events fire,
+   * the catalog hook removes the catalog from the authorization plugins, and {@link
+   * CatalogManager#dropCatalog} cleans the schema, fileset and catalog secrets ({@code
+   * ops.dropSchema} → FilesetCatalogOperations, then catalog secrets in CatalogManager).
    *
    * <p>Callers typically {@code disableMetalake} before force-drop. {@link
    * CatalogManager#dropCatalog} requires catalog {@code metalake-in-use=true}, so a disabled
@@ -431,7 +444,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
    *     restore the disabled state if the subsequent metalake delete fails
    */
   private boolean dropCatalogsUnderMetalake(NameIdentifier metalakeIdent) {
-    if (catalogManager == null) {
+    if (catalogDispatcher == null) {
       return false;
     }
     // True once this call has flipped the metalake to in-use. Set under the metalake write lock
@@ -444,8 +457,9 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
         enableMetalakeIfDisabled(metalakeIdent, weEnabled);
         List<CatalogEntity> catalogs =
             store.list(Namespace.of(metalakeIdent.name()), CatalogEntity.class, EntityType.CATALOG);
+        CatalogDispatcher childCatalogs = catalogDispatcher.get();
         for (CatalogEntity catalog : catalogs) {
-          catalogManager.dropCatalog(
+          childCatalogs.dropCatalog(
               NameIdentifier.of(metalakeIdent.name(), catalog.name()), true /* force */);
         }
         // Report whether we enabled the metalake so the caller can re-disable it if the metalake

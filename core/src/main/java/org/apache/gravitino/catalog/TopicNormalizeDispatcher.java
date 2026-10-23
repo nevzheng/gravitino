@@ -40,12 +40,12 @@ import org.apache.gravitino.messaging.TopicChange;
  * assumed to already be in their canonical, legal form and are not re-normalized here.
  */
 public class TopicNormalizeDispatcher implements TopicDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final TopicDispatcher dispatcher;
 
-  public TopicNormalizeDispatcher(TopicDispatcher dispatcher, CatalogManager catalogManager) {
+  public TopicNormalizeDispatcher(TopicDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -100,12 +100,12 @@ public class TopicNormalizeDispatcher implements TopicDispatcher {
   }
 
   private Namespace normalizeCaseSensitive(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return applyCaseSensitive(namespace, Capability.Scope.TOPIC, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier topicIdent) {
-    Capability capabilities = getCapability(topicIdent, catalogManager);
+    Capability capabilities = getCapability(topicIdent, catalogAccess);
     return applyCaseSensitive(topicIdent, Capability.Scope.TOPIC, capabilities);
   }
 
@@ -115,7 +115,7 @@ public class TopicNormalizeDispatcher implements TopicDispatcher {
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier topicIdent) {
-    Capability capability = getCapability(topicIdent, catalogManager);
+    Capability capability = getCapability(topicIdent, catalogAccess);
     return applyCapabilities(topicIdent, Capability.Scope.TOPIC, capability);
   }
 }

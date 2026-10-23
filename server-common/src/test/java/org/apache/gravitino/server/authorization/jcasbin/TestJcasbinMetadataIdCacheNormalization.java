@@ -157,7 +157,7 @@ public class TestJcasbinMetadataIdCacheNormalization {
     when(env.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
     // The services the hooks read; the default authorizationEnabled() sees the dispatcher.
     services = mock(AuthorizationServices.class, CALLS_REAL_METHODS);
-    doReturn(catalogs).when(services).catalogManager();
+    doReturn(catalogs).when(services).catalogAccess();
     doReturn(authorizer).when(services).gravitinoAuthorizer();
     doReturn(mock(AccessControlDispatcher.class)).when(services).internalAccessControlDispatcher();
     doReturn(catalogDispatcher).when(services).internalCatalogDispatcher();

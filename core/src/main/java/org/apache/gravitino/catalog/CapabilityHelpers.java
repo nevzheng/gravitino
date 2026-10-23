@@ -71,15 +71,15 @@ public class CapabilityHelpers {
    * NoSuchTableException} from the subsequent locked operation.
    *
    * @param normalizedIdent the case-normalized table identifier
-   * @param catalogManager the catalog manager used to reach the catalog operations
+   * @param catalogAccess the catalog access used to reach the catalog operations
    * @return the identifier under which the table is physically stored, or {@code normalizedIdent}
    *     unchanged when the catalog does not opt in or no unambiguous mapping applies
    */
   public static NameIdentifier resolvePhysicalTableName(
-      NameIdentifier normalizedIdent, CatalogManager catalogManager) {
+      NameIdentifier normalizedIdent, CatalogAccess catalogAccess) {
     NameIdentifier catalogIdent = getCatalogIdentifier(normalizedIdent);
     try {
-      return catalogManager.doWithCatalog(
+      return catalogAccess.doWithCatalog(
           catalogIdent,
           catalog -> {
             CatalogOperations catalogOps = catalog.ops();
@@ -96,10 +96,10 @@ public class CapabilityHelpers {
     }
   }
 
-  public static Capability getCapability(NameIdentifier ident, CatalogManager catalogManager) {
+  public static Capability getCapability(NameIdentifier ident, CatalogAccess catalogAccess) {
     NameIdentifier catalogIdent = getCatalogIdentifier(ident);
     try {
-      return catalogManager.doWithCatalog(catalogIdent, catalog -> catalog.capability());
+      return catalogAccess.doWithCatalog(catalogIdent, catalog -> catalog.capability());
     } catch (NoSuchCatalogException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -201,12 +201,12 @@ public class CapabilityHelpers {
    *
    * @param ident the identifier to normalize
    * @param scope the identifier's capability scope
-   * @param catalogManager the catalog manager used to load the capability
+   * @param catalogAccess the catalog access used to load the capability
    * @return the case-normalized identifier
    */
   public static NameIdentifier applyCaseSensitive(
-      NameIdentifier ident, Capability.Scope scope, CatalogManager catalogManager) {
-    Capability capability = getCapability(ident, catalogManager);
+      NameIdentifier ident, Capability.Scope scope, CatalogAccess catalogAccess) {
+    Capability capability = getCapability(ident, catalogAccess);
     return applyCaseSensitive(ident, scope, capability);
   }
 

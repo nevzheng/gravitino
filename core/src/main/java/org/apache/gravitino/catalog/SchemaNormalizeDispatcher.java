@@ -41,12 +41,12 @@ import org.apache.gravitino.secret.SecretReference;
  * are assumed to already be in their canonical, legal form and are not re-normalized here.
  */
 public class SchemaNormalizeDispatcher implements SchemaDispatcher {
-  private final CatalogManager catalogManager;
+  private final CatalogAccess catalogAccess;
   private final SchemaDispatcher dispatcher;
 
-  public SchemaNormalizeDispatcher(SchemaDispatcher dispatcher, CatalogManager catalogManager) {
+  public SchemaNormalizeDispatcher(SchemaDispatcher dispatcher, CatalogAccess catalogAccess) {
     this.dispatcher = dispatcher;
-    this.catalogManager = catalogManager;
+    this.catalogAccess = catalogAccess;
   }
 
   @Override
@@ -112,17 +112,17 @@ public class SchemaNormalizeDispatcher implements SchemaDispatcher {
   }
 
   private boolean supportsHierarchicalSchema(Namespace namespace) {
-    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogManager);
+    Capability capabilities = getCapability(NameIdentifier.of(namespace.levels()), catalogAccess);
     return capabilities.supportsHierarchicalSchema().supported();
   }
 
   private NameIdentifier normalizeNameIdentifier(NameIdentifier schemaIdent) {
-    Capability capabilities = getCapability(schemaIdent, catalogManager);
+    Capability capabilities = getCapability(schemaIdent, catalogAccess);
     return applyCapabilities(schemaIdent, Capability.Scope.SCHEMA, capabilities);
   }
 
   private NameIdentifier normalizeCaseSensitive(NameIdentifier schemaIdent) {
-    Capability capabilities = getCapability(schemaIdent, catalogManager);
+    Capability capabilities = getCapability(schemaIdent, catalogAccess);
     return applyCaseSensitive(schemaIdent, Capability.Scope.SCHEMA, capabilities);
   }
 }

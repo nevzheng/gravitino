@@ -123,7 +123,7 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
       FutureGrantManager futureGrantManager = authorizationServices.futureGrantManager();
       if (futureGrantManager != null) {
         authorizationServices
-            .catalogManager()
+            .catalogAccess()
             .doWithCatalog(
                 ident,
                 leasedCatalog -> {

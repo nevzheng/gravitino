@@ -19,6 +19,7 @@
 package org.apache.gravitino.di.downstream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -27,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,6 +43,7 @@ import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerEventManager;
 import org.apache.gravitino.authorization.OwnerManager;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
 import org.apache.gravitino.catalog.FunctionNormalizeDispatcher;
@@ -52,6 +56,7 @@ import org.apache.gravitino.catalog.TableNormalizeDispatcher;
 import org.apache.gravitino.catalog.TableOperationDispatcher;
 import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
 import org.apache.gravitino.catalog.ViewNormalizeDispatcher;
+import org.apache.gravitino.di.ForDispatcherChains;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
@@ -242,10 +247,27 @@ public class TestDownstreamComponent {
   }
 
   @Test
+  public void testDispatcherChainsGetTheCatalogManagerBehindCatalogAccess() {
+    CatalogManager catalogManager = component.dispatcherChainCatalogManager();
+    assertSame(component.catalogAccess(), catalogManager);
+    assertSame(catalogManager, component.dispatcherChainCatalogManager());
+  }
+
+  @Test
+  public void testNoUpstreamComponentMethodReturnsTheDispatcherChainCatalogManager() {
+    // Only a downstream component that asks for it, as this one does, hands the manager out.
+    assertTrue(Modifier.isPublic(ForDispatcherChains.class.getModifiers()));
+    for (Method method : GravitinoComponent.class.getMethods()) {
+      assertNull(method.getAnnotation(ForDispatcherChains.class), method.getName());
+      assertFalse(CatalogManager.class.isAssignableFrom(method.getReturnType()), method.getName());
+    }
+  }
+
+  @Test
   public void testIsAGravitinoComponent() {
     GravitinoComponent upstream = component;
     assertNotNull(upstream.lockManager());
-    assertNull(Tagging.tag(upstream.catalogManager()));
+    assertNull(Tagging.tag(upstream.catalogAccess()));
   }
 
   /** Strips the tagging proxies off a chain and returns the upstream chain inside them. */

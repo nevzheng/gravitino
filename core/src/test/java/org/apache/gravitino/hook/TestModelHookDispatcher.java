@@ -72,7 +72,7 @@ public class TestModelHookDispatcher {
                 mockDispatcher,
                 new FakeAuthorizationServices()
                     .withOwnerDispatcher(mockOwnerDispatcher)
-                    .withCatalogManager(mockCatalogManager)
+                    .withCatalogAccess(mockCatalogManager)
                     .withAuthorizer(mockAuthorizer)),
             mockCatalogManager);
   }
