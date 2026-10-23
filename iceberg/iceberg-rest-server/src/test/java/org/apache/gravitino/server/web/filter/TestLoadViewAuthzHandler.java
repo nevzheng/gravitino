@@ -31,12 +31,11 @@ import java.util.Map;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.AuthorizerContext;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
 import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerContext;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
-import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -57,8 +56,7 @@ public class TestLoadViewAuthzHandler {
 
   @BeforeAll
   public static void initAuthorizer() {
-    GravitinoAuthorizerProvider.getInstance()
-        .initialize(new ServerConfig(), Mockito.mock(AuthorizerContext.class));
+    GravitinoAuthorizerProvider.getInstance().install(NoopGravitinoAuthorizer.INSTANCE);
   }
 
   @Test

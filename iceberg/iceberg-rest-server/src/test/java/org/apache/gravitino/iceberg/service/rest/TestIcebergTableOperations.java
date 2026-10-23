@@ -37,7 +37,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.authorization.AuthorizerContext;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.credential.Credential;
 import org.apache.gravitino.iceberg.service.IcebergRESTUtils;
 import org.apache.gravitino.iceberg.service.extension.DummyCredentialProvider;
@@ -68,7 +68,6 @@ import org.apache.gravitino.listener.api.event.IcebergTableExistsPreEvent;
 import org.apache.gravitino.listener.api.event.IcebergUpdateTableEvent;
 import org.apache.gravitino.listener.api.event.IcebergUpdateTableFailureEvent;
 import org.apache.gravitino.listener.api.event.IcebergUpdateTablePreEvent;
-import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.iceberg.GenericBlobMetadata;
 import org.apache.iceberg.GenericStatisticsFile;
@@ -144,7 +143,7 @@ public class TestIcebergTableOperations extends IcebergNamespaceTestBase {
         });
 
     GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
-    provider.initialize(new ServerConfig(), Mockito.mock(AuthorizerContext.class));
+    provider.install(NoopGravitinoAuthorizer.INSTANCE);
 
     return resourceConfig;
   }

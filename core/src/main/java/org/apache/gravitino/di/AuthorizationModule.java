@@ -40,8 +40,8 @@ import org.apache.gravitino.storage.IdGenerator;
 
 /**
  * Binds the access-control components: the access control manager and its public chain, the bulk
- * manager, the future grant manager, and the {@link AuthorizerContext} the server initializes its
- * authorizer with.
+ * manager, the future grant manager, and the {@link AuthorizerContext} the authorizer is
+ * initialized with. {@link AuthorizerModule} binds the authorizer.
  *
  * <p>The {@link Internal} access-control binding is the manager itself; the {@link Public} one is
  * event → hook → that manager. {@code GravitinoEnv} requests these objects only when authorization

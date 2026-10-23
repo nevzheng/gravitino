@@ -18,12 +18,10 @@
  */
 package org.apache.gravitino.server;
 
-import java.util.function.Supplier;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
-import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -70,7 +68,6 @@ class GravitinoComponentBinder extends AbstractBinder {
   private final GravitinoComponent component;
   private final boolean enableAuthorization;
   private final LineageDispatcher lineageDispatcher;
-  private final Supplier<GravitinoAuthorizer> authorizer;
 
   /**
    * Creates a binder.
@@ -78,17 +75,14 @@ class GravitinoComponentBinder extends AbstractBinder {
    * @param component the component whose provision methods supply the dispatchers
    * @param enableAuthorization whether to bind the authorization interception service
    * @param lineageDispatcher the lineage dispatcher of the server
-   * @param authorizer supplies the authorizer the server installed, which the access checker uses
    */
   GravitinoComponentBinder(
       GravitinoComponent component,
       boolean enableAuthorization,
-      LineageDispatcher lineageDispatcher,
-      Supplier<GravitinoAuthorizer> authorizer) {
+      LineageDispatcher lineageDispatcher) {
     this.component = component;
     this.enableAuthorization = enableAuthorization;
     this.lineageDispatcher = lineageDispatcher;
-    this.authorizer = authorizer;
   }
 
   @Override
@@ -141,7 +135,7 @@ class GravitinoComponentBinder extends AbstractBinder {
         .ranked(InternalQualifier.RANK);
     bind(new MetadataAccessChecker(
             component.config(),
-            authorizer,
+            component::gravitinoAuthorizer,
             component::entityStore,
             component::internalSchemaDispatcher))
         .to(MetadataAccessChecker.class)

@@ -32,6 +32,7 @@ import javax.annotation.Nullable;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lifecycle.Lifecycle;
@@ -159,7 +160,8 @@ public class GravitinoServer extends ResourceConfig {
     Lifecycle.Action stopJetty = once(server::stop);
     this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
     // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
-    // requests before the authorizer closes and before the environment shuts down.
+    // requests before the authorizer is taken back and before the environment, which closes it,
+    // shuts down.
     this.lifecycle =
         Lifecycle.builder()
             .add("Gravitino environment", gravitinoEnv::start, shutdownEnv)
@@ -184,9 +186,11 @@ public class GravitinoServer extends ResourceConfig {
     ServerAuthenticator.getInstance()
         .initialize(serverConfig, AuthenticatorContext.of(component::idGenerator));
 
-    // The environment holds the authorizer for the code that still reads it from GravitinoEnv.
-    authorizerProvider.initialize(serverConfig, component.authorizerContext());
-    gravitinoEnv.setGravitinoAuthorizer(authorizerProvider.getGravitinoAuthorizer());
+    // Builds the authorizer before the server takes requests, and hands it to the code that reads
+    // it statically, including from GravitinoEnv. The component closes it.
+    GravitinoAuthorizer authorizer = component.gravitinoAuthorizer();
+    authorizerProvider.install(authorizer);
+    gravitinoEnv.setGravitinoAuthorizer(authorizer);
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -220,12 +224,7 @@ public class GravitinoServer extends ResourceConfig {
     packages(restApiPackagesSet.toArray(new String[0]));
 
     boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-    register(
-        new GravitinoComponentBinder(
-            component,
-            enableAuthorization,
-            lineageService,
-            authorizerProvider::getGravitinoAuthorizer));
+    register(new GravitinoComponentBinder(component, enableAuthorization, lineageService));
     register(JsonProcessingExceptionMapper.class);
     register(new OutOfMemoryErrorListener());
     register(ErrorExceptionMapper.class);
@@ -401,8 +400,9 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
-  /** Takes the authorizer back from the environment, then closes it. */
-  private void closeAuthorizer() throws IOException {
+  /** Takes the authorizer back from the code that reads it statically; the component closes it. */
+  private void closeAuthorizer() {
+    // Requests that still run after this see the environment fail closed.
     gravitinoEnv.setGravitinoAuthorizer(null);
     authorizerProvider.close();
   }

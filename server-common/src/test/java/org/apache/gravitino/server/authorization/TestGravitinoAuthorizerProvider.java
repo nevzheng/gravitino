@@ -17,59 +17,58 @@
 
 package org.apache.gravitino.server.authorization;
 
-import java.io.IOException;
-import org.apache.gravitino.Configs;
-import org.apache.gravitino.authorization.AuthorizerContext;
-import org.apache.gravitino.server.ServerConfig;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 /** Test of {@link GravitinoAuthorizerProvider} */
 public class TestGravitinoAuthorizerProvider {
 
   @AfterEach
-  public void tearDown() throws IOException {
+  public void tearDown() {
     GravitinoAuthorizerProvider.getInstance().close();
-    RecordingAuthorizer.context = null;
   }
 
   @Test
-  public void testInitializeWithContextPassesItToTheAuthorizer() {
-    ServerConfig serverConfig = new ServerConfig();
-    serverConfig.set(Configs.ENABLE_AUTHORIZATION, true);
-    serverConfig.set(Configs.AUTHORIZATION_IMPL, RecordingAuthorizer.class.getName());
-    AuthorizerContext context = Mockito.mock(AuthorizerContext.class);
+  public void testInstallHandsOutTheAuthorizer() {
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+    Assertions.assertNull(provider.getGravitinoAuthorizer());
 
-    GravitinoAuthorizerProvider.getInstance().initialize(serverConfig, context);
+    provider.install(authorizer);
+    // Installing the same authorizer again changes nothing.
+    provider.install(authorizer);
 
-    Assertions.assertInstanceOf(
-        RecordingAuthorizer.class,
-        GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
-    Assertions.assertSame(context, RecordingAuthorizer.context);
+    Assertions.assertSame(authorizer, provider.getGravitinoAuthorizer());
   }
 
   @Test
-  public void testInitializeWithContextUsesThePassThroughAuthorizerWhenDisabled() {
-    ServerConfig serverConfig = new ServerConfig();
-    serverConfig.set(Configs.ENABLE_AUTHORIZATION, false);
+  public void testInstallRejectsASecondAuthorizer() {
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+    provider.install(mock(GravitinoAuthorizer.class));
 
-    GravitinoAuthorizerProvider.getInstance()
-        .initialize(serverConfig, Mockito.mock(AuthorizerContext.class));
-
-    Assertions.assertInstanceOf(
-        PassThroughAuthorizer.class,
-        GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer());
+    Assertions.assertThrows(
+        IllegalStateException.class, () -> provider.install(mock(GravitinoAuthorizer.class)));
+    Assertions.assertThrows(NullPointerException.class, () -> provider.install(null));
   }
 
-  /** An authorizer that records the context it is initialized with. */
-  public static class RecordingAuthorizer extends PassThroughAuthorizer {
-    static AuthorizerContext context;
+  @Test
+  public void testCloseTakesTheAuthorizerBackWithoutClosingIt() {
+    GravitinoAuthorizer authorizer = mock(GravitinoAuthorizer.class);
+    GravitinoAuthorizerProvider provider = GravitinoAuthorizerProvider.getInstance();
+    provider.install(authorizer);
 
-    @Override
-    public void initialize(AuthorizerContext context) {
-      RecordingAuthorizer.context = context;
-    }
+    provider.close();
+
+    Assertions.assertNull(provider.getGravitinoAuthorizer());
+    verifyNoInteractions(authorizer);
+    // Another authorizer can be installed once the first is taken back.
+    GravitinoAuthorizer next = mock(GravitinoAuthorizer.class);
+    provider.install(next);
+    Assertions.assertSame(next, provider.getGravitinoAuthorizer());
   }
 }

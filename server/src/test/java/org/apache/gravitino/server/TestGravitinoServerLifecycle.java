@@ -155,6 +155,7 @@ public class TestGravitinoServerLifecycle {
 
     InOrder order = inOrder(jetty, authorizer, env, lineage);
     order.verify(jetty).stop();
+    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
     order.verify(env).shutdown();
     order.verify(lineage).close();

@@ -19,23 +19,20 @@ package org.apache.gravitino.server.web.rest;
 
 import java.io.IOException;
 import javax.ws.rs.core.Response;
-import org.apache.gravitino.authorization.AuthorizerContext;
+import org.apache.gravitino.authorization.NoopGravitinoAuthorizer;
 import org.apache.gravitino.dto.responses.ErrorConstants;
 import org.apache.gravitino.dto.responses.ErrorResponse;
-import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.glassfish.jersey.test.JerseyTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.mockito.Mockito;
 
 public abstract class BaseOperationsTest extends JerseyTest {
 
   @BeforeAll
   public static void start() {
-    GravitinoAuthorizerProvider.getInstance()
-        .initialize(new ServerConfig(), Mockito.mock(AuthorizerContext.class));
+    GravitinoAuthorizerProvider.getInstance().install(NoopGravitinoAuthorizer.INSTANCE);
   }
 
   @AfterAll
