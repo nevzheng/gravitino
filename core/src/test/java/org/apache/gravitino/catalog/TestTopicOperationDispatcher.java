@@ -67,7 +67,12 @@ public class TestTopicOperationDispatcher extends TestOperationDispatcher {
             catalogManager, entityStore, idGenerator, secretManager, lockManager);
     topicOperationDispatcher =
         new TopicOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            () -> schemaOperationDispatcher,
+            secretManager,
+            lockManager);
 
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);

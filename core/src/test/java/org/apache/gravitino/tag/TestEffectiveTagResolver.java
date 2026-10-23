@@ -18,6 +18,8 @@
  */
 package org.apache.gravitino.tag;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -35,6 +37,7 @@ import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.TagEntity;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
 import org.junit.jupiter.api.AfterEach;
@@ -61,10 +64,13 @@ public class TestEffectiveTagResolver {
     EntityStore entityStore = mock(EntityStore.class);
     relationOperations = mock(SupportsRelationOperations.class);
     when(entityStore.relationOperations()).thenReturn(relationOperations);
-    resolver = new EffectiveTagResolver(entityStore);
+    resolver = new EffectiveTagResolver(entityStore, mock(MetadataObjectDispatchers.class));
     metadataObjectUtil = mockStatic(MetadataObjectUtil.class, CALLS_REAL_METHODS);
     metadataObjectUtil
-        .when(() -> MetadataObjectUtil.checkMetadataObject(METALAKE, TABLE))
+        .when(
+            () ->
+                MetadataObjectUtil.checkMetadataObject(
+                    any(MetadataObjectDispatchers.class), eq(METALAKE), eq(TABLE)))
         .thenAnswer(invocation -> null);
   }
 

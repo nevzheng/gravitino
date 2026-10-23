@@ -19,9 +19,6 @@
 package org.apache.gravitino.server.web.rest;
 
 import static javax.ws.rs.client.Entity.entity;
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -39,9 +36,6 @@ import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.catalog.TableDispatcher;
@@ -63,7 +57,6 @@ import org.apache.gravitino.exceptions.IllegalStatisticNameException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.exceptions.UnmodifiableStatisticException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.stats.PartitionRange;
@@ -73,13 +66,13 @@ import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.stats.StatisticManager;
 import org.apache.gravitino.stats.StatisticValue;
 import org.apache.gravitino.stats.StatisticValues;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class TestStatisticOperations extends BaseOperationsTest {
 
@@ -93,6 +86,8 @@ public class TestStatisticOperations extends BaseOperationsTest {
   }
 
   private static TableDispatcher tableDispatcher = mock(TableDispatcher.class);
+  private static final MetadataObjectDispatchers objectDispatchers =
+      mock(MetadataObjectDispatchers.class);
   private StatisticManager manager = mock(StatisticManager.class);
 
   private final String metalake = "metalake1";
@@ -104,14 +99,8 @@ public class TestStatisticOperations extends BaseOperationsTest {
   private final String table = "table1";
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
+  public static void setup() {
+    when(objectDispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
   }
 
   @Override
@@ -130,6 +119,7 @@ public class TestStatisticOperations extends BaseOperationsTest {
           @Override
           protected void configure() {
             bind(manager).to(StatisticDispatcher.class).ranked(2);
+            bind(objectDispatchers).to(MetadataObjectDispatchers.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
           }
         });

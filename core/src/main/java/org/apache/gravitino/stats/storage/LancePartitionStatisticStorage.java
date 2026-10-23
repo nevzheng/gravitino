@@ -44,7 +44,6 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.json.JsonUtils;
@@ -117,9 +116,16 @@ public class LancePartitionStatisticStorage implements PartitionStatisticStorage
   private final long indexCacheSize;
   private final int maxStatisticsPerUpdate;
 
-  private final EntityStore entityStore = GravitinoEnv.getInstance().entityStore();
+  private final EntityStore entityStore;
 
-  public LancePartitionStatisticStorage(Map<String, String> properties) {
+  /**
+   * Creates a Lance partition statistics storage.
+   *
+   * @param properties the storage configuration
+   * @param entityStore the entity store that holds the tables whose statistics are stored
+   */
+  public LancePartitionStatisticStorage(Map<String, String> properties, EntityStore entityStore) {
+    this.entityStore = entityStore;
     this.allocator = new RootAllocator();
     this.location = properties.getOrDefault(LOCATION, DEFAULT_LOCATION);
     this.maxRowsPerFile =

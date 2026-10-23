@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.util.function.Supplier;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
@@ -99,6 +100,10 @@ public class TestFilesetTopicModelModule {
             TopicHookDispatcher.class,
             TopicOperationDispatcher.class);
     assertSame(internal, publicOperations);
+    // The topic operations check and import schemas through the internal schema chain.
+    assertSame(
+        component.internalSchemaDispatcher(),
+        ((Supplier<?>) field(internal, "schemaDispatcherSupplier")).get());
   }
 
   @Test

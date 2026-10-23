@@ -76,13 +76,13 @@ import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
-import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.MetadataObjectUtil;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
@@ -102,6 +102,7 @@ public class BulkOperations {
   @Nullable private final BulkManager bulkManager;
   @Nullable private final AccessControlDispatcher accessControlDispatcher;
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataObjectDispatchers objectDispatchers;
   private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
@@ -112,6 +113,7 @@ public class BulkOperations {
    * @param bulkManager the bulk manager, or null.
    * @param accessControlDispatcher the access-control dispatcher, or null.
    * @param ownerDispatcher the internal owner dispatcher, or null.
+   * @param objectDispatchers the internal dispatchers asked whether a metadata object exists
    * @param accessChecker checks the current user's access to metadata
    */
   @Inject
@@ -119,10 +121,12 @@ public class BulkOperations {
       @org.jvnet.hk2.annotations.Optional @Nullable BulkManager bulkManager,
       @org.jvnet.hk2.annotations.Optional @Nullable AccessControlDispatcher accessControlDispatcher,
       @org.jvnet.hk2.annotations.Optional @Internal @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataObjectDispatchers objectDispatchers,
       MetadataAccessChecker accessChecker) {
     this.bulkManager = bulkManager;
     this.accessControlDispatcher = accessControlDispatcher;
     this.ownerDispatcher = ownerDispatcher;
+    this.objectDispatchers = objectDispatchers;
     this.accessChecker = accessChecker;
   }
 
@@ -157,7 +161,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(USERS_FIELD_NAME, request.getUsers().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             List<BulkItemResult<User>> results =
                 accessControlDispatcher.addUsers(
                     metalake,
@@ -214,7 +218,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             Optional<Owner> metalakeOwner =
                 ownerDispatcher.getOwner(
                     metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE));
@@ -271,7 +275,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(GROUPS_FIELD_NAME, request.getGroups().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             List<BulkItemResult<Group>> results =
                 accessControlDispatcher.addGroups(
                     metalake,
@@ -328,7 +332,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
             Optional<Owner> metalakeOwner =
                 ownerDispatcher.getOwner(
                     metalake, MetadataObjects.of(null, metalake, MetadataObject.Type.METALAKE));
@@ -385,7 +389,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(ROLES_FIELD_NAME, request.getRoles().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             List<RoleAdd> roles = new ArrayList<>();
             List<Integer> originalIndexes = new ArrayList<>();
@@ -455,7 +459,7 @@ public class BulkOperations {
           () -> {
             request.validate();
             bulkManager.checkBulkSize(NAMES_FIELD_NAME, request.getNames().length);
-            MetalakeManager.checkMetalakeInUse(metalake);
+            accessChecker.checkMetalakeInUse(metalake);
 
             List<String> roles = new ArrayList<>();
             List<Integer> originalIndexes = new ArrayList<>();
@@ -513,7 +517,7 @@ public class BulkOperations {
         for (Privilege privilege : object.privileges()) {
           AuthorizationUtils.checkPrivilege((PrivilegeDTO) privilege, object, metalake);
         }
-        MetadataObjectUtil.checkMetadataObject(metalake, object);
+        MetadataObjectUtil.checkMetadataObject(objectDispatchers, metalake, object);
       } catch (NoSuchMetadataObjectException nsm) {
         throw new IllegalMetadataObjectException(nsm);
       }

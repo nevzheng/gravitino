@@ -29,9 +29,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.meta.TableEntity;
@@ -63,14 +61,13 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(1L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_test").toString();
     Map<String, String> properties = Maps.newHashMap();
     properties.put("location", location);
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
 
     int count = 100;
     int partitions = 10;
@@ -225,7 +222,6 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(101L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_exceed_test").toString();
     Map<String, String> properties = Maps.newHashMap();
@@ -233,7 +229,7 @@ public class TestLancePartitionStatisticStorage {
     // Default limit is 100, generate 101 statistics to exceed the limit
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
 
     try {
       // Generate 101 statistics which exceeds the default limit of 100
@@ -272,7 +268,8 @@ public class TestLancePartitionStatisticStorage {
 
       IllegalArgumentException exception =
           Assertions.assertThrows(
-              IllegalArgumentException.class, () -> new LancePartitionStatisticStorage(properties));
+              IllegalArgumentException.class,
+              () -> new LancePartitionStatisticStorage(properties, mock(EntityStore.class)));
       Assertions.assertTrue(
           exception.getMessage().contains("maxStatisticsPerUpdate must be positive"));
 
@@ -281,7 +278,8 @@ public class TestLancePartitionStatisticStorage {
 
       exception =
           Assertions.assertThrows(
-              IllegalArgumentException.class, () -> new LancePartitionStatisticStorage(properties));
+              IllegalArgumentException.class,
+              () -> new LancePartitionStatisticStorage(properties, mock(EntityStore.class)));
       Assertions.assertTrue(
           exception.getMessage().contains("maxStatisticsPerUpdate must be positive"));
     } finally {
@@ -336,14 +334,13 @@ public class TestLancePartitionStatisticStorage {
     TableEntity tableEntity = mock(TableEntity.class);
     when(entityStore.get(any(), any(), any())).thenReturn(tableEntity);
     when(tableEntity.id()).thenReturn(1L);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
 
     String location = Files.createTempDirectory("lance_stats_test_quote").toString();
     Map<String, String> properties = Maps.newHashMap();
     properties.put("location", location);
 
     LancePartitionStatisticStorage storage =
-        (LancePartitionStatisticStorage) factory.create(properties);
+        (LancePartitionStatisticStorage) factory.create(properties, entityStore);
     try {
       String quotedPartition = "partition'01";
       String quotedStatistic = "statistic'0";
@@ -423,5 +420,12 @@ public class TestLancePartitionStatisticStorage {
       FileUtils.deleteDirectory(new File(location + "/" + tableEntity.id() + ".lance"));
       storage.close();
     }
+  }
+
+  @Test
+  public void testCreateWithoutStoreIsUnsupported() {
+    Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> new LancePartitionStatisticStorageFactory().create(Maps.newHashMap()));
   }
 }

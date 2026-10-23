@@ -28,7 +28,6 @@ import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
@@ -56,7 +55,8 @@ import org.slf4j.LoggerFactory;
 public class TopicOperationDispatcher extends OperationDispatcher implements TopicDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(TopicOperationDispatcher.class);
 
-  private final Supplier<LockManager> lockManagerSupplier;
+  private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
+  private final LockManager lockManager;
 
   /**
    * Creates a new TopicOperationDispatcher instance.
@@ -64,6 +64,8 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
    * @param catalogManager The CatalogManager instance to be used for catalog operations.
    * @param store The EntityStore instance to be used for catalog operations.
    * @param idGenerator The IdGenerator instance to be used for catalog operations.
+   * @param schemaDispatcherSupplier Supplies the internal schema dispatcher that checks and imports
+   *     the schema of a topic.
    * @param secretManager The SecretManager instance to be used for secret operations.
    * @param lockManager The LockManager that guards topic operations with tree locks.
    */
@@ -71,19 +73,12 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
       CatalogManager catalogManager,
       EntityStore store,
       IdGenerator idGenerator,
+      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
       SecretManager secretManager,
       LockManager lockManager) {
-    this(catalogManager, store, idGenerator, secretManager, () -> lockManager);
-  }
-
-  private TopicOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
-    this.lockManagerSupplier = lockManagerSupplier;
+    this.schemaDispatcherSupplier = schemaDispatcherSupplier;
+    this.lockManager = lockManager;
   }
 
   /**
@@ -96,7 +91,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   @Override
   public NameIdentifier[] listTopics(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -117,18 +112,18 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   public Topic loadTopic(NameIdentifier ident) throws NoSuchTopicException {
     EntityCombinedTopic topic =
         TreeLockUtils.doWithTreeLock(
-            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadTopic(ident));
+            lockManager, ident, LockType.READ, () -> internalLoadTopic(ident));
 
     if (!topic.imported()) {
       // Load the schema to make sure the schema is imported.
       // This is not necessary for Kafka catalogs.
-      SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
+      SchemaDispatcher schemaDispatcher = schemaDispatcherSupplier.get();
       NameIdentifier schemaIdent = NameIdentifier.of(ident.namespace().levels());
       schemaDispatcher.loadSchema(schemaIdent);
 
       // Import the topic
       TreeLockUtils.doWithTreeLock(
-          lockManagerSupplier.get(),
+          lockManager,
           schemaIdent,
           LockType.WRITE,
           () -> {
@@ -159,14 +154,14 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
       throws NoSuchSchemaException, TopicAlreadyExistsException {
 
     // Load the schema to make sure the schema exists.
-    SchemaDispatcher schemaDispatcher = GravitinoEnv.getInstance().internalSchemaDispatcher();
+    SchemaDispatcher schemaDispatcher = schemaDispatcherSupplier.get();
     NameIdentifier schemaIdent = NameIdentifier.of(ident.namespace().levels());
     schemaDispatcher.loadSchema(schemaIdent);
 
     // Lock the topic node, not the schema, so topics in the same schema can be created
     // concurrently. See TableOperationDispatcher#createTable for the reasoning and trade-off.
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         ident,
         LockType.WRITE,
         () -> internalCreateTopic(ident, comment, dataLayout, properties));
@@ -189,7 +184,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
 
     // As Gravitino does not support TopicChange.renameTopic, we can directly lock the topic.
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         ident,
         LockType.WRITE,
         () -> {
@@ -253,7 +248,7 @@ public class TopicOperationDispatcher extends OperationDispatcher implements Top
   @Override
   public boolean dropTopic(NameIdentifier ident) {
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         NameIdentifier.of(ident.namespace().levels()),
         LockType.WRITE,
         () -> {

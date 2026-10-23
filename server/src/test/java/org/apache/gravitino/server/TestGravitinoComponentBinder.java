@@ -76,6 +76,7 @@ import org.apache.gravitino.server.web.rest.UserOperations;
 import org.apache.gravitino.stats.StatisticDispatcher;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.tag.TagDispatcher;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.api.ActiveDescriptor;
 import org.glassfish.hk2.api.InterceptionService;
 import org.glassfish.hk2.api.ServiceLocator;
@@ -228,6 +229,8 @@ public class TestGravitinoComponentBinder {
       when(component.ownerDispatcher()).thenReturn(owners);
       when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
       when(component.bulkManager()).thenReturn(bulkManager);
+      MetadataObjectDispatchers objectDispatchers = mock(MetadataObjectDispatchers.class);
+      when(component.metadataObjectDispatchers()).thenReturn(objectDispatchers);
 
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
@@ -242,6 +245,7 @@ public class TestGravitinoComponentBinder {
         assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
         assertNotNull(locator.getService(MetadataAccessChecker.class));
         assertNotNull(locator.getService(MetadataIdResolver.class));
+        assertSame(objectDispatchers, locator.getService(MetadataObjectDispatchers.class));
         assertSame(tables, locator.getService(TableDispatcher.class));
         assertSame(
             internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));

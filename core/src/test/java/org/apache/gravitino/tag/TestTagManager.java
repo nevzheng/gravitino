@@ -60,7 +60,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
@@ -68,7 +67,6 @@ import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityFieldLimits;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -95,7 +93,6 @@ import org.apache.gravitino.function.FunctionParam;
 import org.apache.gravitino.function.FunctionParams;
 import org.apache.gravitino.function.FunctionType;
 import org.apache.gravitino.json.PolicyAssociationSelectorSerde;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -118,6 +115,7 @@ import org.apache.gravitino.rel.SQLRepresentation;
 import org.apache.gravitino.rel.types.Types;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.RaceTestUtils;
 import org.junit.jupiter.api.AfterAll;
@@ -159,6 +157,7 @@ public class TestTagManager {
   private static final FunctionDispatcher functionDispatcher = mock(FunctionDispatcher.class);
   private static final SemanticModelDispatcher semanticModelDispatcher =
       mock(SemanticModelDispatcher.class);
+  private static final MetadataObjectDispatchers metadataObjects = newMetadataObjectDispatchers();
 
   private static EntityStore entityStore;
 
@@ -207,7 +206,6 @@ public class TestTagManager {
     Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
     Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
 
     entityStore = EntityStoreFactory.createEntityStore(config);
     entityStore.initialize(config);
@@ -299,25 +297,7 @@ public class TestTagManager {
             .build();
     entityStore.put(function, false /* overwritten */);
 
-    tagManager = new TagManager(idGenerator, entityStore);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalCatalogDispatcher", catalogDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalViewDispatcher", viewDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalFunctionDispatcher", functionDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(),
-        "internalSemanticModelDispatcher",
-        semanticModelDispatcher,
-        true);
+    tagManager = new TagManager(idGenerator, entityStore, metadataObjects);
 
     when(metalakeDispatcher.metalakeExists(any())).thenReturn(true);
     when(catalogDispatcher.catalogExists(any())).thenReturn(true);
@@ -1398,5 +1378,17 @@ public class TestTagManager {
   private static void assertAssignmentValues(Tag tag, String[] expectedValues) {
     Assertions.assertTrue(tag.assignment().isPresent());
     Assertions.assertArrayEquals(expectedValues, tag.assignment().get().values());
+  }
+
+  private static MetadataObjectDispatchers newMetadataObjectDispatchers() {
+    MetadataObjectDispatchers dispatchers = mock(MetadataObjectDispatchers.class);
+    when(dispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(dispatchers.internalCatalogDispatcher()).thenReturn(catalogDispatcher);
+    when(dispatchers.internalSchemaDispatcher()).thenReturn(schemaDispatcher);
+    when(dispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
+    when(dispatchers.internalViewDispatcher()).thenReturn(viewDispatcher);
+    when(dispatchers.internalFunctionDispatcher()).thenReturn(functionDispatcher);
+    when(dispatchers.internalSemanticModelDispatcher()).thenReturn(semanticModelDispatcher);
+    return dispatchers;
   }
 }

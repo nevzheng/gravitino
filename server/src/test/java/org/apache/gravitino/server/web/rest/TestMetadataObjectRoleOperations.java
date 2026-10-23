@@ -18,9 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.TREE_LOCK_CLEAN_INTERVAL;
-import static org.apache.gravitino.Configs.TREE_LOCK_MAX_NODE_IN_MEMORY;
-import static org.apache.gravitino.Configs.TREE_LOCK_MIN_NODE_IN_MEMORY;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -31,10 +28,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
@@ -45,11 +39,11 @@ import org.apache.gravitino.dto.responses.ErrorResponse;
 import org.apache.gravitino.dto.responses.NameListResponse;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
-import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.BaseMetalake;
 import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.rest.RESTUtils;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.utils.MetadataObjectDispatchers;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.JerseyTest;
@@ -66,6 +60,8 @@ public class TestMetadataObjectRoleOperations extends JerseyTest {
   private static final EntityStore entityStore = mock(EntityStore.class);
   private static final MetalakeDispatcher metalakeDispatcher = mock(MetalakeDispatcher.class);
   private static final TableDispatcher tableDispatcher = mock(TableDispatcher.class);
+  private static final MetadataObjectDispatchers objectDispatchers =
+      mock(MetadataObjectDispatchers.class);
 
   private static class MockServletRequestFactory extends ServletRequestFactoryBase {
     @Override
@@ -77,17 +73,9 @@ public class TestMetadataObjectRoleOperations extends JerseyTest {
   }
 
   @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(100000L).when(config).get(TREE_LOCK_MAX_NODE_IN_MEMORY);
-    Mockito.doReturn(1000L).when(config).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
-    Mockito.doReturn(36000L).when(config).get(TREE_LOCK_CLEAN_INTERVAL);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalMetalakeDispatcher", metalakeDispatcher, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalTableDispatcher", tableDispatcher, true);
+  public static void setup() {
+    when(objectDispatchers.internalMetalakeDispatcher()).thenReturn(metalakeDispatcher);
+    when(objectDispatchers.internalTableDispatcher()).thenReturn(tableDispatcher);
   }
 
   @BeforeEach
@@ -121,7 +109,8 @@ public class TestMetadataObjectRoleOperations extends JerseyTest {
         new AbstractBinder() {
           @Override
           protected void configure() {
-            bind(AccessCheckers.disabled()).to(MetadataAccessChecker.class);
+            bind(AccessCheckers.disabled(entityStore)).to(MetadataAccessChecker.class);
+            bind(objectDispatchers).to(MetadataObjectDispatchers.class);
             bindFactory(MockServletRequestFactory.class).to(HttpServletRequest.class);
             bind(manager).to(AccessControlDispatcher.class);
           }

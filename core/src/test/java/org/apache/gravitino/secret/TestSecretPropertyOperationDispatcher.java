@@ -76,10 +76,20 @@ public class TestSecretPropertyOperationDispatcher extends TestOperationDispatch
             catalogManager, entityStore, idGenerator, secretManager, lockManager);
     tableOperationDispatcher =
         new TableOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            () -> schemaOperationDispatcher,
+            secretManager,
+            lockManager);
     topicOperationDispatcher =
         new TopicOperationDispatcher(
-            catalogManager, entityStore, idGenerator, secretManager, lockManager);
+            catalogManager,
+            entityStore,
+            idGenerator,
+            () -> schemaOperationDispatcher,
+            secretManager,
+            lockManager);
     Supplier<SchemaDispatcher> schemaDispatcherSupplier = () -> schemaOperationDispatcher;
     viewOperationDispatcher =
         new ViewOperationDispatcher(

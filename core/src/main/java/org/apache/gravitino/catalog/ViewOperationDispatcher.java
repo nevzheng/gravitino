@@ -34,7 +34,6 @@ import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.StringIdentifier;
@@ -68,33 +67,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
 
   private final Supplier<SchemaDispatcher> schemaDispatcherSupplier;
 
-  private final Supplier<LockManager> lockManagerSupplier;
-
-  /**
-   * Creates a new ViewOperationDispatcher instance.
-   *
-   * <p>Schemas are imported through the internal schema dispatcher of {@code GravitinoEnv}.
-   *
-   * @param catalogManager The CatalogManager instance to be used for view operations.
-   * @param store The EntityStore instance to be used for view operations.
-   * @param idGenerator The IdGenerator instance to be used for view operations.
-   * @param secretManager The SecretManager instance to be used for secret operations.
-   * @param lockManager The LockManager that guards view operations with tree locks.
-   */
-  public ViewOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      SecretManager secretManager,
-      LockManager lockManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        ViewOperationDispatcher::envSchemaDispatcher,
-        secretManager,
-        () -> lockManager);
-  }
+  private final LockManager lockManager;
 
   /**
    * Creates a new ViewOperationDispatcher instance.
@@ -113,27 +86,11 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
       Supplier<SchemaDispatcher> schemaDispatcherSupplier,
       SecretManager secretManager,
       LockManager lockManager) {
-    this(
-        catalogManager,
-        store,
-        idGenerator,
-        schemaDispatcherSupplier,
-        secretManager,
-        () -> lockManager);
-  }
-
-  private ViewOperationDispatcher(
-      CatalogManager catalogManager,
-      EntityStore store,
-      IdGenerator idGenerator,
-      Supplier<SchemaDispatcher> schemaDispatcherSupplier,
-      SecretManager secretManager,
-      Supplier<LockManager> lockManagerSupplier) {
     super(catalogManager, store, idGenerator, secretManager);
     this.schemaDispatcherSupplier =
         Preconditions.checkNotNull(
             schemaDispatcherSupplier, "schemaDispatcherSupplier must not be null");
-    this.lockManagerSupplier = lockManagerSupplier;
+    this.lockManager = lockManager;
   }
 
   /**
@@ -147,7 +104,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
   @Override
   public NameIdentifier[] listViews(Namespace namespace) throws NoSuchSchemaException {
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         NameIdentifier.of(namespace.levels()),
         LockType.READ,
         () ->
@@ -170,7 +127,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
 
     EntityCombinedView entityCombinedView =
         TreeLockUtils.doWithTreeLock(
-            lockManagerSupplier.get(), ident, LockType.READ, () -> internalLoadView(ident));
+            lockManager, ident, LockType.READ, () -> internalLoadView(ident));
 
     if (!entityCombinedView.imported()) {
       SchemaDispatcher schemaDispatcher = getSchemaDispatcher();
@@ -179,7 +136,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
 
       entityCombinedView =
           TreeLockUtils.doWithTreeLock(
-              lockManagerSupplier.get(), schemaIdent, LockType.WRITE, () -> importView(ident));
+              lockManager, schemaIdent, LockType.WRITE, () -> importView(ident));
     }
 
     return entityCombinedView;
@@ -222,7 +179,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
     // Lock the view node, not the schema, so views in the same schema can be created
     // concurrently. See TableOperationDispatcher#createTable for the reasoning and trade-off.
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         ident,
         LockType.WRITE,
         () ->
@@ -264,7 +221,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
 
     NameIdentifier nameIdentifierForLock = lockIdent;
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         nameIdentifierForLock,
         nameIdentifierForLock.equals(ident) ? LockType.READ : LockType.WRITE,
         () -> {
@@ -351,7 +308,7 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
   public boolean dropView(NameIdentifier ident) {
     NameIdentifier schemaIdentifier = getSchemaIdentifier(ident);
     return TreeLockUtils.doWithTreeLock(
-        lockManagerSupplier.get(),
+        lockManager,
         schemaIdentifier,
         LockType.WRITE,
         () -> {
@@ -690,9 +647,5 @@ public class ViewOperationDispatcher extends OperationDispatcher implements View
         .withProperties(properties)
         .withAuditInfo(newAudit)
         .build();
-  }
-
-  private static SchemaDispatcher envSchemaDispatcher() {
-    return GravitinoEnv.getInstance().internalSchemaDispatcher();
   }
 }

@@ -49,6 +49,7 @@ import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.cache.BaseEntityCache;
 import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.dto.tag.MetadataObjectDTO;
+import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 import org.apache.gravitino.utils.EntityClassMapper;
@@ -249,6 +250,17 @@ public class MetadataAccessChecker {
     this.entityStore = Preconditions.checkNotNull(entityStore, "entityStore");
     this.internalSchemaDispatcher =
         Preconditions.checkNotNull(internalSchemaDispatcher, "internalSchemaDispatcher");
+  }
+
+  /**
+   * Checks that a metalake exists and is in use, reading it from the entity store of this checker.
+   * It throws as {@link MetalakeManager#checkMetalake(NameIdentifier, EntityStore)} does when the
+   * metalake does not exist or is not in use.
+   *
+   * @param metalake the metalake name
+   */
+  public void checkMetalakeInUse(String metalake) {
+    MetalakeManager.checkMetalake(NameIdentifierUtil.ofMetalake(metalake), entityStore.get());
   }
 
   /**

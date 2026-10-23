@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
@@ -58,7 +57,6 @@ import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.SchemaVersion;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.utils.Executable;
-import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.PrincipalUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -102,7 +100,8 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
    * @param catalogManager Used on force-drop to drop child catalogs via {@link
    *     CatalogManager#dropCatalog} (schema/fileset secrets cleaned on that path, including {@code
    *     FilesetCatalogOperations.dropSchema}); may be null in tests that do not exercise force-drop
-   *     with catalogs.
+   *     with catalogs. It also marks the catalogs of an enabled or disabled metalake; when it is
+   *     null, those catalogs are left unmarked.
    * @param lockManager The LockManager that guards metalake operations with tree locks.
    */
   public MetalakeManager(
@@ -162,11 +161,6 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
       LOG.error("Failed to do store operation", e);
       throw new RuntimeException(e);
     }
-  }
-
-  public static void checkMetalakeInUse(String metalake) {
-    checkMetalake(
-        NameIdentifierUtil.ofMetalake(metalake), GravitinoEnv.getInstance().entityStore());
   }
 
   /**
@@ -653,6 +647,12 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
 
   private void updateMetalakeInUseStatusInCatalog(NameIdentifier ident, boolean value)
       throws IOException {
+    if (catalogManager == null) {
+      LOG.warn(
+          "No catalog manager is set, so the catalogs of metalake {} keep their in-use status",
+          ident);
+      return;
+    }
     List<NameIdentifier> failedCatalogs = Lists.newArrayList();
     store
         .list(Namespace.of(ident.name()), CatalogEntity.class, EntityType.CATALOG)
@@ -660,9 +660,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable, ManagedSe
             catalogEntity -> {
               try {
                 // update the properties metalake-in-use in catalog to true
-                GravitinoEnv.getInstance()
-                    .catalogManager()
-                    .setMetalakeInUseStatus(catalogEntity.nameIdentifier(), value);
+                catalogManager.setMetalakeInUseStatus(catalogEntity.nameIdentifier(), value);
                 LOG.info(
                     "Enabled or disable metalake-in-use property for catalog {} success",
                     catalogEntity.nameIdentifier());
