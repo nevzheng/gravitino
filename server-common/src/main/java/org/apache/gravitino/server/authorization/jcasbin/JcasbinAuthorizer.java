@@ -810,6 +810,29 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     invalidateRolePolicies(roleId, true);
   }
 
+  /**
+   * Invalidates the cached policies of a role, finding the role through the entity store of the
+   * authorizer context.
+   *
+   * @param metalake the metalake name
+   * @param roleName the role name
+   */
+  @Override
+  public void handleRolePrivilegeChange(String metalake, String roleName) {
+    try {
+      RoleEntity entity =
+          context
+              .entityStore()
+              .get(
+                  NameIdentifierUtil.ofRole(metalake, roleName),
+                  Entity.EntityType.ROLE,
+                  RoleEntity.class);
+      handleRolePrivilegeChange(entity.id());
+    } catch (Exception e) {
+      throw new RuntimeException("Cannot get role entity", e);
+    }
+  }
+
   @Override
   public void handleUserRoleRelChange(String metalake, String userName) {
     userRoleCache.invalidate(JcasbinAuthorizationCacheKeys.userRoleKey(metalake, userName));

@@ -32,12 +32,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -75,6 +73,8 @@ public class TestAccessControlManagerForPermissions {
 
   private static EntityStore entityStore;
   private static CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
+  private static final FakeAuthorizationServices services =
+      new FakeAuthorizationServices().withCatalogManager(catalogManager);
   private static AuthorizationPlugin authorizationPlugin;
 
   private static Config config;
@@ -181,15 +181,10 @@ public class TestAccessControlManagerForPermissions {
     config.set(TREE_LOCK_MIN_NODE_IN_MEMORY, 1000L);
     config.set(TREE_LOCK_CLEAN_INTERVAL, 36000L);
     lockManager = new LockManager(config);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     accessControlManager =
-        new AccessControlManager(entityStore, new RandomIdGenerator(), config, lockManager);
-
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "entityStore", entityStore, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "accessControlDispatcher", accessControlManager, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+        new AccessControlManager(
+            entityStore, new RandomIdGenerator(), config, lockManager, services);
     BaseCatalog catalog = Mockito.mock(BaseCatalog.class);
     Mockito.when(catalog.name()).thenReturn(CATALOG);
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
@@ -214,7 +209,8 @@ public class TestAccessControlManagerForPermissions {
     Mockito.when(roleManager.getRole(METALAKE, roleEntity.name())).thenReturn(roleEntity);
     NoSuchRoleException missing = new NoSuchRoleException("Role was deleted during grant");
     Mockito.doThrow(missing).when(failingStore).update(any(), any(), any(), any());
-    PermissionManager manager = new PermissionManager(failingStore, roleManager, lockManager);
+    PermissionManager manager =
+        new PermissionManager(failingStore, roleManager, lockManager, services);
 
     IllegalRoleException userFailure =
         Assertions.assertThrows(
@@ -244,7 +240,7 @@ public class TestAccessControlManagerForPermissions {
       // the update costs no lookup per existing role.
       Mockito.when(roles.getRole(METALAKE, retained.name()))
           .thenReturn(membershipRole(11L, retained.name()));
-      PermissionManager manager = new PermissionManager(store, roles, lockManager);
+      PermissionManager manager = new PermissionManager(store, roles, lockManager, services);
       reset(authorizationPlugin);
 
       changeMembership(manager, group, grant, List.of(target.name()));
@@ -281,7 +277,7 @@ public class TestAccessControlManagerForPermissions {
       RoleManager roles = Mockito.mock(RoleManager.class);
       RoleEntity target = membershipRole(20L, "target");
       Mockito.when(roles.getRole(METALAKE, target.name())).thenReturn(target);
-      PermissionManager manager = new PermissionManager(store, roles, lockManager);
+      PermissionManager manager = new PermissionManager(store, roles, lockManager, services);
       reset(authorizationPlugin);
       Assertions.assertThrows(
           IllegalRoleException.class,
@@ -305,7 +301,7 @@ public class TestAccessControlManagerForPermissions {
       // before the principal snapshot is read. Revoking the old ID must preserve the new pair.
       Mockito.when(roles.getRole(METALAKE, old.name())).thenReturn(old);
       Mockito.when(roles.getRole(METALAKE, removed.name())).thenReturn(removed);
-      PermissionManager manager = new PermissionManager(store, roles, lockManager);
+      PermissionManager manager = new PermissionManager(store, roles, lockManager, services);
       changeMembership(manager, group, false, List.of(old.name(), removed.name(), removed.name()));
       Entity updated = membershipPrincipal(store, group);
       Assertions.assertEquals(
@@ -476,7 +472,7 @@ public class TestAccessControlManagerForPermissions {
             .build(),
         false);
     PermissionManager manager =
-        new PermissionManager(entityStore, Mockito.mock(RoleManager.class), lockManager);
+        new PermissionManager(entityStore, Mockito.mock(RoleManager.class), lockManager, services);
     Privilege semantic = Privileges.UseSemanticModel.allow();
     Privilege table = Privileges.SelectTable.allow();
     SecurableObject tableObject = SecurableObjects.parse(fullName, type, List.of(table));

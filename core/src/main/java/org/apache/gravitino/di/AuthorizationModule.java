@@ -28,6 +28,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AccessControlManager;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -74,8 +75,13 @@ abstract class AuthorizationModule {
   @Singleton
   @Undecorated
   static AccessControlManager accessControlManager(
-      EntityStore entityStore, IdGenerator idGenerator, Config config, LockManager lockManager) {
-    return new AccessControlManager(entityStore, idGenerator, config, lockManager);
+      EntityStore entityStore,
+      IdGenerator idGenerator,
+      Config config,
+      LockManager lockManager,
+      AuthorizationServices authorizationServices) {
+    return new AccessControlManager(
+        entityStore, idGenerator, config, lockManager, authorizationServices);
   }
 
   @Provides
@@ -115,4 +121,7 @@ abstract class AuthorizationModule {
       EntityStore entityStore, @Internal OwnerDispatcher ownerDispatcher) {
     return new FutureGrantManager(entityStore, ownerDispatcher);
   }
+
+  @Binds
+  abstract AuthorizationServices authorizationServices(ComponentAuthorizationServices services);
 }
