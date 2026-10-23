@@ -50,8 +50,7 @@ public class TestNoopGravitinoAuthorizer {
 
   @Test
   public void testNotificationsDoNothing() {
-    // The interface default of handleRolePrivilegeChange(String, String) reads the entity store
-    // through GravitinoEnv; the no-op must not, so this passes on an uninitialized environment.
+    // The authorizer holds no context, so it must not reach for one on any notification.
     authorizer.handleRolePrivilegeChange("m", "role");
     authorizer.handleRolePrivilegeChange(1L);
     authorizer.handleUserRoleRelChange("m", "user");

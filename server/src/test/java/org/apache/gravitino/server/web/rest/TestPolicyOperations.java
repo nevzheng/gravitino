@@ -18,8 +18,6 @@
  */
 package org.apache.gravitino.server.web.rest;
 
-import static org.apache.gravitino.Configs.CACHE_ENABLED;
-import static org.apache.gravitino.Configs.ENABLE_AUTHORIZATION;
 import static org.apache.gravitino.dto.util.DTOConverters.toDTO;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -39,9 +37,6 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.RelationalEntity;
@@ -79,9 +74,7 @@ import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.test.TestProperties;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class TestPolicyOperations extends BaseOperationsTest {
 
@@ -101,14 +94,6 @@ public class TestPolicyOperations extends BaseOperationsTest {
 
   private final AuditInfo testAuditInfo1 =
       AuditInfo.builder().withCreator("user1").withCreateTime(Instant.now()).build();
-
-  @BeforeAll
-  public static void setup() throws IllegalAccessException {
-    Config config = mock(Config.class);
-    Mockito.doReturn(false).when(config).get(CACHE_ENABLED);
-    Mockito.doReturn(false).when(config).get(ENABLE_AUTHORIZATION);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-  }
 
   @Override
   protected Application configure() {

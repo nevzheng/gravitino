@@ -23,11 +23,8 @@ import java.util.Collections;
 import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
-import org.apache.gravitino.meta.RoleEntity;
-import org.apache.gravitino.utils.NameIdentifierUtil;
 
 /** Used for metadata authorization. */
 public interface GravitinoAuthorizer extends Closeable {
@@ -210,23 +207,13 @@ public interface GravitinoAuthorizer extends Closeable {
    * When the permissions of a role change, it is necessary to notify the GravitinoAuthorizer in
    * order to clear the cache.
    *
+   * <p>An authorizer that caches role privileges looks the role up with the {@link
+   * AuthorizerContext} it is initialized with and clears its cache.
+   *
    * @param metalake The metalake name;
    * @param roleName The role name;
    */
-  default void handleRolePrivilegeChange(String metalake, String roleName) {
-    try {
-      RoleEntity entity =
-          GravitinoEnv.getInstance()
-              .entityStore()
-              .get(
-                  NameIdentifierUtil.ofRole(metalake, roleName),
-                  Entity.EntityType.ROLE,
-                  RoleEntity.class);
-      handleRolePrivilegeChange(entity.id());
-    } catch (Exception e) {
-      throw new RuntimeException("Cannot get role entity", e);
-    }
-  }
+  void handleRolePrivilegeChange(String metalake, String roleName);
 
   /**
    * Called when the role assignments of a user change.

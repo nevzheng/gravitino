@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class TestLegacyStoreEnvironment {
+public class TestStoreSeedsFixture {
 
   @Test
   public void testSeedsTheValuesAndRestoresThePreviousOnes() {
@@ -41,8 +41,8 @@ public class TestLegacyStoreEnvironment {
     IdGenerator idGenerator = Mockito.mock(IdGenerator.class);
     MetricsSystem metricsSystem = Mockito.mock(MetricsSystem.class);
 
-    try (LegacyStoreEnvironment ignored =
-        new LegacyStoreEnvironment()
+    try (StoreSeedsFixture ignored =
+        new StoreSeedsFixture()
             .withConfig(config)
             .withIdGenerator(idGenerator)
             .withMetricsSystem(metricsSystem)) {
@@ -64,7 +64,7 @@ public class TestLegacyStoreEnvironment {
     IdGenerator first = Mockito.mock(IdGenerator.class);
     IdGenerator second = Mockito.mock(IdGenerator.class);
 
-    LegacyStoreEnvironment binding = new LegacyStoreEnvironment().withIdGenerator(first);
+    StoreSeedsFixture binding = new StoreSeedsFixture().withIdGenerator(first);
     binding.withIdGenerator(second);
     Assertions.assertSame(second, RelationalStoreSeeds.idGenerator());
 
@@ -77,7 +77,7 @@ public class TestLegacyStoreEnvironment {
     boolean previousCacheEnabled = RelationalStoreSeeds.cacheEnabled();
     String previousSeparator = HierarchicalSchemaUtil.schemaSeparator();
 
-    LegacyStoreEnvironment binding = new LegacyStoreEnvironment().withConfig(null);
+    StoreSeedsFixture binding = new StoreSeedsFixture().withConfig(null);
     Assertions.assertTrue(RelationalStoreSeeds.cacheEnabled());
     Assertions.assertEquals(
         Configs.SCHEMA_SEPARATOR.getDefaultValue(), HierarchicalSchemaUtil.schemaSeparator());

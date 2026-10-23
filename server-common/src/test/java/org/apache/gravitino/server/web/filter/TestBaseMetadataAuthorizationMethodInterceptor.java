@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -50,7 +51,6 @@ import javax.ws.rs.POST;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.UserPrincipal;
@@ -128,7 +128,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
     authorizationUtils.verify(
         () ->
             AuthorizationUtils.checkCurrentUser(
-                eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)));
+                same(authorizer),
+                eq("metalake"),
+                eq("tester"),
+                any(AuthorizationRequestContext.class)));
   }
 
   @Test
@@ -138,7 +141,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
         .when(
             () ->
                 AuthorizationUtils.checkCurrentUser(
-                    eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)))
+                    same(authorizer),
+                    eq("metalake"),
+                    eq("tester"),
+                    any(AuthorizationRequestContext.class)))
         .thenThrow(failure);
     TestInterceptor interceptor = new TestInterceptor(Entity.EntityType.SCHEMA);
     TestInvocation invocation = invocation("canAccessMetadata", "authorized");
@@ -154,7 +160,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
         .when(
             () ->
                 AuthorizationUtils.checkCurrentUser(
-                    eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)))
+                    same(authorizer),
+                    eq("metalake"),
+                    eq("tester"),
+                    any(AuthorizationRequestContext.class)))
         .thenThrow(failure);
     TestInterceptor interceptor = new TestInterceptor(Entity.EntityType.SCHEMA);
     TestInvocation invocation = invocation("canAccessMetadata", "authorized");
@@ -240,7 +249,10 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
     authorizationUtils.verify(
         () ->
             AuthorizationUtils.checkCurrentUser(
-                eq("metalake"), eq("tester"), any(AuthorizationRequestContext.class)));
+                same(authorizer),
+                eq("metalake"),
+                eq("tester"),
+                any(AuthorizationRequestContext.class)));
     verify(authorizer, never()).authorize(any(), any(), any(), any(), any());
   }
 
@@ -345,72 +357,67 @@ public class TestBaseMetadataAuthorizationMethodInterceptor {
           userLoads.incrementAndGet();
           return Optional.of(new UserUpdatedAt(1L, 1L));
         };
-    try (MockedStatic<GravitinoEnv> envStatic = mockStatic(GravitinoEnv.class)) {
-      GravitinoEnv env = mock(GravitinoEnv.class);
-      Config config = mock(Config.class);
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      when(env.config()).thenReturn(config);
-      when(config.get(Configs.ENABLE_AUTHORIZATION)).thenReturn(true);
-      when(config.get(Configs.GRAVITINO_AUTHORIZATION_THREAD_POOL_SIZE)).thenReturn(2);
-      when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
-      MetadataAccessChecker accessChecker =
-          new MetadataAccessChecker(config, () -> authorizer, () -> null, () -> null);
-      principalUtils.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
-      authorizationUtils
-          .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any()))
-          .thenAnswer(
-              invocation -> {
-                AuthorizationRequestContext context = invocation.getArgument(2);
-                entryContext.set(context);
-                context.computeUserInfoIfAbsent("metalake::tester", loadUser);
-                return null;
-              });
-      when(authorizer.authorize(any(), any(), any(), any(), any()))
-          .thenAnswer(
-              invocation -> {
-                AuthorizationRequestContext context = invocation.getArgument(4);
-                contexts.add(context);
-                context.computeUserInfoIfAbsent("metalake::tester", loadUser);
-                return true;
-              });
-      when(authorizer.hasDenyPolicy(any(), any(), any(), any()))
-          .thenAnswer(
-              invocation -> {
-                contexts.add(invocation.getArgument(3));
-                return hasDeny;
-              });
-      when(authorizer.deny(any(), any(), any(), any(), any()))
-          .thenAnswer(
-              invocation -> {
-                MetadataObject object = invocation.getArgument(2);
-                contexts.add(invocation.getArgument(4));
-                if (object.type() == MetadataObject.Type.TABLE) {
-                  perObjectLoopRan.set(true);
-                }
-                return hasDeny && object.name().equals("hidden");
-              });
-      NameIdentifier visible = NameIdentifier.of("metalake", "catalog", "schema", "visible");
-      NameIdentifier hidden = NameIdentifier.of("metalake", "catalog", "schema", "hidden");
-      TestInvocation invocation = invocation("listTables", null);
-      when(invocation.proceed())
-          .thenAnswer(
-              unused ->
-                  accessChecker.filterByExpression(
-                      "metalake",
-                      AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
-                      Entity.EntityType.TABLE,
-                      new NameIdentifier[] {visible, hidden}));
+    Config config = mock(Config.class);
+    when(config.get(Configs.ENABLE_AUTHORIZATION)).thenReturn(true);
+    when(config.get(Configs.GRAVITINO_AUTHORIZATION_THREAD_POOL_SIZE)).thenReturn(2);
+    when(config.get(Configs.CACHE_ENABLED)).thenReturn(false);
+    MetadataAccessChecker accessChecker =
+        new MetadataAccessChecker(config, () -> authorizer, () -> null, () -> null);
+    principalUtils.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
+    authorizationUtils
+        .when(() -> AuthorizationUtils.checkCurrentUser(any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              AuthorizationRequestContext context = invocation.getArgument(3);
+              entryContext.set(context);
+              context.computeUserInfoIfAbsent("metalake::tester", loadUser);
+              return null;
+            });
+    when(authorizer.authorize(any(), any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              AuthorizationRequestContext context = invocation.getArgument(4);
+              contexts.add(context);
+              context.computeUserInfoIfAbsent("metalake::tester", loadUser);
+              return true;
+            });
+    when(authorizer.hasDenyPolicy(any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              contexts.add(invocation.getArgument(3));
+              return hasDeny;
+            });
+    when(authorizer.deny(any(), any(), any(), any(), any()))
+        .thenAnswer(
+            invocation -> {
+              MetadataObject object = invocation.getArgument(2);
+              contexts.add(invocation.getArgument(4));
+              if (object.type() == MetadataObject.Type.TABLE) {
+                perObjectLoopRan.set(true);
+              }
+              return hasDeny && object.name().equals("hidden");
+            });
+    NameIdentifier visible = NameIdentifier.of("metalake", "catalog", "schema", "visible");
+    NameIdentifier hidden = NameIdentifier.of("metalake", "catalog", "schema", "hidden");
+    TestInvocation invocation = invocation("listTables", null);
+    when(invocation.proceed())
+        .thenAnswer(
+            unused ->
+                accessChecker.filterByExpression(
+                    "metalake",
+                    AuthorizationExpressionConstants.FILTER_TABLE_AUTHORIZATION_EXPRESSION,
+                    Entity.EntityType.TABLE,
+                    new NameIdentifier[] {visible, hidden}));
 
-      Object result = new TestInterceptor(Entity.EntityType.SCHEMA).invoke(invocation);
+    Object result = new TestInterceptor(Entity.EntityType.SCHEMA).invoke(invocation);
 
-      assertArrayEquals(
-          hasDeny ? new NameIdentifier[] {visible} : new NameIdentifier[] {visible, hidden},
-          (NameIdentifier[]) result);
-      assertEquals(Set.of(entryContext.get()), contexts);
-      assertEquals(1, userLoads.get());
-      assertEquals(hasDeny, perObjectLoopRan.get());
-      assertNotSame(entryContext.get(), AuthorizationRequestScope.getOrCreate("metalake"));
-    }
+    assertArrayEquals(
+        hasDeny ? new NameIdentifier[] {visible} : new NameIdentifier[] {visible, hidden},
+        (NameIdentifier[]) result);
+    assertEquals(Set.of(entryContext.get()), contexts);
+    assertEquals(1, userLoads.get());
+    assertEquals(hasDeny, perObjectLoopRan.get());
+    assertNotSame(entryContext.get(), AuthorizationRequestScope.getOrCreate("metalake"));
   }
 
   /** An endpoint failure must not retain a request's permission cache on a reused thread. */

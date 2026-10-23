@@ -22,6 +22,7 @@ import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -61,8 +62,7 @@ import org.glassfish.hk2.utilities.binding.AbstractBinder;
  * server's {@link GravitinoComponent} (design section 5.6).
  *
  * <p>Each dispatcher is the {@code @Public} chain of its type, so it carries the decorators a
- * downstream component contributes. The objects are the ones the {@code GravitinoEnv} getters
- * return when the environment was initialized with this component.
+ * downstream component contributes.
  */
 class GravitinoComponentBinder extends AbstractBinder {
 
@@ -147,6 +147,7 @@ class GravitinoComponentBinder extends AbstractBinder {
         .to(MetadataAccessChecker.class)
         .ranked(1);
     bind(component.metadataObjectDispatchers()).to(MetadataObjectDispatchers.class).ranked(1);
+    bind(component.authorizationServices()).to(AuthorizationServices.class).ranked(1);
     bind(new MetadataIdResolver(component::catalogAccess, component::entityStore))
         .to(MetadataIdResolver.class)
         .ranked(1);

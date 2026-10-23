@@ -21,8 +21,6 @@ package org.apache.gravitino.catalog;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import java.util.Arrays;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.lock.LockType;
@@ -85,9 +83,6 @@ public class TestPartitionOperationDispatcher extends TestOperationDispatcher {
             lockManager);
     partitionOperationDispatcher =
         new PartitionOperationDispatcher(catalogManager, entityStore, idGenerator, secretManager);
-
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalSchemaDispatcher", schemaOperationDispatcher, true);
 
     NameIdentifier schemaIdent = NameIdentifierUtil.ofSchema(metalake, catalog, SCHEMA);
     schemaOperationDispatcher.createSchema(schemaIdent, "comment", ImmutableMap.of("k1", "v1"));
@@ -168,7 +163,7 @@ public class TestPartitionOperationDispatcher extends TestOperationDispatcher {
     // Partition operations never write the entity store, so they must not contend with an
     // in-flight table operation that holds the table tree lock.
     try (TreeLockTestSupport.HeldLock tableWrite =
-        TreeLockTestSupport.HeldLock.acquire(TABLE_IDENT, LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(lockManager, TABLE_IDENT, LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           tableWrite, () -> partitionOperationDispatcher.addPartition(TABLE_IDENT, partition));
       TreeLockTestSupport.assertRunsConcurrentlyWith(

@@ -62,7 +62,7 @@ public class TestGravitinoIcebergRESTServer {
 
   @Test
   public void testBuildsNoComponentUntilItIsInitialized() {
-    // The server builds its component from the factory, not from GravitinoEnv, and only when it
+    // The server builds its component from the factory, and only when it
     // initializes.
     GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
 

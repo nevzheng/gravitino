@@ -101,10 +101,10 @@ import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.rel.types.Type;
 import org.apache.gravitino.storage.relational.BackendTestSelector;
 import org.apache.gravitino.storage.relational.CoreBackend;
-import org.apache.gravitino.storage.relational.LegacyStoreEnvironment;
 import org.apache.gravitino.storage.relational.RelationalBackend;
 import org.apache.gravitino.storage.relational.RelationalEntityStore;
 import org.apache.gravitino.storage.relational.RelationalGarbageCollector;
+import org.apache.gravitino.storage.relational.StoreSeedsFixture;
 import org.apache.gravitino.storage.relational.converters.H2ExceptionConverter;
 import org.apache.gravitino.storage.relational.converters.MySQLExceptionConverter;
 import org.apache.gravitino.storage.relational.converters.PostgreSQLExceptionConverter;
@@ -128,8 +128,8 @@ abstract class AbstractEntityStorageTest {
   protected static final String DB_DIR = JDBC_STORE_PATH + "/testdb";
   protected static final String H2_FILE = DB_DIR + ".mv.db";
 
-  // The store reads its configuration through GravitinoEnv; init binds it for one test.
-  private final LegacyStoreEnvironment legacyEnvironment = new LegacyStoreEnvironment();
+  // The store reads its configuration from the static seeds; init seeds them for one test.
+  private final StoreSeedsFixture storeSeeds = new StoreSeedsFixture();
 
   static Object[][] storageProvider() {
     Object[][] backends =
@@ -148,7 +148,7 @@ abstract class AbstractEntityStorageTest {
 
   @AfterEach
   void restoreEnvironment() {
-    legacyEnvironment.close();
+    storeSeeds.close();
   }
 
   protected void init(String type, Config config) throws IllegalAccessException {
@@ -184,7 +184,7 @@ abstract class AbstractEntityStorageTest {
     Mockito.when(config.get(Configs.CACHE_IMPLEMENTATION)).thenReturn("caffeine");
     Mockito.when(config.get(Configs.CACHE_LOCK_SEGMENTS)).thenReturn(16);
 
-    legacyEnvironment.withConfig(config);
+    storeSeeds.withConfig(config);
 
     BaseIT baseIT = new BaseIT();
 

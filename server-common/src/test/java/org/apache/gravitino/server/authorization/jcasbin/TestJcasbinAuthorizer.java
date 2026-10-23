@@ -83,7 +83,6 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.MetadataObjects;
 import org.apache.gravitino.NameIdentifier;
@@ -101,7 +100,6 @@ import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
 import org.apache.gravitino.cache.GravitinoCache;
 import org.apache.gravitino.catalog.CatalogAccess;
-import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.SemanticModelDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.capability.Capability;
@@ -177,14 +175,12 @@ public class TestJcasbinAuthorizer {
 
   private static EntityStore entityStore = mock(EntityStore.class);
 
-  private static GravitinoEnv gravitinoEnv = mock(GravitinoEnv.class);
+  private static AuthorizerContext authorizerContext = mock(AuthorizerContext.class);
 
   private static SupportsRelationOperations supportsRelationOperations =
       mock(SupportsRelationOperations.class);
 
   private static MockedStatic<PrincipalUtils> principalUtilsMockedStatic;
-
-  private static MockedStatic<GravitinoEnv> gravitinoEnvMockedStatic;
 
   private static MetadataIdResolver metadataIdResolver;
 
@@ -331,16 +327,14 @@ public class TestJcasbinAuthorizer {
         .when(roleMetaMapper)
         .batchGetRoleUpdatedAt(any());
 
-    gravitinoEnvMockedStatic = mockStatic(GravitinoEnv.class);
-    gravitinoEnvMockedStatic.when(GravitinoEnv::getInstance).thenReturn(gravitinoEnv);
-    when(gravitinoEnv.config()).thenReturn(new ServerConfig());
+    when(authorizerContext.config()).thenReturn(new ServerConfig());
     principalUtilsMockedStatic = mockStatic(PrincipalUtils.class);
     // Keep ID-loading fixtures, but execute all normalization helpers so capability rules are
     // tested rather than stubbed away.
     metadataIdResolver =
         spy(
             new MetadataIdResolver(
-                () -> gravitinoEnv.catalogManager(), () -> gravitinoEnv.entityStore()));
+                () -> authorizerContext.catalogAccess(), () -> authorizerContext.entityStore()));
     doReturn(Optional.empty()).when(metadataIdResolver).getID(any(), any());
     doAnswer(
             invocation ->
@@ -353,7 +347,7 @@ public class TestJcasbinAuthorizer {
     principalUtilsMockedStatic.when(() -> PrincipalUtils.doAs(any(), any())).thenCallRealMethod();
     principalUtilsMockedStatic.when(PrincipalUtils::getCurrentUserName).thenCallRealMethod();
     doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
-    when(gravitinoEnv.entityStore()).thenReturn(entityStore);
+    when(authorizerContext.entityStore()).thenReturn(entityStore);
     when(entityStore.relationOperations()).thenReturn(supportsRelationOperations);
     when(entityStore.get(
             eq(NameIdentifierUtil.ofUser(METALAKE, USERNAME)),
@@ -386,16 +380,13 @@ public class TestJcasbinAuthorizer {
     if (ownerMetaServiceMockedStatic != null) {
       ownerMetaServiceMockedStatic.close();
     }
-    if (gravitinoEnvMockedStatic != null) {
-      gravitinoEnvMockedStatic.close();
-    }
   }
 
   @BeforeEach
   public void createAuthorizer() throws Exception {
     // Build a fresh authorizer per test so enforcer policies and version-validated cache state can
     // never bleed across cases regardless of the JUnit execution order.
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability()).thenReturn(Capability.DEFAULT);
     doAnswer(
@@ -405,30 +396,9 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     jcasbinAuthorizer = new JcasbinAuthorizer(metadataIdResolver);
-    jcasbinAuthorizer.initialize(
-        new AuthorizerContext() {
-          @Override
-          public Config config() {
-            return gravitinoEnv.config();
-          }
-
-          @Override
-          public EntityStore entityStore() {
-            return gravitinoEnv.entityStore();
-          }
-
-          @Override
-          public CatalogAccess catalogAccess() {
-            return gravitinoEnv.catalogManager();
-          }
-
-          @Override
-          public AccessControlDispatcher internalAccessControlDispatcher() {
-            return gravitinoEnv.internalAccessControlDispatcher();
-          }
-        });
+    jcasbinAuthorizer.initialize(authorizerContext);
     restoreDefaultPrincipal();
     // Reset role-user relation mock to return empty list (no roles) by default; individual tests
     // can override as needed.
@@ -474,7 +444,7 @@ public class TestJcasbinAuthorizer {
   @Test
   public void testIsServiceAdminUsesInternalDispatcher() {
     AccessControlDispatcher dispatcher = mock(AccessControlDispatcher.class);
-    when(gravitinoEnv.internalAccessControlDispatcher()).thenReturn(dispatcher);
+    when(authorizerContext.internalAccessControlDispatcher()).thenReturn(dispatcher);
     when(dispatcher.isServiceAdmin(USERNAME)).thenReturn(true);
 
     assertTrue(jcasbinAuthorizer.isServiceAdmin());
@@ -712,7 +682,7 @@ public class TestJcasbinAuthorizer {
   /** Verifies that a connector failure does not suppress healthy catalog grants. */
   @Test
   public void testCapabilityFailureDoesNotAbortHealthyCatalogPolicyLoading() throws Exception {
-    CatalogManager catalogs = gravitinoEnv.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -788,7 +758,7 @@ public class TestJcasbinAuthorizer {
                     Privilege.Name.SELECT_TABLE,
                     "DENY")));
     mockDirectUserRoles(allowRole, denyRole);
-    CatalogManager catalogs = gravitinoEnv.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -891,7 +861,7 @@ public class TestJcasbinAuthorizer {
           evaluator.evaluate(
               tableMetadataNames("broken", "sibling"), new AuthorizationRequestContext()));
       assertTrue(getLoadedRolesCache(jcasbinAuthorizer).getIfPresent(ALLOW_ROLE_ID).isPresent());
-      CatalogManager catalogs = gravitinoEnv.catalogManager();
+      CatalogAccess catalogs = authorizerContext.catalogAccess();
       Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
           .when(catalogs)
           .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -944,7 +914,7 @@ public class TestJcasbinAuthorizer {
   @Test
   public void testUnresolvedDenyWithoutCatalogIdFailsBeforePoliciesAreApplied() throws Exception {
     MetadataObject catalogObject = MetadataObjects.of(null, "broken", MetadataObject.Type.CATALOG);
-    CatalogManager catalogs = gravitinoEnv.catalogManager();
+    CatalogAccess catalogs = authorizerContext.catalogAccess();
     Mockito.doThrow(new IllegalStateException("Connector initialization failed"))
         .when(catalogs)
         .doWithCatalog(eq(NameIdentifier.of(METALAKE, "broken")), any());
@@ -3334,14 +3304,14 @@ public class TestJcasbinAuthorizer {
     executorField.setAccessible(true);
     Object previousExecutor = executorField.get(null);
     executorField.set(null, (Executor) Runnable::run);
-    Config previousConfig = gravitinoEnv.config();
+    Config previousConfig = authorizerContext.config();
     Config config = mock(Config.class);
     when(config.get(eq(Configs.ENABLE_AUTHORIZATION))).thenReturn(true);
     when(config.get(eq(Configs.CACHE_ENABLED))).thenReturn(false);
-    when(gravitinoEnv.config()).thenReturn(config);
+    when(authorizerContext.config()).thenReturn(config);
     MetadataAccessChecker accessChecker =
         new MetadataAccessChecker(
-            config, () -> jcasbinAuthorizer, gravitinoEnv::entityStore, () -> null);
+            config, () -> jcasbinAuthorizer, authorizerContext::entityStore, () -> null);
     try {
       SecurableObject deniedObject =
           buildSecurableObject(
@@ -3424,7 +3394,7 @@ public class TestJcasbinAuthorizer {
       }
     } finally {
       executorField.set(null, previousExecutor);
-      when(gravitinoEnv.config()).thenReturn(previousConfig);
+      when(authorizerContext.config()).thenReturn(previousConfig);
       doReturn(Optional.of(CATALOG_ID)).when(metadataIdResolver).getID(any(), eq(METALAKE));
       restoreDefaultPrincipal();
     }
@@ -3685,7 +3655,7 @@ public class TestJcasbinAuthorizer {
     JcasbinAuthorizationLookups lookups =
         new JcasbinAuthorizationLookups(
             cache, getOwnerRelCache(jcasbinAuthorizer), metadataIdResolver);
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability())
         .thenReturn(
@@ -3702,7 +3672,7 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     NameIdentifier oldIdent = NameIdentifier.of(METALAKE, "catalog", "schema", "SalesModel");
     NameIdentifier newIdent = NameIdentifier.of(oldIdent.namespace(), "RenamedModel");
     MetadataObject oldObject =
@@ -3746,14 +3716,13 @@ public class TestJcasbinAuthorizer {
           Optional.of(400L),
           lookups.resolveMetadataId(oldObject, METALAKE, new AuthorizationRequestContext()));
     } finally {
-      when(gravitinoEnv.gravitinoAuthorizer()).thenReturn(null);
-      when(gravitinoEnv.catalogManager()).thenReturn(null);
+      when(authorizerContext.catalogAccess()).thenReturn(null);
     }
   }
 
   @Test
   public void testSemanticModelCacheKeepsCaseSensitiveSchemasDistinct() throws Exception {
-    CatalogManager catalogs = mock(CatalogManager.class);
+    CatalogAccess catalogs = mock(CatalogAccess.class);
     BaseCatalog<?> catalog = mock(BaseCatalog.class);
     when(catalog.capability()).thenReturn(Capability.DEFAULT);
     Mockito.doAnswer(
@@ -3763,7 +3732,7 @@ public class TestJcasbinAuthorizer {
             })
         .when(catalogs)
         .doWithCatalog(any(), any());
-    when(gravitinoEnv.catalogManager()).thenReturn(catalogs);
+    when(authorizerContext.catalogAccess()).thenReturn(catalogs);
     JcasbinAuthorizationLookups lookups =
         new JcasbinAuthorizationLookups(
             getMetadataIdCache(jcasbinAuthorizer),
@@ -3794,7 +3763,7 @@ public class TestJcasbinAuthorizer {
           Optional.of(100L),
           lookups.resolveMetadataId(lower, METALAKE, new AuthorizationRequestContext()));
     } finally {
-      when(gravitinoEnv.catalogManager()).thenReturn(null);
+      when(authorizerContext.catalogAccess()).thenReturn(null);
     }
   }
 

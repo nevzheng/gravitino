@@ -59,13 +59,11 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -91,6 +89,7 @@ import org.apache.gravitino.model.ModelVersion;
 import org.apache.gravitino.model.ModelVersionChange;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.RaceTestUtils;
 import org.junit.jupiter.api.AfterAll;
@@ -185,7 +184,8 @@ public class TestModelCatalogOperations {
             .build();
     store.put(catalog, false);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    // The meta services route their reads by the cache flag the store was seeded with.
+    RelationalStoreSeeds.seed(config, null, null);
 
     ops = new ModelCatalogOperations(store);
     ops.initialize(
@@ -197,6 +197,7 @@ public class TestModelCatalogOperations {
   @AfterAll
   public static void tearDown() throws IOException {
     ops.close();
+    RelationalStoreSeeds.reset();
     store.close();
     FileUtils.deleteDirectory(new File(STORE_PATH));
   }

@@ -34,6 +34,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -234,6 +235,8 @@ public class TestGravitinoComponentBinder {
       when(component.bulkManager()).thenReturn(bulkManager);
       MetadataObjectDispatchers objectDispatchers = mock(MetadataObjectDispatchers.class);
       when(component.metadataObjectDispatchers()).thenReturn(objectDispatchers);
+      AuthorizationServices authorizationServices = mock(AuthorizationServices.class);
+      when(component.authorizationServices()).thenReturn(authorizationServices);
 
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
@@ -250,6 +253,7 @@ public class TestGravitinoComponentBinder {
         assertNotNull(locator.getService(MetadataAccessChecker.class));
         assertNotNull(locator.getService(MetadataIdResolver.class));
         assertSame(objectDispatchers, locator.getService(MetadataObjectDispatchers.class));
+        assertSame(authorizationServices, locator.getService(AuthorizationServices.class));
         assertSame(tables, locator.getService(TableDispatcher.class));
         assertSame(
             internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
@@ -302,6 +306,8 @@ public class TestGravitinoComponentBinder {
       when(component.ownerDispatcher()).thenReturn(owners);
       when(component.internalOwnerDispatcher()).thenReturn(internalOwners);
       when(component.bulkManager()).thenReturn(bulkManager);
+      AuthorizationServices authorizationServices = mock(AuthorizationServices.class);
+      when(component.authorizationServices()).thenReturn(authorizationServices);
 
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
@@ -354,6 +360,7 @@ public class TestGravitinoComponentBinder {
         assertSame(eventBus, field(interception, "eventBus"));
         assertSame(internalTables, field(interception, "internalTableDispatcher"));
         assertSame(internalViews, field(interception, "internalViewDispatcher"));
+        assertSame(authorizationServices, field(interception, "authorizationServices"));
         assertNotNull(locator.getService(SemanticModelSourceValidator.class));
       } finally {
         locator.shutdown();

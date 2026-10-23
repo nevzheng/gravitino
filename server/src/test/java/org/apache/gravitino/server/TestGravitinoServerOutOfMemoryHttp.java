@@ -45,7 +45,6 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.core.Response;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.rest.RESTUtils;
@@ -136,8 +135,7 @@ class TestGravitinoServerOutOfMemoryHttp {
                 + AuxiliaryServiceManager.AUX_SERVICE_NAMES,
             ""),
         entry -> true);
-    GravitinoServer server =
-        new GravitinoServer(config, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    GravitinoServer server = new GravitinoServer(config, DaggerGravitinoComponent.factory());
     try {
       server.initialize();
       server.register(FailingResource.class);

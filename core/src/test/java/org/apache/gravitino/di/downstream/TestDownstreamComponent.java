@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.FutureGrantManager;
@@ -58,6 +57,7 @@ import org.apache.gravitino.catalog.TopicNormalizeDispatcher;
 import org.apache.gravitino.catalog.ViewNormalizeDispatcher;
 import org.apache.gravitino.di.ForDispatcherChains;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
@@ -195,12 +195,11 @@ public class TestDownstreamComponent {
 
   @Test
   public void testContributedServicesStartAfterWhatTheyDependOnAndCloseBefore() throws Exception {
-    GravitinoEnv env = new GravitinoEnv() {};
+    DownstreamComponent built = DaggerDownstreamComponent.factory().create(config());
     try {
-      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
-      DownstreamComponent built = (DownstreamComponent) env.component();
+      GravitinoProfiles.full(built);
 
-      env.start();
+      GravitinoProfiles.start(built);
 
       DownstreamService service = built.downstreamService();
       assertEquals(List.of("start"), service.calls);
@@ -209,40 +208,32 @@ public class TestDownstreamComponent {
           registered.indexOf(service.lockManager) < registered.indexOf(service),
           registered.toString());
     } finally {
-      env.shutdown();
+      built.managedServices().close();
     }
   }
 
   @Test
-  public void testShutdownWithoutStartBuildsNoContributedService() {
-    GravitinoEnv env = new GravitinoEnv() {};
-    env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
-    DownstreamComponent built = (DownstreamComponent) env.component();
+  public void testCloseWithoutStartBuildsNoContributedService() throws Exception {
+    DownstreamComponent built = DaggerDownstreamComponent.factory().create(config());
+    GravitinoProfiles.full(built);
 
-    env.shutdown();
+    built.managedServices().close();
 
     assertTrue(
         built.managedServices().services().stream().noneMatch(DownstreamService.class::isInstance));
   }
 
   @Test
-  public void testGravitinoEnvBuiltOnTheDownstreamComponentReturnsItsChains() {
-    GravitinoEnv env = new GravitinoEnv() {};
+  public void testTheFullProfileOnTheDownstreamComponentBuildsItsChains() throws Exception {
+    DownstreamComponent built = DaggerDownstreamComponent.factory().create(config());
     try {
-      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+      GravitinoProfiles.full(built);
 
-      DownstreamComponent built = (DownstreamComponent) env.component();
       assertNotSame(component, built);
-      assertSame(built.tableDispatcher(), env.tableDispatcher());
-      assertSame(built.internalTableDispatcher(), env.internalTableDispatcher());
-      assertSame(built.catalogDispatcher(), env.catalogDispatcher());
-      assertSame(built.accessControlDispatcher(), env.accessControlDispatcher());
-      assertSame(built.internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
-      assertSame(built.jobOperationDispatcher(), env.jobOperationDispatcher());
-      assertEquals("@Public TableDispatcher", Tagging.tag(env.tableDispatcher()).label);
-      assertTrue(labels(env.schemaDispatcher()).contains("@Public SchemaDispatcher"));
+      assertEquals("@Public TableDispatcher", Tagging.tag(built.tableDispatcher()).label);
+      assertTrue(labels(built.schemaDispatcher()).contains("@Public SchemaDispatcher"));
     } finally {
-      env.shutdown();
+      built.managedServices().close();
     }
   }
 

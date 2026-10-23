@@ -26,7 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
@@ -167,18 +166,6 @@ public final class TreeLockTestSupport {
       this.identifier = identifier;
       this.lockType = lockType;
       this.holder = new Thread(this::hold, "tree-lock-test-holder");
-    }
-
-    /**
-     * Acquires the lock through the lock manager of {@code GravitinoEnv} on a helper thread and
-     * returns once it is held.
-     *
-     * @param identifier the identifier to lock
-     * @param lockType the type of lock to hold
-     * @return the held lock
-     */
-    public static HeldLock acquire(NameIdentifier identifier, LockType lockType) throws Exception {
-      return acquire(GravitinoEnv.getInstance().lockManager(), identifier, lockType);
     }
 
     /**

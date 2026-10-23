@@ -28,13 +28,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.di.DaggerGravitinoComponent;
 import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.di.GravitinoProfiles;
 import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
 import org.apache.gravitino.lineage.LineageService;
@@ -98,11 +98,9 @@ public class GravitinoServer extends ResourceConfig {
 
   private final JettyServer server;
 
-  private final GravitinoEnv gravitinoEnv;
-
   private final GravitinoComponent.Factory componentFactory;
 
-  // The component the environment was initialized from; set by initialize().
+  // The component the server was initialized from; set by initialize().
   @Nullable private GravitinoComponent component;
 
   private final LineageService lineageService;
@@ -118,23 +116,20 @@ public class GravitinoServer extends ResourceConfig {
   private final AtomicBoolean isStopped = new AtomicBoolean(false);
 
   /**
-   * Creates a server. {@link #initialize()} initializes the environment from the component that
-   * {@code componentFactory} creates and binds the dispatchers the REST resources inject from that
-   * component's provision methods.
+   * Creates a server. {@link #initialize()} builds the component that {@code componentFactory}
+   * creates and binds the dispatchers the REST resources inject from that component's provision
+   * methods.
    *
    * <p>A downstream server passes the factory of its own root component, which extends {@link
    * GravitinoComponent}, so the chains its decorators change reach the REST resources, and reads
    * that component back through {@link #component()} to bind its own services.
    *
    * @param config the server configuration
-   * @param gravitinoEnv the environment to initialize
-   * @param componentFactory creates the component the environment and the REST resources use
+   * @param componentFactory creates the component the server and its REST resources use
    */
-  public GravitinoServer(
-      ServerConfig config, GravitinoEnv gravitinoEnv, GravitinoComponent.Factory componentFactory) {
+  public GravitinoServer(ServerConfig config, GravitinoComponent.Factory componentFactory) {
     this(
         config,
-        gravitinoEnv,
         componentFactory,
         new JettyServer(),
         new LineageService(),
@@ -144,39 +139,35 @@ public class GravitinoServer extends ResourceConfig {
   @VisibleForTesting
   GravitinoServer(
       ServerConfig config,
-      GravitinoEnv gravitinoEnv,
       GravitinoComponent.Factory componentFactory,
       JettyServer server,
       LineageService lineageService,
       GravitinoAuthorizerProvider authorizerProvider) {
     this.serverConfig = config;
     this.server = server;
-    this.gravitinoEnv = gravitinoEnv;
     this.componentFactory = Preconditions.checkNotNull(componentFactory, "componentFactory");
     this.lineageService = lineageService;
     this.authorizerProvider = authorizerProvider;
-    Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
-    Lifecycle.Action closeAuthorizer = once(this::closeAuthorizer);
+    Lifecycle.Action closeComponent = once(this::closeComponent);
+    Lifecycle.Action closeAuthorizer = once(authorizerProvider::close);
     Lifecycle.Action stopJetty = once(server::stop);
-    this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, shutdownEnv);
-    // Start order: environment, then Jetty. Stop order is the reverse, so Jetty stops taking
-    // requests before the authorizer is taken back and before the environment, which closes it,
-    // shuts down.
+    this.stopActions = ImmutableList.of(stopJetty, closeAuthorizer, closeComponent);
+    // Start order: the component's services, then Jetty. Stop order is the reverse, so Jetty stops
+    // taking requests before the authorizer is taken back and before the component's services,
+    // which close it, are closed.
     this.lifecycle =
         Lifecycle.builder()
-            .add("Gravitino environment", gravitinoEnv::start, shutdownEnv)
+            .add("Gravitino services", this::startComponent, closeComponent)
             .addStopOnly("Gravitino authorizer", closeAuthorizer)
             .add("Jetty server", server::start, stopJetty)
             .build();
   }
 
   public void initialize() {
-    gravitinoEnv.initializeFullComponents(serverConfig, componentFactory);
     this.component =
         Preconditions.checkNotNull(
-            gravitinoEnv.component(),
-            "The environment holds no component after initialization: a GravitinoEnv subclass that"
-                + " overrides initializeFullComponents must call the overridden method");
+            componentFactory.create(serverConfig), "The component factory created no component");
+    GravitinoProfiles.full(component);
 
     JettyServerConfig jettyServerConfig =
         JettyServerConfig.fromConfig(serverConfig, WEBSERVER_CONF_PREFIX);
@@ -187,10 +178,8 @@ public class GravitinoServer extends ResourceConfig {
         .initialize(serverConfig, AuthenticatorContext.of(component::idGenerator));
 
     // Builds the authorizer before the server takes requests, and hands it to the code that reads
-    // it statically, including from GravitinoEnv. The component closes it.
-    GravitinoAuthorizer authorizer = component.gravitinoAuthorizer();
-    authorizerProvider.install(authorizer);
-    gravitinoEnv.setGravitinoAuthorizer(authorizer);
+    // it statically. The component closes it.
+    authorizerProvider.install(component.gravitinoAuthorizer());
 
     lineageService.initialize(
         new LineageConfig(serverConfig.getConfigsWithPrefix(LineageConfig.LINEAGE_CONFIG_PREFIX)));
@@ -204,9 +193,9 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   /**
-   * Returns the component {@link #initialize()} initialized the environment from: the one the
-   * factory given to the constructor created. A downstream server reads its own root component here
-   * to bind its own services into HK2.
+   * Returns the component {@link #initialize()} built: the one the factory given to the constructor
+   * created. A downstream server reads its own root component here to bind its own services into
+   * HK2.
    *
    * @return the component
    * @throws IllegalStateException before {@link #initialize()}
@@ -340,13 +329,29 @@ public class GravitinoServer extends ResourceConfig {
     stop();
   }
 
+  /**
+   * Starts the Gravitino server and serves requests until it stops.
+   *
+   * @param args the configuration file path, read when {@code GRAVITINO_TEST} is set
+   */
   public static void main(String[] args) {
+    run(args, component -> {});
+  }
+
+  /**
+   * Starts the Gravitino server and serves requests until it stops, as {@link #main(String[])}
+   * does, and hands the running server's component to {@code onStarted} once the server has
+   * started. An integration test that embeds the server reads the server's services from that
+   * component.
+   *
+   * @param args the configuration file path, read when {@code GRAVITINO_TEST} is set
+   * @param onStarted receives the component of the started server
+   */
+  public static void run(String[] args, Consumer<GravitinoComponent> onStarted) {
     LOG.info("Starting Gravitino Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];
     ServerConfig serverConfig = loadConfig(confPath);
-    GravitinoServer server =
-        new GravitinoServer(
-            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
+    GravitinoServer server = new GravitinoServer(serverConfig, DaggerGravitinoComponent.factory());
 
     try {
       server.initialize();
@@ -357,6 +362,7 @@ public class GravitinoServer extends ResourceConfig {
       System.exit(-1);
     }
     LOG.info("Done, Gravitino server started.");
+    onStarted.accept(server.component());
 
     Runtime.getRuntime()
         .addShutdownHook(
@@ -400,11 +406,19 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
-  /** Takes the authorizer back from the code that reads it statically; the component closes it. */
-  private void closeAuthorizer() {
-    // Requests that still run after this see the environment fail closed.
-    gravitinoEnv.setGravitinoAuthorizer(null);
-    authorizerProvider.close();
+  private void startComponent() throws Exception {
+    Preconditions.checkState(component != null, "The server is not initialized");
+    GravitinoProfiles.start(component);
+  }
+
+  /**
+   * Closes the managed services of the component, the authorizer included, in the reverse of the
+   * order the component built them. It does nothing before {@link #initialize()}.
+   */
+  private void closeComponent() throws Exception {
+    if (component != null) {
+      component.managedServices().close();
+    }
   }
 
   /** Returns an action that runs {@code action} the first time it is run, and then does nothing. */

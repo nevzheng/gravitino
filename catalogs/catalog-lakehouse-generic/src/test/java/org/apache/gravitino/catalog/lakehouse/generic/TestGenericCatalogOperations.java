@@ -63,13 +63,11 @@ import javax.annotation.Nullable;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -90,6 +88,7 @@ import org.apache.gravitino.rel.expressions.transforms.Transform;
 import org.apache.gravitino.rel.indexes.Index;
 import org.apache.gravitino.storage.IdGenerator;
 import org.apache.gravitino.storage.RandomIdGenerator;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -179,7 +178,8 @@ public class TestGenericCatalogOperations {
             .build();
     store.put(catalog, false);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    // The meta services route their reads by the cache flag the store was seeded with.
+    RelationalStoreSeeds.seed(config, null, null);
 
     ops = new GenericCatalogOperations(store, idGenerator);
 
@@ -339,6 +339,7 @@ public class TestGenericCatalogOperations {
     ops.close();
     opsWithFakeProvider.close();
     opsWithDefaultProvider.close();
+    RelationalStoreSeeds.reset();
     store.close();
     FileUtils.deleteDirectory(new File(STORE_PATH));
   }

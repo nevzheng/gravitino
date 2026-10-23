@@ -93,6 +93,7 @@ import org.apache.gravitino.function.FunctionParam;
 import org.apache.gravitino.function.FunctionParams;
 import org.apache.gravitino.function.FunctionType;
 import org.apache.gravitino.json.PolicyAssociationSelectorSerde;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -160,6 +161,7 @@ public class TestTagManager {
   private static final MetadataObjectDispatchers metadataObjects = newMetadataObjectDispatchers();
 
   private static EntityStore entityStore;
+  private static LockManager lockManager;
 
   private static IdGenerator idGenerator;
 
@@ -298,6 +300,7 @@ public class TestTagManager {
     entityStore.put(function, false /* overwritten */);
 
     tagManager = new TagManager(idGenerator, entityStore, metadataObjects);
+    lockManager = new LockManager(config);
 
     when(metalakeDispatcher.metalakeExists(any())).thenReturn(true);
     when(catalogDispatcher.catalogExists(any())).thenReturn(true);
@@ -1280,7 +1283,8 @@ public class TestTagManager {
     // A metalake WRITE lock covers every tag, policy and metadata object below it. Tag operations
     // are fenced by the entity store, so none of them may wait for it.
     try (TreeLockTestSupport.HeldLock metalakeWriter =
-        TreeLockTestSupport.HeldLock.acquire(NameIdentifier.of(METALAKE), LockType.WRITE)) {
+        TreeLockTestSupport.HeldLock.acquire(
+            lockManager, NameIdentifier.of(METALAKE), LockType.WRITE)) {
       TreeLockTestSupport.assertRunsConcurrentlyWith(
           metalakeWriter, () -> tagManager.createTag(METALAKE, "lock_free_tag", null, null));
       TreeLockTestSupport.assertRunsConcurrentlyWith(

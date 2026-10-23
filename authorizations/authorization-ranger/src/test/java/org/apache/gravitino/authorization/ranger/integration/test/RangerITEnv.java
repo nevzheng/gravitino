@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AuthorizationSecurableObject;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.Role;
@@ -40,6 +39,7 @@ import org.apache.gravitino.authorization.ranger.RangerAuthorizationPlugin;
 import org.apache.gravitino.authorization.ranger.RangerHelper;
 import org.apache.gravitino.authorization.ranger.RangerPrivileges;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
@@ -91,6 +91,11 @@ public class RangerITEnv {
   public static final String SEARCH_FILTER_PATH = SearchFilter.RESOURCE_PREFIX + RESOURCE_PATH;
   public static RangerAuthorizationHadoopSQLPlugin rangerAuthHivePlugin;
   public static RangerAuthorizationHDFSPlugin rangerAuthHDFSPlugin;
+
+  /** The internal catalog dispatcher that {@link #rangerAuthHDFSPlugin} lists catalogs through. */
+  public static final CatalogDispatcher hdfsCatalogDispatcher =
+      Mockito.mock(CatalogDispatcher.class);
+
   protected static RangerHelper rangerHelper;
   protected static RangerHelper rangerHDFSHelper;
   public static String RANGER_ADMIN_URL = null;
@@ -155,7 +160,8 @@ public class RangerITEnv {
                     METALAKE_ID,
                     BaseAuthorization.CATALOG_ID,
                     CATALOG_ID),
-                environmentPluginContext()));
+                AuthorizationPluginContext.of(
+                    () -> false, () -> hdfsCatalogDispatcher, () -> null, () -> null, () -> null)));
     rangerAuthHDFSPlugin = spyRangerAuthorizationHDFSPlugin;
 
     rangerHelper =
@@ -565,19 +571,5 @@ public class RangerITEnv {
   /** Don't call this function in the Lambda function body, It will return a random function name */
   public static String currentFunName() {
     return Thread.currentThread().getStackTrace()[2].getMethodName();
-  }
-
-  // The ITs stub GravitinoEnv, so the plugin reads the services from it when it asks for them.
-  private static AuthorizationPluginContext environmentPluginContext() {
-    return AuthorizationPluginContext.of(
-        () -> env().internalAccessControlDispatcher() != null,
-        () -> env().internalCatalogDispatcher(),
-        () -> env().internalSchemaDispatcher(),
-        () -> env().internalTableDispatcher(),
-        () -> env().internalFilesetDispatcher());
-  }
-
-  private static GravitinoEnv env() {
-    return GravitinoEnv.getInstance();
   }
 }

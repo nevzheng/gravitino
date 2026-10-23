@@ -20,17 +20,23 @@ package org.apache.gravitino.server;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
-import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.di.DaggerGravitinoComponent;
+import java.util.Set;
+import org.apache.gravitino.di.GravitinoComponent;
+import org.apache.gravitino.lifecycle.ManagedServices;
 import org.apache.gravitino.lineage.LineageService;
+import org.apache.gravitino.listener.EventBus;
+import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.JettyServer;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +45,8 @@ import org.mockito.InOrder;
 
 public class TestGravitinoServerLifecycle {
 
-  private GravitinoEnv env;
+  // The managed services of the server's component, which it starts and closes.
+  private ManagedServices services;
   private JettyServer jetty;
   private LineageService lineage;
   private GravitinoAuthorizerProvider authorizer;
@@ -47,66 +54,69 @@ public class TestGravitinoServerLifecycle {
 
   @BeforeEach
   public void setUp() {
-    env = mock(GravitinoEnv.class);
+    services = mock(ManagedServices.class);
     jetty = mock(JettyServer.class);
     lineage = mock(LineageService.class);
     authorizer = mock(GravitinoAuthorizerProvider.class);
-    server =
-        new GravitinoServer(
-            mock(ServerConfig.class),
-            env,
-            DaggerGravitinoComponent.factory(),
-            jetty,
-            lineage,
-            authorizer);
+
+    ServerConfig config = new ServerConfig();
+    GravitinoComponent component = mock(GravitinoComponent.class, RETURNS_MOCKS);
+    when(component.config()).thenReturn(config);
+    when(component.metricsSystem()).thenReturn(mock(MetricsSystem.class));
+    when(component.eventBus()).thenReturn(mock(EventBus.class));
+    when(component.managedServices()).thenReturn(services);
+    when(component.contributedServices()).thenReturn(Set.of());
+    GravitinoComponent.Factory factory = mock(GravitinoComponent.Factory.class);
+    when(factory.create(any())).thenReturn(component);
+
+    server = new GravitinoServer(config, factory, jetty, lineage, authorizer);
+    server.initialize();
   }
 
   @Test
-  public void testJettyStopsBeforeAuthorizerAndEnvironment() throws Exception {
+  public void testJettyStopsBeforeAuthorizerAndServices() throws Exception {
     server.start();
     server.stop();
 
-    InOrder order = inOrder(env, jetty, authorizer, lineage);
-    order.verify(env).start();
+    InOrder order = inOrder(services, jetty, authorizer, lineage);
+    order.verify(services).start();
     order.verify(jetty).start();
     order.verify(jetty).stop();
-    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(services).close();
     order.verify(lineage).close();
   }
 
   @Test
-  public void testJettyStartFailureShutsDownEnvironment() throws IOException {
+  public void testJettyStartFailureClosesTheServices() throws Exception {
     IllegalStateException failure = new IllegalStateException("port in use");
     doThrow(failure).when(jetty).start();
 
     assertSame(failure, assertThrows(IllegalStateException.class, server::start));
 
-    InOrder order = inOrder(env, authorizer);
-    order.verify(env).start();
+    InOrder order = inOrder(services, authorizer);
+    order.verify(services).start();
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(services).close();
     verify(jetty, never()).stop();
   }
 
   @Test
-  public void testStopAfterEnvironmentStartFailureReleasesEverything() throws Exception {
+  public void testStopAfterServicesStartFailureReleasesEverything() throws Exception {
     IllegalStateException failure = new IllegalStateException("auxiliary service failed");
-    doThrow(failure).when(env).start();
+    doThrow(failure).when(services).start();
     assertSame(failure, assertThrows(IllegalStateException.class, server::start));
 
     server.stop();
 
     // Nothing had started, so the rollback stopped nothing; stop() still releases every service.
-    InOrder order = inOrder(jetty, env, authorizer, lineage);
+    InOrder order = inOrder(jetty, services, authorizer, lineage);
     order.verify(jetty).stop();
-    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(services).close();
     order.verify(lineage).close();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(services, times(1)).close();
   }
 
   @Test
@@ -119,7 +129,7 @@ public class TestGravitinoServerLifecycle {
 
     verify(jetty, times(1)).stop();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(services, times(1)).close();
   }
 
   @Test
@@ -131,7 +141,7 @@ public class TestGravitinoServerLifecycle {
 
     verify(jetty, times(1)).stop();
     verify(authorizer, times(1)).close();
-    verify(env, times(1)).shutdown();
+    verify(services, times(1)).close();
     verify(lineage, times(1)).close();
   }
 
@@ -145,7 +155,7 @@ public class TestGravitinoServerLifecycle {
 
     assertSame(jettyFailure, thrown.getCause().getCause());
     verify(authorizer).close();
-    verify(env).shutdown();
+    verify(services).close();
     verify(lineage).close();
   }
 
@@ -153,11 +163,10 @@ public class TestGravitinoServerLifecycle {
   public void testStopWithoutStartReleasesResources() throws Exception {
     server.stop();
 
-    InOrder order = inOrder(jetty, authorizer, env, lineage);
+    InOrder order = inOrder(jetty, authorizer, services, lineage);
     order.verify(jetty).stop();
-    order.verify(env).setGravitinoAuthorizer(null);
     order.verify(authorizer).close();
-    order.verify(env).shutdown();
+    order.verify(services).close();
     order.verify(lineage).close();
   }
 }

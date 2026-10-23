@@ -38,19 +38,17 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.StringIdentifier;
 import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
-import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContexts;
 import org.apache.gravitino.exceptions.IllegalNamespaceException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
@@ -110,7 +108,6 @@ public abstract class TestOperationDispatcher {
     doReturn(1000L).when(lockConfig).get(TREE_LOCK_MIN_NODE_IN_MEMORY);
     doReturn(36000L).when(lockConfig).get(TREE_LOCK_CLEAN_INTERVAL);
     lockManager = new LockManager(lockConfig);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
 
     secretManager = new SecretManager(config);
     catalogManager =
@@ -121,8 +118,7 @@ public abstract class TestOperationDispatcher {
             secretManager,
             lockManager,
             null,
-            Mockito.mock(AuthorizationPluginContext.class));
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
+            AuthorizationPluginContexts.disabled());
 
     NameIdentifier ident = NameIdentifier.of(metalake, catalog);
     Map<String, String> props =
