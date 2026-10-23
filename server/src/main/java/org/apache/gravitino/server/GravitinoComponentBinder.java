@@ -18,10 +18,12 @@
  */
 package org.apache.gravitino.server;
 
+import java.util.function.Supplier;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.auxiliary.AuxiliaryServiceManager;
 import org.apache.gravitino.bulk.BulkManager;
@@ -45,6 +47,8 @@ import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.stats.StatisticDispatcher;
@@ -66,6 +70,7 @@ class GravitinoComponentBinder extends AbstractBinder {
   private final GravitinoComponent component;
   private final boolean enableAuthorization;
   private final LineageDispatcher lineageDispatcher;
+  private final Supplier<GravitinoAuthorizer> authorizer;
 
   /**
    * Creates a binder.
@@ -73,14 +78,17 @@ class GravitinoComponentBinder extends AbstractBinder {
    * @param component the component whose provision methods supply the dispatchers
    * @param enableAuthorization whether to bind the authorization interception service
    * @param lineageDispatcher the lineage dispatcher of the server
+   * @param authorizer supplies the authorizer the server installed, which the access checker uses
    */
   GravitinoComponentBinder(
       GravitinoComponent component,
       boolean enableAuthorization,
-      LineageDispatcher lineageDispatcher) {
+      LineageDispatcher lineageDispatcher,
+      Supplier<GravitinoAuthorizer> authorizer) {
     this.component = component;
     this.enableAuthorization = enableAuthorization;
     this.lineageDispatcher = lineageDispatcher;
+    this.authorizer = authorizer;
   }
 
   @Override
@@ -131,6 +139,16 @@ class GravitinoComponentBinder extends AbstractBinder {
         .to(TableDispatcher.class)
         .qualifiedBy(InternalQualifier.INSTANCE)
         .ranked(InternalQualifier.RANK);
+    bind(new MetadataAccessChecker(
+            component.config(),
+            authorizer,
+            component::entityStore,
+            component::internalSchemaDispatcher))
+        .to(MetadataAccessChecker.class)
+        .ranked(1);
+    bind(new MetadataIdResolver(component::catalogManager, component::entityStore))
+        .to(MetadataIdResolver.class)
+        .ranked(1);
     if (enableAuthorization) {
       bind(component.accessControlDispatcher()).to(AccessControlDispatcher.class).ranked(1);
       bind(component.ownerDispatcher()).to(OwnerDispatcher.class).ranked(1);

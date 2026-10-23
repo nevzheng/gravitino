@@ -26,6 +26,7 @@ import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizerContext;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.junit.jupiter.api.Test;
 
 public class TestComponentAuthorizerContext {
@@ -34,14 +35,20 @@ public class TestComponentAuthorizerContext {
   public void testResolvesEachServiceWhenAsked() {
     Config config = new Config(false) {};
     EntityStore entityStore = mock(EntityStore.class);
+    CatalogManager catalogManager = mock(CatalogManager.class);
     AccessControlDispatcher accessControl = mock(AccessControlDispatcher.class);
 
     AuthorizerContext context =
         new ComponentAuthorizerContext(
-            config, () -> entityStore, /* authorizationEnabled= */ true, () -> accessControl);
+            config,
+            () -> entityStore,
+            () -> catalogManager,
+            /* authorizationEnabled= */ true,
+            () -> accessControl);
 
     assertSame(config, context.config());
     assertSame(entityStore, context.entityStore());
+    assertSame(catalogManager, context.catalogManager());
     assertSame(accessControl, context.internalAccessControlDispatcher());
   }
 
@@ -51,6 +58,7 @@ public class TestComponentAuthorizerContext {
         new ComponentAuthorizerContext(
             new Config(false) {},
             () -> mock(EntityStore.class),
+            () -> mock(CatalogManager.class),
             /* authorizationEnabled= */ false,
             () -> {
               throw new AssertionError("must not be built while authorization is disabled");

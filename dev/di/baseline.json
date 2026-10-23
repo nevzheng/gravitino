@@ -3,8 +3,8 @@
   "metrics": {
     "field_utils_gravitino_env.production.files": 0,
     "field_utils_gravitino_env.production.occurrences": 0,
-    "field_utils_gravitino_env.test.files": 74,
-    "field_utils_gravitino_env.test.occurrences": 234,
+    "field_utils_gravitino_env.test.files": 73,
+    "field_utils_gravitino_env.test.occurrences": 222,
     "field_utils_read_write.production.files": 8,
     "field_utils_read_write.production.occurrences": 23,
     "field_utils_read_write.test.files": 97,
@@ -13,16 +13,16 @@
     "gravitino_env.lines": 1023,
     "gravitino_env.new_calls": 2,
     "gravitino_env_get_instance.production.files": 37,
-    "gravitino_env_get_instance.production.occurrences": 80,
-    "gravitino_env_get_instance.test.files": 82,
-    "gravitino_env_get_instance.test.occurrences": 288,
+    "gravitino_env_get_instance.production.occurrences": 73,
+    "gravitino_env_get_instance.test.files": 81,
+    "gravitino_env_get_instance.test.occurrences": 276,
     "meta_service_get_instance.production.files": 25,
     "meta_service_get_instance.production.occurrences": 254,
     "meta_service_get_instance.test.files": 40,
     "meta_service_get_instance.test.occurrences": 1219,
     "mock_static_gravitino_env.production.files": 0,
     "mock_static_gravitino_env.production.occurrences": 0,
-    "mock_static_gravitino_env.test.files": 14,
+    "mock_static_gravitino_env.test.files": 13,
     "mock_static_gravitino_env.test.occurrences": 35,
     "singleton_get_instance.production.files": 41,
     "singleton_get_instance.production.occurrences": 41,
@@ -35,5 +35,5 @@
   },
   "migrated_packages": [],
   "schema_version": 1,
-  "source_revision": "2c829a8812"
+  "source_revision": "aeb7007380"
 }

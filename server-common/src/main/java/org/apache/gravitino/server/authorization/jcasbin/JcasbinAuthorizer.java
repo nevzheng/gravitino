@@ -17,6 +17,7 @@
 
 package org.apache.gravitino.server.authorization.jcasbin;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -64,7 +65,7 @@ import org.apache.gravitino.cache.CaffeineGravitinoCache;
 import org.apache.gravitino.cache.GravitinoCache;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.meta.RoleEntity;
-import org.apache.gravitino.server.authorization.MetadataIdConverter;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.storage.relational.SupportsEntityChangeLog;
 import org.apache.gravitino.storage.relational.mapper.GroupMetaMapper;
 import org.apache.gravitino.storage.relational.mapper.RoleMetaMapper;
@@ -261,6 +262,31 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
   /** The host services, which {@link #initialize(AuthorizerContext)} sets. */
   private AuthorizerContext context;
 
+  /** The resolver given to the constructor, or null to build one from the context. */
+  @Nullable private final MetadataIdResolver givenMetadataIdResolver;
+
+  /** Resolves metadata objects to entity IDs; set by {@link #initialize()}. */
+  private MetadataIdResolver metadataIdResolver;
+
+  /**
+   * Creates an authorizer that resolves metadata IDs through the catalog manager and entity store
+   * of the context it is initialized with.
+   */
+  public JcasbinAuthorizer() {
+    this(null);
+  }
+
+  /**
+   * Creates an authorizer that resolves metadata IDs through the given resolver.
+   *
+   * @param metadataIdResolver the resolver, or null to build one from the context
+   */
+  @VisibleForTesting
+  JcasbinAuthorizer(@Nullable MetadataIdResolver metadataIdResolver) {
+    this.givenMetadataIdResolver = metadataIdResolver;
+    this.metadataIdResolver = metadataIdResolver;
+  }
+
   /**
    * Sets the host services and initializes the authorizer through {@link #initialize()}, so a
    * subclass that overrides {@link #initialize()} still runs its own initialization.
@@ -314,7 +340,12 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     // alive indefinitely.
     metadataIdCache = new CaffeineGravitinoCache<>(ttlMs, metadataIdCacheSize);
     ownerRelCache = new CaffeineGravitinoCache<>(ttlMs, ownerCacheSize);
-    lookups = new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache);
+    AuthorizerContext hostServices = context;
+    metadataIdResolver =
+        givenMetadataIdResolver != null
+            ? givenMetadataIdResolver
+            : new MetadataIdResolver(hostServices::catalogManager, hostServices::entityStore);
+    lookups = new JcasbinAuthorizationLookups(metadataIdCache, ownerRelCache, metadataIdResolver);
     changePoller = new JcasbinChangeListener(metadataIdCache, ownerRelCache, pollIntervalSecs);
     EntityStore entityStore = context.entityStore();
     if (entityStore instanceof SupportsEntityChangeLog) {
@@ -561,7 +592,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
       String currentUserName = PrincipalUtils.getCurrentUserName();
       try {
         Optional<Long> roleId =
-            MetadataIdConverter.getID(
+            metadataIdResolver.getID(
                 NameIdentifierUtil.toMetadataObject(nameIdentifier, type), metalake);
         if (!roleId.isPresent()) {
           return false;
@@ -798,7 +829,7 @@ public class JcasbinAuthorizer implements GravitinoAuthorizer {
     metadataIdCache.invalidate(
         JcasbinAuthorizationCacheKeys.metadataIdCacheKey(metalake, metadataObject));
     try {
-      MetadataIdConverter.getID(metadataObject, metalake).ifPresent(ownerRelCache::invalidate);
+      metadataIdResolver.getID(metadataObject, metalake).ifPresent(ownerRelCache::invalidate);
     } catch (RuntimeException e) {
       LOG.warn("Failed to resolve metadata id for owner cache invalidation: {}", metadataObject, e);
     }

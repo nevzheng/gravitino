@@ -58,6 +58,8 @@ import org.apache.gravitino.policy.PolicyDispatcher;
 import org.apache.gravitino.secret.SecretManager;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretProviderRegistry;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
+import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.rest.AuthnOperations;
 import org.apache.gravitino.server.web.rest.BulkOperations;
@@ -129,7 +131,8 @@ public class TestGravitinoComponentBinder {
     when(component.statisticDispatcher()).thenReturn(statistics);
 
     ServiceLocator locator =
-        ServiceLocatorUtilities.bind(new GravitinoComponentBinder(component, false, lineage));
+        ServiceLocatorUtilities.bind(
+            new GravitinoComponentBinder(component, false, lineage, () -> null));
     try {
       assertSame(metalakes, locator.getService(MetalakeDispatcher.class));
       assertSame(catalogs, locator.getService(CatalogDispatcher.class));
@@ -184,7 +187,8 @@ public class TestGravitinoComponentBinder {
               new GravitinoComponentBinder(
                   mock(GravitinoComponent.class, RETURNS_MOCKS),
                   enableAuthorization,
-                  mock(LineageDispatcher.class)));
+                  mock(LineageDispatcher.class),
+                  () -> null));
 
       assertEquals(
           enableAuthorization,
@@ -230,7 +234,7 @@ public class TestGravitinoComponentBinder {
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
               new GravitinoComponentBinder(
-                  component, enableAuthorization, mock(LineageDispatcher.class)));
+                  component, enableAuthorization, mock(LineageDispatcher.class), () -> null));
       try {
         assertSame(config, locator.getService(Config.class));
         assertSame(eventBus, locator.getService(EventBus.class));
@@ -238,6 +242,8 @@ public class TestGravitinoComponentBinder {
         assertSame(entityStore, locator.getService(EntityStore.class));
         assertSame(catalogManager, locator.getService(CatalogManager.class));
         assertSame(auxiliaryServiceManager, locator.getService(AuxiliaryServiceManager.class));
+        assertNotNull(locator.getService(MetadataAccessChecker.class));
+        assertNotNull(locator.getService(MetadataIdResolver.class));
         assertSame(tables, locator.getService(TableDispatcher.class));
         assertSame(
             internalTables, locator.getService(TableDispatcher.class, InternalQualifier.INSTANCE));
@@ -290,7 +296,7 @@ public class TestGravitinoComponentBinder {
       ServiceLocator locator =
           ServiceLocatorUtilities.bind(
               new GravitinoComponentBinder(
-                  component, enableAuthorization, mock(LineageDispatcher.class)));
+                  component, enableAuthorization, mock(LineageDispatcher.class), () -> null));
       try {
         AccessControlDispatcher expectedAccessControl = enableAuthorization ? accessControl : null;
         OwnerDispatcher expectedOwners = enableAuthorization ? owners : null;
