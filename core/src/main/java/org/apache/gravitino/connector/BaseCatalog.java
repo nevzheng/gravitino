@@ -33,9 +33,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Audit;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.CatalogProvider;
-import org.apache.gravitino.Config;
-import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.annotation.Evolving;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
@@ -93,6 +90,8 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   private Map<String, String> conf;
 
   private SecretManager secretManager;
+
+  @Nullable private volatile CatalogContext catalogContext;
 
   private volatile CatalogOperations ops;
 
@@ -203,7 +202,12 @@ public abstract class BaseCatalog<T extends BaseCatalog>
           CatalogOperations newOps = createOps(conf);
           // Check metalake and catalog in use
           checkMetalakeAndCatalogInUse();
-          newOps.initialize(conf, entity.toCatalogInfo(), this);
+          CatalogContext context = catalogContext;
+          if (context != null) {
+            newOps.initialize(conf, entity.toCatalogInfo(), this, context);
+          } else {
+            newOps.initialize(conf, entity.toCatalogInfo(), this);
+          }
           ops =
               newProxyPlugin(conf)
                   .map(
@@ -475,6 +479,45 @@ public abstract class BaseCatalog<T extends BaseCatalog>
   }
 
   /**
+   * Sets the host services this catalog and its operations may use. {@code CatalogManager} sets it
+   * on every catalog it loads; {@link #ops()} passes it to {@link CatalogOperations#initialize(Map,
+   * CatalogInfo, HasPropertyMetadata, CatalogContext)}.
+   *
+   * @param catalogContext The host services.
+   * @return The instance of the concrete subclass of BaseCatalog.
+   */
+  public T withCatalogContext(CatalogContext catalogContext) {
+    this.catalogContext = catalogContext;
+    return (T) this;
+  }
+
+  /**
+   * Returns the host services this catalog may use, for example to build its operations in {@link
+   * #newOps(Map)}.
+   *
+   * @return The context set with {@link #withCatalogContext(CatalogContext)}, or null if the
+   *     catalog was built without one.
+   */
+  @Nullable
+  protected CatalogContext catalogContext() {
+    return catalogContext;
+  }
+
+  /**
+   * Returns the host services this catalog was given, for a catalog that cannot work without them.
+   *
+   * @return The context set with {@link #withCatalogContext(CatalogContext)}.
+   * @throws IllegalStateException if the catalog was built without a context
+   */
+  protected CatalogContext requireCatalogContext() {
+    CatalogContext context = catalogContext;
+    Preconditions.checkState(
+        context != null,
+        "The catalog has no CatalogContext; set one with withCatalogContext before using it");
+    return context;
+  }
+
+  /**
    * Retrieves the CatalogEntity associated with this catalog.
    *
    * @return The CatalogEntity instance.
@@ -616,12 +659,13 @@ public abstract class BaseCatalog<T extends BaseCatalog>
    * compatibility with connectors that do not support credential vending. Controlled by
    * server-level config {@code gravitino.catalog.credential.backfillToProperties}.
    *
+   * <p>A catalog built without a {@link CatalogContext} does not backfill.
+   *
    * @return true if backfill is enabled
    */
   protected boolean shouldBackfillCredential() {
-    Config serverConfig = GravitinoEnv.getInstance().config();
-    return serverConfig != null
-        && Boolean.TRUE.equals(serverConfig.get(Configs.CATALOG_CREDENTIAL_BACKFILL_TO_PROPERTIES));
+    CatalogContext context = catalogContext;
+    return context != null && context.credentialBackfillToProperties();
   }
 
   @Evolving

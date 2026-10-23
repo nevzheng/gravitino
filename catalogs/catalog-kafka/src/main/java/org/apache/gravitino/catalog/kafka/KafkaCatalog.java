@@ -21,6 +21,7 @@ package org.apache.gravitino.catalog.kafka;
 
 import java.util.Map;
 import org.apache.gravitino.connector.BaseCatalog;
+import org.apache.gravitino.connector.CatalogContext;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.PropertiesMetadata;
 import org.apache.gravitino.connector.capability.Capability;
@@ -44,8 +45,8 @@ public class KafkaCatalog extends BaseCatalog<KafkaCatalog> {
 
   @Override
   protected CatalogOperations newOps(Map<String, String> config) {
-    KafkaCatalogOperations ops = new KafkaCatalogOperations();
-    return ops;
+    CatalogContext context = requireCatalogContext();
+    return new KafkaCatalogOperations(context.entityStore(), context.idGenerator());
   }
 
   @Override

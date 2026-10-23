@@ -281,7 +281,7 @@ public class TestMetalakeManager {
     store.initialize(catalogConfig);
     CatalogManager catalogManager =
         new CatalogManager(
-            catalogConfig, store, new RandomIdGenerator(), new SecretManager(catalogConfig));
+            catalogConfig, store, new RandomIdGenerator(), new SecretManager(catalogConfig), null);
     MetalakeManager manager = new MetalakeManager(store, new RandomIdGenerator(), catalogManager);
 
     NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_closes_catalogs_ml");

@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
@@ -88,11 +87,6 @@ public class GenericCatalogOperations implements CatalogOperations, SupportsSche
 
   private final EntityStore store;
 
-  public GenericCatalogOperations() {
-    this(GravitinoEnv.getInstance().entityStore(), GravitinoEnv.getInstance().idGenerator());
-  }
-
-  @VisibleForTesting
   GenericCatalogOperations(EntityStore store, IdGenerator idGenerator) {
     this.store = store;
 

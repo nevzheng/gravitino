@@ -19,8 +19,6 @@
 package org.apache.gravitino.catalog.model;
 
 import java.util.Map;
-import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.CatalogOperations;
 import org.apache.gravitino.connector.PropertiesMetadata;
@@ -47,8 +45,7 @@ public class ModelCatalogImpl extends BaseCatalog<ModelCatalogImpl> {
 
   @Override
   protected CatalogOperations newOps(Map<String, String> config) {
-    EntityStore store = GravitinoEnv.getInstance().entityStore();
-    return new ModelCatalogOperations(store);
+    return new ModelCatalogOperations(requireCatalogContext().entityStore());
   }
 
   @Override

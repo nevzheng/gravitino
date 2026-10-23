@@ -102,7 +102,7 @@ public abstract class TestOperationDispatcher {
     entityStore.put(metalakeEntity, true);
 
     secretManager = new SecretManager(config);
-    catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager);
+    catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager, null);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", catalogManager, true);
 
     Config config = mock(Config.class);
