@@ -38,6 +38,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.utils.IsolatedClassLoader;
 import org.apache.gravitino.utils.MapUtils;
 import org.slf4j.Logger;
@@ -45,8 +46,12 @@ import org.slf4j.LoggerFactory;
 
 /**
  * AuxiliaryServiceManager manage all GravitinoAuxiliaryServices with isolated classloader provided
+ *
+ * <p>It initializes every service it loads with the {@link AuxiliaryContext} it was built with. As
+ * a {@link ManagedService}, it starts and stops its services when the registry that owns it starts
+ * and closes.
  */
-public class AuxiliaryServiceManager {
+public class AuxiliaryServiceManager implements ManagedService {
 
   private static final Logger LOG = LoggerFactory.getLogger(AuxiliaryServiceManager.class);
   public static final String GRAVITINO_AUX_SERVICE_PREFIX = "gravitino.auxService.";
@@ -62,7 +67,16 @@ public class AuxiliaryServiceManager {
   private Map<String, GravitinoAuxiliaryService> auxServices = new HashMap<>();
   private Map<String, IsolatedClassLoader> auxServiceClassLoaders = new HashMap<>();
 
-  private Exception firstException;
+  private final AuxiliaryContext context;
+
+  /**
+   * Creates a manager that initializes every service it loads with the given host services.
+   *
+   * @param context the host services the auxiliary services may use
+   */
+  public AuxiliaryServiceManager(AuxiliaryContext context) {
+    this.context = Preconditions.checkNotNull(context, "context");
+  }
 
   private Class<? extends GravitinoAuxiliaryService> lookupAuxService(
       String provider, ClassLoader cl) {
@@ -224,11 +238,15 @@ public class AuxiliaryServiceManager {
               auxServiceName,
               cl ->
                   auxService.serviceInit(
-                      MapUtils.getPrefixMap(serviceConfigs, DOT.join(auxServiceName, "")), true));
+                      MapUtils.getPrefixMap(serviceConfigs, DOT.join(auxServiceName, "")),
+                      true,
+                      context));
         });
   }
 
-  public void serviceStart() {
+  /** Starts every auxiliary service, each with its own class loader. */
+  @Override
+  public void start() {
     auxServices.forEach(
         (auxServiceName, auxService) -> {
           doWithClassLoader(auxServiceName, cl -> auxService.serviceStart());
@@ -240,20 +258,20 @@ public class AuxiliaryServiceManager {
       auxiliaryService.serviceStop();
     } catch (Exception e) {
       LOG.warn("Failed to stop AuxService {}", auxServiceName, e);
-      if (firstException == null) {
-        firstException = e;
-      }
     }
   }
 
-  public void serviceStop() throws Exception {
+  /**
+   * Stops every auxiliary service, each with its own class loader. A service that fails to stop is
+   * logged and does not keep the others from stopping; the failure is not rethrown, so stopping the
+   * auxiliary services never fails the shutdown of the server.
+   */
+  @Override
+  public void close() {
     auxServices.forEach(
         (auxServiceName, auxService) -> {
           doWithClassLoader(auxServiceName, cl -> stopQuietly(auxServiceName, auxService));
         });
-    if (firstException != null) {
-      throw firstException;
-    }
   }
 
   // Extract aux service configs, transform gravitino.$serviceName.key to $serviceName.key.

@@ -68,9 +68,8 @@ import org.slf4j.LoggerFactory;
  * It is the legacy facade of the dependency-injection migration. It builds a GravitinoComponent on
  * every initialization and takes the objects the component owns from it, at the point of the
  * initialization sequence where it used to build them, so they are still built in the same order.
- * The component's {@link ManagedServices} registry starts and closes what the component built. The
- * environment still builds, starts and stops the auxiliary service manager itself, and the server
- * still installs the authorizer here.
+ * The component's {@link ManagedServices} registry starts and closes what the component built,
+ * the auxiliary service manager included. The server still installs the authorizer here.
  */
 public class GravitinoEnv {
 
@@ -78,8 +77,6 @@ public class GravitinoEnv {
 
   private Config config;
   private GravitinoComponent component;
-  // Iceberg REST server use base components while Gravitino Server use full components.
-  private boolean manageFullComponents = true;
 
   private EntityStore entityStore;
 
@@ -196,7 +193,6 @@ public class GravitinoEnv {
   public void initializeBaseComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino base environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = false;
     initBaseComponents();
     LOG.info("Gravitino base environment is initialized.");
   }
@@ -236,7 +232,6 @@ public class GravitinoEnv {
         "Metadata components must be initialized on GravitinoEnv.getInstance().");
     LOG.info("Initializing Gravitino metadata environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = false;
     initCommonComponents();
     initMetadataComponents();
     LOG.info("Gravitino metadata environment is initialized.");
@@ -265,7 +260,6 @@ public class GravitinoEnv {
   public void initializeFullComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino full environment...");
     initializeConfig(config, componentFactory);
-    this.manageFullComponents = true;
     initBaseComponents();
     initGravitinoServerComponents();
     LOG.info("Gravitino full environment is initialized.");
@@ -283,9 +277,8 @@ public class GravitinoEnv {
   /**
    * Get the dependency-injection component built by the last initialization.
    *
-   * <p>The component owns every component this environment holds except the auxiliary service
-   * manager and the installed authorizer; this environment returns the same instances from its own
-   * getters.
+   * <p>The component owns every component this environment holds except the installed authorizer;
+   * this environment returns the same instances from its own getters.
    *
    * @return The component, or null if the environment is not initialized.
    */
@@ -830,10 +823,10 @@ public class GravitinoEnv {
   }
 
   /**
-   * Starts the environment: the {@link ManagedServices managed services} of the component, in the
-   * order the component built them, then the auxiliary services. The services a downstream
-   * component contributes (see {@link GravitinoComponent#contributedServices()}) are built and
-   * registered first, so they start with the others.
+   * Starts the environment: the {@link ManagedServices managed services} of the component, the
+   * auxiliary service manager included, in the order the component built them. The services a
+   * downstream component contributes (see {@link GravitinoComponent#contributedServices()}) are
+   * built and registered first, so they start with the others.
    *
    * <p>If a service fails to start, the services already started are closed and the failure is
    * rethrown; {@link #shutdown()} then closes the rest.
@@ -860,30 +853,19 @@ public class GravitinoEnv {
     } catch (Exception e) {
       throw unchecked(e);
     }
-    if (manageFullComponents) {
-      auxServiceManager.serviceStart();
-    }
   }
 
   /**
    * Shutdown the Gravitino environment.
    *
-   * <p>Stops the auxiliary services, then closes every {@link ManagedServices managed service} the
-   * last initialization built, whether or not {@link #start()} ran, in the reverse of the order the
-   * component built them. A service that fails to close does not keep the others from closing; the
-   * first failure is rethrown when all of them are closed. Calling it again does nothing until the
-   * environment is initialized again.
+   * <p>Closes every {@link ManagedServices managed service} the last initialization built, the
+   * auxiliary service manager included, whether or not {@link #start()} ran, in the reverse of the
+   * order the component built them. A service that fails to close does not keep the others from
+   * closing; the first failure is rethrown when all of them are closed. Calling it again does
+   * nothing until the environment is initialized again.
    */
   public void shutdown() {
     LOG.info("Shutting down Gravitino Environment...");
-
-    if (auxServiceManager != null) {
-      try {
-        auxServiceManager.serviceStop();
-      } catch (Exception e) {
-        LOG.warn("Failed to stop AuxServiceManager", e);
-      }
-    }
 
     if (component != null) {
       try {
@@ -994,8 +976,9 @@ public class GravitinoEnv {
     initMetadataComponents();
     initPublicMetadataDispatchers();
 
-    this.auxServiceManager = new AuxiliaryServiceManager();
-    this.auxServiceManager.serviceInit(config);
+    // Building the manager loads and initializes the auxiliary services, after every host service
+    // they may use is built. It registers here, so it starts after the services built before it.
+    this.auxServiceManager = component.auxiliaryServiceManager();
 
     // The job manager is built after the auxiliary services are initialized, as before.
     this.internalJobOperationDispatcher = component.internalJobOperationDispatcher();
