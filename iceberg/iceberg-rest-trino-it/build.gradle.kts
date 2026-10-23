@@ -90,7 +90,7 @@ dependencies {
 
 tasks.withType<JavaCompile>().configureEach {
   // Error Prone (2.10.0) is incompatible with the JDK 24 toolchain required by this Trino range.
-  options.errorprone.isEnabled.set(false)
+  options.errorprone.enabled.set(false)
 }
 
 tasks.withType<Test>().configureEach {

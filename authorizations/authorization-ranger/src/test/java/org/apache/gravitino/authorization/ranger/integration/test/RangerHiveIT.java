@@ -1986,7 +1986,7 @@ public class RangerHiveIT {
   /**
    * Verify the Gravitino role in Ranger service
    *
-   * @param rangerSecurableObject: the Ranger securable object to be verified
+   * @param rangerSecurableObject the Ranger securable object to be verified
    */
   private void verifyRangerSecurableObjectInRanger(
       AuthorizationSecurableObject rangerSecurableObject,

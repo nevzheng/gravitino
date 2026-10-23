@@ -145,7 +145,6 @@ public final class DorisTablePartitionOperations extends JdbcTablePartitionOpera
     try (Connection connection = getConnection(loadedTable.databaseName())) {
       Transform partitionInfo = loadedTable.partitioning()[0];
 
-      String addPartitionSqlFormat = "ALTER TABLE `%s` ADD %s";
       String partitionSqlFragment;
       Partition added;
 
@@ -194,7 +193,7 @@ public final class DorisTablePartitionOperations extends JdbcTablePartitionOpera
 
       try (Statement statement = connection.createStatement()) {
         statement.executeUpdate(
-            String.format(addPartitionSqlFormat, loadedTable.name(), partitionSqlFragment));
+            String.format("ALTER TABLE `%s` ADD %s", loadedTable.name(), partitionSqlFragment));
         return added;
       }
     } catch (SQLException e) {

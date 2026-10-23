@@ -477,6 +477,8 @@ abstract class AbstractStatisticsImporter implements StatisticsImporter {
             });
   }
 
+  // Implementations override only the callbacks they need, so the defaults ignore the record.
+  @SuppressWarnings("UnusedVariable")
   private interface StatisticsRecordVisitor {
     default void onTable(StatisticsRecord record) {}
 

@@ -42,11 +42,7 @@ public class GravitinoJobSubmitter implements JobSubmitter {
   private OptimizerEnv optimizerEnv;
   private OptimizerConfig optimizerConfig;
 
-  /**
-   * Returns the provider name for configuration lookup.
-   *
-   * @return provider name
-   */
+  /** Job adapter classes keyed by job template name. */
   private final Map<String, Class<? extends GravitinoJobAdapter>> jobAdapters =
       ImmutableMap.of(
           IcebergDataCompactionContent.JOB_TEMPLATE_NAME_VALUE,

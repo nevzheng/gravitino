@@ -1418,7 +1418,6 @@ public class CatalogsPage extends BaseWebIT {
         } else if (!hasInteractiveChild) {
           // If there is no interactive child but text is empty, still skip it
           // (some UIs render invisible helper headers)
-          continue;
         }
       }
 
