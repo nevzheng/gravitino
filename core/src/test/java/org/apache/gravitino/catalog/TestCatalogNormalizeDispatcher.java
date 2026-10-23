@@ -65,6 +65,8 @@ public class TestCatalogNormalizeDispatcher {
           .withVersion(SchemaVersion.V_0_1)
           .build();
 
+  private static LockManager lockManager;
+
   @BeforeAll
   public static void setUp() throws IOException, IllegalAccessException {
     Config config = new Config(false) {};
@@ -75,9 +77,11 @@ public class TestCatalogNormalizeDispatcher {
 
     entityStore.put(metalakeEntity, true);
 
+    lockManager = new LockManager(config);
+    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", lockManager, true);
     catalogManager =
-        new CatalogManager(config, entityStore, new RandomIdGenerator(), new SecretManager(config));
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", new LockManager(config), true);
+        new CatalogManager(
+            config, entityStore, new RandomIdGenerator(), new SecretManager(config), lockManager);
     catalogManager = Mockito.spy(catalogManager);
     catalogNormalizeDispatcher = new CatalogNormalizeDispatcher(catalogManager);
   }

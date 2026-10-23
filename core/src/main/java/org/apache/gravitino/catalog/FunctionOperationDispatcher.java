@@ -32,6 +32,7 @@ import org.apache.gravitino.function.Function;
 import org.apache.gravitino.function.FunctionChange;
 import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.function.FunctionType;
+import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
 import org.apache.gravitino.lock.TreeLockUtils;
 import org.apache.gravitino.secret.SecretManager;
@@ -52,6 +53,7 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
 
   private final SchemaOperationDispatcher schemaOps;
   private final ManagedFunctionOperations managedFunctionOps;
+  private final LockManager lockManager;
 
   /**
    * Creates a new FunctionOperationDispatcher instance.
@@ -61,15 +63,18 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
    * @param store The EntityStore instance to be used for function operations.
    * @param idGenerator The IdGenerator instance to be used for function operations.
    * @param secretManager The SecretManager instance to be used for secret operations.
+   * @param lockManager The LockManager that guards function operations with tree locks.
    */
   public FunctionOperationDispatcher(
       CatalogManager catalogManager,
       SchemaOperationDispatcher schemaOps,
       EntityStore store,
       IdGenerator idGenerator,
-      SecretManager secretManager) {
+      SecretManager secretManager,
+      LockManager lockManager) {
     super(catalogManager, store, idGenerator, secretManager);
     this.schemaOps = schemaOps;
+    this.lockManager = lockManager;
     this.managedFunctionOps = new ManagedFunctionOperations(store, idGenerator);
   }
 
@@ -94,7 +99,10 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
     schemaOps.loadSchema(schemaIdent);
 
     return TreeLockUtils.doWithTreeLock(
-        schemaIdent, LockType.READ, () -> managedFunctionOps.listFunctionInfos(namespace));
+        lockManager,
+        schemaIdent,
+        LockType.READ,
+        () -> managedFunctionOps.listFunctionInfos(namespace));
   }
 
   /**
@@ -113,7 +121,7 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
     }
 
     return TreeLockUtils.doWithTreeLock(
-        ident, LockType.READ, () -> managedFunctionOps.getFunction(ident));
+        lockManager, ident, LockType.READ, () -> managedFunctionOps.getFunction(ident));
   }
 
   /**
@@ -149,6 +157,7 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
     schemaOps.loadSchema(schemaIdent);
 
     return TreeLockUtils.doWithTreeLock(
+        lockManager,
         ident,
         LockType.WRITE,
         () ->
@@ -178,7 +187,7 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
     }
 
     return TreeLockUtils.doWithTreeLock(
-        ident, LockType.WRITE, () -> managedFunctionOps.alterFunction(ident, changes));
+        lockManager, ident, LockType.WRITE, () -> managedFunctionOps.alterFunction(ident, changes));
   }
 
   /**
@@ -197,7 +206,7 @@ public class FunctionOperationDispatcher extends OperationDispatcher implements 
     }
 
     return TreeLockUtils.doWithTreeLock(
-        ident, LockType.WRITE, () -> managedFunctionOps.dropFunction(ident));
+        lockManager, ident, LockType.WRITE, () -> managedFunctionOps.dropFunction(ident));
   }
 
   /**

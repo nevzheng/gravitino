@@ -74,7 +74,6 @@ public class TestSchemaHookDispatcher {
   // state into the GravitinoEnv singleton across tests.
   private OwnerDispatcher savedOwnerDispatcher;
   private CatalogManager savedCatalogManager;
-  private LockManager savedLockManager;
 
   @BeforeEach
   public void setUp() throws Exception {
@@ -91,15 +90,11 @@ public class TestSchemaHookDispatcher {
     // initialized. Read the field directly via reflection to capture the current value safely.
     savedCatalogManager =
         (CatalogManager) FieldUtils.readField(GravitinoEnv.getInstance(), "catalogManager", true);
-    savedLockManager =
-        (LockManager) FieldUtils.readField(GravitinoEnv.getInstance(), "lockManager", true);
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
-    // createSchema now acquires a catalog-level tree lock, so wire up a real LockManager.
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "lockManager", new LockManager(newLockConfig()), true);
-    hookDispatcher = new SchemaHookDispatcher(mockDispatcher);
+    // createSchema acquires a catalog-level tree lock, so pass a real LockManager.
+    hookDispatcher = new SchemaHookDispatcher(mockDispatcher, new LockManager(newLockConfig()));
   }
 
   @AfterEach
@@ -107,7 +102,6 @@ public class TestSchemaHookDispatcher {
     FieldUtils.writeField(
         GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
     FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", savedCatalogManager, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "lockManager", savedLockManager, true);
   }
 
   private static Config newLockConfig() {
