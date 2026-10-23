@@ -50,7 +50,8 @@ import dagger.Module;
       FilesetTopicModelModule.class,
       GovernanceModule.class,
       AuthorizationModule.class,
-      JobModule.class
+      JobModule.class,
+      LifecycleModule.class
     })
 public abstract class GravitinoModules {
 

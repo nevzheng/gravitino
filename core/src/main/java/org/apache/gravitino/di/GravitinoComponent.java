@@ -20,6 +20,7 @@ package org.apache.gravitino.di;
 
 import dagger.BindsInstance;
 import dagger.Component;
+import java.util.Set;
 import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.EntityStore;
@@ -86,8 +87,11 @@ import org.apache.gravitino.tag.TagDispatcher;
  *
  * <p>The modules are listed once, in {@link GravitinoModules}. A downstream root component extends
  * this interface and is built from {@link GravitinoModules} and its own modules. Those modules
- * change a chain by contributing a {@link DispatcherDecorator} at one of its {@link Layer layers};
- * upstream contributes none, so this component's chains are exactly what its modules build.
+ * change a chain by contributing a {@link DispatcherDecorator} at one of its {@link Layer layers},
+ * and add a service by contributing a {@link ManagedService} to {@link #contributedServices()};
+ * upstream contributes neither, so this component's chains and services are exactly what its
+ * modules build. {@code GravitinoEnv} takes its objects from the component that the factory it is
+ * initialized with creates.
  */
 @Singleton
 @Component(modules = GravitinoModules.class)
@@ -174,6 +178,17 @@ public interface GravitinoComponent {
    * @return the managed service registry of this component
    */
   ManagedServices managedServices();
+
+  /**
+   * Returns the {@link ManagedService managed services} a downstream component contributes with
+   * {@code @IntoSet}, which nothing else in the graph requests. {@code GravitinoEnv.start()} builds
+   * them, which registers what they depend on first, and registers them with {@link
+   * #managedServices()}, so they start in dependency order with the rest and close in reverse.
+   * Upstream contributes none.
+   *
+   * @return the contributed services; empty upstream
+   */
+  Set<ManagedService> contributedServices();
 
   /**
    * Returns the catalog manager.

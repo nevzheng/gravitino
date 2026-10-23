@@ -180,8 +180,22 @@ public class GravitinoEnv {
    * @param config The configuration object to initialize the environment.
    */
   public void initializeBaseComponents(Config config) {
+    initializeBaseComponents(config, DaggerGravitinoComponent.factory());
+  }
+
+  /**
+   * Initialize base components from the component a factory creates, used for Iceberg REST server.
+   *
+   * <p>A downstream distribution passes the factory of its own root component, so a standalone
+   * server built on the base profile gets the decorators and managed services of that component.
+   *
+   * @param config The configuration object to initialize the environment.
+   * @param componentFactory Creates the component the environment takes its objects from: the
+   *     factory of {@link GravitinoComponent}, or of a downstream root component that extends it.
+   */
+  public void initializeBaseComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino base environment...");
-    initializeConfig(config);
+    initializeConfig(config, componentFactory);
     this.manageFullComponents = false;
     initBaseComponents();
     LOG.info("Gravitino base environment is initialized.");
@@ -199,11 +213,29 @@ public class GravitinoEnv {
    * @param config The configuration object to initialize the environment.
    */
   public void initializeMetadataComponents(Config config) {
+    initializeMetadataComponents(config, DaggerGravitinoComponent.factory());
+  }
+
+  /**
+   * Initializes components required for normalized metadata operations from the component a factory
+   * creates.
+   *
+   * <p>A downstream distribution passes the factory of its own root component, so the internal
+   * chains of this profile are the ones its decorators changed. The profile is otherwise the same
+   * as {@link #initializeMetadataComponents(Config)}, and must also be initialized on {@link
+   * #getInstance()}.
+   *
+   * @param config The configuration object to initialize the environment.
+   * @param componentFactory Creates the component the environment takes its objects from: the
+   *     factory of {@link GravitinoComponent}, or of a downstream root component that extends it.
+   */
+  public void initializeMetadataComponents(
+      Config config, GravitinoComponent.Factory componentFactory) {
     Preconditions.checkState(
         this == getInstance(),
         "Metadata components must be initialized on GravitinoEnv.getInstance().");
     LOG.info("Initializing Gravitino metadata environment...");
-    initializeConfig(config);
+    initializeConfig(config, componentFactory);
     this.manageFullComponents = false;
     initCommonComponents();
     initMetadataComponents();
@@ -216,8 +248,23 @@ public class GravitinoEnv {
    * @param config The configuration object to initialize the environment.
    */
   public void initializeFullComponents(Config config) {
+    initializeFullComponents(config, DaggerGravitinoComponent.factory());
+  }
+
+  /**
+   * Initialize all components from the component a factory creates, used for Gravitino server.
+   *
+   * <p>A downstream distribution passes the factory of its own root component, which is built from
+   * {@code GravitinoModules} and its own modules. The getters of this environment then return the
+   * objects of that component, including the dispatcher chains its decorators changed.
+   *
+   * @param config The configuration object to initialize the environment.
+   * @param componentFactory Creates the component the environment takes its objects from: the
+   *     factory of {@link GravitinoComponent}, or of a downstream root component that extends it.
+   */
+  public void initializeFullComponents(Config config, GravitinoComponent.Factory componentFactory) {
     LOG.info("Initializing Gravitino full environment...");
-    initializeConfig(config);
+    initializeConfig(config, componentFactory);
     this.manageFullComponents = true;
     initBaseComponents();
     initGravitinoServerComponents();
@@ -784,7 +831,9 @@ public class GravitinoEnv {
 
   /**
    * Starts the environment: the {@link ManagedServices managed services} of the component, in the
-   * order the component built them, then the auxiliary services.
+   * order the component built them, then the auxiliary services. The services a downstream
+   * component contributes (see {@link GravitinoComponent#contributedServices()}) are built and
+   * registered first, so they start with the others.
    *
    * <p>If a service fails to start, the services already started are closed and the failure is
    * rethrown; {@link #shutdown()} then closes the rest.
@@ -803,6 +852,9 @@ public class GravitinoEnv {
         services.state() == ManagedServices.State.NEW,
         "GravitinoEnv was started, shut down or failed to start: initialize it again before"
             + " calling start() again.");
+    // A downstream component's contributed services are built here, after what they depend on, so
+    // they register, start and close in the same dependency order.
+    component.contributedServices().forEach(services::register);
     try {
       services.start();
     } catch (Exception e) {
@@ -861,10 +913,12 @@ public class GravitinoEnv {
     this.eventListenerManager = component.eventListenerManager();
   }
 
-  private void initializeConfig(Config config) {
+  private void initializeConfig(Config config, GravitinoComponent.Factory componentFactory) {
     this.config = config;
     // Building the component creates nothing yet: each object it owns is built on first request.
-    this.component = DaggerGravitinoComponent.factory().create(config);
+    this.component =
+        Preconditions.checkNotNull(
+            componentFactory.create(config), "The component factory created no component");
     FileFetcher.get().initialize(config.get(Configs.BLOCK_UNSAFE_REMOTE_URI));
     SecretPropertyUtils.configureSensitiveKeyKeywords(config);
   }

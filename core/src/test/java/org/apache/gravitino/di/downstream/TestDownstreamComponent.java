@@ -21,6 +21,7 @@ package org.apache.gravitino.di.downstream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AccessControlManager;
 import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.OwnerEventManager;
@@ -53,6 +55,7 @@ import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.hook.TableHookDispatcher;
 import org.apache.gravitino.hook.TagHookDispatcher;
 import org.apache.gravitino.job.JobTemplateValidationDispatcher;
+import org.apache.gravitino.lifecycle.ManagedService;
 import org.apache.gravitino.listener.AccessControlEventDispatcher;
 import org.apache.gravitino.listener.CatalogEventDispatcher;
 import org.apache.gravitino.listener.FilesetEventDispatcher;
@@ -91,6 +94,10 @@ public class TestDownstreamComponent {
 
   @BeforeEach
   public void setUp() {
+    component = DaggerDownstreamComponent.factory().create(config());
+  }
+
+  private Config config() {
     Config config = new Config(false) {};
     config.set(Configs.ENTITY_STORE, RelationalInMemoryEntityStore.class.getName());
     config.set(Configs.ENABLE_AUTHORIZATION, true);
@@ -99,7 +106,7 @@ public class TestDownstreamComponent {
         Configs.PARTITION_STATS_STORAGE_FACTORY_CLASS,
         MemoryPartitionStatsStorageFactory.class.getCanonicalName());
     config.set(Configs.JOB_STAGING_DIR, stagingDir.toString());
-    component = DaggerDownstreamComponent.factory().create(config);
+    return config;
   }
 
   @AfterEach
@@ -178,6 +185,59 @@ public class TestDownstreamComponent {
     assertInstanceOf(PartitionNormalizeDispatcher.class, publicNormalize);
     assertInstanceOf(PartitionNormalizeDispatcher.class, internalNormalize);
     assertSame(field(internalNormalize, "dispatcher"), field(publicNormalize, "dispatcher"));
+  }
+
+  @Test
+  public void testContributedServicesStartAfterWhatTheyDependOnAndCloseBefore() throws Exception {
+    GravitinoEnv env = new GravitinoEnv() {};
+    try {
+      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+      DownstreamComponent built = (DownstreamComponent) env.component();
+
+      env.start();
+
+      DownstreamService service = built.downstreamService();
+      assertEquals(List.of("start"), service.calls);
+      List<ManagedService> registered = built.managedServices().services();
+      assertTrue(
+          registered.indexOf(service.lockManager) < registered.indexOf(service),
+          registered.toString());
+    } finally {
+      env.shutdown();
+    }
+  }
+
+  @Test
+  public void testShutdownWithoutStartBuildsNoContributedService() {
+    GravitinoEnv env = new GravitinoEnv() {};
+    env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+    DownstreamComponent built = (DownstreamComponent) env.component();
+
+    env.shutdown();
+
+    assertTrue(
+        built.managedServices().services().stream().noneMatch(DownstreamService.class::isInstance));
+  }
+
+  @Test
+  public void testGravitinoEnvBuiltOnTheDownstreamComponentReturnsItsChains() {
+    GravitinoEnv env = new GravitinoEnv() {};
+    try {
+      env.initializeFullComponents(config(), DaggerDownstreamComponent.factory()::create);
+
+      DownstreamComponent built = (DownstreamComponent) env.component();
+      assertNotSame(component, built);
+      assertSame(built.tableDispatcher(), env.tableDispatcher());
+      assertSame(built.internalTableDispatcher(), env.internalTableDispatcher());
+      assertSame(built.catalogDispatcher(), env.catalogDispatcher());
+      assertSame(built.accessControlDispatcher(), env.accessControlDispatcher());
+      assertSame(built.internalAccessControlDispatcher(), env.internalAccessControlDispatcher());
+      assertSame(built.jobOperationDispatcher(), env.jobOperationDispatcher());
+      assertEquals("@Public TableDispatcher", Tagging.tag(env.tableDispatcher()).label);
+      assertTrue(labels(env.schemaDispatcher()).contains("@Public SchemaDispatcher"));
+    } finally {
+      env.shutdown();
+    }
   }
 
   @Test

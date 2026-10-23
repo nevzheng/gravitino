@@ -19,6 +19,7 @@
 package org.apache.gravitino.server;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
@@ -27,32 +28,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.inject.Singleton;
+import javax.annotation.Nullable;
 import javax.servlet.Servlet;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.GravitinoEnv;
-import org.apache.gravitino.catalog.CatalogDispatcher;
-import org.apache.gravitino.catalog.FilesetDispatcher;
-import org.apache.gravitino.catalog.FunctionDispatcher;
-import org.apache.gravitino.catalog.ModelDispatcher;
-import org.apache.gravitino.catalog.PartitionDispatcher;
-import org.apache.gravitino.catalog.SchemaDispatcher;
-import org.apache.gravitino.catalog.SemanticModelDispatcher;
-import org.apache.gravitino.catalog.TableDispatcher;
-import org.apache.gravitino.catalog.TopicDispatcher;
-import org.apache.gravitino.catalog.ViewDispatcher;
-import org.apache.gravitino.credential.CredentialOperationDispatcher;
-import org.apache.gravitino.job.JobOperationDispatcher;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lifecycle.Lifecycle;
 import org.apache.gravitino.lineage.LineageConfig;
-import org.apache.gravitino.lineage.LineageDispatcher;
 import org.apache.gravitino.lineage.LineageService;
+import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
-import org.apache.gravitino.metalake.MetalakeDispatcher;
 import org.apache.gravitino.metrics.source.MetricsSource;
-import org.apache.gravitino.policy.PolicyDispatcher;
-import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
-import org.apache.gravitino.secret.SecretProviderRegistry;
 import org.apache.gravitino.server.authentication.ServerAuthenticator;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.web.ConfigServlet;
@@ -66,7 +53,6 @@ import org.apache.gravitino.server.web.OutOfMemoryErrorListener;
 import org.apache.gravitino.server.web.RequestContextFilter;
 import org.apache.gravitino.server.web.VersioningFilter;
 import org.apache.gravitino.server.web.filter.AccessControlNotAllowedFilter;
-import org.apache.gravitino.server.web.filter.GravitinoInterceptionService;
 import org.apache.gravitino.server.web.mapper.ErrorExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonMappingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.JsonParseExceptionMapper;
@@ -74,12 +60,7 @@ import org.apache.gravitino.server.web.mapper.JsonProcessingExceptionMapper;
 import org.apache.gravitino.server.web.mapper.NotFoundExceptionMapper;
 import org.apache.gravitino.server.web.mapper.ParamExceptionMapper;
 import org.apache.gravitino.server.web.mapper.WebApplicationExceptionMapper;
-import org.apache.gravitino.server.web.rest.SemanticModelSourceValidator;
 import org.apache.gravitino.server.web.ui.WebUIFilter;
-import org.apache.gravitino.stats.StatisticDispatcher;
-import org.apache.gravitino.tag.TagDispatcher;
-import org.glassfish.hk2.api.InterceptionService;
-import org.glassfish.hk2.utilities.binding.AbstractBinder;
 import org.glassfish.jersey.CommonProperties;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -117,6 +98,11 @@ public class GravitinoServer extends ResourceConfig {
 
   private final GravitinoEnv gravitinoEnv;
 
+  private final GravitinoComponent.Factory componentFactory;
+
+  // The component the environment was initialized from; set by initialize().
+  @Nullable private GravitinoComponent component;
+
   private final LineageService lineageService;
 
   private final GravitinoAuthorizerProvider authorizerProvider;
@@ -129,10 +115,25 @@ public class GravitinoServer extends ResourceConfig {
 
   private final AtomicBoolean isStopped = new AtomicBoolean(false);
 
-  public GravitinoServer(ServerConfig config, GravitinoEnv gravitinoEnv) {
+  /**
+   * Creates a server. {@link #initialize()} initializes the environment from the component that
+   * {@code componentFactory} creates and binds the dispatchers the REST resources inject from that
+   * component's provision methods.
+   *
+   * <p>A downstream server passes the factory of its own root component, which extends {@link
+   * GravitinoComponent}, so the chains its decorators change reach the REST resources, and reads
+   * that component back through {@link #component()} to bind its own services.
+   *
+   * @param config the server configuration
+   * @param gravitinoEnv the environment to initialize
+   * @param componentFactory creates the component the environment and the REST resources use
+   */
+  public GravitinoServer(
+      ServerConfig config, GravitinoEnv gravitinoEnv, GravitinoComponent.Factory componentFactory) {
     this(
         config,
         gravitinoEnv,
+        componentFactory,
         new JettyServer(),
         new LineageService(),
         GravitinoAuthorizerProvider.getInstance());
@@ -142,12 +143,14 @@ public class GravitinoServer extends ResourceConfig {
   GravitinoServer(
       ServerConfig config,
       GravitinoEnv gravitinoEnv,
+      GravitinoComponent.Factory componentFactory,
       JettyServer server,
       LineageService lineageService,
       GravitinoAuthorizerProvider authorizerProvider) {
     this.serverConfig = config;
     this.server = server;
     this.gravitinoEnv = gravitinoEnv;
+    this.componentFactory = Preconditions.checkNotNull(componentFactory, "componentFactory");
     this.lineageService = lineageService;
     this.authorizerProvider = authorizerProvider;
     Lifecycle.Action shutdownEnv = once(gravitinoEnv::shutdown);
@@ -165,12 +168,17 @@ public class GravitinoServer extends ResourceConfig {
   }
 
   public void initialize() {
-    gravitinoEnv.initializeFullComponents(serverConfig);
+    gravitinoEnv.initializeFullComponents(serverConfig, componentFactory);
+    this.component =
+        Preconditions.checkNotNull(
+            gravitinoEnv.component(),
+            "The environment holds no component after initialization: a GravitinoEnv subclass that"
+                + " overrides initializeFullComponents must call the overridden method");
 
     JettyServerConfig jettyServerConfig =
         JettyServerConfig.fromConfig(serverConfig, WEBSERVER_CONF_PREFIX);
     server.initialize(jettyServerConfig, SERVER_NAME);
-    server.addMetricsServlets(gravitinoEnv.metricsSystem());
+    server.addMetricsServlets(component.metricsSystem());
 
     ServerAuthenticator.getInstance().initialize(serverConfig);
 
@@ -187,6 +195,19 @@ public class GravitinoServer extends ResourceConfig {
     return serverConfig;
   }
 
+  /**
+   * Returns the component {@link #initialize()} initialized the environment from: the one the
+   * factory given to the constructor created. A downstream server reads its own root component here
+   * to bind its own services into HK2.
+   *
+   * @return the component
+   * @throws IllegalStateException before {@link #initialize()}
+   */
+  protected GravitinoComponent component() {
+    Preconditions.checkState(component != null, "The server is not initialized");
+    return component;
+  }
+
   private void initializeRestApi(JettyServerConfig jettyServerConfig) {
     HashSet<String> restApiPackagesSet = new HashSet<>();
     restApiPackagesSet.add("org.apache.gravitino.server.web.rest");
@@ -195,43 +216,7 @@ public class GravitinoServer extends ResourceConfig {
     packages(restApiPackagesSet.toArray(new String[0]));
 
     boolean enableAuthorization = serverConfig.get(Configs.ENABLE_AUTHORIZATION);
-    register(
-        new AbstractBinder() {
-          @Override
-          protected void configure() {
-            if (serverConfig.get(Configs.ENABLE_AUTHORIZATION)) {
-              bind(GravitinoInterceptionService.class)
-                  .to(InterceptionService.class)
-                  .in(Singleton.class);
-            }
-            bind(gravitinoEnv.metalakeDispatcher()).to(MetalakeDispatcher.class).ranked(1);
-            bind(gravitinoEnv.catalogDispatcher()).to(CatalogDispatcher.class).ranked(1);
-            bind(gravitinoEnv.schemaDispatcher()).to(SchemaDispatcher.class).ranked(1);
-            bindAsContract(SemanticModelSourceValidator.class);
-            bind(gravitinoEnv.tableDispatcher()).to(TableDispatcher.class).ranked(1);
-            bind(gravitinoEnv.viewDispatcher()).to(ViewDispatcher.class).ranked(1);
-            bind(gravitinoEnv.partitionDispatcher()).to(PartitionDispatcher.class).ranked(1);
-            bind(gravitinoEnv.filesetDispatcher()).to(FilesetDispatcher.class).ranked(1);
-            bind(gravitinoEnv.topicDispatcher()).to(TopicDispatcher.class).ranked(1);
-            bind(gravitinoEnv.tagDispatcher()).to(TagDispatcher.class).ranked(1);
-            bind(gravitinoEnv.policyDispatcher()).to(PolicyDispatcher.class).ranked(1);
-            bind(gravitinoEnv.credentialOperationDispatcher())
-                .to(CredentialOperationDispatcher.class)
-                .ranked(1);
-            bind(gravitinoEnv.secretPropertyOperationDispatcher())
-                .to(SecretPropertyOperationDispatcher.class)
-                .ranked(1);
-            bind(gravitinoEnv.secretProviderRegistry()).to(SecretProviderRegistry.class).ranked(1);
-            bind(gravitinoEnv.modelDispatcher()).to(ModelDispatcher.class).ranked(1);
-            bind(gravitinoEnv.functionDispatcher()).to(FunctionDispatcher.class).ranked(1);
-            bind(gravitinoEnv.semanticModelDispatcher())
-                .to(SemanticModelDispatcher.class)
-                .ranked(1);
-            bind(lineageService).to(LineageDispatcher.class).ranked(1);
-            bind(gravitinoEnv.jobOperationDispatcher()).to(JobOperationDispatcher.class).ranked(1);
-            bind(gravitinoEnv.statisticDispatcher()).to(StatisticDispatcher.class).ranked(1);
-          }
-        });
+    register(new GravitinoComponentBinder(component, enableAuthorization, lineageService));
     register(JsonProcessingExceptionMapper.class);
     register(new OutOfMemoryErrorListener());
     register(ErrorExceptionMapper.class);
@@ -250,9 +235,8 @@ public class GravitinoServer extends ResourceConfig {
 
     HttpServerMetricsSource httpServerMetricsSource =
         new HttpServerMetricsSource(MetricsSource.GRAVITINO_SERVER_METRIC_NAME, this, server);
-    // The environment the server was given, not the singleton: a GravitinoEnv subclass can
-    // override where its metrics system comes from.
-    gravitinoEnv.metricsSystem().register(httpServerMetricsSource);
+    component.metricsSystem().register(httpServerMetricsSource);
+    EventBus eventBus = component.eventBus();
 
     Servlet servlet = new ServletContainer(this);
     server.addServlet(servlet, API_ANY_PATH);
@@ -270,9 +254,8 @@ public class GravitinoServer extends ResourceConfig {
 
     // API_ANY_PATH keeps its original, unabridged filter set: this is the only pathspec that is
     // part of the Jersey-managed REST surface, so it's the only one VersioningFilter applies to.
-    server.addFilter(new RequestContextFilter(gravitinoEnv.eventBus()), API_ANY_PATH);
-    server.addFilter(
-        new HttpAuditFilter(gravitinoEnv.eventBus(), EventSource.GRAVITINO_SERVER), API_ANY_PATH);
+    server.addFilter(new RequestContextFilter(eventBus), API_ANY_PATH);
+    server.addFilter(new HttpAuditFilter(eventBus, EventSource.GRAVITINO_SERVER), API_ANY_PATH);
     server.addFilter(
         new VersioningFilter(jettyServerConfig.isIncludeErrorStackTrace()), API_ANY_PATH);
 
@@ -282,12 +265,11 @@ public class GravitinoServer extends ResourceConfig {
     // ROOT_MOUNTED_PATHS, unless it forwards into an already-covered path (see HealthAliasServlet
     // above) or is added to the exemption list documented on
     // TestGravitinoServer#testEveryServletPathIsCoveredByAuditFilter. RequestContextFilter is
-    // given gravitinoEnv.eventBus() here too (not just API_ANY_PATH) so query-parameter capture
+    // given the event bus here too (not just API_ANY_PATH) so query-parameter capture
     // (see RequestContextFilter's class doc) applies uniformly, not only to the REST API.
     for (String pathSpec : ROOT_MOUNTED_PATHS) {
-      server.addFilter(new RequestContextFilter(gravitinoEnv.eventBus()), pathSpec);
-      server.addFilter(
-          new HttpAuditFilter(gravitinoEnv.eventBus(), EventSource.GRAVITINO_SERVER), pathSpec);
+      server.addFilter(new RequestContextFilter(eventBus), pathSpec);
+      server.addFilter(new HttpAuditFilter(eventBus, EventSource.GRAVITINO_SERVER), pathSpec);
     }
 
     // Custom filters are registered once, across every filtered path in a single call, so a
@@ -354,7 +336,9 @@ public class GravitinoServer extends ResourceConfig {
     LOG.info("Starting Gravitino Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];
     ServerConfig serverConfig = loadConfig(confPath);
-    GravitinoServer server = new GravitinoServer(serverConfig, GravitinoEnv.getInstance());
+    GravitinoServer server =
+        new GravitinoServer(
+            serverConfig, GravitinoEnv.getInstance(), DaggerGravitinoComponent.factory());
 
     try {
       server.initialize();
