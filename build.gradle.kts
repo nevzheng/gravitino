@@ -1151,7 +1151,70 @@ tasks.rat {
   setExcludes(exclusions)
 }
 
-tasks.check.get().dependsOn(tasks.rat)
+// Dependency-injection anti-pattern ratchet. See dev/di/README.md.
+val diRatchetPython = providers.gradleProperty("diRatchetPython").getOrElse("python3")
+val diRatchetStampDir = layout.buildDirectory.dir("di-ratchet")
+
+// Fails with a clear message when the ratchet's Python interpreter cannot be found.
+fun requireDiRatchetPython(taskName: String) {
+  val candidate = File(diRatchetPython)
+  val isPath = diRatchetPython.contains('/') || diRatchetPython.contains(File.separatorChar)
+  val found = if (isPath) {
+    candidate.canExecute()
+  } else {
+    val extensions = listOf("") + (System.getenv("PATHEXT")?.split(File.pathSeparator) ?: emptyList())
+    (System.getenv("PATH") ?: "").split(File.pathSeparator).filter { it.isNotEmpty() }.any { dir ->
+      extensions.any { extension -> File(dir, diRatchetPython + extension).canExecute() }
+    }
+  }
+  if (!found) {
+    throw GradleException(
+      "$taskName needs a Python 3 interpreter, but '$diRatchetPython' was not found. " +
+        "Install python3 on PATH, pass -PdiRatchetPython=/path/to/python3, " +
+        "or skip the ratchet with -x checkDiRatchet -x testDiRatchet."
+    )
+  }
+}
+
+val testDiRatchet by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Runs the unit tests of the dependency-injection ratchet in dev/di."
+  val stamp = diRatchetStampDir.map { it.file("test.stamp") }
+  inputs.property("python", diRatchetPython)
+  inputs.files(fileTree("dev/di") { include("*.py") }).withPathSensitivity(PathSensitivity.RELATIVE)
+  outputs.file(stamp)
+  workingDir = rootDir
+  commandLine(diRatchetPython, "-B", "-m", "unittest", "discover", "-s", "dev/di", "-p", "test_*.py")
+  doFirst { requireDiRatchetPython(name) }
+  doLast { stamp.get().asFile.writeText("passed\n") }
+}
+
+val checkDiRatchet by tasks.registering(Exec::class) {
+  group = "verification"
+  description = "Fails when a dependency-injection anti-pattern count rises above its baseline."
+  dependsOn(testDiRatchet)
+  val stamp = diRatchetStampDir.map { it.file("check.stamp") }
+  inputs.property("python", diRatchetPython)
+  inputs.files("dev/di/di_ratchet.py", "dev/di/baseline.json")
+    .withPropertyName("ratchet")
+    .withPathSensitivity(PathSensitivity.RELATIVE)
+  // The same Java files that di_ratchet.py scans: every *.java outside its skipped directories.
+  inputs.files(
+    fileTree(rootDir) {
+      include("**/*.java")
+      listOf(".git", ".gradle", ".idea", ".venv", "build", "node_modules", "out", "target").forEach {
+        exclude("**/$it/**")
+      }
+    }
+  ).withPropertyName("javaSources").withPathSensitivity(PathSensitivity.RELATIVE)
+  outputs.file(stamp)
+  workingDir = rootDir
+  commandLine(diRatchetPython, "-B", "dev/di/di_ratchet.py", "check")
+  doFirst { requireDiRatchetPython(name) }
+  doLast { stamp.get().asFile.writeText("passed\n") }
+}
+
+tasks.check.get().dependsOn(tasks.rat, checkDiRatchet)
 
 apply(from = "dev/release/maven/test-legal-files.gradle")
 
