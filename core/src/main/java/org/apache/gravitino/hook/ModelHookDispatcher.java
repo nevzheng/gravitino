@@ -22,9 +22,9 @@ package org.apache.gravitino.hook;
 import java.util.Arrays;
 import java.util.Map;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -50,9 +50,18 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class ModelHookDispatcher implements ModelDispatcher {
 
   private final ModelDispatcher dispatcher;
+  private final AuthorizationServices authorizationServices;
 
-  public ModelHookDispatcher(ModelDispatcher dispatcher) {
+  /**
+   * Creates a model hook dispatcher.
+   *
+   * @param dispatcher the underlying model dispatcher
+   * @param authorizationServices the services that keep authorization in step with model changes
+   */
+  public ModelHookDispatcher(
+      ModelDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -71,7 +80,7 @@ public class ModelHookDispatcher implements ModelDispatcher {
     Model model = dispatcher.registerModel(ident, comment, properties);
 
     // Set the creator as owner of the model.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -87,7 +96,8 @@ public class ModelHookDispatcher implements ModelDispatcher {
     boolean deleted = dispatcher.deleteModel(ident);
     if (deleted) {
       // A model registered later under the same name gets a new id, so drop the cached mapping.
-      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.MODEL);
+      AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.MODEL);
     }
     return deleted;
   }
@@ -164,7 +174,7 @@ public class ModelHookDispatcher implements ModelDispatcher {
     Model model = dispatcher.registerModel(ident, uris, aliases, comment, properties);
 
     // Set the creator as owner of the model.
-    OwnerDispatcher ownerManager = GravitinoEnv.getInstance().internalOwnerDispatcher();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -190,7 +200,8 @@ public class ModelHookDispatcher implements ModelDispatcher {
       throws NoSuchModelException, IllegalArgumentException {
     Model alteredModel = dispatcher.alterModel(ident, changes);
     if (Arrays.stream(changes).anyMatch(change -> change instanceof ModelChange.RenameModel)) {
-      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.MODEL);
+      AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.MODEL);
     }
     return alteredModel;
   }

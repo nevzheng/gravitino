@@ -25,7 +25,7 @@ import java.util.Map;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 import org.apache.gravitino.EntityStore;
-import org.apache.gravitino.authorization.OwnerDispatcher;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.PartitionDispatcher;
@@ -139,9 +139,10 @@ abstract class SchemaTableModule {
       @Undecorated SchemaOperationDispatcher operations,
       CatalogManager catalogManager,
       LockManager lockManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<SchemaDispatcher>> decorators) {
     return Chain.<SchemaDispatcher>of("@Public SchemaDispatcher", operations, decorators)
-        .hook(d -> new SchemaHookDispatcher(d, lockManager))
+        .hook(d -> new SchemaHookDispatcher(d, lockManager, authorizationServices))
         .normalize(d -> new SchemaNormalizeDispatcher(d, catalogManager))
         .event(d -> new SchemaEventDispatcher(eventBus, d))
         .build();
@@ -182,8 +183,7 @@ abstract class SchemaTableModule {
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
       LockManager lockManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<TableDispatcher>> decorators) {
     TableOperationDispatcher operations =
         new TableOperationDispatcher(
@@ -194,10 +194,7 @@ abstract class SchemaTableModule {
             secretManager,
             lockManager);
     return Chain.<TableDispatcher>of("@Public TableDispatcher", operations, decorators)
-        .hook(
-            d ->
-                new TableHookDispatcher(
-                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .hook(d -> new TableHookDispatcher(d, authorizationServices))
         .normalize(d -> new TableNormalizeDispatcher(d, catalogManager))
         .event(d -> new TableEventDispatcher(eventBus, d))
         .build();
@@ -278,8 +275,7 @@ abstract class SchemaTableModule {
       @Internal Provider<SchemaDispatcher> schemaDispatcher,
       SecretManager secretManager,
       LockManager lockManager,
-      @AuthorizationEnabled boolean authorizationEnabled,
-      @Internal Provider<OwnerDispatcher> ownerDispatcher,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<ViewDispatcher>> decorators) {
     ViewOperationDispatcher operations =
         new ViewOperationDispatcher(
@@ -290,10 +286,7 @@ abstract class SchemaTableModule {
             secretManager,
             lockManager);
     return Chain.<ViewDispatcher>of("@Public ViewDispatcher", operations, decorators)
-        .hook(
-            d ->
-                new ViewHookDispatcher(
-                    d, () -> authorizationEnabled ? ownerDispatcher.get() : null))
+        .hook(d -> new ViewHookDispatcher(d, authorizationServices))
         .normalize(d -> new ViewNormalizeDispatcher(d, catalogManager))
         .event(d -> new ViewEventDispatcher(eventBus, d))
         .build();

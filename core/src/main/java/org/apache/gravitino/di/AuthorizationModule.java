@@ -101,10 +101,11 @@ abstract class AuthorizationModule {
   static AccessControlDispatcher accessControlDispatcher(
       EventBus eventBus,
       @Undecorated AccessControlManager accessControlManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<AccessControlDispatcher>> decorators) {
     return Chain.<AccessControlDispatcher>of(
             "@Public AccessControlDispatcher", accessControlManager, decorators)
-        .hook(AccessControlHookDispatcher::new)
+        .hook(d -> new AccessControlHookDispatcher(d, authorizationServices))
         .event(d -> new AccessControlEventDispatcher(eventBus, d))
         .build();
   }

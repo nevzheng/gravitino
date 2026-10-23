@@ -27,11 +27,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.auth.AuthConstants;
-import org.apache.gravitino.authorization.AccessControlDispatcher;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -48,7 +47,6 @@ import org.apache.gravitino.function.FunctionDefinition;
 import org.apache.gravitino.function.FunctionType;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TestFunctionHookDispatcher {
@@ -72,7 +70,8 @@ public class TestFunctionHookDispatcher {
         .thenReturn(registeredFunction);
 
     FunctionHookDispatcher hookDispatcher =
-        new FunctionHookDispatcher(dispatcher, () -> ownerDispatcher);
+        new FunctionHookDispatcher(
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(ownerDispatcher));
     Function result =
         hookDispatcher.registerFunction(
             functionIdentifier, "comment", FunctionType.SCALAR, true, definitions);
@@ -108,7 +107,9 @@ public class TestFunctionHookDispatcher {
                 Mockito.eq(definitions)))
         .thenReturn(registeredFunction);
 
-    FunctionHookDispatcher hookDispatcher = new FunctionHookDispatcher(dispatcher, () -> null);
+    FunctionHookDispatcher hookDispatcher =
+        new FunctionHookDispatcher(
+            dispatcher, new FakeAuthorizationServices().withOwnerDispatcher(null));
     Function result =
         hookDispatcher.registerFunction(
             functionIdentifier, "comment", FunctionType.SCALAR, true, definitions);
@@ -135,7 +136,9 @@ public class TestFunctionHookDispatcher {
 
     FunctionDispatcher hook =
         new FunctionNormalizeDispatcher(
-            new FunctionHookDispatcher(mockFunctionDispatcher, () -> mockOwnerDispatcher),
+            new FunctionHookDispatcher(
+                mockFunctionDispatcher,
+                new FakeAuthorizationServices().withOwnerDispatcher(mockOwnerDispatcher)),
             catalogManager);
     NameIdentifier ident = NameIdentifier.of("metalake1", "catalog1", "SCHEMA_NORM", "MY_FUNC");
     hook.registerFunction(ident, "comment", FunctionType.SCALAR, true, definitions);
@@ -163,7 +166,9 @@ public class TestFunctionHookDispatcher {
         .thenReturn(mockFunction);
 
     FunctionHookDispatcher hook =
-        new FunctionHookDispatcher(mockFunctionDispatcher, () -> mockOwnerDispatcher);
+        new FunctionHookDispatcher(
+            mockFunctionDispatcher,
+            new FakeAuthorizationServices().withOwnerDispatcher(mockOwnerDispatcher));
     NameIdentifier ident =
         NameIdentifier.of("metalake1", "catalog1", "schema_owner_fail", "func_owner_fail");
     RuntimeException thrown =
@@ -192,33 +197,28 @@ public class TestFunctionHookDispatcher {
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(catalogAuthorizationPlugin);
     Mockito.when(catalogManager.loadCatalog(any())).thenReturn(catalog);
 
-    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
-    Mockito.when(env.gravitinoAuthorizer()).thenReturn(authorizer);
-    Mockito.when(env.accessControlDispatcher())
-        .thenReturn(Mockito.mock(AccessControlDispatcher.class));
-    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+    FunctionDispatcher hookDispatcher =
+        new FunctionNormalizeDispatcher(
+            new FunctionHookDispatcher(
+                dispatcher,
+                new FakeAuthorizationServices()
+                    .withAuthorizer(authorizer)
+                    .withCatalogManager(catalogManager)),
+            catalogManager);
 
-    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
-      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
-      FunctionDispatcher hookDispatcher =
-          new FunctionNormalizeDispatcher(
-              new FunctionHookDispatcher(dispatcher, () -> null), catalogManager);
-
-      assertTrue(hookDispatcher.dropFunction(functionIdentifier));
-      assertFalse(hookDispatcher.dropFunction(functionIdentifier));
-      RuntimeException thrown =
-          assertThrows(
-              RuntimeException.class, () -> hookDispatcher.dropFunction(functionIdentifier));
-      assertEquals("Drop failed", thrown.getMessage());
-      Mockito.verify(authorizer)
-          .handleEntityNameIdMappingChange(
-              "metalake1", normalizedIdentifier, Entity.EntityType.FUNCTION);
-      // Ranger HadoopSQL is one catalog plugin that rejects FUNCTION metadata. The generic plugin
-      // mock represents that integration boundary and must not receive a removal callback.
-      Mockito.verifyNoInteractions(catalogAuthorizationPlugin);
-      Mockito.verify(catalogManager, Mockito.never()).loadCatalog(any());
-      Mockito.verify(catalogManager, Mockito.times(3)).doWithCatalog(any(), any());
-    }
+    assertTrue(hookDispatcher.dropFunction(functionIdentifier));
+    assertFalse(hookDispatcher.dropFunction(functionIdentifier));
+    RuntimeException thrown =
+        assertThrows(RuntimeException.class, () -> hookDispatcher.dropFunction(functionIdentifier));
+    assertEquals("Drop failed", thrown.getMessage());
+    Mockito.verify(authorizer)
+        .handleEntityNameIdMappingChange(
+            "metalake1", normalizedIdentifier, Entity.EntityType.FUNCTION);
+    // Ranger HadoopSQL is one catalog plugin that rejects FUNCTION metadata. The generic plugin
+    // mock represents that integration boundary and must not receive a removal callback.
+    Mockito.verifyNoInteractions(catalogAuthorizationPlugin);
+    Mockito.verify(catalogManager, Mockito.never()).loadCatalog(any());
+    Mockito.verify(catalogManager, Mockito.times(3)).doWithCatalog(any(), any());
   }
 
   private static CatalogManager catalogManagerWith(Capability capability) throws Exception {

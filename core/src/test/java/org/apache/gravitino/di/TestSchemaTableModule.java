@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.function.Supplier;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
+import org.apache.gravitino.authorization.AuthorizationServices;
+import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.PartitionNormalizeDispatcher;
 import org.apache.gravitino.catalog.PartitionOperationDispatcher;
 import org.apache.gravitino.catalog.SchemaNormalizeDispatcher;
@@ -79,7 +81,7 @@ public class TestSchemaTableModule {
         component.internalFilesetDispatcher(), field(internalOperations, "filesetDispatcher"));
     assertSame(component.lockManager(), lockManagerOf(internalOperations));
     Object hook = field(field(component.schemaDispatcher(), "dispatcher"), "dispatcher");
-    assertSame(component.lockManager(), lockManagerOf(hook));
+    assertSame(component.lockManager(), field(hook, "lockManager"));
   }
 
   @Test
@@ -145,8 +147,8 @@ public class TestSchemaTableModule {
 
   @Test
   public void testHooksSkipOwnersWhenAuthorizationIsDisabled() throws Exception {
-    assertNull(ownerSupplierOf(component.tableDispatcher()).get());
-    assertNull(ownerSupplierOf(component.viewDispatcher()).get());
+    assertNull(ownerDispatcherOf(component.tableDispatcher()));
+    assertNull(ownerDispatcherOf(component.viewDispatcher()));
   }
 
   @Test
@@ -156,9 +158,9 @@ public class TestSchemaTableModule {
     ModuleTestComponent authorized = ModuleTestComponent.create(config, leaves);
 
     assertSame(
-        authorized.internalOwnerDispatcher(), ownerSupplierOf(authorized.tableDispatcher()).get());
+        authorized.internalOwnerDispatcher(), ownerDispatcherOf(authorized.tableDispatcher()));
     assertSame(
-        authorized.internalOwnerDispatcher(), ownerSupplierOf(authorized.viewDispatcher()).get());
+        authorized.internalOwnerDispatcher(), ownerDispatcherOf(authorized.viewDispatcher()));
   }
 
   @Test
@@ -184,8 +186,8 @@ public class TestSchemaTableModule {
     return ((Supplier<?>) field(operations, "schemaDispatcherSupplier")).get();
   }
 
-  private static Supplier<?> ownerSupplierOf(Object publicChain) throws Exception {
+  private static OwnerDispatcher ownerDispatcherOf(Object publicChain) throws Exception {
     Object hook = field(field(publicChain, "dispatcher"), "dispatcher");
-    return (Supplier<?>) field(hook, "ownerDispatcher");
+    return ((AuthorizationServices) field(hook, "authorizationServices")).internalOwnerDispatcher();
   }
 }

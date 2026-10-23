@@ -20,10 +20,10 @@ package org.apache.gravitino.hook;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -48,19 +48,18 @@ import org.apache.gravitino.utils.PrincipalUtils;
  */
 public class TableHookDispatcher implements TableDispatcher {
   private final TableDispatcher dispatcher;
-  private final Supplier<OwnerDispatcher> ownerDispatcher;
+  private final AuthorizationServices authorizationServices;
 
   /**
    * Creates a table hook dispatcher.
    *
    * @param dispatcher the underlying table dispatcher
-   * @param ownerDispatcher supplies the owner dispatcher, or {@code null} when authorization is
-   *     disabled
+   * @param authorizationServices the services that keep authorization in step with table changes
    */
   public TableHookDispatcher(
-      TableDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
+      TableDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
-    this.ownerDispatcher = ownerDispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -89,7 +88,7 @@ public class TableHookDispatcher implements TableDispatcher {
             ident, columns, comment, properties, partitions, distribution, sortOrders, indexes);
 
     // Set the creator as the owner of the table.
-    OwnerDispatcher ownerManager = ownerDispatcher.get();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),
@@ -116,7 +115,9 @@ public class TableHookDispatcher implements TableDispatcher {
       }
     }
     if (lastRenameChange != null) {
-      locations = AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.TABLE);
+      locations =
+          AuthorizationUtils.getMetadataObjectLocation(
+              authorizationServices, ident, Entity.EntityType.TABLE);
     }
     Table alteredTable = dispatcher.alterTable(ident, changes);
 
@@ -129,7 +130,7 @@ public class TableHookDispatcher implements TableDispatcher {
               newSchemaName,
               lastRenameChange.getNewName());
       AuthorizationUtils.authorizationPluginRenamePrivileges(
-          ident, Entity.EntityType.TABLE, newIdent, locations);
+          authorizationServices, ident, Entity.EntityType.TABLE, newIdent, locations);
     }
 
     return alteredTable;
@@ -138,13 +139,14 @@ public class TableHookDispatcher implements TableDispatcher {
   @Override
   public boolean dropTable(NameIdentifier ident) {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.TABLE);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.TABLE);
     boolean dropped = dispatcher.dropTable(ident);
     // A false result means the external table was renamed or dropped out of band and the
     // registration was kept; the entity alive under another name must keep its privileges too.
     if (dropped) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.TABLE, locations);
+          authorizationServices, ident, Entity.EntityType.TABLE, locations);
     }
     return dropped;
   }
@@ -152,11 +154,12 @@ public class TableHookDispatcher implements TableDispatcher {
   @Override
   public boolean purgeTable(NameIdentifier ident) throws UnsupportedOperationException {
     List<String> locations =
-        AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.TABLE);
+        AuthorizationUtils.getMetadataObjectLocation(
+            authorizationServices, ident, Entity.EntityType.TABLE);
     boolean purged = dispatcher.purgeTable(ident);
     if (purged) {
       AuthorizationUtils.authorizationPluginRemovePrivileges(
-          ident, Entity.EntityType.TABLE, locations);
+          authorizationServices, ident, Entity.EntityType.TABLE, locations);
     }
     return purged;
   }

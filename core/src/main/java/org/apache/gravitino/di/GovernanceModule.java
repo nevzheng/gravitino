@@ -127,9 +127,10 @@ abstract class GovernanceModule {
   static TagDispatcher tagDispatcher(
       EventBus eventBus,
       @Undecorated TagManager tagManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<TagDispatcher>> decorators) {
     return Chain.<TagDispatcher>of("@Public TagDispatcher", tagManager, decorators)
-        .hook(TagHookDispatcher::new)
+        .hook(d -> new TagHookDispatcher(d, authorizationServices))
         .event(d -> new TagEventDispatcher(eventBus, d))
         .build();
   }
@@ -157,9 +158,10 @@ abstract class GovernanceModule {
   static PolicyDispatcher policyDispatcher(
       EventBus eventBus,
       @Undecorated PolicyManager policyManager,
+      AuthorizationServices authorizationServices,
       @Public Map<Layer, DispatcherDecorator<PolicyDispatcher>> decorators) {
     return Chain.<PolicyDispatcher>of("@Public PolicyDispatcher", policyManager, decorators)
-        .hook(PolicyHookDispatcher::new)
+        .hook(d -> new PolicyHookDispatcher(d, authorizationServices))
         .event(d -> new PolicyEventDispatcher(eventBus, d))
         .build();
   }

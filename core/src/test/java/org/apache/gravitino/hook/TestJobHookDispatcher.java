@@ -26,10 +26,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.job.JobOperationDispatcher;
@@ -38,7 +37,6 @@ import org.apache.gravitino.meta.JobEntity;
 import org.apache.gravitino.meta.JobTemplateEntity;
 import org.apache.gravitino.utils.NameIdentifierUtil;
 import org.apache.gravitino.utils.NamespaceUtil;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,30 +46,19 @@ public class TestJobHookDispatcher {
   private JobHookDispatcher hookDispatcher;
   private JobOperationDispatcher mockDispatcher;
   private OwnerDispatcher mockOwnerDispatcher;
-  // Save the original ownerDispatcher before each test and restore it in tearDown so we do not
-  // leak null state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
   private GravitinoAuthorizer mockAuthorizer;
-  private GravitinoAuthorizer savedAuthorizer;
 
   @BeforeEach
-  public void setUp() throws IllegalAccessException {
+  public void setUp() {
     mockDispatcher = mock(JobOperationDispatcher.class);
     mockOwnerDispatcher = mock(OwnerDispatcher.class);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
     mockAuthorizer = mock(GravitinoAuthorizer.class);
-    savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
-    hookDispatcher = new JobHookDispatcher(mockDispatcher);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    GravitinoEnv.getInstance().setGravitinoAuthorizer(savedAuthorizer);
+    hookDispatcher =
+        new JobHookDispatcher(
+            mockDispatcher,
+            new FakeAuthorizationServices()
+                .withOwnerDispatcher(mockOwnerDispatcher)
+                .withAuthorizer(mockAuthorizer));
   }
 
   @Test

@@ -20,11 +20,11 @@
 package org.apache.gravitino.hook;
 
 import java.util.Map;
-import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.apache.gravitino.Entity;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -49,18 +49,19 @@ import org.apache.gravitino.utils.PrincipalUtils;
 public class SemanticModelHookDispatcher implements SemanticModelDispatcher {
 
   private final SemanticModelDispatcher dispatcher;
-  private final Supplier<OwnerDispatcher> ownerDispatcher;
+  private final AuthorizationServices authorizationServices;
 
   /**
-   * Creates a Semantic Model hook dispatcher.
+   * Creates a semantic model hook dispatcher.
    *
-   * @param dispatcher The underlying dispatcher.
-   * @param ownerDispatcher Supplies the owner dispatcher, or null when authorization is disabled.
+   * @param dispatcher the underlying semantic model dispatcher
+   * @param authorizationServices the services that keep authorization in step with semantic model
+   *     changes
    */
   public SemanticModelHookDispatcher(
-      SemanticModelDispatcher dispatcher, Supplier<OwnerDispatcher> ownerDispatcher) {
+      SemanticModelDispatcher dispatcher, AuthorizationServices authorizationServices) {
     this.dispatcher = dispatcher;
-    this.ownerDispatcher = ownerDispatcher;
+    this.authorizationServices = authorizationServices;
   }
 
   @Override
@@ -116,9 +117,12 @@ public class SemanticModelHookDispatcher implements SemanticModelDispatcher {
     SemanticModel model = dispatcher.alterSemanticModel(ident, changes);
     for (SemanticModelChange change : changes) {
       if (change instanceof SemanticModelChange.RenameSemanticModel) {
-        AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.SEMANTIC_MODEL);
         AuthorizationUtils.notifyEntityNameIdMappingChange(
-            NameIdentifier.of(ident.namespace(), model.name()), Entity.EntityType.SEMANTIC_MODEL);
+            authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.SEMANTIC_MODEL);
+        AuthorizationUtils.notifyEntityNameIdMappingChange(
+            authorizationServices.gravitinoAuthorizer(),
+            NameIdentifier.of(ident.namespace(), model.name()),
+            Entity.EntityType.SEMANTIC_MODEL);
         break;
       }
     }
@@ -129,13 +133,14 @@ public class SemanticModelHookDispatcher implements SemanticModelDispatcher {
   public boolean dropSemanticModel(NameIdentifier ident) {
     boolean dropped = dispatcher.dropSemanticModel(ident);
     if (dropped) {
-      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.SEMANTIC_MODEL);
+      AuthorizationUtils.notifyEntityNameIdMappingChange(
+          authorizationServices.gravitinoAuthorizer(), ident, Entity.EntityType.SEMANTIC_MODEL);
     }
     return dropped;
   }
 
   private void setCreatorAsOwner(NameIdentifier ident) {
-    OwnerDispatcher ownerManager = ownerDispatcher.get();
+    OwnerDispatcher ownerManager = authorizationServices.internalOwnerDispatcher();
     if (ownerManager != null) {
       ownerManager.setOwner(
           ident.namespace().level(0),

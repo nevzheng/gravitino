@@ -27,11 +27,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetadataObject;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.FakeAuthorizationServices;
 import org.apache.gravitino.authorization.GravitinoAuthorizer;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
@@ -44,7 +43,6 @@ import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.connector.capability.CapabilityResult;
 import org.apache.gravitino.model.Model;
 import org.apache.gravitino.model.ModelChange;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,12 +55,7 @@ public class TestModelHookDispatcher {
   private OwnerDispatcher mockOwnerDispatcher;
   private CatalogManager mockCatalogManager;
   private BaseCatalog<?> mockCatalog;
-  // Save the originals before each test and restore them in tearDown so we do not leak null
-  // state into the GravitinoEnv singleton across tests.
-  private OwnerDispatcher savedOwnerDispatcher;
-  private CatalogManager savedCatalogManager;
   private GravitinoAuthorizer mockAuthorizer;
-  private GravitinoAuthorizer savedAuthorizer;
 
   @BeforeEach
   public void setUp() throws Exception {
@@ -72,28 +65,16 @@ public class TestModelHookDispatcher {
     mockCatalog = mock(BaseCatalog.class);
     CatalogTestUtils.mockDoWithCatalog(mockCatalogManager, mockCatalog);
     when(mockCatalog.capability()).thenReturn(Capability.DEFAULT);
-    savedOwnerDispatcher = GravitinoEnv.getInstance().internalOwnerDispatcher();
-    // Read the catalogManager field directly via reflection because the public accessor
-    // Preconditions-checks for non-null, which would fail when GravitinoEnv has not been
-    // initialized for this test class.
-    savedCatalogManager =
-        (CatalogManager) FieldUtils.readField(GravitinoEnv.getInstance(), "catalogManager", true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", mockOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", mockCatalogManager, true);
     mockAuthorizer = mock(GravitinoAuthorizer.class);
-    savedAuthorizer = GravitinoEnv.getInstance().gravitinoAuthorizer();
-    GravitinoEnv.getInstance().setGravitinoAuthorizer(mockAuthorizer);
     hookDispatcher =
-        new ModelNormalizeDispatcher(new ModelHookDispatcher(mockDispatcher), mockCatalogManager);
-  }
-
-  @AfterEach
-  public void tearDown() throws IllegalAccessException {
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "internalOwnerDispatcher", savedOwnerDispatcher, true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "catalogManager", savedCatalogManager, true);
-    GravitinoEnv.getInstance().setGravitinoAuthorizer(savedAuthorizer);
+        new ModelNormalizeDispatcher(
+            new ModelHookDispatcher(
+                mockDispatcher,
+                new FakeAuthorizationServices()
+                    .withOwnerDispatcher(mockOwnerDispatcher)
+                    .withCatalogManager(mockCatalogManager)
+                    .withAuthorizer(mockAuthorizer)),
+            mockCatalogManager);
   }
 
   @Test

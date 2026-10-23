@@ -95,6 +95,7 @@ import org.apache.gravitino.auth.ActiveRoles;
 import org.apache.gravitino.auth.AuthConstants;
 import org.apache.gravitino.authorization.AccessControlDispatcher;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizerContext;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.SecurableObject;
@@ -3721,8 +3722,9 @@ public class TestJcasbinAuthorizer {
     SemanticModelChange rename = SemanticModelChange.rename(newIdent.name());
     when(dispatcher.alterSemanticModel(oldIdent, rename)).thenReturn(renamed);
     when(dispatcher.dropSemanticModel(newIdent)).thenReturn(true);
-    when(gravitinoEnv.gravitinoAuthorizer()).thenReturn(jcasbinAuthorizer);
-    SemanticModelHookDispatcher hook = new SemanticModelHookDispatcher(dispatcher, () -> null);
+    AuthorizationServices services = mock(AuthorizationServices.class);
+    when(services.gravitinoAuthorizer()).thenReturn(jcasbinAuthorizer);
+    SemanticModelHookDispatcher hook = new SemanticModelHookDispatcher(dispatcher, services);
     try {
       hook.alterSemanticModel(oldIdent, rename);
       stubMetadataId(normalized(oldObject), Optional.empty());

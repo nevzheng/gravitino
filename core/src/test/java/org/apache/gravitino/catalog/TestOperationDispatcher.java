@@ -47,6 +47,7 @@ import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.StringIdentifier;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
 import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
@@ -200,7 +201,9 @@ public abstract class TestOperationDispatcher {
           .when(
               () ->
                   AuthorizationUtils.getMetadataObjectLocation(
-                      Mockito.any(NameIdentifier.class), Mockito.any(Entity.EntityType.class)))
+                      Mockito.any(AuthorizationServices.class),
+                      Mockito.any(NameIdentifier.class),
+                      Mockito.any(Entity.EntityType.class)))
           .thenReturn(ImmutableList.of("/test"));
       testCode.run();
     }

@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-import java.util.function.Supplier;
+import org.apache.gravitino.authorization.AuthorizationServices;
 import org.apache.gravitino.catalog.FilesetNormalizeDispatcher;
 import org.apache.gravitino.catalog.FilesetOperationDispatcher;
 import org.apache.gravitino.catalog.FunctionNormalizeDispatcher;
@@ -135,7 +135,8 @@ public class TestFilesetTopicModelModule {
     assertSame(internal, publicOperations);
     assertSame(component.schemaOperationDispatcher(), field(internal, "schemaOps"));
     Object hook = field(field(component.functionDispatcher(), "dispatcher"), "dispatcher");
-    assertNull(((Supplier<?>) field(hook, "ownerDispatcher")).get());
+    assertNull(
+        ((AuthorizationServices) field(hook, "authorizationServices")).internalOwnerDispatcher());
   }
 
   @Test
