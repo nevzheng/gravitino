@@ -35,6 +35,7 @@ import org.apache.gravitino.authorization.RoleChange;
 import org.apache.gravitino.authorization.User;
 import org.apache.gravitino.authorization.common.ChainedAuthorizationProperties;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.utils.IsolatedClassLoader;
@@ -44,13 +45,25 @@ public class ChainedAuthorizationPlugin implements AuthorizationPlugin {
   private List<AuthorizationPlugin> plugins = Lists.newArrayList();
   private final String metalake;
 
+  /**
+   * Creates a chained plugin.
+   *
+   * @param metalake the metalake the catalog belongs to
+   * @param catalogProvider the provider of the catalog
+   * @param config the chained plugin configuration
+   * @param context the host services handed to each chained plugin
+   */
   public ChainedAuthorizationPlugin(
-      String metalake, String catalogProvider, Map<String, String> config) {
+      String metalake,
+      String catalogProvider,
+      Map<String, String> config,
+      AuthorizationPluginContext context) {
     this.metalake = metalake;
-    initPlugins(catalogProvider, config);
+    initPlugins(catalogProvider, config, context);
   }
 
-  private void initPlugins(String catalogProvider, Map<String, String> properties) {
+  private void initPlugins(
+      String catalogProvider, Map<String, String> properties, AuthorizationPluginContext context) {
     ChainedAuthorizationProperties chainedAuthzProperties =
         new ChainedAuthorizationProperties(properties);
     chainedAuthzProperties.validate();
@@ -82,7 +95,9 @@ public class ChainedAuthorizationPlugin implements AuthorizationPlugin {
                 // loader.
                 AuthorizationPlugin authorizationPlugin =
                     classLoader.withClassLoader(
-                        cl -> authorization.newPlugin(metalake, catalogProvider, pluginConfig));
+                        cl ->
+                            authorization.newPlugin(
+                                metalake, catalogProvider, pluginConfig, context));
                 plugins.add(authorizationPlugin);
               } catch (Exception e) {
                 throw new RuntimeException(e);

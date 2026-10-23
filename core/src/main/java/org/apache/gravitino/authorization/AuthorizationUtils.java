@@ -45,6 +45,7 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.FilesetDispatcher;
 import org.apache.gravitino.catalog.hive.HiveConstants;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.dto.authorization.PrivilegeDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.exceptions.AuthorizationPluginException;
@@ -619,11 +620,11 @@ public class AuthorizationUtils {
   }
 
   // The Hive default schema location is Hive warehouse directory
-  private static String getHiveDefaultLocation(String metalakeName, String catalogName) {
+  private static String getHiveDefaultLocation(
+      AuthorizationPluginContext context, String metalakeName, String catalogName) {
     NameIdentifier defaultSchemaIdent =
         NameIdentifier.of(metalakeName, catalogName, "default" /*Hive default schema*/);
-    Schema schema =
-        GravitinoEnv.getInstance().internalSchemaDispatcher().loadSchema(defaultSchemaIdent);
+    Schema schema = context.internalSchemaDispatcher().loadSchema(defaultSchemaIdent);
     if (schema.properties().containsKey(HiveConstants.LOCATION)) {
       String defaultSchemaLocation = schema.properties().get(HiveConstants.LOCATION);
       if (defaultSchemaLocation != null && !defaultSchemaLocation.isEmpty()) {
@@ -636,12 +637,43 @@ public class AuthorizationUtils {
     return null;
   }
 
+  /**
+   * Returns the storage locations of a metadata object, reading catalogs and schemas from the
+   * process environment.
+   *
+   * @param ident the identifier of the metadata object
+   * @param type the entity type of the metadata object
+   * @return the locations, or an empty list when authorization is disabled or none is found
+   */
   public static List<String> getMetadataObjectLocation(
       NameIdentifier ident, Entity.EntityType type) {
+    GravitinoEnv env = GravitinoEnv.getInstance();
+    return getMetadataObjectLocation(
+        AuthorizationPluginContext.of(
+            () -> env.internalAccessControlDispatcher() != null,
+            env::internalCatalogDispatcher,
+            env::internalSchemaDispatcher,
+            env::internalTableDispatcher,
+            env::internalFilesetDispatcher),
+        ident,
+        type);
+  }
+
+  /**
+   * Returns the storage locations of a metadata object: the Hive warehouse directory for a Hive
+   * catalog, and the location of a Hive or fileset schema, a Hive table or a fileset.
+   *
+   * @param context the host services the locations are read through
+   * @param ident the identifier of the metadata object
+   * @param type the entity type of the metadata object
+   * @return the locations, or an empty list when authorization is disabled or none is found
+   */
+  public static List<String> getMetadataObjectLocation(
+      AuthorizationPluginContext context, NameIdentifier ident, Entity.EntityType type) {
     List<String> locations = new ArrayList<>();
 
     // If we don't enable authorization, the location should return empty collection.
-    if (GravitinoEnv.getInstance().internalAccessControlDispatcher() == null) {
+    if (!context.authorizationEnabled()) {
       return locations;
     }
 
@@ -651,12 +683,11 @@ public class AuthorizationUtils {
           break;
         case CATALOG:
           {
-            Catalog catalogObj =
-                GravitinoEnv.getInstance().internalCatalogDispatcher().loadCatalog(ident);
+            Catalog catalogObj = context.internalCatalogDispatcher().loadCatalog(ident);
             if (catalogObj.provider().equals("hive")) {
               // The Hive default schema location is Hive warehouse directory
               String defaultSchemaLocation =
-                  getHiveDefaultLocation(ident.namespace().level(0), ident.name());
+                  getHiveDefaultLocation(context, ident.namespace().level(0), ident.name());
               if (defaultSchemaLocation != null && !defaultSchemaLocation.isEmpty()) {
                 locations.add(defaultSchemaLocation);
               }
@@ -665,11 +696,11 @@ public class AuthorizationUtils {
           break;
         case SCHEMA:
           Catalog catalogObj =
-              GravitinoEnv.getInstance()
+              context
                   .internalCatalogDispatcher()
                   .loadCatalog(
                       NameIdentifier.of(ident.namespace().level(0), ident.namespace().level(1)));
-          Schema schema = GravitinoEnv.getInstance().internalSchemaDispatcher().loadSchema(ident);
+          Schema schema = context.internalSchemaDispatcher().loadSchema(ident);
 
           switch (catalogObj.type()) {
             case RELATIONAL:
@@ -714,12 +745,12 @@ public class AuthorizationUtils {
         case TABLE:
           {
             catalogObj =
-                GravitinoEnv.getInstance()
+                context
                     .internalCatalogDispatcher()
                     .loadCatalog(
                         NameIdentifier.of(ident.namespace().level(0), ident.namespace().level(1)));
             if (catalogObj.provider().equals("hive")) {
-              Table table = GravitinoEnv.getInstance().internalTableDispatcher().loadTable(ident);
+              Table table = context.internalTableDispatcher().loadTable(ident);
               if (table.properties().containsKey(HiveConstants.LOCATION)) {
                 String tableLocation = table.properties().get(HiveConstants.LOCATION);
                 if (StringUtils.isNotBlank(tableLocation)) {
@@ -732,8 +763,7 @@ public class AuthorizationUtils {
           }
           break;
         case FILESET:
-          FilesetDispatcher filesetDispatcher =
-              GravitinoEnv.getInstance().internalFilesetDispatcher();
+          FilesetDispatcher filesetDispatcher = context.internalFilesetDispatcher();
           Fileset fileset = filesetDispatcher.loadFileset(ident);
           Preconditions.checkArgument(
               fileset != null, String.format("Fileset %s is not found", ident));

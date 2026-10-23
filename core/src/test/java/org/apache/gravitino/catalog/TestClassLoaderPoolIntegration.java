@@ -31,6 +31,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.Schema;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.meta.AuditInfo;
 import org.apache.gravitino.meta.BaseMetalake;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /**
  * Integration tests for ClassLoaderPool with CatalogManager. Tests that same-type catalogs share a
@@ -102,7 +104,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(config),
             lockManager,
-            null);
+            null,
+            Mockito.mock(AuthorizationPluginContext.class));
   }
 
   @AfterEach
@@ -261,7 +264,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(noSharingConfig),
             lockManager,
-            null);
+            null,
+            Mockito.mock(AuthorizationPluginContext.class));
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");
@@ -316,7 +320,8 @@ public class TestClassLoaderPoolIntegration {
             new RandomIdGenerator(),
             new SecretManager(noSharingConfig),
             lockManager,
-            null);
+            null,
+            Mockito.mock(AuthorizationPluginContext.class));
     try {
       Map<String, String> props =
           ImmutableMap.of("key1", "value1", "key2", "value2", "key5-1", "value3");

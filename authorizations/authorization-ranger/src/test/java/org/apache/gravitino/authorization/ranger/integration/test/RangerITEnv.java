@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.authorization.AuthorizationSecurableObject;
 import org.apache.gravitino.authorization.Privilege;
 import org.apache.gravitino.authorization.Role;
@@ -39,6 +40,7 @@ import org.apache.gravitino.authorization.ranger.RangerAuthorizationPlugin;
 import org.apache.gravitino.authorization.ranger.RangerHelper;
 import org.apache.gravitino.authorization.ranger.RangerPrivileges;
 import org.apache.gravitino.authorization.ranger.reference.RangerDefines;
+import org.apache.gravitino.connector.authorization.AuthorizationPluginContext;
 import org.apache.gravitino.connector.authorization.BaseAuthorization;
 import org.apache.gravitino.integration.test.container.ContainerSuite;
 import org.apache.gravitino.integration.test.container.HiveContainer;
@@ -152,7 +154,8 @@ public class RangerITEnv {
                     BaseAuthorization.METALAKE_ID,
                     METALAKE_ID,
                     BaseAuthorization.CATALOG_ID,
-                    CATALOG_ID)));
+                    CATALOG_ID),
+                environmentPluginContext()));
     rangerAuthHDFSPlugin = spyRangerAuthorizationHDFSPlugin;
 
     rangerHelper =
@@ -562,5 +565,19 @@ public class RangerITEnv {
   /** Don't call this function in the Lambda function body, It will return a random function name */
   public static String currentFunName() {
     return Thread.currentThread().getStackTrace()[2].getMethodName();
+  }
+
+  // The ITs stub GravitinoEnv, so the plugin reads the services from it when it asks for them.
+  private static AuthorizationPluginContext environmentPluginContext() {
+    return AuthorizationPluginContext.of(
+        () -> env().internalAccessControlDispatcher() != null,
+        () -> env().internalCatalogDispatcher(),
+        () -> env().internalSchemaDispatcher(),
+        () -> env().internalTableDispatcher(),
+        () -> env().internalFilesetDispatcher());
+  }
+
+  private static GravitinoEnv env() {
+    return GravitinoEnv.getInstance();
   }
 }
