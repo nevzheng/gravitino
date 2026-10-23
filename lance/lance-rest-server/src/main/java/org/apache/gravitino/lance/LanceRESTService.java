@@ -42,6 +42,8 @@ import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.event.EventSource;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.MetricsSource;
+import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.web.HealthAliasServlet;
 import org.apache.gravitino.server.web.HttpAuditFilter;
 import org.apache.gravitino.server.web.HttpServerMetricsSource;
@@ -122,7 +124,14 @@ public class LanceRESTService implements GravitinoAuxiliaryService {
       LOG.warn("Lance REST metadata authorization is disabled because no metalake is configured");
     }
     if (enableMetadataAuthorization) {
-      lanceNamespace.setMetadataFilter(new LanceAuthorizationMetadataFilter(metalakeName));
+      MetadataAccessChecker accessChecker =
+          new MetadataAccessChecker(
+              context.config(),
+              () -> GravitinoAuthorizerProvider.getInstance().getGravitinoAuthorizer(),
+              context::entityStore,
+              context::internalSchemaDispatcher);
+      lanceNamespace.setMetadataFilter(
+          new LanceAuthorizationMetadataFilter(metalakeName, accessChecker));
     }
 
     ResourceConfig resourceConfig = new ResourceConfig();

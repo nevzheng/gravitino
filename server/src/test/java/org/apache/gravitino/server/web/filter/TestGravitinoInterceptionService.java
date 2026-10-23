@@ -95,6 +95,7 @@ import org.apache.gravitino.server.authorization.annotations.AuthorizationMetada
 import org.apache.gravitino.server.authorization.annotations.AuthorizationObjectType;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationRequest;
 import org.apache.gravitino.server.web.Utils;
+import org.apache.gravitino.server.web.rest.AccessCheckers;
 import org.apache.gravitino.server.web.rest.CatalogOperations;
 import org.apache.gravitino.server.web.rest.MetadataObjectTagOperations;
 import org.apache.gravitino.server.web.rest.SchemaOperations;
@@ -311,7 +312,7 @@ public class TestGravitinoInterceptionService {
       envMocked.when(GravitinoEnv::getInstance).thenReturn(env);
 
       ViewDispatcher dispatcher = mock(ViewDispatcher.class);
-      ViewOperations operations = new ViewOperations(dispatcher);
+      ViewOperations operations = new ViewOperations(dispatcher, AccessCheckers.disabled());
       FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
       Method method =
           ViewOperations.class.getMethod("listViews", String.class, String.class, String.class);
@@ -792,7 +793,8 @@ public class TestGravitinoInterceptionService {
               TagValuesAssociateRequest.class);
       Object[] args = new Object[] {"testMetalake", "catalog", "object1", request};
       TagDispatcher tagDispatcher = mock(TagDispatcher.class);
-      MetadataObjectTagOperations operations = new MetadataObjectTagOperations(tagDispatcher);
+      MetadataObjectTagOperations operations =
+          new MetadataObjectTagOperations(tagDispatcher, AccessCheckers.disabled());
       HttpServletRequest httpRequest = mock(HttpServletRequest.class);
       FieldUtils.writeField(operations, "httpRequest", httpRequest, true);
       Response invalidBodyResponse =
@@ -1176,7 +1178,7 @@ public class TestGravitinoInterceptionService {
                 }
                 return created.get();
               });
-      ViewOperations operations = new ViewOperations(viewDispatcher);
+      ViewOperations operations = new ViewOperations(viewDispatcher, AccessCheckers.disabled());
       FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
       principalUtilsMocked
           .when(() -> PrincipalUtils.doAs(any(), any()))
@@ -1270,7 +1272,7 @@ public class TestGravitinoInterceptionService {
                 }
                 return created.get();
               });
-      TableOperations operations = new TableOperations(tableDispatcher);
+      TableOperations operations = new TableOperations(tableDispatcher, AccessCheckers.disabled());
       FieldUtils.writeField(operations, "httpRequest", mock(HttpServletRequest.class), true);
       principalUtilsMocked
           .when(() -> PrincipalUtils.doAs(any(), any()))

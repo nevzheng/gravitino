@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
+import org.apache.gravitino.Config;
 import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.credential.CredentialConstants;
@@ -57,6 +58,7 @@ import org.apache.gravitino.iceberg.service.provider.IcebergConfigProviderFactor
 import org.apache.gravitino.iceberg.service.provider.StaticIcebergConfigProvider;
 import org.apache.gravitino.listener.EventBus;
 import org.apache.gravitino.listener.api.EventListenerPlugin;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.rest.RESTUtil;
 import org.glassfish.hk2.utilities.binding.AbstractBinder;
@@ -174,7 +176,9 @@ public class IcebergRestTestUtil {
 
       IcebergTableOperationExecutor icebergTableOperationExecutor =
           new IcebergTableOperationExecutor(
-              icebergCatalogWrapperManager, Optional.of(mock(IcebergCleanupManager.class)));
+              icebergCatalogWrapperManager,
+              Optional.of(mock(IcebergCleanupManager.class)),
+              disabledAccessChecker());
       IcebergTableEventDispatcher icebergTableEventDispatcher =
           new IcebergTableEventDispatcher(
               icebergTableOperationExecutor, eventBus, configProvider.getMetalakeName());
@@ -197,6 +201,7 @@ public class IcebergRestTestUtil {
             protected void configure() {
               bind(icebergCatalogWrapperManager).to(IcebergCatalogWrapperManager.class).ranked(2);
               bind(icebergMetricsManager).to(IcebergMetricsManager.class).ranked(2);
+              bind(disabledAccessChecker()).to(MetadataAccessChecker.class).ranked(2);
               bind(icebergTableEventDispatcher).to(IcebergTableOperationDispatcher.class).ranked(2);
               bind(icebergViewEventDispatcher).to(IcebergViewOperationDispatcher.class).ranked(2);
               bind(icebergNamespaceEventDispatcher)
@@ -206,6 +211,23 @@ public class IcebergRestTestUtil {
           });
     }
     return resourceConfig;
+  }
+
+  /**
+   * Returns a checker with authorization disabled, which lets every request through.
+   *
+   * @return a checker that passes every check.
+   */
+  public static MetadataAccessChecker disabledAccessChecker() {
+    return new MetadataAccessChecker(
+        new Config(false) {},
+        () -> null,
+        () -> {
+          throw new IllegalStateException("Authorization is disabled");
+        },
+        () -> {
+          throw new IllegalStateException("Authorization is disabled");
+        });
   }
 
   static HttpServletRequest createMockHttpRequest() {

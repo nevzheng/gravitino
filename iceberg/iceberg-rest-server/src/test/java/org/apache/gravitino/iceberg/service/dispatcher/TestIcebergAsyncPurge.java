@@ -36,6 +36,7 @@ import org.apache.gravitino.iceberg.service.authorization.IcebergRESTServerConte
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupJob;
 import org.apache.gravitino.iceberg.service.cleanup.IcebergCleanupManager;
 import org.apache.gravitino.iceberg.service.provider.IcebergConfigProvider;
+import org.apache.gravitino.iceberg.service.rest.IcebergRestTestUtil;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
@@ -201,7 +202,8 @@ class TestIcebergAsyncPurge {
 
   private IcebergTableOperationExecutor tableExecutor(
       CatalogWrapperForREST wrapper, Optional<IcebergCleanupManager> cleanup) {
-    return new IcebergTableOperationExecutor(wrapperManager(wrapper), cleanup);
+    return new IcebergTableOperationExecutor(
+        wrapperManager(wrapper), cleanup, IcebergRestTestUtil.disabledAccessChecker());
   }
 
   private IcebergNamespaceOperationExecutor namespaceExecutor(

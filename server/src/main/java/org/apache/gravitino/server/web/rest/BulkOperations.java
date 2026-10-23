@@ -78,7 +78,7 @@ import org.apache.gravitino.exceptions.IllegalMetadataObjectException;
 import org.apache.gravitino.exceptions.NoSuchMetadataObjectException;
 import org.apache.gravitino.metalake.MetalakeManager;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.NameBindings;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -102,6 +102,7 @@ public class BulkOperations {
   @Nullable private final BulkManager bulkManager;
   @Nullable private final AccessControlDispatcher accessControlDispatcher;
   @Nullable private final OwnerDispatcher ownerDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
@@ -111,15 +112,18 @@ public class BulkOperations {
    * @param bulkManager the bulk manager, or null.
    * @param accessControlDispatcher the access-control dispatcher, or null.
    * @param ownerDispatcher the internal owner dispatcher, or null.
+   * @param accessChecker checks the current user's access to metadata
    */
   @Inject
   public BulkOperations(
       @org.jvnet.hk2.annotations.Optional @Nullable BulkManager bulkManager,
       @org.jvnet.hk2.annotations.Optional @Nullable AccessControlDispatcher accessControlDispatcher,
-      @org.jvnet.hk2.annotations.Optional @Internal @Nullable OwnerDispatcher ownerDispatcher) {
+      @org.jvnet.hk2.annotations.Optional @Internal @Nullable OwnerDispatcher ownerDispatcher,
+      MetadataAccessChecker accessChecker) {
     this.bulkManager = bulkManager;
     this.accessControlDispatcher = accessControlDispatcher;
     this.ownerDispatcher = ownerDispatcher;
+    this.accessChecker = accessChecker;
   }
 
   /**
@@ -533,7 +537,7 @@ public class BulkOperations {
 
   private void checkDeleteRoleAuthorization(String metalake, String role) {
     boolean allowed =
-        MetadataAuthzHelper.checkAccess(
+        accessChecker.checkAccess(
             NameIdentifierUtil.ofRole(metalake, role),
             Entity.EntityType.ROLE,
             DELETE_ROLE_AUTHORIZATION_EXPRESSION);

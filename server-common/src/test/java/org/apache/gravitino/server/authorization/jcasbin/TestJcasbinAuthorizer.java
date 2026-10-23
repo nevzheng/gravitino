@@ -118,7 +118,6 @@ import org.apache.gravitino.server.ServerConfig;
 import org.apache.gravitino.server.authorization.AuthorizationRequestScope;
 import org.apache.gravitino.server.authorization.GravitinoAuthorizerProvider;
 import org.apache.gravitino.server.authorization.MetadataAccessChecker;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
 import org.apache.gravitino.server.authorization.MetadataIdResolver;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionConstants;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
@@ -3336,7 +3335,11 @@ public class TestJcasbinAuthorizer {
     Config previousConfig = gravitinoEnv.config();
     Config config = mock(Config.class);
     when(config.get(eq(Configs.ENABLE_AUTHORIZATION))).thenReturn(true);
+    when(config.get(eq(Configs.CACHE_ENABLED))).thenReturn(false);
     when(gravitinoEnv.config()).thenReturn(config);
+    MetadataAccessChecker accessChecker =
+        new MetadataAccessChecker(
+            config, () -> jcasbinAuthorizer, gravitinoEnv::entityStore, () -> null);
     try {
       SecurableObject deniedObject =
           buildSecurableObject(
@@ -3406,7 +3409,7 @@ public class TestJcasbinAuthorizer {
         NameIdentifier visible =
             NameIdentifier.of(METALAKE, "testCatalog", "testSchema", "visible");
         NameIdentifier[] filtered =
-            MetadataAuthzHelper.filterByExpression(
+            accessChecker.filterByExpression(
                 METALAKE,
                 AuthorizationExpressionConstants.LIST_TABLE_LIKE_AUTHORIZATION_EXPRESSION,
                 Entity.EntityType.TABLE,

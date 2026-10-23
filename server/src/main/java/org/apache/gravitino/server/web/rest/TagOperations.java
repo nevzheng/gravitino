@@ -62,7 +62,7 @@ import org.apache.gravitino.dto.tag.TagDTO;
 import org.apache.gravitino.dto.util.DTOConverters;
 import org.apache.gravitino.meta.PolicyEntity;
 import org.apache.gravitino.metrics.MetricNames;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -85,12 +85,20 @@ public class TagOperations {
   private static final int MAX_TAG_VALUE_LENGTH = 256;
 
   private final TagDispatcher tagDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @Context private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param tagDispatcher the {@link TagDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public TagOperations(TagDispatcher tagDispatcher) {
+  public TagOperations(TagDispatcher tagDispatcher, MetadataAccessChecker accessChecker) {
     this.tagDispatcher = tagDispatcher;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -121,7 +129,7 @@ public class TagOperations {
                         .toArray(TagDTO[]::new);
               }
               tagDTOs =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.TAG,
@@ -134,7 +142,7 @@ public class TagOperations {
               String[] tagNames = tagDispatcher.listTags(metalake);
               tagNames = tagNames == null ? new String[0] : tagNames;
               tagNames =
-                  MetadataAuthzHelper.filterByExpression(
+                  accessChecker.filterByExpression(
                       metalake,
                       AuthorizationExpressionConstants.LOAD_TAG_AUTHORIZATION_EXPRESSION,
                       Entity.EntityType.TAG,
@@ -323,7 +331,7 @@ public class TagOperations {
 
             MetadataObjectDTO[] objectDTOs =
                 Arrays.stream(objects).map(DTOConverters::toDTO).toArray(MetadataObjectDTO[]::new);
-            objectDTOs = MetadataAuthzHelper.filterMetadataObject(metalake, objectDTOs);
+            objectDTOs = accessChecker.filterMetadataObject(metalake, objectDTOs);
             return Utils.ok(new MetadataObjectListResponse(objectDTOs));
           });
 
@@ -352,7 +360,7 @@ public class TagOperations {
             RelationalEntity<?>[] associations =
                 tagDispatcher.listPolicyAssociationsForTag(metalake, tagName);
             associations =
-                MetadataAuthzHelper.filterByExpression(
+                accessChecker.filterByExpression(
                     metalake,
                     AuthorizationExpressionConstants.LOAD_POLICY_AUTHORIZATION_EXPRESSION,
                     Entity.EntityType.POLICY,
@@ -484,7 +492,7 @@ public class TagOperations {
       @PathParam("fullName") @AuthorizationFullName String fullName,
       @QueryParam("details") @DefaultValue("false") boolean verbose) {
     MetadataObjectTagOperations metadataObjectTagOperations =
-        new MetadataObjectTagOperations(tagDispatcher);
+        new MetadataObjectTagOperations(tagDispatcher, accessChecker);
     metadataObjectTagOperations.setHttpRequest(httpRequest);
     return metadataObjectTagOperations.listTagsForMetadataObject(metalake, type, fullName, verbose);
   }
@@ -509,7 +517,7 @@ public class TagOperations {
       @PathParam("fullName") @AuthorizationFullName String fullName,
       @PathParam("tag") @AuthorizationMetadata(type = Entity.EntityType.TAG) String tagName) {
     MetadataObjectTagOperations metadataObjectTagOperations =
-        new MetadataObjectTagOperations(tagDispatcher);
+        new MetadataObjectTagOperations(tagDispatcher, accessChecker);
     metadataObjectTagOperations.setHttpRequest(httpRequest);
     return metadataObjectTagOperations.getTagForObject(metalake, type, fullName, tagName);
   }
@@ -533,7 +541,7 @@ public class TagOperations {
       @AuthorizationRequest(type = AuthorizationRequest.RequestType.ASSOCIATE_TAG)
           TagsAssociateRequest request) {
     MetadataObjectTagOperations metadataObjectTagOperations =
-        new MetadataObjectTagOperations(tagDispatcher);
+        new MetadataObjectTagOperations(tagDispatcher, accessChecker);
     metadataObjectTagOperations.setHttpRequest(httpRequest);
     return metadataObjectTagOperations.associateTagsForObject(metalake, type, fullName, request);
   }

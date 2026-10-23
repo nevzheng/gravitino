@@ -34,6 +34,7 @@ import org.apache.gravitino.EntityFieldLimits;
 import org.apache.gravitino.catalog.lakehouse.iceberg.IcebergConstants;
 import org.apache.gravitino.iceberg.service.CatalogWrapperForREST;
 import org.apache.gravitino.iceberg.service.IcebergCatalogWrapperManager;
+import org.apache.gravitino.iceberg.service.rest.IcebergRestTestUtil;
 import org.apache.gravitino.listener.api.event.IcebergRequestContext;
 import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.Schema;
@@ -65,7 +66,9 @@ public class TestIcebergTableOperationExecutor {
   public void setUp() {
     mockWrapperManager = mock(IcebergCatalogWrapperManager.class);
     mockCatalogWrapper = mock(CatalogWrapperForREST.class);
-    executor = new IcebergTableOperationExecutor(mockWrapperManager, Optional.empty());
+    executor =
+        new IcebergTableOperationExecutor(
+            mockWrapperManager, Optional.empty(), IcebergRestTestUtil.disabledAccessChecker());
 
     mockContext = mock(IcebergRequestContext.class);
     when(mockContext.catalogName()).thenReturn("test_catalog");

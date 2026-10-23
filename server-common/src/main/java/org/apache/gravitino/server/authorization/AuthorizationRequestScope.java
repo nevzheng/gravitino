@@ -33,7 +33,7 @@ import org.apache.gravitino.utils.PrincipalUtils;
  *
  * <p>The interceptor opens a scope around the REST method, binds the context it built for entry
  * authorization when the method is a read, and closes the scope when the method returns. {@link
- * #getOrCreate(String)} then hands that context to {@code MetadataAuthzHelper.filterByExpression}
+ * #getOrCreate(String)} then hands that context to {@code MetadataAccessChecker.filterByExpression}
  * on the same thread. Filter workers receive the context explicitly; this thread-local scope is not
  * inherited by them.
  *

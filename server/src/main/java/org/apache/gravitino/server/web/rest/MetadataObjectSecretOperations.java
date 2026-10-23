@@ -43,7 +43,7 @@ import org.apache.gravitino.dto.responses.SecretsResponse;
 import org.apache.gravitino.metrics.MetricNames;
 import org.apache.gravitino.secret.SecretPropertyOperationDispatcher;
 import org.apache.gravitino.secret.SecretPropertyUtils;
-import org.apache.gravitino.server.authorization.MetadataAuthzHelper;
+import org.apache.gravitino.server.authorization.MetadataAccessChecker;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationExpression;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationFullName;
 import org.apache.gravitino.server.authorization.annotations.AuthorizationMetadata;
@@ -71,14 +71,23 @@ public class MetadataObjectSecretOperations {
           MetadataObject.Type.MODEL);
 
   private final SecretPropertyOperationDispatcher secretPropertyOperationDispatcher;
+  private final MetadataAccessChecker accessChecker;
 
   @SuppressWarnings("unused")
   @Context
   private HttpServletRequest httpRequest;
 
+  /**
+   * Creates the resource.
+   *
+   * @param dispatcher the {@link SecretPropertyOperationDispatcher} to serve requests with
+   * @param accessChecker checks the current user's access to metadata
+   */
   @Inject
-  public MetadataObjectSecretOperations(SecretPropertyOperationDispatcher dispatcher) {
+  public MetadataObjectSecretOperations(
+      SecretPropertyOperationDispatcher dispatcher, MetadataAccessChecker accessChecker) {
     this.secretPropertyOperationDispatcher = dispatcher;
+    this.accessChecker = accessChecker;
   }
 
   @GET
@@ -112,7 +121,7 @@ public class MetadataObjectSecretOperations {
             NameIdentifier identifier = MetadataObjectUtil.toEntityIdent(metalake, object);
             Entity.EntityType entityType = MetadataObjectUtil.toEntityType(object);
             boolean canUseSecrets =
-                MetadataAuthzHelper.checkAccess(
+                accessChecker.checkAccess(
                     identifier,
                     entityType,
                     AuthorizationExpressionConstants.FILTER_USE_SECRET_AUTHORIZATION_EXPRESSION);
@@ -120,7 +129,7 @@ public class MetadataObjectSecretOperations {
               return Utils.ok(new SecretsResponse(ImmutableMap.of()));
             }
             boolean canIncludeCredentialSecrets =
-                MetadataAuthzHelper.checkAccess(
+                accessChecker.checkAccess(
                     identifier,
                     entityType,
                     AuthorizationExpressionConstants
