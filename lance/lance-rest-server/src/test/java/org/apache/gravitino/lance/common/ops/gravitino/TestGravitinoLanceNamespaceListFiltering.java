@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
 import org.apache.gravitino.Catalog;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
 import org.apache.gravitino.lance.common.ops.LanceMetadataFilter;
 import org.apache.gravitino.rel.TableCatalog;
 import org.junit.jupiter.api.Assertions;
@@ -106,7 +107,8 @@ class TestGravitinoLanceNamespaceListFiltering {
 
   @Test
   void testNullFilterRestoresNoop() {
-    GravitinoLanceNamespaceWrapper wrapper = new GravitinoLanceNamespaceWrapper();
+    GravitinoLanceNamespaceWrapper wrapper =
+        new GravitinoLanceNamespaceWrapper(Mockito.mock(AuxiliaryContext.class));
     wrapper.setMetadataFilter(allowOnly(CATALOG));
     wrapper.setMetadataFilter(null);
 

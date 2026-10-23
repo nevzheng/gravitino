@@ -19,6 +19,7 @@
 package org.apache.gravitino.iceberg;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
@@ -27,6 +28,15 @@ import org.apache.gravitino.server.web.JettyServerConfig;
 import org.junit.jupiter.api.Test;
 
 public class TestRESTService {
+
+  @Test
+  public void testInitWithoutContextFails() {
+    RESTService service = new RESTService();
+
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> service.serviceInit(Collections.emptyMap(), true));
+  }
 
   /** The documented Iceberg REST key reaches the value the service passes to its error builder. */
   @Test

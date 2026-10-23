@@ -18,8 +18,12 @@
  */
 package org.apache.gravitino.lance.server;
 
+import com.google.common.base.Preconditions;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.GravitinoEnv;
+import org.apache.gravitino.auxiliary.AuxiliaryContext;
+import org.apache.gravitino.di.DaggerGravitinoComponent;
+import org.apache.gravitino.di.GravitinoComponent;
 import org.apache.gravitino.lance.LanceRESTService;
 import org.apache.gravitino.lance.common.config.LanceConfig;
 import org.apache.gravitino.server.ServerConfig;
@@ -39,16 +43,30 @@ public class GravitinoLanceRESTServer {
   private LanceRESTService lanceRESTService;
   private GravitinoEnv gravitinoEnv;
 
-  public GravitinoLanceRESTServer(Config config) {
+  private final GravitinoComponent.Factory componentFactory;
+
+  /**
+   * Creates a standalone server whose environment is built from the component a factory creates.
+   *
+   * <p>A downstream distribution passes the factory of its own root component, so the standalone
+   * server gets the decorators and managed services of that component.
+   *
+   * @param config the server configuration
+   * @param componentFactory creates the component the environment takes its objects from
+   */
+  public GravitinoLanceRESTServer(Config config, GravitinoComponent.Factory componentFactory) {
     this.serverConfig = config;
+    this.componentFactory = Preconditions.checkNotNull(componentFactory, "componentFactory");
     this.gravitinoEnv = GravitinoEnv.getInstance();
     this.lanceRESTService = new LanceRESTService();
   }
 
   private void initialize() {
-    gravitinoEnv.initializeBaseComponents(serverConfig);
+    gravitinoEnv.initializeBaseComponents(serverConfig, componentFactory);
     lanceRESTService.serviceInit(
-        serverConfig.getConfigsWithPrefix(LanceConfig.LANCE_CONFIG_PREFIX), false);
+        serverConfig.getConfigsWithPrefix(LanceConfig.LANCE_CONFIG_PREFIX),
+        false,
+        standaloneContext(gravitinoEnv.component()));
     ServerAuthenticator.getInstance().initialize(serverConfig);
   }
 
@@ -66,11 +84,44 @@ public class GravitinoLanceRESTServer {
     LOG.info("Gravitino Lance REST service stopped");
   }
 
+  /**
+   * Returns the host services of the base profile, which is all a standalone server builds.
+   *
+   * @param component the component the environment was initialized from
+   * @return the context of the standalone service
+   */
+  static AuxiliaryContext standaloneContext(GravitinoComponent component) {
+    return AuxiliaryContext.standalone(
+        component.config(),
+        component.eventBus(),
+        component.metricsSystem(),
+        component.secretManager(),
+        component.kmsClientRegistry());
+  }
+
+  /**
+   * Runs the standalone server with an environment built from {@link GravitinoComponent}.
+   *
+   * @param args the command line arguments
+   */
   public static void main(String[] args) {
+    run(args, DaggerGravitinoComponent.factory());
+  }
+
+  /**
+   * Runs the standalone server with an environment built from the component a factory creates. A
+   * downstream distribution calls this from its own entry point with the factory of its root
+   * component.
+   *
+   * @param args the command line arguments
+   * @param componentFactory creates the component the environment takes its objects from
+   */
+  public static void run(String[] args, GravitinoComponent.Factory componentFactory) {
     LOG.info("Starting Gravitino Lance REST Server");
     String confPath = System.getenv("GRAVITINO_TEST") == null ? "" : args[0];
     ServerConfig serverConfig = ServerConfig.loadConfig(confPath, CONF_FILE);
-    GravitinoLanceRESTServer lanceRESTServer = new GravitinoLanceRESTServer(serverConfig);
+    GravitinoLanceRESTServer lanceRESTServer =
+        new GravitinoLanceRESTServer(serverConfig, componentFactory);
     lanceRESTServer.initialize();
 
     try {
