@@ -10,8 +10,8 @@
     "field_utils_read_write.test.files": 103,
     "field_utils_read_write.test.occurrences": 450,
     "gravitino_env.instance_fields": 53,
-    "gravitino_env.lines": 1227,
-    "gravitino_env.new_calls": 89,
+    "gravitino_env.lines": 1246,
+    "gravitino_env.new_calls": 81,
     "gravitino_env_get_instance.production.files": 69,
     "gravitino_env_get_instance.production.occurrences": 151,
     "gravitino_env_get_instance.test.files": 90,
@@ -35,5 +35,5 @@
   },
   "migrated_packages": [],
   "schema_version": 1,
-  "source_revision": "986ce19601"
+  "source_revision": "e7816500d3"
 }
