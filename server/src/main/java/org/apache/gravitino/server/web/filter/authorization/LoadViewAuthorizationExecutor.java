@@ -20,14 +20,15 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.authorization.AuthorizationRequestContext;
+import org.apache.gravitino.catalog.ViewDispatcher;
 import org.apache.gravitino.server.authorization.expression.AuthorizationExpressionEvaluator;
 
 /** Authorizes view loads and permits authorized probes of absent views. */
 public class LoadViewAuthorizationExecutor extends CommonAuthorizerExecutor {
   private final AuthorizationExpressionEvaluator allowCheckExistenceEvaluator;
+  private final ViewDispatcher internalViewDispatcher;
 
   /**
    * Creates an executor for loading views.
@@ -37,14 +38,17 @@ public class LoadViewAuthorizationExecutor extends CommonAuthorizerExecutor {
    * @param pathParams the request path parameters
    * @param entityType the optional entity type
    * @param allowCheckExistenceExpression the expression permitting existence probes
+   * @param internalViewDispatcher the internal view dispatcher that probes view existence
    */
   public LoadViewAuthorizationExecutor(
       String expression,
       Map<Entity.EntityType, NameIdentifier> metadataContext,
       Map<String, Object> pathParams,
       Optional<String> entityType,
-      String allowCheckExistenceExpression) {
+      String allowCheckExistenceExpression,
+      ViewDispatcher internalViewDispatcher) {
     super(expression, metadataContext, pathParams, entityType);
+    this.internalViewDispatcher = internalViewDispatcher;
     allowCheckExistenceEvaluator =
         StringUtils.isBlank(allowCheckExistenceExpression)
             ? null
@@ -69,7 +73,7 @@ public class LoadViewAuthorizationExecutor extends CommonAuthorizerExecutor {
       return false;
     }
     try {
-      GravitinoEnv.getInstance().internalViewDispatcher().loadView(viewIdentifier);
+      internalViewDispatcher.loadView(viewIdentifier);
     } catch (UnsupportedOperationException e) {
       // Preserve the primary denial when the connector cannot perform the existence probe.
     }

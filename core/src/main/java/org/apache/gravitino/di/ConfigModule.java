@@ -24,6 +24,7 @@ import javax.inject.Singleton;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.lifecycle.ManagedServices;
+import org.apache.gravitino.metrics.MethodMonitorAspect;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.JVMMetricsSource;
 import org.apache.gravitino.storage.IdGenerator;
@@ -52,8 +53,9 @@ abstract class ConfigModule {
   }
 
   /**
-   * Builds the metrics system with the JVM metrics source registered. It registers with the {@link
-   * ManagedServices registry}, which starts and closes it.
+   * Builds the metrics system with the JVM metrics source registered, and hands it to the {@link
+   * MethodMonitorAspect}, which AspectJ instantiates. It registers with the {@link ManagedServices
+   * registry}, which starts and closes it.
    */
   @SuppressWarnings("CloseableProvides")
   @Provides
@@ -61,6 +63,7 @@ abstract class ConfigModule {
   static MetricsSystem metricsSystem(ManagedServices services) {
     MetricsSystem metricsSystem = new MetricsSystem();
     metricsSystem.register(new JVMMetricsSource());
+    MethodMonitorAspect.setMetricsSystem(metricsSystem);
     return services.register(metricsSystem);
   }
 }

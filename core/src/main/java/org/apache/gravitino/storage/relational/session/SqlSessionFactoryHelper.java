@@ -27,10 +27,10 @@ import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.pool2.impl.BaseObjectPoolConfig;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.metrics.MetricsSystem;
 import org.apache.gravitino.metrics.source.RelationDatasourceMetricsSource;
 import org.apache.gravitino.storage.relational.JDBCBackend.JDBCBackendType;
+import org.apache.gravitino.storage.relational.RelationalStoreSeeds;
 import org.apache.gravitino.storage.relational.mapper.OperateTypeHandler;
 import org.apache.gravitino.storage.relational.mapper.provider.MapperPackageProvider;
 import org.apache.gravitino.storage.relational.po.cache.OperateType;
@@ -126,7 +126,7 @@ public class SqlSessionFactoryHelper {
         provider.getMapperClasses().forEach(configuration::addMapper);
       }
 
-      MetricsSystem metricsSystem = GravitinoEnv.getInstance().metricsSystem();
+      MetricsSystem metricsSystem = RelationalStoreSeeds.metricsSystem();
       // Add null check to avoid NPE when metrics system is not initialized in test environments
       if (metricsSystem != null) {
         // Register connection pool metrics when metrics system is available

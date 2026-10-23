@@ -23,10 +23,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
-import org.apache.gravitino.GravitinoEnv;
 
 /**
  * Utility class for hierarchical schema name conversions.
@@ -44,16 +44,38 @@ public final class HierarchicalSchemaUtil {
   /** The internal separator used in EntityStore for HierarchicalSchema names. */
   private static final String PHYSICAL_SEPARATOR = "\u0001";
 
+  private static volatile String seededSeparator = Configs.SCHEMA_SEPARATOR.getDefaultValue();
+
   private HierarchicalSchemaUtil() {}
+
+  /**
+   * Seeds the external schema separator {@link #schemaSeparator()} returns from a server
+   * configuration. The server seeds it once, when it builds its component from the configuration.
+   *
+   * @param config the server configuration, or null to seed the default {@code ":"}
+   */
+  public static void seedSchemaSeparator(@Nullable Config config) {
+    seededSeparator = schemaSeparator(config);
+  }
 
   /**
    * Returns the configured external schema separator from the server configuration. All code that
    * needs the separator should use this method instead of reading the config directly.
    *
-   * @return the configured separator string (default {@code ":"})
+   * @return the separator seeded by {@link #seedSchemaSeparator(Config)} (default {@code ":"})
    */
   public static String schemaSeparator() {
-    Config config = GravitinoEnv.getInstance().config();
+    return seededSeparator;
+  }
+
+  /**
+   * Returns the external schema separator a configuration sets.
+   *
+   * @param config the server configuration, or null when there is none
+   * @return the configured separator, or the default {@code ":"} when the configuration is null or
+   *     sets a blank separator
+   */
+  public static String schemaSeparator(@Nullable Config config) {
     if (config == null) {
       return Configs.SCHEMA_SEPARATOR.getDefaultValue();
     }

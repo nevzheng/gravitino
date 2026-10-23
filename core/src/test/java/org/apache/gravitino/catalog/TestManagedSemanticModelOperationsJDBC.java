@@ -33,7 +33,6 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.cache.NoOpsCache;
@@ -50,8 +49,6 @@ import org.apache.gravitino.storage.RandomIdGenerator;
 import org.apache.gravitino.storage.relational.RelationalEntityStore;
 import org.apache.gravitino.storage.relational.TestJDBCBackend;
 import org.apache.gravitino.utils.NamespaceUtil;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestTemplate;
 
@@ -60,15 +57,8 @@ public class TestManagedSemanticModelOperationsJDBC extends TestJDBCBackend {
 
   private final AtomicInteger writeValidationCount = new AtomicInteger();
 
-  private Config previousConfig;
   private NameIdentifier modelIdent;
   private ManagedSemanticModelOperations operations;
-
-  @BeforeAll
-  public void captureEnvironmentConfig() {
-    // BackendTestExtension replaces GravitinoEnv.config before each backend invocation.
-    previousConfig = GravitinoEnv.getInstance().config();
-  }
 
   @BeforeEach
   public void prepareManagedOperations() throws IOException, IllegalAccessException {
@@ -96,11 +86,6 @@ public class TestManagedSemanticModelOperationsJDBC extends TestJDBCBackend {
               SemanticModelValidator.validateDefinition(definition);
               writeValidationCount.incrementAndGet();
             });
-  }
-
-  @AfterEach
-  public void restoreEnvironmentConfig() throws IllegalAccessException {
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
   }
 
   @TestTemplate

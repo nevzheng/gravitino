@@ -299,7 +299,9 @@ class TestBackendTestExtension {
           return new BackendTestExtension.LiveBackend(
               backendType, testClass, mock(RelationalBackend.class), mock(Config.class), null) {
             @Override
-            void bindGravitinoEnv() {}
+            LegacyStoreEnvironment bindGravitinoEnv() {
+              return new LegacyStoreEnvironment();
+            }
 
             @Override
             void reset(ResetStrategy resetStrategy) {

@@ -73,7 +73,6 @@ import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.EntityStoreFactory;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.authorization.AuthorizationUtils;
@@ -102,6 +101,7 @@ import org.apache.gravitino.meta.UserEntity;
 import org.apache.gravitino.rel.types.Type;
 import org.apache.gravitino.storage.relational.BackendTestSelector;
 import org.apache.gravitino.storage.relational.CoreBackend;
+import org.apache.gravitino.storage.relational.LegacyStoreEnvironment;
 import org.apache.gravitino.storage.relational.RelationalBackend;
 import org.apache.gravitino.storage.relational.RelationalEntityStore;
 import org.apache.gravitino.storage.relational.RelationalGarbageCollector;
@@ -111,6 +111,7 @@ import org.apache.gravitino.storage.relational.converters.PostgreSQLExceptionCon
 import org.apache.gravitino.storage.relational.converters.SQLExceptionConverterFactory;
 import org.apache.gravitino.storage.relational.session.SqlSessionFactoryHelper;
 import org.apache.ibatis.session.SqlSession;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
@@ -127,6 +128,9 @@ abstract class AbstractEntityStorageTest {
   protected static final String DB_DIR = JDBC_STORE_PATH + "/testdb";
   protected static final String H2_FILE = DB_DIR + ".mv.db";
 
+  // The store reads its configuration through GravitinoEnv; init binds it for one test.
+  private final LegacyStoreEnvironment legacyEnvironment = new LegacyStoreEnvironment();
+
   static Object[][] storageProvider() {
     Object[][] backends =
         new Object[][] {
@@ -140,6 +144,11 @@ abstract class AbstractEntityStorageTest {
     return Arrays.stream(backends)
         .filter(arguments -> BackendTestSelector.isSelected((String) arguments[0]))
         .toArray(Object[][]::new);
+  }
+
+  @AfterEach
+  void restoreEnvironment() {
+    legacyEnvironment.close();
   }
 
   protected void init(String type, Config config) throws IllegalAccessException {
@@ -175,7 +184,7 @@ abstract class AbstractEntityStorageTest {
     Mockito.when(config.get(Configs.CACHE_IMPLEMENTATION)).thenReturn("caffeine");
     Mockito.when(config.get(Configs.CACHE_LOCK_SEGMENTS)).thenReturn(16);
 
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
+    legacyEnvironment.withConfig(config);
 
     BaseIT baseIT = new BaseIT();
 

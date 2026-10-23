@@ -36,7 +36,6 @@ import org.apache.gravitino.Catalog;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.cache.CaffeineEntityCache;
 import org.apache.gravitino.meta.AuditInfo;
@@ -70,9 +69,7 @@ public class TestRelationalEntityStoreHierarchicalCache {
 
   private RelationalEntityStore store;
   private String dbPath;
-  private Object previousConfig;
-  private Object previousMetricsSystem;
-  private boolean replacedMetricsSystem;
+  private final LegacyStoreEnvironment legacyEnvironment = new LegacyStoreEnvironment();
 
   @AfterEach
   void tearDown() throws Exception {
@@ -84,17 +81,13 @@ public class TestRelationalEntityStoreHierarchicalCache {
       FileUtils.deleteQuietly(new File(dbPath));
       dbPath = null;
     }
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-    if (replacedMetricsSystem) {
-      FieldUtils.writeField(
-          GravitinoEnv.getInstance(), "metricsSystem", previousMetricsSystem, true);
-    }
+    legacyEnvironment.close();
   }
 
   @Test
   void testChangeLogMetricsRegistrationAndUnregistration() throws Exception {
     MetricsSystem metricsSystem = new MetricsSystem();
-    replaceMetricsSystem(metricsSystem);
+    legacyEnvironment.withMetricsSystem(metricsSystem);
     initStore(":");
 
     MetricsSource source = metricsSystem.getMetricsSource("entity-change-log");
@@ -111,16 +104,10 @@ public class TestRelationalEntityStoreHierarchicalCache {
 
   @Test
   void testChangeLogMetricsWithoutMetricsSystem() throws Exception {
-    replaceMetricsSystem(null);
+    legacyEnvironment.withMetricsSystem(null);
     initStore(":");
 
     Assertions.assertNotNull(FieldUtils.readField(store, "changeLogMetrics", true));
-  }
-
-  private void replaceMetricsSystem(MetricsSystem metricsSystem) throws IllegalAccessException {
-    previousMetricsSystem = FieldUtils.readField(GravitinoEnv.getInstance(), "metricsSystem", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "metricsSystem", metricsSystem, true);
-    replacedMetricsSystem = true;
   }
 
   @ParameterizedTest
@@ -227,10 +214,7 @@ public class TestRelationalEntityStoreHierarchicalCache {
     Mockito.when(config.get(Configs.CACHE_LOCK_SEGMENTS)).thenReturn(16);
     Mockito.when(config.get(Configs.SCHEMA_SEPARATOR)).thenReturn(separator);
 
-    previousConfig = FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", config, true);
-    FieldUtils.writeField(
-        GravitinoEnv.getInstance(), "idGenerator", RandomIdGenerator.INSTANCE, true);
+    legacyEnvironment.withConfig(config).withIdGenerator(RandomIdGenerator.INSTANCE);
     Assertions.assertEquals(separator, HierarchicalSchemaUtil.schemaSeparator());
 
     store = new RelationalEntityStore();

@@ -1068,8 +1068,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1087,11 +1086,8 @@ public class TestGravitinoInterceptionService {
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       ViewDispatcher viewDispatcher = mock(ViewDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.internalViewDispatcher()).thenReturn(viewDispatcher);
       when(viewDispatcher.loadView(ArgumentMatchers.any()))
           .thenThrow(new UnsupportedOperationException("Catalog does not support view operations"));
 
@@ -1099,7 +1095,8 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+          new GravitinoInterceptionService(
+                  mockEventBus, mock(TableDispatcher.class), viewDispatcher)
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1127,8 +1124,7 @@ public class TestGravitinoInterceptionService {
     try (MockedStatic<PrincipalUtils> principalUtilsMocked = mockStatic(PrincipalUtils.class);
         MockedStatic<GravitinoAuthorizerProvider> authorizerMocked =
             mockStatic(GravitinoAuthorizerProvider.class);
-        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class);
-        MockedStatic<GravitinoEnv> envMocked = mockStatic(GravitinoEnv.class)) {
+        MockedStatic<AuthorizationUtils> authUtilsMocked = mockStatic(AuthorizationUtils.class)) {
       principalUtilsMocked
           .when(PrincipalUtils::getCurrentPrincipal)
           .thenReturn(new UserPrincipal("tester"));
@@ -1146,11 +1142,8 @@ public class TestGravitinoInterceptionService {
       authorizerMocked.when(GravitinoAuthorizerProvider::getInstance).thenReturn(mockedProvider);
       when(mockedProvider.getGravitinoAuthorizer()).thenReturn(authorizer);
 
-      GravitinoEnv mockEnv = mock(GravitinoEnv.class);
       ViewDispatcher viewDispatcher = mock(ViewDispatcher.class);
       EventBus mockEventBus = spy(new EventBus(Collections.emptyList()));
-      envMocked.when(GravitinoEnv::getInstance).thenReturn(mockEnv);
-      when(mockEnv.internalViewDispatcher()).thenReturn(viewDispatcher);
       AtomicReference<View> created = new AtomicReference<>();
       View view = mock(View.class);
       when(view.name()).thenReturn("missingView");
@@ -1189,7 +1182,8 @@ public class TestGravitinoInterceptionService {
           ViewOperations.class.getMethod(
               "loadView", String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, mock(TableDispatcher.class))
+          new GravitinoInterceptionService(
+                  mockEventBus, mock(TableDispatcher.class), viewDispatcher)
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1283,7 +1277,8 @@ public class TestGravitinoInterceptionService {
           TableOperations.class.getMethod(
               "loadTable", String.class, String.class, String.class, String.class, String.class);
       MethodInterceptor interceptor =
-          new GravitinoInterceptionService(mockEventBus, tableDispatcher)
+          new GravitinoInterceptionService(
+                  mockEventBus, tableDispatcher, mock(ViewDispatcher.class))
               .getMethodInterceptors(method)
               .get(0);
       MethodInvocation invocation = mock(MethodInvocation.class);
@@ -1472,7 +1467,7 @@ public class TestGravitinoInterceptionService {
     Method method =
         TestTableLoadOperations.class.getMethod(
             "loadTable", String.class, String.class, String.class, String.class, String.class);
-    return new GravitinoInterceptionService(eventBus, tableDispatcher)
+    return new GravitinoInterceptionService(eventBus, tableDispatcher, mock(ViewDispatcher.class))
         .getMethodInterceptors(method)
         .get(0);
   }
@@ -1700,6 +1695,7 @@ public class TestGravitinoInterceptionService {
   }
 
   private static GravitinoInterceptionService newService(EventBus eventBus) {
-    return new GravitinoInterceptionService(eventBus, mock(TableDispatcher.class));
+    return new GravitinoInterceptionService(
+        eventBus, mock(TableDispatcher.class), mock(ViewDispatcher.class));
   }
 }

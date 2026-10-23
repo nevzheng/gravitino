@@ -21,11 +21,9 @@ package org.apache.gravitino.cache;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.gravitino.Config;
 import org.apache.gravitino.Configs;
 import org.apache.gravitino.Entity;
-import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.Namespace;
 import org.apache.gravitino.meta.CatalogEntity;
 import org.apache.gravitino.meta.GroupEntity;
@@ -57,10 +55,10 @@ public class TestCaffeineEntityCacheInvalidation {
 
   /**
    * Joins nested schema levels the way they reach the cache. The cache sits above the storage
-   * layer, so nested schema names still carry the configured external separator.
+   * layer, so nested schema names still carry the external separator the cache is configured with.
    */
-  private static String hierarchicalName(String... levels) {
-    return String.join(HierarchicalSchemaUtil.schemaSeparator(), levels);
+  private String hierarchicalName(String... levels) {
+    return String.join(HierarchicalSchemaUtil.schemaSeparator(cache.cacheConfig), levels);
   }
 
   private static Namespace schemaNamespace(String schemaName) {
@@ -291,41 +289,35 @@ public class TestCaffeineEntityCacheInvalidation {
   }
 
   @Test
-  void testInvalidateHierarchicalSchemaCascadesWithNonDefaultSeparator() throws Exception {
+  void testInvalidateHierarchicalSchemaCascadesWithNonDefaultSeparator() {
     Config separatorConfig = new Config(false) {};
     separatorConfig.set(Configs.SCHEMA_SEPARATOR, "|");
-    Object previousConfig = FieldUtils.readField(GravitinoEnv.getInstance(), "config", true);
-    FieldUtils.writeField(GravitinoEnv.getInstance(), "config", separatorConfig, true);
+    cache = new CaffeineEntityCache(separatorConfig);
 
-    try {
-      Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator());
+    Assertions.assertEquals("|", HierarchicalSchemaUtil.schemaSeparator(cache.cacheConfig));
 
-      String parentName = hierarchicalName("raw", "events");
-      String childName = hierarchicalName("raw", "events", "2024");
-      String siblingName = hierarchicalName("raw", "events2");
+    String parentName = hierarchicalName("raw", "events");
+    String childName = hierarchicalName("raw", "events", "2024");
+    String siblingName = hierarchicalName("raw", "events2");
 
-      SchemaEntity parent = TestUtil.getTestSchemaEntity(2L, parentName, CATALOG_NS, "cmt");
-      SchemaEntity child = TestUtil.getTestSchemaEntity(3L, childName, CATALOG_NS, "cmt");
-      SchemaEntity sibling = TestUtil.getTestSchemaEntity(4L, siblingName, CATALOG_NS, "cmt");
-      TableEntity tableInChild =
-          TestUtil.getTestTableEntity(5L, "t_child", schemaNamespace(childName));
+    SchemaEntity parent = TestUtil.getTestSchemaEntity(2L, parentName, CATALOG_NS, "cmt");
+    SchemaEntity child = TestUtil.getTestSchemaEntity(3L, childName, CATALOG_NS, "cmt");
+    SchemaEntity sibling = TestUtil.getTestSchemaEntity(4L, siblingName, CATALOG_NS, "cmt");
+    TableEntity tableInChild =
+        TestUtil.getTestTableEntity(5L, "t_child", schemaNamespace(childName));
 
-      cache.put(parent);
-      cache.put(child);
-      cache.put(sibling);
-      cache.put(tableInChild);
+    cache.put(parent);
+    cache.put(child);
+    cache.put(sibling);
+    cache.put(tableInChild);
 
-      cache.invalidate(parent.nameIdentifier(), Entity.EntityType.SCHEMA);
+    cache.invalidate(parent.nameIdentifier(), Entity.EntityType.SCHEMA);
 
-      Assertions.assertFalse(cache.contains(parent.nameIdentifier(), Entity.EntityType.SCHEMA));
-      Assertions.assertFalse(cache.contains(child.nameIdentifier(), Entity.EntityType.SCHEMA));
-      Assertions.assertFalse(
-          cache.contains(tableInChild.nameIdentifier(), Entity.EntityType.TABLE));
-      Assertions.assertTrue(cache.contains(sibling.nameIdentifier(), Entity.EntityType.SCHEMA));
-      Assertions.assertEquals(1, cache.size());
-    } finally {
-      FieldUtils.writeField(GravitinoEnv.getInstance(), "config", previousConfig, true);
-    }
+    Assertions.assertFalse(cache.contains(parent.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(cache.contains(child.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertFalse(cache.contains(tableInChild.nameIdentifier(), Entity.EntityType.TABLE));
+    Assertions.assertTrue(cache.contains(sibling.nameIdentifier(), Entity.EntityType.SCHEMA));
+    Assertions.assertEquals(1, cache.size());
   }
 
   @Test
