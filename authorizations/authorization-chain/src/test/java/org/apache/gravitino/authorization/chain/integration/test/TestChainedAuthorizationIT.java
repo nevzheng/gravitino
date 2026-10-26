@@ -147,6 +147,7 @@ public class TestChainedAuthorizationIT extends RangerBaseE2EIT {
     if (fileSystem != null) {
       fileSystem.close();
     }
+    closeSparkSession();
     try {
       closer.close();
     } catch (Exception e) {

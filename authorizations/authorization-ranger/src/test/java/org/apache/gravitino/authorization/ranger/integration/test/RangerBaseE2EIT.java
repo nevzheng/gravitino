@@ -46,6 +46,8 @@ import org.apache.gravitino.integration.test.util.BaseIT;
 import org.apache.gravitino.integration.test.util.GravitinoITUtils;
 import org.apache.gravitino.rel.TableChange;
 import org.apache.kyuubi.plugin.spark.authz.AccessControlException;
+import org.apache.kyuubi.plugin.spark.authz.ranger.RangerSparkExtension;
+import org.apache.kyuubi.plugin.spark.authz.ranger.SparkRangerAdminPlugin;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -156,9 +158,7 @@ public abstract class RangerBaseE2EIT extends BaseIT {
       client.disableMetalake(metalakeName);
       client.dropMetalake(metalakeName);
     }
-    if (sparkSession != null) {
-      sparkSession.close();
-    }
+    closeSparkSession();
     try {
       closer.close();
     } catch (Exception e) {
@@ -166,6 +166,36 @@ public abstract class RangerBaseE2EIT extends BaseIT {
     }
     client = null;
     RangerITEnv.cleanup();
+  }
+
+  /**
+   * Closes the shared Spark session and, if it loaded the Kyuubi Ranger extension, stops the Ranger
+   * Spark plugin.
+   *
+   * <p>The plugin is a JVM-wide singleton whose policy refresher thread polls Ranger every 500 ms
+   * and outlives the Spark session. It is otherwise stopped only by a Hadoop shutdown hook at JVM
+   * exit, after the Ranger container is gone. The refresher then blocks on its call to Ranger, the
+   * hook waits on it, and every Hadoop shutdown hook times out in turn. Stopping it here, while
+   * Ranger is still running, makes it exit at once.
+   */
+  protected static void closeSparkSession() {
+    if (sparkSession == null) {
+      return;
+    }
+    boolean rangerPluginLoaded =
+        sparkSession
+            .conf()
+            .get("spark.sql.extensions", "")
+            .contains(RangerSparkExtension.class.getName());
+    sparkSession.close();
+    sparkSession = null;
+    if (rangerPluginLoaded) {
+      SparkRangerAdminPlugin.cleanup();
+      Assertions.assertTrue(
+          Thread.getAllStackTraces().keySet().stream()
+              .noneMatch(thread -> thread.getName().startsWith("PolicyRefresher(")),
+          "The Ranger Spark plugin's policy refresher is still running");
+    }
   }
 
   protected void createMetalake() {
