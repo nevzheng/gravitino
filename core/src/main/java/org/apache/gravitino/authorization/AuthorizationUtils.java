@@ -383,16 +383,28 @@ public class AuthorizationUtils {
   /**
    * Removes catalog privileges using the live catalog's name while its operation lease is held.
    *
+   * <p>Callers drop the catalog only after this method returns, so a plugin that does not confirm
+   * the cleanup fails the call: dropping the catalog anyway would leave its privileges behind in
+   * the underlying system with no Gravitino object left to clean them up from.
+   *
    * @param catalogIdent the identifier used to load the catalog
    * @param locations the catalog storage locations
+   * @throws AuthorizationPluginException if the authorization plugin does not report success
    */
   public static void removeCatalogPrivileges(NameIdentifier catalogIdent, List<String> locations) {
     callAuthorizationPluginImpl(
         (authorizationPlugin, catalogName) -> {
           MetadataObject metadataObject =
               MetadataObjects.of(null, catalogName, MetadataObject.Type.CATALOG);
-          authorizationPlugin.onMetadataUpdated(
-              MetadataObjectChange.remove(metadataObject, locations));
+          Boolean removed =
+              authorizationPlugin.onMetadataUpdated(
+                  MetadataObjectChange.remove(metadataObject, locations));
+          if (!Boolean.TRUE.equals(removed)) {
+            throw new AuthorizationPluginException(
+                "Failed to remove the privileges of catalog %s from the authorization plugin, "
+                    + "so the catalog is not dropped",
+                catalogIdent);
+          }
         },
         GravitinoEnv.getInstance().catalogManager(),
         catalogIdent);

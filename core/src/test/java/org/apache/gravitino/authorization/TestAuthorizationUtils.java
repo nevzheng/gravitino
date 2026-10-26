@@ -41,6 +41,7 @@ import org.apache.gravitino.catalog.SchemaDispatcher;
 import org.apache.gravitino.catalog.TableDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.exceptions.ForbiddenException;
 import org.apache.gravitino.exceptions.IllegalNameIdentifierException;
 import org.apache.gravitino.exceptions.IllegalNamespaceException;
@@ -50,6 +51,9 @@ import org.apache.gravitino.rel.Table;
 import org.apache.gravitino.utils.ThrowableFunction;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -625,6 +629,7 @@ class TestAuthorizationUtils {
     CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
     Mockito.when(catalog.name()).thenReturn("canonical_catalog");
     Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
+    Mockito.when(plugin.onMetadataUpdated(Mockito.any())).thenReturn(true);
 
     GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
     Mockito.when(env.catalogManager()).thenReturn(catalogManager);
@@ -644,6 +649,48 @@ class TestAuthorizationUtils {
     Assertions.assertEquals(MetadataObject.Type.CATALOG, removal.metadataObject().type());
     Assertions.assertEquals("canonical_catalog", removal.metadataObject().fullName());
     Assertions.assertEquals(locations, removal.getLocations());
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(booleans = false)
+  void testRemoveCatalogPrivilegesFailsWhenPluginDoesNotConfirmCleanup(Boolean pluginResult) {
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog");
+    CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
+    BaseCatalog<?> catalog = Mockito.mock(BaseCatalog.class);
+    AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
+    CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
+    Mockito.when(catalog.name()).thenReturn("catalog");
+    Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(plugin);
+    Mockito.when(plugin.onMetadataUpdated(Mockito.any())).thenReturn(pluginResult);
+
+    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
+      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
+      AuthorizationPluginException e =
+          Assertions.assertThrows(
+              AuthorizationPluginException.class,
+              () -> AuthorizationUtils.removeCatalogPrivileges(ident, Collections.emptyList()));
+      Assertions.assertTrue(e.getMessage().contains(ident.toString()), e.getMessage());
+    }
+  }
+
+  @Test
+  void testRemoveCatalogPrivilegesSkipsCatalogWithoutPlugin() {
+    NameIdentifier ident = NameIdentifier.of("metalake", "catalog");
+    CatalogManager catalogManager = Mockito.mock(CatalogManager.class);
+    BaseCatalog<?> catalog = Mockito.mock(BaseCatalog.class);
+    CatalogTestUtils.mockDoWithCatalog(catalogManager, catalog);
+    Mockito.when(catalog.getAuthorizationPlugin()).thenReturn(null);
+
+    GravitinoEnv env = Mockito.mock(GravitinoEnv.class);
+    Mockito.when(env.catalogManager()).thenReturn(catalogManager);
+    try (MockedStatic<GravitinoEnv> envStatic = Mockito.mockStatic(GravitinoEnv.class)) {
+      envStatic.when(GravitinoEnv::getInstance).thenReturn(env);
+      Assertions.assertDoesNotThrow(
+          () -> AuthorizationUtils.removeCatalogPrivileges(ident, Collections.emptyList()));
+    }
   }
 
   @Test

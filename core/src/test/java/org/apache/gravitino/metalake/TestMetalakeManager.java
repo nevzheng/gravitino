@@ -54,6 +54,8 @@ import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.catalog.CatalogNormalizeDispatcher;
 import org.apache.gravitino.connector.BaseCatalog;
 import org.apache.gravitino.connector.authorization.AuthorizationPlugin;
+import org.apache.gravitino.connector.authorization.TestCleanupResultAuthorization;
+import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.exceptions.MetalakeAlreadyExistsException;
 import org.apache.gravitino.exceptions.MetalakeInUseException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
@@ -358,6 +360,7 @@ public class TestMetalakeManager {
             catalogConfig, store, new RandomIdGenerator(), new SecretManager(catalogConfig));
     // The catalog hook reaches the authorization plugins through GravitinoEnv's catalog manager.
     AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
+    Mockito.when(plugin.onMetadataUpdated(Mockito.any())).thenReturn(true);
     CatalogManager pluginCatalogs = Mockito.mock(CatalogManager.class);
     Mockito.doAnswer(
             invocation -> {
@@ -436,6 +439,83 @@ public class TestMetalakeManager {
     } finally {
       FieldUtils.writeField(
           GravitinoEnv.getInstance(), "catalogManager", originalEnvCatalogManager, true);
+      catalogManager.close();
+      store.close();
+    }
+  }
+
+  @Test
+  public void testForceDropMetalakeKeepsEverythingWhenPluginCleanupFails() throws Exception {
+    // A forced metalake drop removes each child catalog's privileges through the catalog hook. If
+    // the authorization plugin reports a failed removal, nothing may be dropped: the catalogs and
+    // the metalake stay, and the metalake this drop enabled is disabled again. A retry after the
+    // plugin recovers drops everything.
+    Config catalogConfig = new Config(false) {};
+    catalogConfig.set(Configs.CATALOG_LOAD_ISOLATED, false);
+    InMemoryEntityStore store = new InMemoryEntityStore();
+    store.initialize(catalogConfig);
+    CatalogManager catalogManager =
+        new CatalogManager(
+            catalogConfig, store, new RandomIdGenerator(), new SecretManager(catalogConfig));
+    Object originalEnvCatalogManager = useEnvCatalogManager(catalogManager);
+    TestCleanupResultAuthorization.reset();
+    try {
+      CatalogDispatcher publicCatalogs =
+          new CatalogEventDispatcher(
+              Mockito.mock(EventBus.class),
+              new CatalogNormalizeDispatcher(new CatalogHookDispatcher(catalogManager)));
+      MetalakeManager manager =
+          MetalakeManager.withCatalogDispatcher(
+              store, new RandomIdGenerator(), () -> publicCatalogs);
+
+      NameIdentifier metalakeIdent = NameIdentifier.of("force_drop_failed_cleanup_ml");
+      manager.createMetalake(metalakeIdent, "comment", ImmutableMap.of());
+      List<NameIdentifier> catalogIdents =
+          List.of(
+              NameIdentifier.of(metalakeIdent.name(), "child_catalog_1"),
+              NameIdentifier.of(metalakeIdent.name(), "child_catalog_2"));
+      for (NameIdentifier catalogIdent : catalogIdents) {
+        catalogManager.createCatalog(
+            catalogIdent,
+            Catalog.Type.RELATIONAL,
+            "test",
+            "comment",
+            ImmutableMap.of(
+                "key1",
+                "value1",
+                "key2",
+                "value2",
+                "key5-1",
+                "value3",
+                Catalog.AUTHORIZATION_PROVIDER,
+                TestCleanupResultAuthorization.SHORT_NAME));
+      }
+      manager.disableMetalake(metalakeIdent);
+      TestCleanupResultAuthorization.metadataUpdateResult = Boolean.FALSE;
+
+      AuthorizationPluginException e =
+          Assertions.assertThrows(
+              AuthorizationPluginException.class, () -> manager.dropMetalake(metalakeIdent, true));
+
+      Assertions.assertTrue(e.getMessage().contains(metalakeIdent.name()), e.getMessage());
+      for (NameIdentifier catalogIdent : catalogIdents) {
+        Assertions.assertTrue(store.exists(catalogIdent, Entity.EntityType.CATALOG));
+      }
+      Assertions.assertTrue(store.exists(metalakeIdent, Entity.EntityType.METALAKE));
+      Assertions.assertFalse(
+          MetalakeManager.metalakeInUse(store, metalakeIdent),
+          "a failed force drop must disable the metalake it enabled again");
+
+      TestCleanupResultAuthorization.metadataUpdateResult = Boolean.TRUE;
+
+      Assertions.assertTrue(manager.dropMetalake(metalakeIdent, true));
+      for (NameIdentifier catalogIdent : catalogIdents) {
+        Assertions.assertFalse(store.exists(catalogIdent, Entity.EntityType.CATALOG));
+      }
+      Assertions.assertFalse(store.exists(metalakeIdent, Entity.EntityType.METALAKE));
+    } finally {
+      TestCleanupResultAuthorization.reset();
+      useEnvCatalogManager(originalEnvCatalogManager);
       catalogManager.close();
       store.close();
     }

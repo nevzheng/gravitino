@@ -17,3 +17,4 @@
 # under the License.
 #
 org.apache.gravitino.connector.authorization.ranger.TestRangerAuthorization
+org.apache.gravitino.connector.authorization.TestCleanupResultAuthorization
