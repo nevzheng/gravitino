@@ -32,6 +32,7 @@ import org.apache.gravitino.authorization.FutureGrantManager;
 import org.apache.gravitino.authorization.Owner;
 import org.apache.gravitino.authorization.OwnerDispatcher;
 import org.apache.gravitino.catalog.CatalogDispatcher;
+import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
 import org.apache.gravitino.exceptions.CatalogInUseException;
 import org.apache.gravitino.exceptions.CatalogNotInUseException;
@@ -52,9 +53,17 @@ import org.slf4j.LoggerFactory;
  */
 public class CatalogHookDispatcher implements CatalogDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(CatalogHookDispatcher.class);
-  private final CatalogDispatcher dispatcher;
+  private final CatalogManager dispatcher;
 
-  public CatalogHookDispatcher(CatalogDispatcher dispatcher) {
+  /**
+   * Creates a hook dispatcher over the catalog manager. It needs the {@link CatalogManager} itself
+   * rather than any {@link CatalogDispatcher}, because a catalog drop removes the catalog's
+   * privileges through the callback of {@link CatalogManager#dropCatalog(NameIdentifier, boolean,
+   * Runnable)}, which runs only once the drop can no longer be refused.
+   *
+   * @param dispatcher the catalog manager to delegate to
+   */
+  public CatalogHookDispatcher(CatalogManager dispatcher) {
     this.dispatcher = dispatcher;
   }
 
@@ -170,12 +179,22 @@ public class CatalogHookDispatcher implements CatalogDispatcher {
 
     List<String> locations =
         AuthorizationUtils.getMetadataObjectLocation(ident, Entity.EntityType.CATALOG);
-    AuthorizationUtils.removeCatalogPrivileges(ident, locations);
 
-    // We should call the authorization plugin before dropping the catalog, because the dropping
-    // catalog will close the authorization plugin. Child schema/fileset write-through secrets are
-    // cleaned in CatalogManager.dropCatalog / FilesetCatalogOperations.dropSchema.
-    return dispatcher.dropCatalog(ident, force);
+    // The authorization plugin must be called before the dropped catalog is closed, because
+    // closing the catalog closes its plugin. It must also not be called for a drop that is then
+    // refused (the catalog is in use or not empty and force is false), or the catalog would stay
+    // without its privileges. So the privileges are removed from the drop callback, which runs
+    // after those checks and before anything is changed; if the removal fails, the drop is
+    // aborted. Child schema/fileset write-through secrets are cleaned in CatalogManager.dropCatalog
+    // / FilesetCatalogOperations.dropSchema.
+    boolean dropped =
+        dispatcher.dropCatalog(
+            ident, force, () -> AuthorizationUtils.removeCatalogPrivileges(ident, locations));
+    if (dropped) {
+      // A catalog created later under the same name gets a new id.
+      AuthorizationUtils.notifyEntityNameIdMappingChange(ident, Entity.EntityType.CATALOG);
+    }
+    return dropped;
   }
 
   @Override
