@@ -78,6 +78,17 @@ A method-level `@DatabaseFixture` replaces the class-level one. A class's backen
 
 In CI, `build (17)` skips core tests; their results appear under the `core-test (17, <lane>)` checks. `./gradlew :core:test` runs all core tests in one task. It is deprecated, and no CI job uses it. It selects no database: every database test runs against H2, and with `-PskipDockerTests=false` also against MySQL and PostgreSQL, building a new backend at every change of database. Without Docker, it runs the database tests like `coreH2Test`.
 
+### Unit test stages
+
+`gradle/ci-stages.gradle.kts` groups the unit tests into stages, cheapest first. Each stage is one task, so you can run any stage locally:
+
+1. `./gradlew ciLint`: Spotless, the license header check, checkstyle and `ciVerifyShards`.
+2. `./gradlew build testClasses -x test`: compiles main and test sources but runs no tests.
+3. `./gradlew ciSmallTest -PskipITs -PskipDockerTests=false`: the `test` task of every module whose unit tests need no Docker.
+4. `./gradlew ciMediumTest<Shard> -PskipITs -PskipDockerTests=false`: the modules whose unit tests are tagged `gravitino-docker-test`, one task per shard.
+
+`./gradlew ciShards` prints the medium shards. A module with Docker-tagged unit tests that is in no shard still runs in `ciSmallTest`, and `ciVerifyShards` fails until it is listed. `./gradlew :clients:client-python:blackCheck` checks Python formatting without rewriting files, and `./gradlew :web:web:webTest` and `./gradlew :web-v2:web:webTest` run the web UI unit tests.
+
 ## Run the Integration Tests
 
 Gravitino has two modes to run the integration tests, the default `embedded` mode and `deploy` mode.
