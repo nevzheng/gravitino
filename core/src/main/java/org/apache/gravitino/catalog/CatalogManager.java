@@ -1321,6 +1321,46 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
   @Override
   public boolean dropCatalog(NameIdentifier ident, boolean force)
       throws NonEmptyEntityException, CatalogInUseException {
+    return dropCatalog(ident, force, null);
+  }
+
+  /**
+   * Drops a catalog and runs {@code beforeDelete} once the drop can no longer be refused, before
+   * anything is changed. This lets callers do work that must happen only for a catalog that is
+   * really dropped, and while the catalog is still open, such as removing the privileges held by
+   * its authorization plugin.
+   *
+   * <p>The callback runs after the metalake and in-use checks and, without {@code force}, after the
+   * non-empty check. It runs before any schema of a managed-storage catalog is dropped and before
+   * the catalog entity is deleted, while the catalog's operation lease and the metalake WRITE tree
+   * lock are held. Holding the lock blocks every other operation on the metalake while the callback
+   * runs, so the callback must be bounded in time and must not wait on another thread that needs a
+   * lock of this metalake.
+   *
+   * <p>If the callback throws, the drop is aborted with nothing changed, and the exception reaches
+   * the caller unchanged, even if it is a "does not exist" exception that this method would
+   * otherwise map to {@code false}. A drop that fails after the callback has run (for example a
+   * schema drop or the store delete fails) does not undo the callback's work.
+   *
+   * @param ident the identifier of the catalog to drop
+   * @param force whether to force the drop
+   * @param beforeDelete the callback to run before the catalog is changed, or {@code null} for none
+   * @return true if the catalog was dropped, false if it did not exist
+   * @throws NonEmptyEntityException if the catalog is not empty and {@code force} is false
+   * @throws CatalogInUseException if the catalog is in use and {@code force} is false
+   */
+  public boolean dropCatalog(NameIdentifier ident, boolean force, @Nullable Runnable beforeDelete)
+      throws NonEmptyEntityException, CatalogInUseException {
+    try {
+      return doDropCatalog(ident, force, beforeDelete);
+    } catch (DropCallbackFailure e) {
+      throw e.failure();
+    }
+  }
+
+  private boolean doDropCatalog(
+      NameIdentifier ident, boolean force, @Nullable Runnable beforeDelete)
+      throws NonEmptyEntityException, CatalogInUseException {
     NameIdentifier metalakeIdent = NameIdentifier.of(ident.namespace().levels());
 
     return TreeLockUtils.doWithTreeLock(
@@ -1342,6 +1382,12 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
                 store.list(schemaNs, SchemaEntity.class, EntityType.SCHEMA);
             if (!force) {
               checkCatalogSchemasBeforeDrop(ident, schemaEntities, catalogWrapper);
+            }
+
+            // The drop can no longer be refused, and nothing has been changed yet: a callback
+            // failure aborts the drop and leaves the catalog as it was.
+            if (beforeDelete != null) {
+              runBeforeDelete(beforeDelete);
             }
 
             // Child write-through secrets: capture properties (URNs) from the entity, then
@@ -1404,6 +1450,9 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
             catalogCache.invalidate(ident);
             return deleted;
 
+          } catch (DropCallbackFailure e) {
+            // Must not be mapped to false below: the catalog exists and was not dropped.
+            throw e;
           } catch (NoSuchMetalakeException | NoSuchCatalogException ignored) {
             return false;
           } catch (NoSuchEntityException ignored) {
@@ -2266,6 +2315,34 @@ public class CatalogManager implements CatalogDispatcher, Closeable {
       store.delete(ident, EntityType.CATALOG, true);
     } catch (IOException e) {
       LOG.error("Failed to clean up catalog {}", ident, e);
+    }
+  }
+
+  private static void runBeforeDelete(Runnable beforeDelete) {
+    try {
+      beforeDelete.run();
+    } catch (RuntimeException e) {
+      throw new DropCallbackFailure(e);
+    }
+  }
+
+  /**
+   * Carries a failure of a drop callback through the exception handling of {@link
+   * #dropCatalog(NameIdentifier, boolean, Runnable)}, so that it is neither mapped to {@code false}
+   * nor wrapped again.
+   */
+  private static final class DropCallbackFailure extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
+    private final RuntimeException failure;
+
+    private DropCallbackFailure(RuntimeException failure) {
+      super(failure);
+      this.failure = failure;
+    }
+
+    private RuntimeException failure() {
+      return failure;
     }
   }
 }

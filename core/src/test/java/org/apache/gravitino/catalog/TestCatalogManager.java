@@ -52,6 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -77,7 +78,9 @@ import org.apache.gravitino.connector.TestCatalogOperations;
 import org.apache.gravitino.connector.capability.Capability;
 import org.apache.gravitino.connector.capability.CapabilityResult;
 import org.apache.gravitino.credential.CredentialConstants;
+import org.apache.gravitino.exceptions.AuthorizationPluginException;
 import org.apache.gravitino.exceptions.CatalogAlreadyExistsException;
+import org.apache.gravitino.exceptions.CatalogInUseException;
 import org.apache.gravitino.exceptions.CatalogNotInUseException;
 import org.apache.gravitino.exceptions.ConnectionFailedException;
 import org.apache.gravitino.exceptions.GravitinoRuntimeException;
@@ -85,6 +88,7 @@ import org.apache.gravitino.exceptions.NoSuchCatalogException;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.apache.gravitino.exceptions.NoSuchMetalakeException;
 import org.apache.gravitino.exceptions.NoSuchSchemaException;
+import org.apache.gravitino.exceptions.NonEmptyCatalogException;
 import org.apache.gravitino.exceptions.OptimisticLockException;
 import org.apache.gravitino.lock.LockManager;
 import org.apache.gravitino.lock.LockType;
@@ -1859,6 +1863,222 @@ public class TestCatalogManager {
   }
 
   @Test
+  void testDropCatalogCallbackRunsOnlyForADropThatIsNotRefused() throws IOException {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_test");
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    AtomicInteger callbackRuns = new AtomicInteger();
+
+    // The catalog is in use, so the drop is refused and the callback must not run.
+    Assertions.assertThrows(
+        CatalogInUseException.class,
+        () -> catalogManager.dropCatalog(ident, false, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(0, callbackRuns.get());
+    Assertions.assertTrue(entityStore.exists(ident, EntityType.CATALOG));
+
+    catalogManager.disableCatalog(ident);
+    Assertions.assertTrue(catalogManager.dropCatalog(ident, false, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(1, callbackRuns.get());
+    Assertions.assertFalse(entityStore.exists(ident, EntityType.CATALOG));
+
+    // A catalog that no longer exists is not dropped again, so the callback does not run.
+    Assertions.assertFalse(catalogManager.dropCatalog(ident, false, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(1, callbackRuns.get());
+  }
+
+  @Test
+  void testForceDropCatalogInUseRunsCallback() throws IOException {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_force_test");
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    AtomicInteger callbackRuns = new AtomicInteger();
+
+    // force=true skips the in-use check, so the drop succeeds and the callback runs.
+    Assertions.assertTrue(catalogManager.dropCatalog(ident, true, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(1, callbackRuns.get());
+    Assertions.assertFalse(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @Test
+  void testDropCatalogCallbackRunsBeforeAnyChange() throws Exception {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_order_test");
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    catalogManager.disableCatalog(ident);
+    // Loading the catalog caches the wrapper that the drop then leases.
+    catalogManager.loadCatalog(ident);
+    CatalogManager.CatalogWrapper wrapper = catalogManager.getCatalogCache().getIfPresent(ident);
+    Assertions.assertNotNull(wrapper);
+    AtomicBoolean cached = new AtomicBoolean();
+    AtomicBoolean leased = new AtomicBoolean();
+    AtomicBoolean existsDuringCallback = new AtomicBoolean();
+
+    Assertions.assertTrue(
+        catalogManager.dropCatalog(
+            ident,
+            false,
+            () -> {
+              cached.set(catalogManager.getCatalogCache().getIfPresent(ident) == wrapper);
+              leased.set(wrapper.activeOperations() > 0);
+              try {
+                existsDuringCallback.set(entityStore.exists(ident, EntityType.CATALOG));
+              } catch (IOException e) {
+                throw new IllegalStateException(e);
+              }
+            }));
+
+    // The callback ran before the delete and the cache eviction, while the drop's lease kept the
+    // catalog open.
+    Assertions.assertTrue(existsDuringCallback.get());
+    Assertions.assertTrue(cached.get());
+    Assertions.assertTrue(leased.get());
+    Assertions.assertFalse(entityStore.exists(ident, EntityType.CATALOG));
+    Assertions.assertEquals(0, wrapper.activeOperations());
+  }
+
+  @Test
+  void testDropCatalogCallbackFailureAbortsDrop() throws IOException {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_failure_test");
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    catalogManager.disableCatalog(ident);
+    AuthorizationPluginException failure = new AuthorizationPluginException("plugin failed");
+
+    Assertions.assertSame(
+        failure,
+        Assertions.assertThrows(
+            AuthorizationPluginException.class,
+            () ->
+                catalogManager.dropCatalog(
+                    ident,
+                    false,
+                    () -> {
+                      throw failure;
+                    })));
+    Assertions.assertTrue(entityStore.exists(ident, EntityType.CATALOG));
+    Assertions.assertTrue(catalogManager.catalogExists(ident));
+
+    // Nothing was changed, so a retry drops the catalog and runs the callback again.
+    AtomicInteger callbackRuns = new AtomicInteger();
+    Assertions.assertTrue(catalogManager.dropCatalog(ident, false, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(1, callbackRuns.get());
+    Assertions.assertFalse(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"NoSuchCatalogException", "NoSuchEntityException", "IllegalState"})
+  void testDropCatalogCallbackFailureIsNotMappedToFalse(String failureType) throws Exception {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_not_found_" + failureType);
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    catalogManager.disableCatalog(ident);
+    RuntimeException failure;
+    switch (failureType) {
+      case "NoSuchCatalogException":
+        failure = new NoSuchCatalogException("plugin could not find catalog");
+        break;
+      case "NoSuchEntityException":
+        failure = new NoSuchEntityException("plugin could not find entity");
+        break;
+      default:
+        failure = new IllegalStateException("plugin failed");
+        break;
+    }
+    RuntimeException callbackFailure = failure;
+
+    // These exceptions mean "does not exist" when the drop itself throws them. From the callback
+    // they must reach the caller unchanged, because the catalog exists and was not dropped.
+    Assertions.assertSame(
+        callbackFailure,
+        Assertions.assertThrows(
+            RuntimeException.class,
+            () ->
+                catalogManager.dropCatalog(
+                    ident,
+                    false,
+                    () -> {
+                      throw callbackFailure;
+                    })));
+    Assertions.assertTrue(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @Test
+  void testDropCatalogCallbackSkippedWhenNotEmpty() throws Exception {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_non_empty");
+    CatalogManager.CatalogWrapper catalogWrapper = mockManagedStorageWrapper(ident, "schema_ne");
+    catalogManager.getCatalogCache().put(ident, catalogWrapper);
+    AtomicInteger callbackRuns = new AtomicInteger();
+
+    Assertions.assertThrows(
+        NonEmptyCatalogException.class,
+        () -> catalogManager.dropCatalog(ident, false, callbackRuns::incrementAndGet));
+    Assertions.assertEquals(0, callbackRuns.get());
+    Assertions.assertTrue(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @Test
+  void testForceDropManagedCatalogRunsCallbackBeforeSchemaDrops() throws Exception {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_schema_order");
+    CatalogManager.CatalogWrapper catalogWrapper = mockManagedStorageWrapper(ident, "schema_order");
+    List<String> events = new ArrayList<>();
+    Mockito.doAnswer(
+            invocation -> {
+              events.add("dropSchema");
+              return true;
+            })
+        .when(catalogWrapper)
+        .doWithSchemaOps(any());
+    catalogManager.getCatalogCache().put(ident, catalogWrapper);
+
+    Assertions.assertTrue(catalogManager.dropCatalog(ident, true, () -> events.add("callback")));
+    Assertions.assertEquals(List.of("callback", "dropSchema"), events);
+    Assertions.assertFalse(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @Test
+  void testForceDropManagedCatalogCallbackFailureDropsNoSchema() throws Exception {
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_schema_abort");
+    CatalogManager.CatalogWrapper catalogWrapper = mockManagedStorageWrapper(ident, "schema_abort");
+    catalogManager.getCatalogCache().put(ident, catalogWrapper);
+    AuthorizationPluginException failure = new AuthorizationPluginException("plugin failed");
+
+    Assertions.assertSame(
+        failure,
+        Assertions.assertThrows(
+            AuthorizationPluginException.class,
+            () ->
+                catalogManager.dropCatalog(
+                    ident,
+                    true,
+                    () -> {
+                      throw failure;
+                    })));
+    Mockito.verify(catalogWrapper, Mockito.never()).doWithSchemaOps(any());
+    Assertions.assertTrue(entityStore.exists(ident, EntityType.CATALOG));
+  }
+
+  @Test
+  void testDropCatalogCallbackSkippedWhenConcurrentDeleteWins() throws Exception {
+    ChangeLogAwareEntityStore store = new ChangeLogAwareEntityStore();
+    store.initialize(config);
+    store.put(metalakeEntity, true);
+    CatalogManager manager =
+        new CatalogManager(config, store, new RandomIdGenerator(), new SecretManager(config));
+    NameIdentifier ident = NameIdentifier.of("metalake", "drop_callback_concurrent_delete");
+    manager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    store.throwMissingCatalogForSchemaList = true;
+    AtomicInteger callbackRuns = new AtomicInteger();
+
+    try {
+      Assertions.assertFalse(manager.dropCatalog(ident, true, callbackRuns::incrementAndGet));
+      Assertions.assertEquals(0, callbackRuns.get());
+    } finally {
+      manager.close();
+    }
+  }
+
+  @Test
   void testLoadCatalogAndWrapDoesNotInvalidateConcurrentlyReloadedWrapper() {
     NameIdentifier ident = NameIdentifier.of("metalake", "concurrent_cache_reload_test");
 
@@ -2439,5 +2659,48 @@ public class TestCatalogManager {
         TestReferenceSecretsProvider.class.getName());
     c.loadFromProperties(p);
     return new SecretManager(c);
+  }
+
+  /**
+   * Creates a catalog with one schema entity and returns a mocked wrapper that reports managed
+   * storage, so every schema entity counts as user-created.
+   */
+  private CatalogManager.CatalogWrapper mockManagedStorageWrapper(
+      NameIdentifier ident, String schemaName) throws Exception {
+    catalogManager.createCatalog(
+        ident, Catalog.Type.RELATIONAL, provider, "comment", dropCallbackCatalogProps());
+    catalogManager.disableCatalog(ident);
+    BaseCatalog<?> catalog = catalogManager.loadCatalogAndWrap(ident).catalog();
+    entityStore.put(
+        SchemaEntity.builder()
+            .withId(RandomIdGenerator.INSTANCE.nextId())
+            .withName(schemaName)
+            .withNamespace(Namespace.of("metalake", ident.name()))
+            .withAuditInfo(
+                AuditInfo.builder()
+                    .withCreator(PrincipalUtils.getCurrentPrincipal().getName())
+                    .withCreateTime(Instant.now())
+                    .build())
+            .build());
+    CatalogManager.CatalogWrapper catalogWrapper =
+        Mockito.mock(CatalogManager.CatalogWrapper.class);
+    Capability capability = Mockito.mock(Capability.class);
+    Mockito.when(catalogWrapper.tryAcquire()).thenReturn(true);
+    Mockito.doReturn(capability).when(catalogWrapper).capabilities();
+    Mockito.doReturn(CapabilityResult.SUPPORTED).when(capability).managedStorage(any());
+    Mockito.doReturn(catalog).when(catalogWrapper).catalog();
+    return catalogWrapper;
+  }
+
+  private static Map<String, String> dropCallbackCatalogProps() {
+    return ImmutableMap.of(
+        "provider",
+        "test",
+        PROPERTY_KEY1,
+        "value1",
+        PROPERTY_KEY2,
+        "value2",
+        PROPERTY_KEY5_PREFIX + "1",
+        "value3");
   }
 }
