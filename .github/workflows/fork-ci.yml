@@ -79,7 +79,9 @@ jobs:
           git fetch --quiet --no-tags "https://github.com/${HEAD_REPOSITORY}.git" "${HEAD_SHA}"
           git merge-tree --write-tree --name-only "${BASE_SHA}" "${HEAD_SHA}"
 
-  build:
+  # The suites run in stages, cheapest first: lint, then build (compile), then the unit tests and
+  # the integration test suites, which run in parallel. A stage that fails stops the stages after it.
+  lint:
     needs: eligibility
     if: needs.eligibility.outputs.valid == 'true'
     with:
@@ -88,10 +90,39 @@ jobs:
       head-repository: ${{ needs.eligibility.outputs.head-repository }}
       head-sha: ${{ needs.eligibility.outputs.head-sha }}
       sync: ${{ needs.eligibility.outputs.sync }}
+    uses: ./.github/workflows/lint.yml
+
+  build:
+    needs: [ eligibility, lint ]
+    if: needs.eligibility.outputs.valid == 'true'
+    with:
+      source-changes: ${{ needs.lint.outputs.source-changes }}
+      spark-connector-changes: ${{ needs.lint.outputs.spark-connector-changes }}
+      mcp-server-changes: ${{ needs.lint.outputs.mcp-server-changes }}
+      base-ref: ${{ needs.eligibility.outputs.base-ref }}
+      base-sha: ${{ needs.eligibility.outputs.base-sha }}
+      head-repository: ${{ needs.eligibility.outputs.head-repository }}
+      head-sha: ${{ needs.eligibility.outputs.head-sha }}
+      sync: ${{ needs.eligibility.outputs.sync }}
     uses: ./.github/workflows/build.yml
 
+  unit_test:
+    needs: [ eligibility, lint, build ]
+    if: needs.eligibility.outputs.valid == 'true'
+    with:
+      source-changes: ${{ needs.lint.outputs.source-changes }}
+      mcp-server-changes: ${{ needs.lint.outputs.mcp-server-changes }}
+      maintenance-module-only-changes: ${{ needs.lint.outputs.maintenance-module-only-changes }}
+      medium-shards: ${{ needs.build.outputs.medium-shards }}
+      base-ref: ${{ needs.eligibility.outputs.base-ref }}
+      base-sha: ${{ needs.eligibility.outputs.base-sha }}
+      head-repository: ${{ needs.eligibility.outputs.head-repository }}
+      head-sha: ${{ needs.eligibility.outputs.head-sha }}
+      sync: ${{ needs.eligibility.outputs.sync }}
+    uses: ./.github/workflows/unit-test.yml
+
   backend:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -102,7 +133,7 @@ jobs:
     uses: ./.github/workflows/backend-integration-test.yml
 
   spark:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -113,7 +144,7 @@ jobs:
     uses: ./.github/workflows/spark-integration-test.yml
 
   flink:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -124,7 +155,7 @@ jobs:
     uses: ./.github/workflows/flink-integration-test.yml
 
   trino:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -135,7 +166,7 @@ jobs:
     uses: ./.github/workflows/trino-integration-test.yml
 
   iceberg_rest_trino:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -146,7 +177,7 @@ jobs:
     uses: ./.github/workflows/iceberg-rest-trino-integration-test.yml
 
   python:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -157,7 +188,7 @@ jobs:
     uses: ./.github/workflows/python-integration-test.yml
 
   frontend:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -168,7 +199,7 @@ jobs:
     uses: ./.github/workflows/frontend-integration-test.yml
 
   access_control:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -179,7 +210,7 @@ jobs:
     uses: ./.github/workflows/access-control-integration-test.yml
 
   idp_basic:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -190,7 +221,7 @@ jobs:
     uses: ./.github/workflows/idp-basic-test.yml
 
   mcp:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -201,7 +232,7 @@ jobs:
     uses: ./.github/workflows/mcp-integration-test.yml
 
   maintenance:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -234,7 +265,7 @@ jobs:
     uses: ./.github/workflows/chart-test.yaml
 
   contrib_catalog:
-    needs: eligibility
+    needs: [ eligibility, build ]
     if: needs.eligibility.outputs.valid == 'true'
     with:
       base-ref: ${{ needs.eligibility.outputs.base-ref }}
@@ -283,7 +314,9 @@ jobs:
     if: ${{ !cancelled() && needs.eligibility.outputs.valid == 'true' }}
     needs:
       - eligibility
+      - lint
       - build
+      - unit_test
       - backend
       - spark
       - flink

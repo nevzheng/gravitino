@@ -1,0 +1,177 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#  http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+# The first Fork CI stage: decides which sources changed, then runs the cheap checks. The build and
+# unit-test suites wait for it and read its outputs, so a formatting error starts no compile.
+name: lint
+
+on:
+  workflow_call:
+    inputs:
+      base-ref:
+        type: string
+        required: false
+        default: ''
+      base-sha:
+        type: string
+        required: false
+        default: ''
+      head-repository:
+        type: string
+        required: false
+        default: ''
+      head-sha:
+        type: string
+        required: false
+        default: ''
+      sync:
+        type: string
+        required: false
+        default: ''
+    outputs:
+      source-changes:
+        value: ${{ jobs.changes.outputs.source_changes }}
+      spark-connector-changes:
+        value: ${{ jobs.changes.outputs.spark_connector_changes }}
+      mcp-server-changes:
+        value: ${{ jobs.changes.outputs.mcp_server_changes }}
+      maintenance-module-only-changes:
+        value: ${{ jobs.changes.outputs.maintenance_module_only_changes }}
+
+concurrency:
+  group: fork-ci-lint-${{ inputs.head-sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/checkout-and-sync
+        with:
+          base-ref: ${{ inputs.base-ref }}
+          base-sha: ${{ inputs.base-sha }}
+          head-repository: ${{ inputs.head-repository }}
+          head-sha: ${{ inputs.head-sha }}
+          sync: ${{ inputs.sync }}
+        id: checkout
+      - name: Test source license-reference checker
+        run: bash dev/release/test-check-license.sh
+      - name: Test Fork CI contracts
+        run: node --test .github/scripts/tests/*.test.cjs
+      - name: Disable Git automatic maintenance
+        run: git config --local maintenance.auto false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
+        id: filter
+        with:
+          base: ${{ steps.checkout.outputs.synced == 'true' && steps.checkout.outputs.base-sha || steps.checkout.outputs.base-ref }}
+          ref: ${{ steps.checkout.outputs.synced == 'true' && steps.checkout.outputs.head-sha || github.ref }}
+          list-files: shell
+          filters: |
+            source_changes:
+              - '.github/**'
+              - 'catalogs/**'
+              - 'catalogs-contrib/**'
+              - 'clients/**'
+              - 'conf/**'
+              - 'dev/**'
+              - 'docs/open-api/**'
+              - 'gradle/**'
+              - 'gradle.properties'
+              - 'meta/**'
+              - 'scripts/**'
+              - 'web/**'
+              - '**/*.java'
+              - '**/*.kts'
+              - '**/*.py'
+              - '**/*.rs'
+              - '**/resources/**'
+              - '**/src/**'
+              - '**/*.md'
+              - '**/*.mdx'
+              - '!docs/**/*.png'
+              - '!docs/**/*.svg'
+              - '!docs/**/*.jpg'
+              - '!docs/**/*.jpeg'
+              - '!docs/**/*.gif'
+              - '!docs/**/*.webp'
+              - 'mcp-server/**'
+            spark_connector_changes:
+              - spark-connector/**
+            mcp_server_changes:
+              - mcp-server/**
+      - name: Determine maintenance-module-only changes
+        id: maintenance_module_only
+        env:
+          SOURCE_CHANGE_FILES: ${{ steps.filter.outputs.source_changes_files }}
+        run: |
+          # Route to the maintenance-only build path only when every source
+          # change in the PR is under maintenance/. Non-source changes are
+          # already filtered out by source_changes_files.
+          source_files=()
+          if [ -n "${SOURCE_CHANGE_FILES}" ]; then
+            eval "source_files=(${SOURCE_CHANGE_FILES})"
+          fi
+
+          maintenance_module_only=false
+          if [ "${#source_files[@]}" -gt 0 ]; then
+            maintenance_module_only=true
+            for path in "${source_files[@]}"; do
+              case "$path" in
+                maintenance/*) ;;
+                *)
+                  maintenance_module_only=false
+                  break
+                  ;;
+              esac
+            done
+          fi
+
+          echo "maintenance_module_only_changes=${maintenance_module_only}" >> "${GITHUB_OUTPUT}"
+    outputs:
+      source_changes: ${{ steps.filter.outputs.source_changes }}
+      spark_connector_changes: ${{ steps.filter.outputs.spark_connector_changes }}
+      mcp_server_changes: ${{ steps.filter.outputs.mcp_server_changes }}
+      maintenance_module_only_changes: ${{ steps.maintenance_module_only.outputs.maintenance_module_only_changes }}
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.source_changes == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/checkout-and-sync
+        with:
+          base-ref: ${{ inputs.base-ref }}
+          base-sha: ${{ inputs.base-sha }}
+          head-repository: ${{ inputs.head-repository }}
+          head-sha: ${{ inputs.head-sha }}
+          sync: ${{ inputs.sync }}
+
+      - uses: ./.github/actions/setup-java-toolchains
+        with:
+          java-version: 17
+
+      - name: Lint
+        run: ./gradlew ciLint -PskipWeb=true

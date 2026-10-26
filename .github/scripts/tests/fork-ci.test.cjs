@@ -249,6 +249,20 @@ test('all reusable calls and checkout actions forward the frozen context', () =>
   assert.ok(visited.size > 20, 'nested matrix workflows are included');
 });
 
+test('suites run in stages: lint, then build, then the tests that need compiled code', () => {
+  const fs = require('node:fs');
+  const workflow = fs.readFileSync(path.resolve(__dirname, '../../workflows/fork-ci.yml'), 'utf8');
+  const needs = suite => workflow.match(new RegExp(`^  ${suite}:\\n    needs: (.*)$`, 'm'))?.[1];
+  assert.equal(needs('lint'), 'eligibility');
+  assert.equal(needs('build'), '[ eligibility, lint ]');
+  assert.equal(needs('unit_test'), '[ eligibility, lint, build ]');
+  // These suites do not run Gradle, so they do not wait for the build.
+  const ungated = ['lint', 'build', 'unit_test', 'web_ui', 'charts', 'asf_allowlist'];
+  for (const suite of SUITES.filter(suite => !ungated.includes(suite))) {
+    assert.equal(needs(suite), '[ eligibility, build ]', `${suite} waits for the build suite`);
+  }
+});
+
 test('immutable CI definition comparisons are cached by repository, head and base', async () => {
   const github = serviceMock(); let calls = 0;
   const get = github.rest.git.getTree;

@@ -76,11 +76,11 @@ A method-level `@DatabaseFixture` replaces the class-level one. A class's backen
 
 #### `:core:test`
 
-In CI, the `test` and `medium-test` jobs of the `build` suite skip core tests; their results appear under the `core-test (17, <lane>)` checks. `./gradlew :core:test` runs all core tests in one task. It is deprecated, and no CI job uses it. It selects no database: every database test runs against H2, and with `-PskipDockerTests=false` also against MySQL and PostgreSQL, building a new backend at every change of database. Without Docker, it runs the database tests like `coreH2Test`.
+In CI, the `test` and `medium-test` jobs of the `unit_test` suite skip core tests; their results appear under the `core-test (17, <lane>)` checks. `./gradlew :core:test` runs all core tests in one task. It is deprecated, and no CI job uses it. It selects no database: every database test runs against H2, and with `-PskipDockerTests=false` also against MySQL and PostgreSQL, building a new backend at every change of database. Without Docker, it runs the database tests like `coreH2Test`.
 
 ### Unit test stages
 
-`gradle/ci-stages.gradle.kts` groups the unit tests into stages, cheapest first. The `build` suite of Fork CI runs them as jobs `lint`, `build`, `test` and `medium-test (<shard>)`, each after the one before, next to the `core-test` lanes. Each stage is one task, so you can run any stage locally:
+`gradle/ci-stages.gradle.kts` groups the unit tests into stages, cheapest first. Fork CI runs them as suites, each after the one before: `lint`, then `build`, which compiles the main and test sources, then `unit_test`, which runs `test` and then `medium-test (<shard>)` next to the `core-test` lanes. The integration test suites wait for `build` and run next to `unit_test`. Each stage is one task, so you can run any stage locally:
 
 1. `./gradlew ciLint`: Spotless, the license header check, checkstyle and `ciVerifyShards`.
 2. `./gradlew build testClasses -x test`: compiles main and test sources but runs no tests.
