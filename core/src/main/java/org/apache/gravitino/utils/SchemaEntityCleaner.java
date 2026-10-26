@@ -21,9 +21,11 @@ package org.apache.gravitino.utils;
 import static org.apache.gravitino.Entity.EntityType.SCHEMA;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Predicate;
 import org.apache.gravitino.EntityStore;
 import org.apache.gravitino.NameIdentifier;
+import org.apache.gravitino.authorization.AuthorizationUtils;
 import org.apache.gravitino.exceptions.NoSuchEntityException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +44,10 @@ public final class SchemaEntityCleaner {
    * candidate that still exists in the catalog stops the walk; every more-specific candidate
    * checked before that point is stale. A single cascade delete on the outermost stale schema
    * removes it and all descendant schema entities.
+   *
+   * <p>A successful delete has the same authorization side effects as a regular schema drop: the
+   * authorization plugins remove the privileges of the deleted schema and the name-to-id mapping of
+   * the schema is invalidated.
    *
    * <p>This is best-effort: callers invoke it after the primary drop has already succeeded, so any
    * failure (a store error or a catalog existence probe failure) is logged and swallowed rather
@@ -82,7 +88,14 @@ public final class SchemaEntityCleaner {
         return;
       }
 
-      store.delete(outermostOrphan, SCHEMA, true);
+      // Read the locations before the delete, the same way SchemaHookDispatcher.dropSchema does.
+      List<String> locations =
+          AuthorizationUtils.getMetadataObjectLocation(outermostOrphan, SCHEMA);
+      if (store.delete(outermostOrphan, SCHEMA, true)) {
+        // The cascade delete removed the Gravitino owner and securable-object rows, so the
+        // authorization plugins and the name-to-id cache must drop them too.
+        AuthorizationUtils.authorizationPluginRemovePrivileges(outermostOrphan, SCHEMA, locations);
+      }
     } catch (NoSuchEntityException e) {
       LOG.debug("The orphaned schema entity was already removed from the store", e);
     } catch (Exception e) {
