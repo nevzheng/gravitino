@@ -908,7 +908,14 @@ public class GravitinoEnv {
   private MetadataOperations initMetadataComponents() {
     initEntityStoreAndCatalogManager();
 
-    this.metalakeManager = new MetalakeManager(entityStore, idGenerator, catalogManager);
+    // A force drop removes the child catalogs through the public catalog chain, so their drop
+    // events fire and the catalog hook runs. The chain is built later and only for the full
+    // server, so it is read on each force drop; without it the drop goes through CatalogManager.
+    this.metalakeManager =
+        MetalakeManager.withCatalogDispatcher(
+            entityStore,
+            idGenerator,
+            () -> catalogDispatcher != null ? catalogDispatcher : catalogManager);
     this.internalMetalakeDispatcher = new MetalakeNormalizeDispatcher(metalakeManager);
     this.internalCatalogDispatcher = new CatalogNormalizeDispatcher(catalogManager);
 
@@ -1049,8 +1056,8 @@ public class GravitinoEnv {
     this.idGenerator = new RandomIdGenerator();
     this.lockManager = new LockManager(config);
 
-    // CatalogManager must be initialized before MetalakeManager so force-drop can remove child
-    // catalogs through CatalogManager.dropCatalog, the same path used by FilesetCatalogOperations.
+    // CatalogManager is initialized before MetalakeManager, as before; a force drop removes the
+    // child catalogs through the public catalog chain around it.
     // CatalogManager registers its own change-log listener with compatible entity stores, so no
     // external poller wiring is needed here.
     this.catalogManager = new CatalogManager(config, entityStore, idGenerator, secretManager);

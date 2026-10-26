@@ -30,7 +30,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.gravitino.Entity.EntityType;
 import org.apache.gravitino.EntityAlreadyExistsException;
 import org.apache.gravitino.EntityStore;
@@ -38,6 +40,7 @@ import org.apache.gravitino.GravitinoEnv;
 import org.apache.gravitino.MetalakeChange;
 import org.apache.gravitino.NameIdentifier;
 import org.apache.gravitino.Namespace;
+import org.apache.gravitino.catalog.CatalogDispatcher;
 import org.apache.gravitino.catalog.CatalogManager;
 import org.apache.gravitino.connector.HiddenPropertyMaskUtils;
 import org.apache.gravitino.exceptions.AlreadyExistsException;
@@ -73,7 +76,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
 
   private final IdGenerator idGenerator;
 
-  private final CatalogManager catalogManager;
+  @Nullable private final Supplier<? extends CatalogDispatcher> catalogDispatcher;
 
   @Override
   public void close() {
@@ -81,13 +84,14 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   }
 
   /**
-   * Constructs a MetalakeManager instance.
+   * Constructs a MetalakeManager instance. A force drop drops no child catalog; the entity store
+   * removes them with the metalake.
    *
    * @param store The EntityStore to use for managing Metalakes.
    * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
    */
   public MetalakeManager(EntityStore store, IdGenerator idGenerator) {
-    this(store, idGenerator, null);
+    this(store, idGenerator, (Supplier<CatalogDispatcher>) null);
   }
 
   /**
@@ -96,15 +100,26 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
    * @param store The EntityStore to use for managing Metalakes.
    * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
    * @param catalogManager Used on force-drop to drop child catalogs via {@link
-   *     CatalogManager#dropCatalog} (schema/fileset secrets cleaned on that path, including {@code
-   *     FilesetCatalogOperations.dropSchema}); may be null in tests that do not exercise force-drop
-   *     with catalogs.
+   *     CatalogManager#dropCatalog}; may be null in tests that do not exercise force-drop with
+   *     catalogs.
+   * @deprecated Use {@link #withCatalogDispatcher(EntityStore, IdGenerator, Supplier)} with the
+   *     public catalog dispatcher. This constructor drops the child catalogs of a force-dropped
+   *     metalake through the catalog manager itself, so no catalog event fires and no catalog hook
+   *     runs for them.
    */
+  @Deprecated
   public MetalakeManager(
-      EntityStore store, IdGenerator idGenerator, CatalogManager catalogManager) {
+      EntityStore store, IdGenerator idGenerator, @Nullable CatalogManager catalogManager) {
+    this(store, idGenerator, catalogManager == null ? null : () -> catalogManager);
+  }
+
+  private MetalakeManager(
+      EntityStore store,
+      IdGenerator idGenerator,
+      @Nullable Supplier<? extends CatalogDispatcher> catalogDispatcher) {
     this.store = store;
     this.idGenerator = idGenerator;
-    this.catalogManager = catalogManager;
+    this.catalogDispatcher = catalogDispatcher;
 
     // preload all metalakes and put them into cache, this is useful when user load schema/table
     // directly without list/get metalake first.
@@ -112,6 +127,28 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
     for (BaseMetalake baseMetalake : baseMetalakes) {
       loadMetalake(baseMetalake.nameIdentifier());
     }
+  }
+
+  /**
+   * Creates a MetalakeManager that drops the child catalogs of a force-dropped metalake through a
+   * catalog dispatcher. A named factory rather than a constructor, so that {@code new
+   * MetalakeManager(store, idGenerator, null)} keeps its single meaning.
+   *
+   * @param store The EntityStore to use for managing Metalakes.
+   * @param idGenerator The IdGenerator to use for generating Metalake identifiers.
+   * @param catalogDispatcher Supplies the catalog dispatcher that a force drop drops each child
+   *     catalog through, read on each force drop. The server passes the public catalog chain, so
+   *     each child drop fires the catalog drop events and runs the catalog hook, as when a user
+   *     force-drops the catalog; the catalog manager at the bottom of the chain cleans the
+   *     write-through secrets of the catalog and its schemas and filesets. When it is null, a force
+   *     drop drops no child catalog and the entity store removes them with the metalake.
+   * @return The new MetalakeManager.
+   */
+  public static MetalakeManager withCatalogDispatcher(
+      EntityStore store,
+      IdGenerator idGenerator,
+      @Nullable Supplier<? extends CatalogDispatcher> catalogDispatcher) {
+    return new MetalakeManager(store, idGenerator, catalogDispatcher);
   }
 
   /**
@@ -370,9 +407,10 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   @Override
   public boolean dropMetalake(NameIdentifier ident, boolean force)
       throws NonEmptyEntityException, MetalakeInUseException {
-    // Mirror CatalogManager.dropCatalog → ops.dropSchema: force-drop children through the real
-    // drop path so FilesetCatalogOperations / CatalogManager clean write-through secrets (and
-    // managed storage). Do this before the metalake root lock to avoid nesting tree locks.
+    // Force-drop each child catalog through the catalog dispatcher, as a user force-dropping it
+    // would: the public chain fires its events and runs its hook, and CatalogManager.dropCatalog
+    // at the bottom cleans write-through secrets and managed storage. Do this before the metalake
+    // root lock to avoid nesting tree locks.
     boolean temporarilyEnabled = false;
     if (force) {
       temporarilyEnabled = dropCatalogsUnderMetalake(ident);
@@ -416,9 +454,11 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
   }
 
   /**
-   * Force-drop child catalogs via {@link CatalogManager#dropCatalog} so schema/fileset secrets are
-   * cleaned on the same path as a normal catalog force-drop ({@code ops.dropSchema} →
-   * FilesetCatalogOperations, then catalog secrets in CatalogManager).
+   * Force-drops each child catalog through the catalog dispatcher. In the server that is the public
+   * catalog chain, so each drop is the same as a user's catalog force drop: the drop events fire,
+   * the catalog hook removes the catalog from the authorization plugins, and {@link
+   * CatalogManager#dropCatalog} cleans the schema, fileset and catalog secrets ({@code
+   * ops.dropSchema} → FilesetCatalogOperations, then catalog secrets in CatalogManager).
    *
    * <p>Callers typically {@code disableMetalake} before force-drop. {@link
    * CatalogManager#dropCatalog} requires catalog {@code metalake-in-use=true}, so a disabled
@@ -432,7 +472,7 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
    *     restore the disabled state if the subsequent metalake delete fails
    */
   private boolean dropCatalogsUnderMetalake(NameIdentifier metalakeIdent) {
-    if (catalogManager == null) {
+    if (catalogDispatcher == null) {
       return false;
     }
     // True once this call has flipped the metalake to in-use. Set under the metalake write lock
@@ -445,8 +485,9 @@ public class MetalakeManager implements MetalakeDispatcher, Closeable {
         enableMetalakeIfDisabled(metalakeIdent, weEnabled);
         List<CatalogEntity> catalogs =
             store.list(Namespace.of(metalakeIdent.name()), CatalogEntity.class, EntityType.CATALOG);
+        CatalogDispatcher childCatalogs = catalogDispatcher.get();
         for (CatalogEntity catalog : catalogs) {
-          catalogManager.dropCatalog(
+          childCatalogs.dropCatalog(
               NameIdentifier.of(metalakeIdent.name(), catalog.name()), true /* force */);
         }
         // Report whether we enabled the metalake so the caller can re-disable it if the metalake
